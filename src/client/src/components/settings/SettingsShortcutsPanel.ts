@@ -5,6 +5,7 @@ import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { live } from "lit/directives/live.js";
 import type { AppAction } from "../../actions";
 import type { PiWebConfigResponse, PiWebConfigValues, PiWebShortcutConfig } from "../../api";
 import { composerShortcutActions, isComposerShortcut } from "../../composerShortcuts";
@@ -121,6 +122,16 @@ export class SettingsShortcutsPanel extends LitElement {
             <code>${this.configResponse?.path ?? t("bundled.updates.unknown.4d8c1c", "Unknown")}</code>
             <small>${t("ui.settingsShortcutsPanel.shortcutOverridesAreSavedUnder", "Shortcut overrides are saved under ")} <code>shortcuts</code> ${t("ui.settingsShortcutsPanel.aValueOf", ". A value of ")} <code>null</code> ${t("ui.settingsShortcutsPanel.disablesTheActionShortcut", " disables the action shortcut.")}</small>
           </div>
+          <section class="shortcut-group ui-settings-section">
+            <h3>${t("ui.settingsShortcutsPanel.sendBehavior", "Send behavior")}</h3>
+            <label class="shortcut-input-label ui-form-field">
+              <span>${t("ui.settingsShortcutsPanel.sendWhileRunning", "Send while agent is running")}</span>
+              <select class="ui-select" aria-label=${t("ui.settingsShortcutsPanel.sendWhileRunning", "Send while agent is running")} .value=${live(this.configResponse?.config.defaultStreamingBehavior ?? "steer")} ?disabled=${this.loading || this.saving || this.configResponse === undefined} @change=${(event: Event) => { void this.saveSendBehavior(event); }}>
+                <option value="steer">${t("ui.settingsShortcutsPanel.steerDefault", "Steer (default)")}</option>
+                <option value="followUp">${t("ui.settingsShortcutsPanel.followUp", "Follow-up")}</option>
+              </select>
+            </label>
+          </section>
           ${groups.length === 0 ? html`<div class="loading-card">${t("ui.settingsShortcutsPanel.noRegisteredActions", "No registered actions.")}</div>` : groups.map((group) => html`
             <section class="shortcut-group">
               <h3>${group.name}</h3>
@@ -132,6 +143,12 @@ export class SettingsShortcutsPanel extends LitElement {
         `}
       </settings-panel-frame>
     `;
+  }
+
+  private async saveSendBehavior(event: Event): Promise<void> {
+    const value = event.target instanceof HTMLSelectElement ? event.target.value : undefined;
+    if (this.loading || this.saving || this.configResponse === undefined || (value !== "steer" && value !== "followUp")) return;
+    await this.onSave?.({ ...this.configResponse.config, defaultStreamingBehavior: value });
   }
 
   private panelNotices(): readonly SettingsNotice[] {

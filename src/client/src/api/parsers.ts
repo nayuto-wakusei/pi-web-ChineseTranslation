@@ -14,6 +14,7 @@ import { parseMachineStatusSnapshot, type MachineStatusSnapshot } from "../../..
 import type { MachineStatusUiEvent } from "../../../shared/machineStatus";
 import type { SessionUiEvent, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier } from "../../../shared/apiTypes";
 import { requireDefaultThemePreference } from "../../../shared/themePreference";
+import { requireDefaultStreamingBehavior } from "../../../shared/streamingBehavior";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -623,6 +624,7 @@ export function parseSessionStatus(value: unknown): SessionStatus {
     isBashRunning: requireBoolean(record, "isBashRunning"),
     pendingMessageCount: requireNumber(record, "pendingMessageCount"),
     queuedMessages: record["queuedMessages"] === undefined ? [] : arrayOf(parseQueuedSessionMessage)(record["queuedMessages"]),
+    ...optionalField("queueMessageActionsUnavailable", optionalString(record, "queueMessageActionsUnavailable")),
     ...optionalField("messageCount", optionalNumber(record, "messageCount")),
     tokens: parseTokens(record["tokens"]),
     cost: requireNumber(record, "cost"),
@@ -1116,7 +1118,11 @@ function parseQueuedSessionMessage(value: unknown): QueuedSessionMessage {
   const record = requireRecord(value);
   const kind = requireString(record, "kind");
   if (kind !== "steer" && kind !== "followUp") throw new Error("Invalid queued message kind");
-  return { kind, text: requireString(record, "text") };
+  return {
+    kind, text: requireString(record, "text"),
+    ...optionalField("hasAttachments", optionalBoolean(record, "hasAttachments")),
+    ...optionalField("attachmentCount", record["attachmentCount"] === undefined ? undefined : requireNonNegativeSafeInteger(record, "attachmentCount")),
+  };
 }
 
 function parseTokens(value: unknown): SessionStatus["tokens"] {
@@ -1514,6 +1520,7 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("allowedHosts", optionalAllowedHosts(record["allowedHosts"])),
     ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
     ...optionalField("defaultTheme", record["defaultTheme"] === undefined ? undefined : requireDefaultThemePreference(record["defaultTheme"], "response")),
+    ...optionalField("defaultStreamingBehavior", record["defaultStreamingBehavior"] === undefined ? undefined : requireDefaultStreamingBehavior(record["defaultStreamingBehavior"], "response")),
     ...optionalField("plugins", optionalPlugins(record["plugins"])),
     ...optionalField("pathAccess", optionalPathAccess(record["pathAccess"])),
     ...optionalField("uploads", optionalUploads(record["uploads"])),

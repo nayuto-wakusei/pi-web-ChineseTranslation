@@ -23,7 +23,7 @@ import {
   chatQueuedSectionShowsClearAction,
   chatSessionWarningRows,
 } from "./ChatView";
-import { templateEventHandlerAfterMarker, templateClickHandlerForText } from "../templateInspection.testSupport";
+import { templateEventHandlerAfterMarker } from "../templateInspection.testSupport";
 
 describe("chatMessageRoleLabel", () => {
   it("localizes every protocol-level chat role for display", () => {
@@ -97,16 +97,24 @@ describe("chatQueuedSectionShowsClearAction", () => {
 });
 
 describe("ChatView queued-message clear wiring", () => {
-  it("invokes onClearServerQueue when the server-queue action is activated", () => {
+  it("invokes onClearServerQueue when the server-queue action is activated", async () => {
     const view = new ChatView();
     const onClearServerQueue = vi.fn();
     view.status = queuedStatus([{ kind: "steer", text: "server queued" }]);
     view.canClearServerQueue = true;
     view.onClearServerQueue = onClearServerQueue;
 
-    templateClickHandlerForText(renderQueuedMessages(view), "清除队列")(new Event("click"));
-
-    expect(onClearServerQueue).toHaveBeenCalledOnce();
+    document.body.append(view);
+    try {
+      await view.updateComplete;
+      const clear = view.renderRoot.querySelector<HTMLButtonElement>('button[aria-label="清空队列"]');
+      if (clear === null) throw new Error("Expected clear queue button");
+      clear.click();
+      expect(onClearServerQueue).toHaveBeenCalledOnce();
+    } finally {
+      view.remove();
+      localStorage.clear();
+    }
   });
 });
 
@@ -385,17 +393,9 @@ describe("ChatView event-group disclosure wiring", () => {
   });
 });
 
-type RenderQueuedMessages = (this: ChatView) => TemplateResult;
-
 type RenderWarnings = (this: ChatView) => TemplateResult | null;
 type RenderNotificationTray = (this: ChatView) => TemplateResult | null;
 type FocusPendingNotificationTarget = (this: ChatView) => void;
-function renderQueuedMessages(view: ChatView): TemplateResult {
-  const method: unknown = Reflect.get(view, "renderQueuedMessages");
-  if (!isRenderQueuedMessages(method)) throw new Error("ChatView.renderQueuedMessages is not callable");
-  return method.call(view);
-}
-
 function renderWarnings(view: ChatView): TemplateResult | null {
   const method: unknown = Reflect.get(view, "renderWarnings");
   if (!isRenderWarnings(method)) throw new Error("ChatView.renderWarnings is not callable");
@@ -412,10 +412,6 @@ function focusPendingNotificationTarget(view: ChatView): void {
   const method: unknown = Reflect.get(view, "focusPendingNotificationTarget");
   if (!isFocusPendingNotificationTarget(method)) throw new Error("ChatView.focusPendingNotificationTarget is not callable");
   method.call(view);
-}
-
-function isRenderQueuedMessages(value: unknown): value is RenderQueuedMessages {
-  return typeof value === "function";
 }
 
 function isRenderWarnings(value: unknown): value is RenderWarnings {

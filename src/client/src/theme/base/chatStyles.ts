@@ -73,12 +73,6 @@ export const chatStyles = css`
     .notification-list { padding-inline: 8px; }
   }
 
-  .activity-dock { position: absolute; left: 16px; right: 16px; bottom: 12px; z-index: 20; display: flex; align-items: center; gap: 8px; min-width: 0; box-sizing: border-box; border: 1px solid var(--pi-border); border-radius: 999px; background: var(--pi-bg-overlay); color: var(--pi-muted); padding: 8px 12px; font-size: 13px; pointer-events: none; box-shadow: 0 8px 28px var(--pi-shadow); backdrop-filter: blur(6px); }
-  .activity-dock.active { border-color: var(--pi-success-border); color: var(--pi-success); background: var(--pi-success-bg-overlay); }
-  .activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .45; flex: 0 0 auto; }
-  .activity-dock.active .dot { animation: pulse 1s ease-in-out infinite; opacity: 1; }
-
   .suggested-input { display: grid; gap: 8px; margin: 0 0 14px; padding: 12px; border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); }
   .suggested-input-text { max-height: 12em; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .suggested-input small { color: var(--pi-muted); }
@@ -86,7 +80,6 @@ export const chatStyles = css`
   .suggested-input button:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
 
   .chat { position: absolute; inset: 0; overflow-anchor: none; isolation: isolate; --pi-chat-sticky-top: 0px; flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 0 0 64px; box-sizing: border-box; }
-  .activity-dock { right: 72px; }
   .chat-wrap > .chat-jumps { position: absolute; right: 0; bottom: 0; }
   .chat-wrap.plain .msg-header, .chat-wrap.plain .event-group > summary { position: static; top: auto; }
   .chat-wrap.plain *, .chat-wrap.plain *::before, .chat-wrap.plain *::after { transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important; filter: none !important; backdrop-filter: none !important; transform: none !important; border-radius: 0 !important; }

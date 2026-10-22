@@ -12,6 +12,7 @@ import type { SessionRouteLookup, SessionRouteService } from "./sessionService.j
 import { attachWorkbenchAccessHandle, decodeManagementContext, MANAGEMENT_EMBED_CONTEXT_HEADER, WORKBENCH_ACCESS_HANDLE_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import { normalizeSessionCleanupRequest } from "./sessionCleanup.js";
+import { parseQueueMessageMutation } from "./queuedMessageMutation.js";
 
 type SessionLookup = SessionRouteLookup;
 
@@ -426,6 +427,19 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
         managementContext === undefined ? undefined : { managementContext },
       );
       return { accepted: true };
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
+    }
+  });
+
+  app.post<{ Params: { sessionId: string }; Body: unknown }>(`${prefix}/sessions/:sessionId/queue/message`, async (request, reply) => {
+    try {
+      const body = requireRecord(request.body);
+      return await sessions.mutateQueueMessage(
+        sessionLookupFromRequiredCwd(request.params.sessionId, body),
+        parseQueueMessageMutation(body),
+        managementContextFromHeaders(request.headers),
+      );
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }

@@ -38,7 +38,7 @@ describe("settings-shortcuts-panel layout", () => {
     button(frame, "重新加载").click();
     expect(panel.onReload).toHaveBeenCalledOnce();
     expect(panel.renderRoot.querySelector(".config-path-card")?.textContent).toContain("/tmp/pi-web/config.json");
-    expect(panel.renderRoot.querySelector(".shortcut-group h3")?.textContent).toBe("聊天输入框");
+    expect([...panel.renderRoot.querySelectorAll(".shortcut-group h3")].map((heading) => heading.textContent)).toEqual(["发送行为", "聊天输入框"]);
     expect(row(panel, COMPOSER_SEND_DESKTOP).textContent).toContain("发送消息 — 桌面");
     expect(row(panel, COMPOSER_SEND_MOBILE).textContent).toContain("发送消息 — 窄屏");
     expect(panel.renderRoot.querySelectorAll("article")).toHaveLength(2);

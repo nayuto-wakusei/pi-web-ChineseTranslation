@@ -26,11 +26,9 @@ test("long records reach the end and live content does not displace a middle rea
   const overflow = await chat.evaluate((element) => element.scrollWidth - element.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   const navigation = await page.locator("chat-view .chat-jumps").boundingBox();
-  const dock = await page.locator("chat-view .activity-dock").boundingBox();
-  if (navigation === null || dock === null) throw new Error("Missing navigation or activity dock geometry");
-  const overlapWidth = Math.max(0, Math.min(navigation.x + navigation.width, dock.x + dock.width) - Math.max(navigation.x, dock.x));
-  const overlapHeight = Math.max(0, Math.min(navigation.y + navigation.height, dock.y + dock.height) - Math.max(navigation.y, dock.y));
-  expect(overlapWidth * overlapHeight).toBe(0);
+  const lastBox = await last.boundingBox();
+  if (navigation === null || lastBox === null) throw new Error("Missing navigation or final transcript geometry");
+  expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(navigation.y + 1);
   await page.screenshot({ path: testInfo.outputPath("chat-end.png"), fullPage: true });
   await readMiddle(page);
   const before = await readingPosition(page);

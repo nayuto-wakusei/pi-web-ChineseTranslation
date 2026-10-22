@@ -1,4 +1,12 @@
 {
+  "queueControls.incompatible": "当前 Pi SDK 的队列接口不兼容，无法操作单条排队消息。",
+  "queueControls.mutationRequired": "缺少队列操作请求",
+  "queueControls.invalidAction": "无效的队列操作",
+  "queueControls.invalidIndex": "无效的队列索引",
+  "queueControls.invalidExpected": "无效的预期队列",
+  "queueControls.changed": "排队消息已改变，请刷新队列后重试",
+  "queueControls.mutateAction": "修改排队消息",
+  "configError.defaultStreamingBehavior.invalid": "PI WEB 配置 defaultStreamingBehavior 必须为 steer 或 followUp：{source}",
   "session.authRemoved": "{provider}/{model} 的认证已移除。请使用 /model 选择其他模型。",
   "session.metadataUnsupported": "会话管理器不支持初始化界面元数据",
   "session.initialNameUnsupported": "会话管理器不支持设置初始名称",

@@ -71,6 +71,7 @@ export interface AppState {
   workspaceDeletionRuns: Record<string, TerminalCommandRun>;
   commandDialog: Extract<CommandResult, { type: "select" }> | undefined;
   treeDialog: SessionTreeSnapshot | undefined;
+  pendingTreeActions: readonly { machineId: string; sessionId: string }[];
   modelDialog: { instanceId: number; origin: ModelDialogOrigin; title: string; options: CommandOption[]; catalog?: SessionModelCatalogEntry[]; selectedValue?: string; defaultValue?: string; defaultsLoading?: boolean } | undefined;
   thinkingDialog: { instanceId: number; origin: ModelDialogOrigin; title: string; options: CommandOption[]; selectedValue?: string; defaultValue?: string; defaultsLoading?: boolean } | undefined;
   themeDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
@@ -196,6 +197,7 @@ export function initialAppState(): AppState {
     workspacesByProjectId: {},
     workspaceDeletionRuns: {},
     commandDialog: undefined,
+    pendingTreeActions: [],
     treeDialog: undefined,
     modelDialog: undefined,
     thinkingDialog: undefined,

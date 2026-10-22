@@ -100,6 +100,8 @@ export function machineAccessConfigPatchFromDraft(draft: MachineAccessConfigDraf
 function preservedGatewayConfigRemainder(baseConfig: PiWebConfigValues): PiWebConfigValues {
   return {
     ...(baseConfig.shortcuts === undefined ? {} : { shortcuts: baseConfig.shortcuts }),
+    ...(baseConfig.defaultTheme === undefined ? {} : { defaultTheme: baseConfig.defaultTheme }),
+    ...(baseConfig.defaultStreamingBehavior === undefined ? {} : { defaultStreamingBehavior: baseConfig.defaultStreamingBehavior }),
     ...(baseConfig.plugins === undefined ? {} : { plugins: baseConfig.plugins }),
     ...(baseConfig.normalAuth === undefined ? {} : { normalAuth: baseConfig.normalAuth }),
     ...(baseConfig.pathAccess === undefined ? {} : { pathAccess: baseConfig.pathAccess }),
@@ -111,6 +113,7 @@ function preservedGatewayConfigRemainder(baseConfig: PiWebConfigValues): PiWebCo
     ...(baseConfig.askUser === undefined ? {} : { askUser: baseConfig.askUser }),
     ...(baseConfig.agent === undefined ? {} : { agent: baseConfig.agent }),
     ...(baseConfig.sessionNaming === undefined ? {} : { sessionNaming: baseConfig.sessionNaming }),
+    ...(baseConfig.sessionArchive === undefined ? {} : { sessionArchive: baseConfig.sessionArchive }),
   };
 }
 

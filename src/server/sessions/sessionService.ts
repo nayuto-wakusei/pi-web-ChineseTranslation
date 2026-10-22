@@ -13,6 +13,7 @@ import type {
   SessionDefaults,
   SessionDefaultsUpdate,
   SessionModelScopeMode,
+  SessionQueueMessageMutation,
   SessionUnreadAcknowledgeRequest,
   SessionUnreadCatalogSnapshot,
 } from "../../shared/apiTypes.js";
@@ -72,6 +73,7 @@ export interface SessionRouteService {
   dismissNotification(ref: SessionRouteRef, request: Omit<SessionNotificationDismissRequest, "cwd">, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
   dismissAllNotifications(ref: SessionRouteRef, request: Omit<SessionNotificationDismissAllRequest, "cwd">, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
   clearQueue(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
+  mutateQueueMessage(ref: SessionRouteRef, mutation: SessionQueueMessageMutation, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   submitAsk(ref: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   cancelAsk(ref: SessionRouteLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   answerDialog(ref: SessionRouteLookup, dialogId: string, value: ExtensionDialogAnswer, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse>;

@@ -12,7 +12,7 @@ import { createTranslator } from "../shared/i18n.js";
 
 const webCapabilities = [
   "sessions.deleteArchived", "sessions.bulkMutations", "sessions.cleanup", "sessions.reload",
-  "sessions.clearQueue", "sessions.persistedState", "sessions.notifications", "sessions.unread",
+  "sessions.clearQueue", "sessions.queueMessageActions", "sessions.persistedState", "sessions.notifications", "sessions.unread",
   "sessions.askUser", "prompt.attachments", "workspace.fileSuggestions", "piPackages.manage",
   "settings.selectedMachine", "settings.agentProfile", "plugins.lifecycle",
 ];

@@ -8,7 +8,9 @@ import { clientSessionFirstMessagePreview } from "./clientSessionPreview.js";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ImageContent } from "@earendil-works/pi-ai";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import type { SessionQueueMessageMutation } from "../../shared/apiTypes.js";
+import { QueueCompatibilityGuard, mirroredQueueEntries, mutableQueueAgent, mutableTextMirror, parseQueueMessageMutation, queuedMessageAttachmentCount, queuedMessageAttachmentCounts, snapshotAgentQueues, type QueueAgent } from "./queuedMessageMutation.js";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -255,6 +257,7 @@ interface QueuedPrompt {
   text: string;
   images?: ImageContent[];
   echoUserMessage?: boolean;
+  message?: AgentMessage;
 }
 
 
@@ -529,13 +532,14 @@ export interface PiAgentSession {
   setSessionName(name: string): void;
   /**
    * Narrow re-expression of `AgentSession.agent` (an `@earendil-works/pi-agent-core`
-   * `Agent`), exposing only `streamFunction` — the resolved-auth/headers/retry "call
+   * `Agent`), exposing `streamFunction` — the resolved-auth/headers/retry "call
    * this model" function pi's own compaction/branch-summarization code uses
    * internally. Lets callers (e.g. session title generation) issue one-off model
    * calls without depending on pi-ai's deprecated `/compat` provider registry or
-   * leaking the full `Agent`/`AgentSession` surface.
+   * leaking the full `Agent`/`AgentSession` surface. Queue operations remain
+   * optional and are validated by the runtime-scoped compatibility adapter.
    */
-  agent: { streamFunction: StreamFn };
+  agent: { streamFunction: StreamFn } & Partial<QueueAgent>;
 }
 
 export interface PiSessionModelRuntime {
@@ -1402,6 +1406,9 @@ export class PiSessionService {
   private readonly workspaceActivity: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity"> | undefined;
   private readonly spawnTargets: SpawnTargetResolver | undefined;
   private readonly logger: PiSessionLogger;
+  private readonly queueCompatibility = new QueueCompatibilityGuard<PiAgentSession>((session) => {
+    this.logger.info({ sessionId: session.sessionId, category: "incompatible-queue-interface" }, "Disabled SDK-dependent queue controls after an incompatible queue interface");
+  }, (key, fallback, values) => this.t(key, fallback, values));
   private readonly normalToolAudit: Pick<NormalToolAuditStore, "record"> | undefined;
   private readonly managementAudit: ManagementAuditRecorder | undefined;
   private readonly managementProjectIdForCwd: ((cwd: string, context: ManagementEmbedContext) => Promise<string>) | undefined;
@@ -3009,8 +3016,8 @@ export class PiSessionService {
     return promptPromise;
   }
 
-  private beginPromptSubmission(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
-    this.auditUserPrompt(session, text);
+  private beginPromptSubmission(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true, options: { expandPromptTemplates?: boolean; auditUserPrompt?: boolean } = {}): Promise<void> {
+    if (options.auditUserPrompt !== false) this.auditUserPrompt(session, text);
     this.publishActivity(session, behavior === "steer" ? this.t("activity.steerQueued", "Steering message queued") : behavior === "followUp" ? this.t("activity.messageQueued", "Message queued") : this.t("activity.messageReceived", "Message received"), "active");
     const eventScope = this.eventScopeForSession(session);
     const echoes = this.pendingPromptEchoes.get(session) ?? [];
@@ -3024,10 +3031,12 @@ export class PiSessionService {
       this.pendingPromptEchoes.set(session, [...echoes, echo]);
       this.events.publish(session.sessionId, { type: "message.append", message: echo.message }, eventScope, { id: session.sessionId, cwd: session.sessionManager.getCwd(), eventScope });
     }
-    const promptOptions = buildPromptOptions(behavior, images);
+    const promptOptions = options.expandPromptTemplates === false
+      ? { ...buildPromptOptions(behavior, images), expandPromptTemplates: false }
+      : buildPromptOptions(behavior, images);
     const submission: ExtensionCommandSubmission = { session, active: true };
     const commandName = text.trim().split(/\s+/)[0]?.replace(/^\//, "");
-    const isExtensionCommand = text.trim().startsWith("/") && session.extensionRunner.getRegisteredCommands().some((command) => command.invocationName === commandName);
+    const isExtensionCommand = options.expandPromptTemplates !== false && text.trim().startsWith("/") && session.extensionRunner.getRegisteredCommands().some((command) => command.invocationName === commandName);
     const trackEarlyFailure = behavior === undefined && this.subsessionLinkForActiveChild(session) !== undefined && !isExtensionCommand;
     let agentStarted = false;
     const unsubscribe = !trackEarlyFailure ? undefined : session.subscribe((event) => {
@@ -3620,6 +3629,114 @@ export class PiSessionService {
     } finally {
       this.publishStatus(active.runtime.session);
     }
+  }
+
+  async mutateQueueMessage(ref: PiSessionRef, input: SessionQueueMessageMutation, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
+    const mutation = parseQueueMessageMutation(input);
+    await this.assertWritable(ref, managementContext);
+    const session = await this.getOrOpen(ref, managementContext);
+    await this.assertWritable(ref, managementContext);
+    if (this.activeForLookup(ref, managementContext)?.runtime.session !== session
+      || !cwdPathsEqual(ref.cwd, session.sessionManager.getCwd())
+      || this.eventScopeForSession(session) !== eventScopeFromManagementContext(managementContext)) {
+      throw new UserFacingError("routing.sessionNotFound", "Session not found");
+    }
+    // Compare the entire execution-order queue after all awaits, then mutate
+    // synchronously so neither another request nor the agent loop can interleave.
+    const current = this.queuedMessages(session);
+    if (this.queueCompatibility.reason(session) !== undefined) {
+      this.publishStatus(session);
+      this.queueCompatibility.assertAvailable(session);
+    }
+    if (current.length !== mutation.expectedQueue.length || current.some((entry, index) => {
+      const expected = mutation.expectedQueue[index];
+      if (expected === undefined) return true;
+      return entry.kind !== expected.kind || entry.text !== expected.text
+        || (mutation.action === "edit" && index === mutation.index && (entry.hasAttachments === true) !== (expected.hasAttachments === true));
+    })) throw new UserFacingError("queueControls.changed", "Queued messages changed; refresh the queue and try again");
+    if (mutation.index >= current.length) throw new UserFacingError("queueControls.invalidIndex", "Invalid queue index");
+    this.beginSessionEntryMutation(session, this.t("queueControls.mutateAction", "change queued messages"));
+    try {
+      this.queueCompatibility.run(session, () => { this.applyQueueMessageMutation(session, mutation); });
+    } catch (error) {
+      this.publishStatus(session);
+      throw error;
+    } finally {
+      this.endSessionEntryMutation(session);
+    }
+    this.publishStatus(session);
+    return this.statusFromSession(session);
+  }
+
+  private applyQueueMessageMutation(session: PiAgentSession, mutation: SessionQueueMessageMutation): void {
+    const agent = mutableQueueAgent(session.agent);
+    const mirrors = { steer: mutableTextMirror(session.getSteeringMessages()), followUp: mutableTextMirror(session.getFollowUpMessages()) };
+    if (session.getSteeringMessages() !== mirrors.steer || session.getFollowUpMessages() !== mirrors.followUp) {
+      throw new Error("SDK queue getters no longer expose stable backing arrays");
+    }
+    const queues = snapshotAgentQueues(agent);
+    const originalQueues = { steer: [...queues.steer], followUp: [...queues.followUp] };
+    const originalMirrors = { steer: [...mirrors.steer], followUp: [...mirrors.followUp] };
+    interface Entry { kind: QueuedPromptKind; text: string; message?: AgentMessage; prompt?: QueuedPrompt }
+    const held = this.compactionQueuedMessages(session).map((prompt) => ({ ...prompt }));
+    const entries: Entry[] = (["steer", "followUp"] as const).flatMap((kind) => [
+      ...mirroredQueueEntries(queues[kind], mirrors[kind]).map((entry) => ({ ...entry, kind })),
+      ...held.filter((prompt) => prompt.kind === kind).map((prompt) => ({ kind, text: prompt.text, prompt })),
+    ]);
+    const selected = entries[mutation.index];
+    if (selected === undefined) throw new UserFacingError("queueControls.invalidIndex", "Invalid queue index");
+    const removed = mutation.action === "edit" ? entries.slice(mutation.index) : [selected];
+    const remaining = entries.filter((entry) => !removed.includes(entry));
+    for (const entry of removed) {
+      if (entry.message !== undefined) {
+        const queue = queues[entry.kind];
+        queue.splice(queue.indexOf(entry.message), 1);
+      }
+      if (entry.prompt !== undefined) held.splice(held.indexOf(entry.prompt), 1);
+    }
+    if (mutation.action === "toggle") {
+      const kind = selected.kind === "steer" ? "followUp" : "steer";
+      // Destination includes held prompts: append there when necessary to keep
+      // status order and eventual execution order identical.
+      if (selected.prompt !== undefined) {
+        selected.prompt.kind = kind;
+        held.push(selected.prompt);
+        remaining.push({ ...selected, kind });
+      } else if (selected.message !== undefined) {
+        if (held.some((prompt) => prompt.kind === kind)) {
+          const prompt: QueuedPrompt = { kind, text: selected.text, message: selected.message };
+          held.push(prompt);
+          remaining.push({ kind, text: selected.text, prompt });
+        } else {
+          queues[kind].push(selected.message);
+          remaining.push({ ...selected, kind });
+        }
+      }
+    }
+    try {
+      agent.clearAllQueues();
+      for (const message of queues.steer) agent.steer(message);
+      for (const message of queues.followUp) agent.followUp(message);
+      for (const kind of ["steer", "followUp"] as const) {
+        mirrors[kind].splice(0, mirrors[kind].length, ...remaining.filter((entry) => entry.kind === kind && entry.message !== undefined).map((entry) => entry.text));
+      }
+    } catch (error) {
+      // Best-effort rollback when a callable SDK method fails during replacement.
+      // Restoration itself can fail after an incompatible behavioral change.
+      const failures: unknown[] = [error];
+      try {
+        agent.clearAllQueues();
+        for (const message of originalQueues.steer) agent.steer(message);
+        for (const message of originalQueues.followUp) agent.followUp(message);
+      } catch (restoreError) { failures.push(restoreError); }
+      for (const kind of ["steer", "followUp"] as const) {
+        try { mirrors[kind].splice(0, mirrors[kind].length, ...originalMirrors[kind]); }
+        catch (restoreError) { failures.push(restoreError); }
+      }
+      throw new AggregateError(failures, "Could not replace SDK queues; attempted to restore their original contents", { cause: error });
+    }
+    if (held.length === 0) this.clearCompactionPromptQueue(session);
+    else this.compactionPromptQueues.set(activeSessionKey(session.sessionId, this.eventScopeForSession(session)), held);
   }
 
   async clearQueue(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
@@ -4292,15 +4409,26 @@ export class PiSessionService {
       const queued = this.takeCompactionPromptQueue(sessionKey);
       if (queued.length === 0) return;
       this.publishStatus(session);
-      for (const prompt of queued) void this.submitPrompt(session, prompt.text, prompt.kind, prompt.images, prompt.echoUserMessage ?? true);
+      for (const prompt of queued) void this.submitHeldPrompt(session, prompt, prompt.kind);
       return;
     }
 
     const prompt = this.shiftCompactionPrompt(sessionKey);
     if (prompt === undefined) return;
     this.publishStatus(session);
-    const submitted = this.submitPrompt(session, prompt.text, undefined, prompt.images, prompt.echoUserMessage ?? true);
+    const submitted = this.submitHeldPrompt(session, prompt);
     void submitted.finally(() => { this.scheduleCompactionQueueDrain(session); });
+  }
+
+  private submitHeldPrompt(session: PiAgentSession, prompt: QueuedPrompt, kind?: QueuedPromptKind): Promise<void> {
+    if (prompt.message === undefined) return this.submitPrompt(session, prompt.text, kind, prompt.images, prompt.echoUserMessage ?? true);
+    const images = prompt.message.role === "user" && Array.isArray(prompt.message.content)
+      ? prompt.message.content.filter((part): part is ImageContent => part.type === "image") : [];
+    // This SDK message was already submitted/audited before moving into held
+    // storage. Preserve public runtime ownership without re-expansion or audit.
+    return this.beginPromptSubmission(session, prompt.text, kind, images, prompt.echoUserMessage ?? true, {
+      expandPromptTemplates: false, auditUserPrompt: false,
+    }).catch(() => undefined);
   }
 
   private takeCompactionPromptQueue(sessionId: string): QueuedPrompt[] {
@@ -4311,7 +4439,8 @@ export class PiSessionService {
 
   private shiftCompactionPrompt(sessionId: string): QueuedPrompt | undefined {
     const queue = this.compactionPromptQueues.get(sessionId);
-    const prompt = queue?.shift();
+    const steeringIndex = queue?.findIndex((prompt) => prompt.kind === "steer") ?? -1;
+    const prompt = queue?.splice(steeringIndex < 0 ? 0 : steeringIndex, 1)[0];
     if (queue === undefined || queue.length === 0) this.compactionPromptQueues.delete(sessionId);
     return prompt;
   }
@@ -4831,6 +4960,8 @@ export class PiSessionService {
     const warnings = this.warningsForSession(session);
     const pendingDialogs = this.pendingExtensionDialogStore.pendingDialogs(this.dialogSessionKey(session));
     const suggestedInput = this.suggestedInputs.get(this.dialogSessionKey(session));
+    const queuedMessages = this.queuedMessages(session);
+    const queueMessageActionsUnavailable = this.queueCompatibility.reason(session);
     return {
       sessionId: session.sessionId,
       persisted: sessionFileExists(session.sessionFile),
@@ -4841,7 +4972,8 @@ export class PiSessionService {
       isCompacting: session.isCompacting,
       isBashRunning: session.isBashRunning,
       pendingMessageCount: this.pendingMessageCount(session),
-      queuedMessages: queuedMessagesFromSession(session, this.compactionQueuedMessages(session)),
+      queuedMessages,
+      ...(queueMessageActionsUnavailable === undefined ? {} : { queueMessageActionsUnavailable }),
       messageCount,
       tokens: stats.tokens,
       cost: stats.cost,
@@ -4876,7 +5008,14 @@ export class PiSessionService {
   }
 
   private hasQueuedMessageText(session: PiAgentSession, text: string): boolean {
-    return queuedMessagesFromSession(session, this.compactionQueuedMessages(session)).some((message) => message.text === text);
+    return this.queuedMessages(session).some((message) => message.text === text);
+  }
+
+  private queuedMessages(session: PiAgentSession): ClientSessionStatus["queuedMessages"] {
+    const held = this.compactionQueuedMessages(session);
+    return this.queueCompatibility.inspect(session,
+      () => queuedMessagesFromSession(session, held),
+      () => queuedMessagesFromSession(session, held, false));
   }
 
   private notificationsForScope(scope: string): SessionNotificationStore {
@@ -6005,12 +6144,36 @@ function clearSessionQueue(session: PiAgentSession): void {
   session.clearQueue();
 }
 
-function queuedMessagesFromSession(session: PiAgentSession, extraQueuedMessages: readonly QueuedPrompt[] = []): { kind: "steer" | "followUp"; text: string }[] {
-  return [
-    ...session.getSteeringMessages().map((text) => ({ kind: "steer" as const, text })),
-    ...session.getFollowUpMessages().map((text) => ({ kind: "followUp" as const, text })),
-    ...extraQueuedMessages,
-  ];
+function queuedMessagesFromSession(session: PiAgentSession, extraQueuedMessages: readonly QueuedPrompt[] = [], inspectSdk = true): ClientSessionStatus["queuedMessages"] {
+  const texts = inspectSdk
+    ? { steer: mutableTextMirror(session.getSteeringMessages()), followUp: mutableTextMirror(session.getFollowUpMessages()) }
+    : { steer: publicQueueTexts(() => session.getSteeringMessages()), followUp: publicQueueTexts(() => session.getFollowUpMessages()) };
+  const attachmentCounts: Record<QueuedPromptKind, number[]> = { steer: [], followUp: [] };
+  if (inspectSdk && (texts.steer.length > 0 || texts.followUp.length > 0 || extraQueuedMessages.length > 0)) {
+    const queues = snapshotAgentQueues(mutableQueueAgent(session.agent));
+    for (const kind of ["steer", "followUp"] as const) {
+      attachmentCounts[kind] = queuedMessageAttachmentCounts(queues[kind], texts[kind]);
+    }
+  }
+  return (["steer", "followUp"] as const).flatMap((kind) => [
+    ...texts[kind].map((text, index) => ({ kind, text, ...queuedAttachmentMetadata(attachmentCounts[kind][index] ?? 0) })),
+    ...extraQueuedMessages.filter((message) => message.kind === kind).map((prompt) => ({
+      kind, text: prompt.text,
+      ...queuedAttachmentMetadata(prompt.message === undefined ? prompt.images?.length ?? 0 : queuedMessageAttachmentCount(prompt.message)),
+    })),
+  ]);
+}
+
+/** Degraded status still uses public text getters where their values are usable. */
+function publicQueueTexts(read: () => readonly string[]): string[] {
+  try {
+    const value: unknown = read();
+    return Array.isArray(value) ? value.filter((text: unknown): text is string => typeof text === "string") : [];
+  } catch { return []; } // The compatibility guard already records the original failure.
+}
+
+function queuedAttachmentMetadata(attachmentCount: number): { hasAttachments?: boolean; attachmentCount?: number } {
+  return attachmentCount > 0 ? { hasAttachments: true, attachmentCount } : {};
 }
 
 function userTextMessage(text: string): { role: "user"; content: string } {

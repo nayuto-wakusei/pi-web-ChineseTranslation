@@ -307,6 +307,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["allowedHosts"];
   delete existing["shortcuts"];
   delete existing["defaultTheme"];
+  delete existing["defaultStreamingBehavior"];
   delete existing["plugins"];
   delete existing["pathAccess"];
   delete existing["uploads"];

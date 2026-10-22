@@ -1317,6 +1317,10 @@ class CapturingRouteSessionService implements SessionRouteService {
     });
   }
 
+  mutateQueueMessage(lookup: SessionRouteLookup): Promise<SessionStatus> {
+    return this.status(lookup);
+  }
+
   clearQueue(lookup: SessionRouteLookup): Promise<SessionStatus> {
     this.clearQueueCalls.push(lookup);
     if (this.clearQueueError !== undefined) return Promise.reject(this.clearQueueError);

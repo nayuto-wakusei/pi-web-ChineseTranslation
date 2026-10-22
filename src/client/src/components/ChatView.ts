@@ -14,6 +14,10 @@ import {
   type SelectedSessionNotificationView,
   type SessionNotificationTarget,
 } from "../sessionNotifications";
+import { writeClipboardText } from "../clipboard";
+import type { QueuedMessageActionTarget } from "../queuedMessageActions";
+import { chatQueuedMessageSections, renderQueuedMessageSection, type QueuedMessageSection } from "./chat/QueuedMessages";
+export { chatQueuedMessageSections, chatQueuedSectionShowsClearAction, type QueuedMessageSection } from "./chat/QueuedMessages";
 import { clientLocale, t } from "../i18n";
 import { renderNotificationMessage } from "../notificationMessage";
 import { thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
@@ -97,20 +101,6 @@ interface PendingNotificationFocus {
   focusTarget: NotificationFocusTarget;
 }
 
-export interface QueuedMessageSection {
-  source: "client" | "server";
-  heading: string;
-  detail: string;
-  messages: QueuedSessionMessage[];
-}
-
-export function chatQueuedMessageSections(clientQueued: QueuedSessionMessage[], serverQueued: QueuedSessionMessage[]): QueuedMessageSection[] {
-  return [
-    clientQueued.length === 0 ? undefined : { source: "client", heading: t("ui.chatView.waitingForSessionStartup", "Waiting for session startup"), detail: t("ui.chatView.willSendAutomaticallyWhenTheBackendSessionIs", "Will send automatically when the backend session is ready"), messages: clientQueued },
-    serverQueued.length === 0 ? undefined : { source: "server", heading: t("ui.chatView.queuedMessages", "Queued messages"), detail: t("ui.chatView.pending", "{length} pending", { length: String(serverQueued.length) }), messages: serverQueued },
-  ].filter((section): section is QueuedMessageSection => section !== undefined);
-}
-
 export type ChatImagePart = Extract<ChatPart, { type: "image" }>;
 
 export function chatToolOutputLabel(toolName?: string): string {
@@ -142,9 +132,7 @@ export function chatMessageGroupLabel(defaultOpen: boolean): string {
   return defaultOpen ? t("ui.chatView.liveEvent", "Live event") : t("ui.chatView.event", "Event");
 }
 
-export function chatQueuedSectionShowsClearAction(section: QueuedMessageSection, canClearServerQueue: boolean, hasClearHandler: boolean): boolean {
-  return section.source === "server" && canClearServerQueue && hasClearHandler;
-}
+
 
 export interface ChatSessionWarningRow {
   severity: SessionWarningSeverity;
@@ -197,55 +185,7 @@ export interface RenderedChatTranscript {
   end: number;
 }
 
-export function chatActivityText(state: string, activity?: SessionActivity): string {
-  if (activity === undefined) return activityStateLabel(state);
-  if (state !== "idle" && activity.phase === "idle") return activityStateLabel(state);
-  const label = activity.label;
-  return activity.detail !== undefined && activity.detail !== "" ? `${label}：${activity.detail}` : label;
-}
-
-function activityStateLabel(state: string, phase?: SessionActivity["phase"]): string {
-  if (phase === "idle") return t("activity.idle", "Idle");
-  if (phase !== undefined) return activityStateLabel(state);
-  const labels: Record<string, string> = {
-    "agent running": t("ui.chatView.agentRunning", "Agent running"),
-    "bash complete": t("ui.chatView.commandCompleted", "Command completed"),
-    "bash failed": t("ui.chatView.commandFailed", "Command failed"),
-    "branch summary aborted": t("ui.chatView.branchSummaryAborted", "Branch summary aborted"),
-    "compacting": t("ui.chatView.compactingContext", "Compacting context"),
-    "compaction complete": t("ui.chatView.contextCompactionCompleted", "Context compaction completed"),
-    "compaction failed": t("ui.chatView.contextCompactionFailed", "Context compaction failed"),
-    "duplicate queued message ignored": t("ui.chatView.duplicateQueuedMessageIgnored", "Duplicate queued message ignored"),
-    "error": t("ui.chatView.anErrorOccurred", "An error occurred"),
-    "extension error": t("ui.chatView.extensionError", "Extension error"),
-    "idle": t("ui.chatView.idle", "Idle"),
-    "message complete": t("ui.chatView.messageCompleted", "Message completed"),
-    "message queued": t("ui.chatView.messageQueued", "Message queued"),
-    "message queued during compaction": t("ui.chatView.messageQueuedDuringCompaction", "Message queued during compaction"),
-    "message started": t("ui.chatView.messageStarted", "Message started"),
-    "navigating session tree": t("ui.chatView.navigatingSessionTree", "Navigating session tree"),
-    "prompt accepted": t("ui.chatView.messageReceived", "Message received"),
-    "receiving response": t("ui.chatView.receivingResponse", "Receiving response"),
-    "reload failed": t("ui.chatView.reloadFailed", "Reload failed"),
-    "reloading resources": t("ui.chatView.reloadingResources", "Reloading resources"),
-    "resources reloaded": t("ui.chatView.resourcesReloaded", "Resources reloaded"),
-    running: t("ui.chatView.running", "Running"),
-    "running bash": t("ui.chatView.runningCommand", "Running command"),
-    "running tool": t("ui.chatView.runningTool", "Running tool"),
-    "session tree navigated": t("ui.chatView.sessionTreeUpdated", "Session tree updated"),
-    "steering queued": t("ui.chatView.steeringMessageQueued", "Steering message queued"),
-    "stop failed": t("ui.chatView.stopFailed", "Stop failed"),
-    "stopped": t("ui.chatView.stopped", "Stopped"),
-    "summarizing branch": t("ui.chatView.summarizingBranch", "Summarizing branch"),
-    "tool complete": t("ui.chatView.toolCompleted", "Tool completed"),
-    "tool failed": t("ui.chatView.toolFailed", "Tool failed"),
-    "tree navigation cancelled": t("ui.chatView.sessionTreeNavigationCancelled", "Session tree navigation cancelled"),
-    "turn complete": t("ui.chatView.turnCompleted", "Turn completed"),
-    "updating session": t("ui.chatView.updatingSession", "Updating session"),
-    queued: t("ui.chatView.queueing", "Queueing"),
-  };
-  return labels[state] ?? state;
-}
+export { chatActivityText } from "./conversationActivity";
 
 export function chatImagePartSource(part: ChatImagePart, session?: SessionRef, machineId = "local"): { src: string; alt: string } | undefined {
   return transcriptImageSource(part, session, machineId);
@@ -361,6 +301,11 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) notificationInbox?: SelectedSessionNotificationView;
 
   @property({ attribute: false }) onClearServerQueue?: () => void;
+  @property({ attribute: false }) onQueuedMessageAction?: (target: QueuedMessageActionTarget) => Promise<void>;
+  @property({ type: Boolean }) canMutateQueuedMessages = false;
+  @property({ type: Boolean }) queuedMessageActionPending = false;
+  @state() private queuedCopyFeedback = "";
+  private queuedCopyGeneration = 0;
 
   @property({ attribute: false }) onDismissWarning?: (dismissId: string) => void;
 
@@ -496,6 +441,8 @@ export class ChatView extends LitElement {
   override disconnectedCallback(): void {
     this.scrollFlows.dispose();
     this.messageActionController.reset();
+    this.queuedCopyGeneration += 1;
+    this.queuedCopyFeedback = "";
     window.removeEventListener("resize", this.onViewportResize);
     window.removeEventListener("pagehide", this.onPageHide);
     window.visualViewport?.removeEventListener("resize", this.onViewportResize);
@@ -522,6 +469,8 @@ export class ChatView extends LitElement {
     }
     const actionIdentity = JSON.stringify([this.machineId, this.sessionId, this.sessionCwd, this.workspaceContext?.machineId, this.workspaceContext?.projectId, this.workspaceContext?.workspaceId, this.workspaceContext?.root]);
     if (actionIdentity !== this.messageActionIdentity) {
+      this.queuedCopyGeneration += 1;
+      this.queuedCopyFeedback = "";
       this.messageActionIdentity = actionIdentity;
       this.messageActionController.reset();
     }
@@ -621,7 +570,6 @@ export class ChatView extends LitElement {
           ${this.renderExtensionDialogs()}
         </div>
         ${this.onNavigationChange === undefined ? this.renderNavigation() : nothing}
-        ${this.renderActivityDock()}
       </div>
       <pi-web-image-gallery-dialog></pi-web-image-gallery-dialog>
     `;
@@ -716,30 +664,37 @@ export class ChatView extends LitElement {
 
   private renderQueuedMessages() {
     const serverQueued = this.status?.queuedMessages ?? [];
-    return html`${chatQueuedMessageSections(this.clientQueuedMessages, serverQueued).map((section) => this.renderQueuedMessageList(section))}`;
+    return html`${chatQueuedMessageSections(this.clientQueuedMessages, serverQueued).map((section) => this.renderQueuedMessageList(section))}
+      ${this.queuedCopyFeedback === "" ? nothing : html`<small role="status">${this.queuedCopyFeedback}</small>`}`;
   }
 
   private renderQueuedMessageList(section: QueuedMessageSection) {
-    const canClear = chatQueuedSectionShowsClearAction(section, this.canClearServerQueue, this.onClearServerQueue !== undefined);
-    return html`
-      <aside class="queued-messages" aria-live="polite">
-        <div class="queued-header">
-          <div class="queued-heading">
-            <strong>${section.heading}</strong>
-            <small>${section.detail}</small>
-          </div>
-          ${canClear ? html`
-            <button type="button" class="queued-clear-button" title="${t("ui.chatView.clearQueuedMessagesWithoutStoppingTheCurrentTask", "Clear queued messages without stopping the current task")}" @click=${this.handleClearServerQueue}>${t("ui.chatView.clearQueue", "Clear queue")}</button>
-          ` : null}
-        </div>
-        ${section.messages.map((message, index) => html`
-          <div class="queued-message">
-            <span class="queued-kind">${message.kind === "steer" ? t("ui.chatView.steering", "Steering") : t("ui.chatView.followUp", "Follow-up")} ${String(index + 1)}</span>
-            <formatted-text .imagesEnabled=${this.behaviors.loadImages} .codeBlocks=${this.behaviors.codeBlocks} .text=${message.text} .contentRendering=${this.contentRendering} .contentRendererVersion=${this.contentRendererVersion} .machineId=${this.machineId} .workspaceContext=${this.workspaceContext} .intentKey=${JSON.stringify([this.machineId, this.sessionId, "queue", section.source, index, message.kind])}></formatted-text>
-          </div>
-        `)}
-      </aside>
-    `;
+    const target = { machineId: this.machineId, sessionId: this.sessionId, cwd: this.sessionCwd };
+    return renderQueuedMessageSection(section, {
+      machineId: this.machineId, sessionId: this.sessionId,
+      behaviors: this.behaviors, contentRendering: this.contentRendering,
+      contentRendererVersion: this.contentRendererVersion, workspaceContext: this.workspaceContext,
+      pending: this.queuedMessageActionPending, canMutate: this.canMutateQueuedMessages,
+      canClearServerQueue: this.canClearServerQueue, unavailable: this.status?.queueMessageActionsUnavailable,
+      onClear: this.onClearServerQueue === undefined ? undefined : this.handleClearServerQueue,
+      onCopy: (text) => { void this.copyQueuedMessage(text); },
+      onAction: this.onQueuedMessageAction === undefined ? undefined : (action, index, messages) => {
+        this.actOnQueuedMessage({ ...target, action, index, expectedQueue: messages.map((message) => ({ ...message })) });
+      },
+    });
+  }
+
+  private async copyQueuedMessage(text: string): Promise<void> {
+    const generation = this.queuedCopyGeneration;
+    const copied = await writeClipboardText(text);
+    if (!this.isConnected || generation !== this.queuedCopyGeneration) return;
+    this.queuedCopyFeedback = copied ? "" : t("ui.queuedMessages.copyFailed", "Could not copy message");
+  }
+
+  private actOnQueuedMessage(target: QueuedMessageActionTarget): void {
+    if (!this.canMutateQueuedMessages || this.queuedMessageActionPending || this.status?.queueMessageActionsUnavailable !== undefined) return;
+    if (target.machineId !== this.machineId || target.sessionId !== this.sessionId || target.cwd !== this.sessionCwd) return;
+    void this.onQueuedMessageAction?.(target);
   }
 
   private renderExtensionDialogs() {
@@ -1114,39 +1069,11 @@ export class ChatView extends LitElement {
     `;
   }
 
-  private renderActivityDock() {
-    if (this.isSendingPrompt) {
-      return html`
-        <div class="activity-dock active" aria-live="polite">
-          <span class="dot"></span>
-          <span class="activity-text">${t("ui.chatView.sendingYourMessage", "Sending your message…")}</span>
-        </div>
-      `;
-    }
-    const state = this.activityState();
-    if (state === undefined) return null;
-    const active = state !== "idle" || this.activity?.phase === "active";
-    return html`
-      <div class=${active ? "activity-dock active" : "activity-dock"} aria-live="polite">
-        <span class="dot"></span>
-        <span class="activity-text">${this.activityText(state)}</span>
-      </div>
-    `;
-  }
 
-  private activityState(): string | undefined {
-    const status = this.status;
-    if (status === undefined) return this.activity?.label;
-    if (status.isCompacting) return "compacting";
-    if (status.isBashRunning) return "bash";
-    if (status.isStreaming) return "running";
-    if (status.pendingMessageCount > 0) return "queued";
-    return "idle";
-  }
 
-  private activityText(state: string): string {
-    return chatActivityText(state, this.activity);
-  }
+
+
+
 
   private async reportRenderedTranscript(): Promise<void> {
     const machineId = this.machineId;

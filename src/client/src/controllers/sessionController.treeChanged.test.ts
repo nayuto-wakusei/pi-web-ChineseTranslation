@@ -211,7 +211,7 @@ describe("SessionController factual tree invalidation", () => {
     const navigateResult = deferred<Awaited<ReturnType<typeof defaultApi.navigateTree>>>();
     const forkResult = deferred<Awaited<ReturnType<typeof defaultApi.forkTree>>>();
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
-    const replacePromptEditorText = vi.fn();
+    const replacePromptEditorText = vi.fn<NonNullable<SessionControllerDependencies["replacePromptEditorText"]>>();
     const runCommand = vi.fn<typeof defaultApi.runCommand>();
     const controller = new SessionController(() => state, (patch) => { state = { ...state, ...patch }; }, () => undefined, undefined, {
       api: {
@@ -237,7 +237,8 @@ describe("SessionController factual tree invalidation", () => {
     if (action === "navigate") {
       expect(state.selectedSession?.id).toBe(oldSession.id);
       expect(loadDraft(sourceKey)).toBe("explicit rewind");
-      expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "explicit rewind" });
+      expect(replacePromptEditorText.mock.calls[0]?.[0].isCurrent).toBeTypeOf("function");
+      expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "explicit rewind", isCurrent: replacePromptEditorText.mock.calls[0]?.[0].isCurrent });
     } else {
       expect(state.selectedSession?.id).toBe(replacementSession.id);
       expect(loadDraft(sourceKey)).toBe("original unsent draft");

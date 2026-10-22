@@ -1,7 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PromptEditor } from "./components/PromptEditor";
 import { capturePromptAttachments, DEFAULT_FILE_MIME_TYPE, effectivePromptAttachmentDelivery, READ_FAILURE_MESSAGE, type CapturableFile } from "./promptAttachmentCapture";
 import { templateEventHandlerAfterMarker, templateEventHandlerAfterValue } from "./templateInspection.testSupport";
+
+afterEach(() => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  vi.restoreAllMocks();
+});
 
 function file(name: string, type: string, size = 10): CapturableFile {
   return { name, type, size };
@@ -83,37 +90,40 @@ describe("effectivePromptAttachmentDelivery", () => {
 });
 
 describe("PromptEditor attachment wiring", () => {
-  // TemplateResult handler extraction (via the shared escape hatch) verifies the paste/remove/send
-  // event wiring here; this repo runs Vitest without a DOM environment, so a full custom-element +
-  // FileReader render harness would add disproportionate setup for this narrow wiring check. Each
-  // assertion observes a component effect (the injected `onSend` callback and its captured
-  // attachments), not Lit template internals. Rendered content/error text is covered at the pure
-  // layer by the `capturePromptAttachments` tests above.
   it("captures pasted files, strips data URL prefixes, and keeps successful reads when others fail", async () => {
     const editor = new PromptEditor();
+    editor.sessionId = "attachment-wiring";
+    editor.cwd = "/repo";
+    document.body.append(editor);
+    await editor.updateComplete;
     const onSend = vi.fn<NonNullable<PromptEditor["onSend"]>>();
     editor.onSend = onSend;
-    setPromptEditorPrivate(editor, "draft", "inspect attachments");
+    editor.replaceText("inspect attachments");
     const restoreFileReader = installFileReaderStub([
       { kind: "load", result: "data:image/png;base64,UE5H" },
       { kind: "error", error: new DOMException("File unavailable", "NotReadableError") },
     ]);
 
     try {
-      const paste = templateEventHandlerAfterMarker(editor.render(), "@paste=");
       const pasteEvent = pasteEventWithFiles([
         new File(["png"], "shot.png", { type: "image/png" }),
         new File(["pdf"], "report.pdf", { type: "application/pdf" }),
       ]);
       const preventDefault = vi.spyOn(pasteEvent, "preventDefault");
 
-      paste(pasteEvent);
-      await flushMicrotasks();
+      const footer = editor.renderRoot.querySelector("footer");
+      if (footer === null) throw new Error("Expected composer footer");
+      footer.dispatchEvent(pasteEvent);
+      await vi.waitFor(() => {
+        expect(editor.renderRoot.querySelectorAll(".attachment-chip")).toHaveLength(1);
+        expect(editor.renderRoot.querySelector(".attachment-error")?.textContent).toBe(READ_FAILURE_MESSAGE);
+      });
 
       expect(preventDefault).toHaveBeenCalledOnce();
 
-      const send = templateEventHandlerAfterMarker(editor.render(), "send-button");
-      send(new Event("click"));
+      const send = editor.renderRoot.querySelector<HTMLButtonElement>(".send-button");
+      if (send === null) throw new Error("Expected send button");
+      send.click();
 
       // report.pdf failed to read, so only the successfully-read image survives to onSend — proving
       // the paste is wired to capture, the data URL prefix is stripped, and a failed read does not
@@ -198,8 +208,4 @@ function pasteEventWithFiles(files: readonly File[]): Event {
   const event = new Event("paste", { cancelable: true });
   Object.defineProperty(event, "clipboardData", { value: { files } });
   return event;
-}
-
-async function flushMicrotasks(): Promise<void> {
-  for (let remaining = 0; remaining < 10; remaining += 1) await Promise.resolve();
 }

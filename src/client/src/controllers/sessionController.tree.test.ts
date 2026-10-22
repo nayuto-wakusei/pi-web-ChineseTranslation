@@ -5,7 +5,7 @@ import { ChatTranscriptStore } from "../chatTranscriptStore";
 import { machineSessionKey } from "../machineKeys";
 import { loadDraft, saveDraft } from "../promptDraftStorage";
 import type { CommandResult, SessionTreeSnapshot } from "../api";
-import { SessionController } from "./sessionController";
+import { SessionController, type SessionControllerDependencies } from "./sessionController";
 import { InMemorySessionSelectionMemory } from "./sessionSelection";
 import {
   defaultApi,
@@ -113,7 +113,7 @@ describe("SessionController session tree navigation", () => {
     let messageCalls = 0;
     let statusCalls = 0;
     const navigationCalls: unknown[] = [];
-    const replacePromptEditorText = vi.fn();
+    const replacePromptEditorText = vi.fn<NonNullable<SessionControllerDependencies["replacePromptEditorText"]>>();
     const socket = new EmitSocket();
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
     const api: typeof defaultApi = {
@@ -176,12 +176,14 @@ describe("SessionController session tree navigation", () => {
     expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh branch" }], transcriptIndex: 0 }]);
     expect(state.treeDialog).toBeUndefined();
     expect(loadDraft(cacheKey)).toBe("edit original prompt");
-    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "edit original prompt" });
+    expect(replacePromptEditorText.mock.calls[0]?.[0].isCurrent).toBeTypeOf("function");
+    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "edit original prompt", isCurrent: replacePromptEditorText.mock.calls[0]?.[0].isCurrent });
     expect(socket.connectedSessionIds).toEqual([oldSession.id]);
   });
 
   it("keeps the busy tree mounted until authoritative history and editor replacement finish", async () => {
     const authoritativePage = deferred<MessagePage>();
+    const editorReplacement = deferred<undefined>();
     let state: AppState = {
       ...initialAppState(),
       selectedWorkspace: workspace,
@@ -189,7 +191,7 @@ describe("SessionController session tree navigation", () => {
       sessions: [oldSession],
       treeDialog: tree,
     };
-    const replacePromptEditorText = vi.fn();
+    const replacePromptEditorText = vi.fn<NonNullable<SessionControllerDependencies["replacePromptEditorText"]>>(() => editorReplacement.promise);
     const messages = vi.fn<typeof defaultApi.messages>(() => authoritativePage.promise);
     const api: typeof defaultApi = {
       ...defaultApi,
@@ -210,12 +212,17 @@ describe("SessionController session tree navigation", () => {
     const navigation = controller.navigateTree("root", { mode: "none" });
     await vi.waitFor(() => { expect(messages).toHaveBeenCalledOnce(); });
     expect(state.treeDialog).toBe(tree);
-    expect(replacePromptEditorText).not.toHaveBeenCalled();
+    expect(replacePromptEditorText).toHaveBeenCalledOnce();
 
     authoritativePage.resolve(page("authoritative branch", 1));
+    await vi.waitFor(() => { expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "authoritative branch" }], transcriptIndex: 0 }]); });
+    expect(state.treeDialog).toBe(tree);
+    expect(state.pendingTreeActions).toHaveLength(1);
+    editorReplacement.resolve(undefined);
     await navigation;
 
-    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "edit after refresh" });
+    expect(replacePromptEditorText.mock.calls[0]?.[0].isCurrent).toBeTypeOf("function");
+    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "edit after refresh", isCurrent: replacePromptEditorText.mock.calls[0]?.[0].isCurrent });
     expect(state.treeDialog).toBeUndefined();
   });
 
@@ -228,7 +235,7 @@ describe("SessionController session tree navigation", () => {
       sessions: [oldSession],
       treeDialog: tree,
     };
-    const replacePromptEditorText = vi.fn();
+    const replacePromptEditorText = vi.fn<NonNullable<SessionControllerDependencies["replacePromptEditorText"]>>();
     const api: typeof defaultApi = {
       ...defaultApi,
       navigateTree: () => Promise.resolve({ cancelled: false, editorText: "recovered draft" }),
@@ -250,7 +257,8 @@ describe("SessionController session tree navigation", () => {
     expect(state.treeDialog).toBe(tree);
     expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("authoritative history refresh failed");
     expect(loadDraft(cacheKey)).toBe("recovered draft");
-    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "recovered draft" });
+    expect(replacePromptEditorText.mock.calls[0]?.[0].isCurrent).toBeTypeOf("function");
+    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "recovered draft", isCurrent: replacePromptEditorText.mock.calls[0]?.[0].isCurrent });
   });
 
   it("retains the navigator when live prompt-editor replacement fails", async () => {
@@ -289,10 +297,10 @@ describe("SessionController session tree navigation", () => {
     const cacheKey = machineSessionKey("local", oldSession.id);
     saveDraft(cacheKey, "stale editor text");
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession], treeDialog: tree };
-    const replacePromptEditorText = vi.fn();
+    const replacePromptEditorText = vi.fn<NonNullable<SessionControllerDependencies["replacePromptEditorText"]>>();
     const api: typeof defaultApi = {
       ...defaultApi,
-      navigateTree: () => Promise.resolve({ cancelled: false }),
+      navigateTree: () => Promise.resolve({ cancelled: false, editorText: "" }),
       messages: () => Promise.resolve(page("selected entry", 1)),
       status: () => Promise.resolve(status(oldSession.id)),
       streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
@@ -309,7 +317,8 @@ describe("SessionController session tree navigation", () => {
     await controller.navigateTree("leaf-1", { mode: "none" });
 
     expect(loadDraft(cacheKey)).toBe("");
-    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "" });
+    expect(replacePromptEditorText.mock.calls[0]?.[0].isCurrent).toBeTypeOf("function");
+    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "", isCurrent: replacePromptEditorText.mock.calls[0]?.[0].isCurrent });
   });
 
   it("retains the tree on cancellation and errors and exposes abort and close lifecycle methods", async () => {
@@ -395,7 +404,7 @@ describe("SessionController session tree navigation", () => {
 
   it("refreshes authoritatively when the same session is reselected before navigation completes", async () => {
     const navigationResult = deferred<{ cancelled: false; editorText: string }>();
-    const replacePromptEditorText = vi.fn();
+    const replacePromptEditorText = vi.fn<NonNullable<SessionControllerDependencies["replacePromptEditorText"]>>();
     let messageCalls = 0;
     let state: AppState = {
       ...initialAppState(),
@@ -430,12 +439,13 @@ describe("SessionController session tree navigation", () => {
 
     expect(messageCalls).toBe(2);
     expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "authoritative branch" }], transcriptIndex: 0 }]);
-    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "recovered draft" });
+    expect(replacePromptEditorText.mock.calls[0]?.[0].isCurrent).toBeTypeOf("function");
+    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "recovered draft", isCurrent: replacePromptEditorText.mock.calls[0]?.[0].isCurrent });
   });
 
   it("replaces live editor text when the same session is reselected during the authoritative refresh", async () => {
     const firstRefresh = deferred<MessagePage>();
-    const replacePromptEditorText = vi.fn();
+    const replacePromptEditorText = vi.fn<NonNullable<SessionControllerDependencies["replacePromptEditorText"]>>();
     let messageCalls = 0;
     let state: AppState = {
       ...initialAppState(),
@@ -471,7 +481,8 @@ describe("SessionController session tree navigation", () => {
 
     expect(messageCalls).toBe(2);
     expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "reselected authoritative branch" }], transcriptIndex: 0 }]);
-    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "recovered draft" });
+    expect(replacePromptEditorText.mock.calls[0]?.[0].isCurrent).toBeTypeOf("function");
+    expect(replacePromptEditorText).toHaveBeenCalledWith({ machineId: "local", sessionId: oldSession.id, text: "recovered draft", isCurrent: replacePromptEditorText.mock.calls[0]?.[0].isCurrent });
   });
 
   it("discards only the originating cache and does not refresh or replace another session after a selection race", async () => {

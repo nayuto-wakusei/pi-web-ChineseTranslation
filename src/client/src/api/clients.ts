@@ -1,6 +1,7 @@
 import { t } from "../i18n";
 import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationDismissThrough, SessionRef, SessionTreeForkRequest, SessionTreeForkResult, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
 import type { WorkspaceTreeBatchRequest, WorkspaceRemovalRequest, SessionBulkMutationRequest } from "../../../shared/apiTypes";
+import type { SessionQueueMessageMutation } from "../../../shared/apiTypes";
 import { parseSessionDefaults } from "../../../shared/sessionDefaults";
 import { request, requestOptional } from "./http";
 import { scopedApiUrl } from "./http";
@@ -342,6 +343,7 @@ export const sessionsApi = {
   detachParent: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "detach-parent", machineId), parseDetached, { method: "POST", body: sessionBody(session) }),
   reloadSession: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "reload", machineId), parseReloaded, { method: "POST", body: sessionBody(session) }),
   clearQueue: (session: SessionLookup, machineId = "local") => request(sessionPath(session, "queue/clear", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session) }),
+  mutateQueuedMessage: (session: SessionRef, mutation: SessionQueueMessageMutation, machineId = "local") => request(sessionPath(session, "queue/message", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { ...mutation }) }),
   dismissWarning: (session: SessionLookup, dismissId: string, machineId = "local") => request(sessionPath(session, "warnings/dismiss", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { dismissId }) }),
   submitAsk: (session: SessionLookup, askId: string, submission: AskUserSubmission, machineId = "local") => request(sessionPath(session, "ask/submit", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { askId, answers: submission.answers }) }),
   cancelAsk: (session: SessionLookup, askId: string, machineId = "local") => request(sessionPath(session, "ask/cancel", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { askId }) }),

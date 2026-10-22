@@ -78,6 +78,7 @@ export const PI_WEB_CAPABILITIES = {
   sessionsCleanup: "sessions.cleanup",
   sessionsReload: "sessions.reload",
   sessionsClearQueue: "sessions.clearQueue",
+  sessionsQueueMessageActions: "sessions.queueMessageActions",
   sessionsPersistedState: "sessions.persistedState",
   sessionsNotifications: "sessions.notifications",
   sessionsUnread: "sessions.unread",
@@ -178,6 +179,8 @@ export interface PiWebThemePreference {
 export interface PiWebConfigValues {
   /** App-wide theme default; browser-local theme preferences take precedence. */
   defaultTheme?: PiWebThemePreference;
+  /** Gateway-wide send behavior while streaming; defaults to steer. */
+  defaultStreamingBehavior?: "steer" | "followUp";
   host?: string;
   port?: number;
   allowedHosts?: string[] | true;
@@ -763,9 +766,23 @@ export interface SessionActivity {
   startup?: boolean;
 }
 
+export interface SessionQueueMessageMutation {
+  action: "remove" | "edit" | "toggle";
+  index: number;
+  expectedQueue: QueuedSessionMessage[];
+}
+
+export interface SessionQueueMessageMutationRequest extends SessionQueueMessageMutation {
+  cwd: string;
+}
+
 export interface QueuedSessionMessage {
   kind: "steer" | "followUp";
   text: string;
+  /** Inline attachments that cannot be restored by text-only recall. */
+  hasAttachments?: boolean;
+  /** Number of attachments, when available; never their payloads. */
+  attachmentCount?: number;
 }
 
 /**
@@ -1213,6 +1230,8 @@ export interface SessionStatus {
   isBashRunning: boolean;
   pendingMessageCount: number;
   queuedMessages: QueuedSessionMessage[];
+  /** SDK compatibility failure; public queue clearing remains available. */
+  queueMessageActionsUnavailable?: string;
   messageCount?: number;
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
   cost: number;
