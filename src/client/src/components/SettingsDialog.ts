@@ -6,7 +6,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import "./ModalSurface";
 import type { ModalSurface } from "./ModalSurface";
 import type { AppAction } from "../actions";
-import { configApi, piPackagesApi, pluginsApi, type Machine, type MachineRuntime, type PiPackageMutationResponse, type PiPackageScope, type PiPackagesResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebPluginsResponse } from "../api";
+import { configApi, piPackagesApi, pluginsApi, type AuthRequestTarget, type Machine, type MachineRuntime, type SessionModel, type PiPackageMutationResponse, type PiPackageScope, type PiPackagesResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebPluginsResponse } from "../api";
 import type { SettingsSection } from "../settingsRoute";
 import type { McpAuthContext, McpAuthHandler } from "./settings/SettingsMcpPanel";
 import "./settings/SettingsMcpPanel";
@@ -43,6 +43,7 @@ export class SettingsDialog extends LitElement {
   @property({ attribute: false }) onUseDefaultTheme?: () => void;
   @property({ attribute: false }) mcpContext: McpAuthContext | undefined;
   @property({ attribute: false }) onMcpAuth?: McpAuthHandler;
+  @property({ attribute: false, hasChanged: (next: AuthRequestTarget | undefined, previous: AuthRequestTarget | undefined) => next?.machineId !== previous?.machineId || next?.projectId !== previous?.projectId }) namingModelsTarget: AuthRequestTarget | undefined;
   @property({ attribute: false }) machine: Machine | undefined;
   @property({ attribute: false }) machineRuntime: MachineRuntime | undefined;
   @property({ attribute: false }) onNavigate?: (section: SettingsSection) => void;
@@ -59,6 +60,9 @@ export class SettingsDialog extends LitElement {
   @state() private loading = true;
   @state() private accessLoading = true;
   @state() private sessiondLoading = true;
+  @state() private namingModels: SessionModel[] = [];
+  @state() private namingModelsLoading = false;
+  @state() private namingModelsError = "";
   @state() private pluginLoading = true;
   @state() private packageLoading = true;
   @state() private saving = false;
@@ -74,6 +78,7 @@ export class SettingsDialog extends LitElement {
   private loadRequestSeq = 0;
   private accessLoadRequestSeq = 0;
   private sessiondLoadRequestSeq = 0;
+  private namingModelsLoadRequestSeq = 0;
   private pluginLoadRequestSeq = 0;
   private packageLoadRequestSeq = 0;
   private packageMutationSeq = 0;
@@ -88,12 +93,14 @@ export class SettingsDialog extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.namingModelsLoadRequestSeq += 1;
     if (this.savedMessageTimer !== undefined) window.clearTimeout(this.savedMessageTimer);
     this.savedMessageTimer = undefined;
     super.disconnectedCallback();
   }
 
   protected override updated(changed: PropertyValues<this>): void {
+    if (changed.has("namingModelsTarget") && (!changed.has("machine") || settingsMachineTarget(changed.get("machine")).id === this.settingsTarget().id)) void this.loadNamingModelsForTarget();
     if (changed.has("section")) {
       const surface = this.renderRoot.querySelector<ModalSurface>("modal-surface");
       void surface?.updateComplete.then(() => {
@@ -107,7 +114,7 @@ export class SettingsDialog extends LitElement {
         this.resetAccessStateForTargetChange();
         if (this.isConnected) void this.loadAccessConfigForTarget(currentTarget);
         this.resetSessiondStateForTargetChange();
-        if (this.isConnected) void this.loadSessiondConfigForTarget(currentTarget);
+        if (this.isConnected) void this.reloadSessiondState(currentTarget);
         this.resetPluginStateForTargetChange();
         if (this.isConnected) void this.loadPluginsForTarget(currentTarget);
         this.resetPackageStateForTargetChange();
@@ -174,9 +181,15 @@ export class SettingsDialog extends LitElement {
       ></settings-mcp-panel>`;
     }
     if (this.section === "sessiond") {
+      const target = this.settingsTarget();
       return html`
         <settings-sessiond-panel
           .configResponse=${this.sessiondConfigResponse}
+          .targetId=${target.id}
+          .namingContextKey=${JSON.stringify([this.namingModelsTarget?.machineId, this.namingModelsTarget?.projectId])}
+          .namingModels=${this.namingModels}
+          .namingModelsLoading=${this.namingModelsLoading}
+          .namingModelsError=${this.namingModelsError}
           .loading=${this.sessiondLoading}
           .saving=${this.saving}
           .error=${this.sessiondError}
@@ -185,7 +198,7 @@ export class SettingsDialog extends LitElement {
           .activeAgentProfile=${this.machineRuntime?.components?.sessiond.activeAgentProfile}
           .agentProfileSupport=${this.agentProfileSettingsSupport()}
           .onReload=${() => this.reloadSessiondState()}
-          .onSave=${(config: PiWebConfigValues) => this.saveSessiondConfig(config)}
+          .onSave=${(config: PiWebConfigValues) => this.saveSessiondConfig(config, target)}
         ></settings-sessiond-panel>
       `;
     }
@@ -332,8 +345,33 @@ export class SettingsDialog extends LitElement {
   private async reloadSessiondState(target = this.settingsTarget()): Promise<void> {
     await Promise.all([
       this.loadSessiondConfigForTarget(target),
+      this.loadNamingModelsForTarget(target),
       this.onRefreshMachineRuntime?.(target.id),
     ]);
+  }
+
+  private async loadNamingModelsForTarget(target = this.settingsTarget()): Promise<void> {
+    const requestSeq = ++this.namingModelsLoadRequestSeq;
+    this.namingModels = [];
+    this.namingModelsLoading = false;
+    this.namingModelsError = "";
+    const context = this.namingModelsTarget;
+    if (context?.machineId !== target.id) {
+      this.namingModelsError = t("ui.sessionNaming.selectProject", "Select a project on this machine to load naming models.");
+      return;
+    }
+    const captured = { ...context };
+    const isCurrent = () => requestSeq === this.namingModelsLoadRequestSeq && this.isCurrentSettingsTarget(target)
+      && this.namingModelsTarget?.machineId === captured.machineId && this.namingModelsTarget.projectId === captured.projectId;
+    this.namingModelsLoading = true;
+    try {
+      const response = await configApi.namingModels(captured);
+      if (isCurrent()) this.namingModels = response.models;
+    } catch (error) {
+      if (isCurrent()) this.namingModelsError = t("ui.sessionNaming.loadModelsError", "Failed to load naming models from {machine}: {error}", { machine: settingsMachineTargetLabel(target), error: friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target) });
+    } finally {
+      if (isCurrent()) this.namingModelsLoading = false;
+    }
   }
 
   private async loadSessiondConfigForTarget(target = this.settingsTarget()): Promise<void> {
@@ -532,9 +570,9 @@ export class SettingsDialog extends LitElement {
     }
   }
 
-  private async saveSessiondConfig(config: PiWebConfigValues): Promise<void> {
+  private async saveSessiondConfig(config: PiWebConfigValues, target = this.settingsTarget()): Promise<void> {
     if (this.saving) return;
-    const target = this.settingsTarget();
+    if (!this.isCurrentSettingsTarget(target)) return;
     const support = this.selectedMachineSettingsSupport(target);
     if (isSelectedMachineSettingsUnsupported(support)) {
       this.sessiondError = support.message ?? t("ui.settingsDialog.doesNotSupportSelectedMachineSettings", "{value1} does not support selected-machine settings.", { value1: settingsMachineTargetLabel(target) });
@@ -555,7 +593,10 @@ export class SettingsDialog extends LitElement {
       if (!this.isCurrentSettingsTarget(target)) return;
       this.sessiondConfigResponse = response;
       if (target.kind === "local" && this.configResponse !== undefined) this.configResponse = mergeSelectedMachineSessiondConfig(this.configResponse, response);
-      this.showSavedMessage();
+      const namingOnly = Object.keys(config).length === 1 && config.sessionNaming !== undefined;
+      this.showSavedMessage(namingOnly
+        ? t("ui.sessionNaming.saved", "Session naming settings saved for {machine}. They apply to the next naming request without a restart. Existing names and in-progress naming requests are unchanged.", { machine: target.name })
+        : t("ui.sessionNaming.daemonSaved", "Session daemon settings saved for {machine}. Restart the session daemon to apply agent permission changes. Restarting interrupts active sessions.{naming}", { machine: target.name, naming: config.sessionNaming === undefined ? "" : t("ui.sessionNaming.nextRequest", " Naming changes apply to the next naming request without a restart.") }));
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
         this.sessiondError = t("ui.settingsDialog.failedToSaveSessionDaemonConfigurationOn", "Failed to save session daemon configuration on {value1}: {value2}", { value1: settingsMachineTargetLabel(target), value2: friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target) });
@@ -707,6 +748,10 @@ export class SettingsDialog extends LitElement {
   }
 
   private resetSessiondStateForTargetChange(): void {
+    this.namingModelsLoadRequestSeq += 1;
+    this.namingModels = [];
+    this.namingModelsLoading = false;
+    this.namingModelsError = "";
     this.sessiondLoadRequestSeq += 1;
     this.sessiondLoading = false;
     this.sessiondError = "";
@@ -735,11 +780,11 @@ export class SettingsDialog extends LitElement {
     if (hadPackageOperation) this.saving = false;
   }
 
-  private showSavedMessage(): void {
-    this.savedMessage = t("ui.settingsDialog.configurationSaved", "Configuration saved.");
+  private showSavedMessage(message = t("ui.settingsDialog.configurationSaved", "Configuration saved.")): void {
+    this.savedMessage = message;
     if (this.savedMessageTimer !== undefined) window.clearTimeout(this.savedMessageTimer);
     this.savedMessageTimer = window.setTimeout(() => {
-      if (this.savedMessage === t("ui.settingsDialog.configurationSaved", "Configuration saved.")) this.savedMessage = "";
+      if (this.savedMessage === message) this.savedMessage = "";
       this.savedMessageTimer = undefined;
     }, 3000);
   }

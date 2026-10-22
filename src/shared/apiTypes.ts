@@ -1,4 +1,5 @@
 import type { MachineStatusUiEvent } from "./machineStatus.js";
+import type { ThinkingLevel } from "./thinkingLevels.js";
 import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
 import type {
   DeleteWorkspaceFileResponse,
@@ -195,6 +196,16 @@ export interface PiWebConfigValues {
   attachments?: PiWebAttachmentsConfig;
   /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
   maxUploadBytes?: number;
+  /** Destination for newly archived transcripts; the index remains in the PI WEB data directory. */
+  sessionArchive?: { directory?: string };
+  /** Machine-wide naming overrides; defaults are the session model, 24 tokens, and minimal thinking. */
+  sessionNaming?: {
+    model?: string;
+    maxTokens?: number;
+    thinkingLevel?: ThinkingLevel;
+    /** Total wall time in milliseconds; defaults to 10000 when omitted. */
+    timeoutMs?: number;
+  };
   /** When true, LLMs can start new sessions via the spawn_session tool. */
   spawnSessions?: boolean;
   /**

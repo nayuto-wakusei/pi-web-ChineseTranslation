@@ -10,6 +10,12 @@ import {
 } from "./settingsConfigDraft";
 
 describe("settings config drafts", () => {
+  it("preserves all machine naming overrides when saving unrelated gateway configuration", () => {
+    const sessionNaming = { model: "provider/naming", maxTokens: 48, thinkingLevel: "off" as const, timeoutMs: 30000 };
+    const base = { host: "127.0.0.1", sessionNaming };
+    expect(gatewayServerConfigFromDraft(gatewayServerDraftFromConfig(base), base).sessionNaming).toEqual(sessionNaming);
+  });
+
   it("splits gateway server and selected-machine access drafts", () => {
     const config = {
       host: "0.0.0.0",

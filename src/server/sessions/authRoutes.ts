@@ -13,6 +13,16 @@ export interface ScopedAuthServices {
 }
 
 export function registerAuthRoutes(app: FastifyInstance, auth: ScopedAuthServices, prefix = "", translator: Translator = createTranslator("en", {})): void {
+  app.get<{ Querystring: AuthQuery }>(`${prefix}/models`, async (request, reply) => {
+    let selected: AuthService;
+    try {
+      selected = await authForRequest(auth, request.headers, request.query.projectId, translator);
+    } catch (error) {
+      return reply.code(400).send({ error: userFacingErrorMessage(error, translator) });
+    }
+    return selected.availableModels();
+  });
+
   app.get<{ Querystring: AuthQuery }>(`${prefix}/auth/providers`, async (request, reply) => {
     try {
       return await (await authForRequest(auth, request.headers, request.query.projectId, translator)).authProviders(request.query.mode ?? "login", request.query.authType);
@@ -87,6 +97,7 @@ interface AuthQuery {
 async function authForRequest(auth: ScopedAuthServices, headers: Record<string, string | string[] | undefined>, projectId: string | undefined, translator: Translator): Promise<AuthService> {
   const raw = headers[MANAGEMENT_EMBED_CONTEXT_HEADER];
   const context = decodeManagementContext(Array.isArray(raw) ? raw[0] : raw);
+  if (raw !== undefined && context === undefined) throw new Error(translator("providerAuth.invalidManagementContext", "Invalid management context"));
   if (context !== undefined) return auth.management;
   if (projectId === undefined || projectId === "") throw new Error(translator("providerAuth.projectRequired", "projectId query parameter is required"));
   return auth.normal.forProject(projectId);

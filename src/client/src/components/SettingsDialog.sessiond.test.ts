@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { configApi, pluginsApi, type PiWebConfigResponse, type PiWebPluginsResponse } from "../api";
 import { SettingsDialog } from "./SettingsDialog";
+import { t } from "../i18n";
 import { callDialogPromise, callDialogUpdated, configResponse, deferred, getDialogProperty, pluginInfo, pluginsResponse, remoteMachine, runtimeWithPackageManagement as runtimeWithoutSelectedMachineSettings, secondRemoteMachine, setDialogProperty, stubWindowTimers } from "./SettingsDialog.testSupport";
 
 afterEach(() => {
@@ -20,7 +21,7 @@ describe("settings-dialog session daemon machine targeting", () => {
     await callDialogPromise(dialog, "saveSessiondConfig", patch);
     expect(saveSpy).toHaveBeenCalledExactlyOnceWith(patch, remoteMachine.id);
     expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBe(saved);
-    expect(getDialogProperty(dialog, "savedMessage")).toBe("配置已保存。");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.sessionNaming.daemonSaved", "Session daemon settings saved for {machine}. Restart the session daemon to apply agent permission changes. Restarting interrupts active sessions.{naming}", { machine: remoteMachine.name, naming: "" }));
   });
   it("keeps gateway settings loads on the gateway config/plugin endpoints", async () => {
     const config = configResponse({ host: "127.0.0.1" });
@@ -81,7 +82,7 @@ describe("settings-dialog session daemon machine targeting", () => {
     expect(saveSpy.mock.calls).toEqual([[{ spawnSessions: true }, "local"]]);
     expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBe(savedConfig);
     expect(getDialogProperty(dialog, "configResponse")).toMatchObject({ config: { host: "127.0.0.1", spawnSessions: true, subsessions: false } });
-    expect(getDialogProperty(dialog, "savedMessage")).toBe("配置已保存。");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.sessionNaming.daemonSaved", "Session daemon settings saved for {machine}. Restart the session daemon to apply agent permission changes. Restarting interrupts active sessions.{naming}", { machine: t("ui.settingsMachineTarget.local", "Local"), naming: "" }));
     expect(getDialogProperty(dialog, "saving")).toBe(false);
   });
 

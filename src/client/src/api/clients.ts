@@ -164,6 +164,12 @@ function pluginsPath(machineId?: string): string {
 }
 
 export const configApi = {
+  namingModels: (target: AuthRequestTarget) => {
+    const params = new URLSearchParams();
+    if (target.projectId !== undefined) params.set("projectId", target.projectId);
+    const query = params.toString();
+    return request(`${machinePrefix(target.machineId)}/models${query === "" ? "" : `?${query}`}`, parseModelSelectionResponse);
+  },
   config: (machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse),
   saveConfig: (config: PiWebConfigValues, machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse, { method: "PUT", body: JSON.stringify({ config }) }),
 };

@@ -1,3 +1,6 @@
+import { live } from "lit/directives/live.js";
+import "../CommandPicker";
+import { isKnownThinkingLevel, KNOWN_THINKING_LEVELS } from "../../../../shared/thinkingLevels";
 import { uiSettingsStyles } from "../ui/settingsStyles";
 import { uiButtonStyles } from "../ui/controlStyles";
 import { uiFormStyles } from "../ui/formStyles";
@@ -5,7 +8,7 @@ import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import type { ActiveAgentProfileDescriptor, PiWebConfigResponse, PiWebConfigValues } from "../../api";
+import type { ActiveAgentProfileDescriptor, PiWebConfigResponse, PiWebConfigValues, SessionModel } from "../../api";
 import "./SettingsPanelFrame";
 import type { SettingsNotice } from "./SettingsPanelFrame";
 import { agentProfileConfigPatchFromDraft, agentProfileDraftFromConfig, agentProfileDraftMatchesConfig, emptyAgentProfileConfigDraft, type AgentProfileConfigDraft } from "./settingsConfigDraft";
@@ -29,11 +32,23 @@ export class SettingsSessiondPanel extends LitElement {
   @property({ attribute: false }) agentProfileSupport: AgentProfileSettingsSupport = { state: "supported" };
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
   @property({ attribute: false }) onSave?: (config: PiWebConfigValues) => void | Promise<void>;
+  @property() targetId = "local";
+  @property() namingContextKey = "";
+  @property({ attribute: false }) namingModels: SessionModel[] = [];
+  @property({ type: Boolean }) namingModelsLoading = false;
+  @property() namingModelsError = "";
+  @state() private namingPickerOpen = false;
   @state() private agentDraft: AgentProfileConfigDraft = emptyAgentProfileConfigDraft();
   @state() private agentDraftDirty = false;
   @state() private agentLocalError = "";
 
   protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("targetId") || changed.has("targetLabel") || changed.has("namingContextKey") || (changed.has("loading") && this.loading) || (changed.has("namingModelsLoading") && this.namingModelsLoading)) this.namingPickerOpen = false;
+    if (changed.has("targetId")) {
+      this.agentDraft = emptyAgentProfileConfigDraft();
+      this.agentDraftDirty = false;
+      this.agentLocalError = "";
+    }
     if (!changed.has("configResponse")) return;
     if (this.configResponse === undefined) {
       this.agentDraft = emptyAgentProfileConfigDraft();
@@ -50,6 +65,14 @@ export class SettingsSessiondPanel extends LitElement {
 
   override render(): TemplateResult {
     const config = this.configResponse;
+    const targetId = this.targetId;
+    const namingContextKey = this.namingContextKey;
+    const namingOptions = this.namingModels.flatMap((model) => {
+      if (model.provider === undefined || model.provider === "" || model.id === undefined || model.id === "") return [];
+      const value = `${model.provider}/${model.id}`;
+      return [{ value, label: model.name ?? model.id, description: value }];
+    });
+
     const spawnOverridden = config?.envOverrides.spawnSessions === true;
     // On by default: the effective config is the source of truth for the toggle
     // state, so an unset config file still shows the feature as enabled.
@@ -83,7 +106,7 @@ export class SettingsSessiondPanel extends LitElement {
             <span>${t("ui.settingsShortcutsPanel.configurationFile", "Configuration file")}</span>
             <code>${config.path}</code>
           </div>
-          <form class="profile-form ui-settings-fields" aria-label="${t("ui.settingsSessiondPanel.piCompatibleAgentProfile", "Pi-compatible agent profile")}" @submit=${(event: Event) => { void this.saveAgentProfile(event); }}>
+          <form class="profile-form ui-settings-fields" aria-label="${t("ui.settingsSessiondPanel.piCompatibleAgentProfile", "Pi-compatible agent profile")}" @submit=${(event: Event) => { void this.saveAgentProfile(event, targetId); }}>
             ${profileEditingSupported ? null : html`<div class="profile-support-message">${this.agentProfileSupport.message ?? t("ui.settingsSessiondPanel.thisMachineDoesNotSupportEditingPiCompatible", "This machine does not support editing Pi-compatible agent profiles.")}</div>`}
             <label class="field ui-form-field">
               <span class="field-heading">
@@ -186,8 +209,95 @@ export class SettingsSessiondPanel extends LitElement {
               <div><dt>${t("ui.settingsSessiondPanel.agentQuestions", "Agent questions")}</dt><dd>${!askUserSupported ? html`<span class="muted">${t("bundled.info.unavailable.460b35", "Unavailable")}</span>` : effectiveAskUser ? t("ui.settingsSessiondPanel.enabled", "Enabled") : html`<span class="muted">${t("ui.settingsShortcutsPanel.disabled", "Disabled")}</span>`}</dd></div>
             </dl>
           </section>
+          <h3>${t("ui.sessionNaming.heading", "Session naming")}</h3>
+          <div class="field ui-form-field">
+            <span id="session-naming-model-label">${t("ui.sessionNaming.model", "Naming model")}</span>
+            <button id="session-naming-model" class="ui-button ui-button--action naming-model"
+              type="button" aria-labelledby="session-naming-model-label session-naming-model-value"
+              aria-describedby="session-naming-model-help" aria-haspopup="dialog"
+              ?disabled=${this.loading || this.saving || this.namingModelsLoading}
+              @click=${() => { this.namingPickerOpen = true; }}>
+              <span id="session-naming-model-value">${config.config.sessionNaming?.model ?? t("ui.sessionNaming.useSessionModel", "Use session model")}</span>
+              <span aria-hidden="true">▾</span>
+            </button>
+            <small id="session-naming-model-help">${t("ui.sessionNaming.modelHelp", "Search models available for this authentication context, or use the session model.")}</small>
+            ${this.namingModelsLoading ? html`<small role="status">${t("ui.sessionNaming.modelsLoading", "Loading naming models…")}</small>` : null}
+            ${this.namingModelsError !== "" ? html`<small role="status">${this.namingModelsError} ${t("ui.sessionNaming.modelsRetry", "Refresh settings to try again. Your saved model is unchanged.")}</small>` : null}
+            ${!this.namingModelsLoading && this.namingModelsError === "" && namingOptions.length === 0 ? html`<small role="status">${t("ui.sessionNaming.noModels", "No naming models are available. Configure provider authentication, then refresh settings.")}</small>` : null}
+            ${!this.namingModelsLoading && this.namingModelsError === "" && config.config.sessionNaming?.model !== undefined && !namingOptions.some((option) => option.value === config.config.sessionNaming?.model) ? html`<small role="status">${t("ui.sessionNaming.unavailableModel", "The saved naming model is unavailable. Choose another model or use the session model.")}</small>` : null}
+          </div>
+          <div class="field ui-form-field">
+            <label for="session-naming-max-tokens">${t("ui.sessionNaming.maxTokens", "Naming token budget")}</label>
+            <input id="session-naming-max-tokens" class="ui-input" type="number" min="1" max="9007199254740991" step="1" placeholder="24"
+              aria-describedby="session-naming-max-tokens-help"
+              .value=${live(String(config.config.sessionNaming?.maxTokens ?? ""))}
+              ?disabled=${this.loading || this.saving}
+              @change=${(event: Event) => {
+                const input = event.target;
+                if (!(input instanceof HTMLInputElement)) return;
+                if (input.reportValidity()) void this.saveNamingField("maxTokens", input.value === "" ? undefined : input.valueAsNumber, targetId);
+              }}>
+            <small id="session-naming-max-tokens-help">${t("ui.sessionNaming.maxTokensHelp", "Use a positive whole number. Clear to use 24 tokens, regardless of the model.")}</small>
+          </div>
+          <div class="field ui-form-field">
+            <label for="session-naming-timeout">${t("ui.sessionNaming.timeout", "Naming timeout (seconds)")}</label>
+            <input id="session-naming-timeout" class="ui-input" type="number" min="0.001" max="2147483.647" step="0.001" placeholder="10"
+              aria-describedby="session-naming-timeout-help"
+              .value=${live(config.config.sessionNaming?.timeoutMs === undefined ? "" : String(config.config.sessionNaming.timeoutMs / 1000))}
+              ?disabled=${this.loading || this.saving}
+              @change=${(event: Event) => {
+                const input = event.target;
+                if (!(input instanceof HTMLInputElement)) return;
+                if (input.reportValidity()) void this.saveNamingField("timeoutMs", input.value === "" ? undefined : Math.round(input.valueAsNumber * 1000), targetId);
+              }}>
+            <small id="session-naming-timeout-help">${t("ui.sessionNaming.timeoutHelp", "Total timeout includes model loading. Increase it for cold local engines. Clear to use 10 seconds.")}</small>
+          </div>
+          <div class="field ui-form-field">
+            <label for="session-naming-thinking-level">${t("ui.sessionNaming.thinkingLevel", "Naming thinking level")}</label>
+            <select id="session-naming-thinking-level" class="ui-select"
+              aria-describedby="session-naming-thinking-level-help"
+              .value=${live(config.config.sessionNaming?.thinkingLevel ?? "")}
+              ?disabled=${this.loading || this.saving}
+              @change=${(event: Event) => {
+                const input = event.target;
+                if (!(input instanceof HTMLSelectElement)) return;
+                if (input.value === "" || isKnownThinkingLevel(input.value)) {
+                  void this.saveNamingField("thinkingLevel", input.value === "" ? undefined : input.value, targetId);
+                }
+              }}>
+              <option value="">${t("ui.sessionNaming.defaultThinking", "Default (minimal)")}</option>
+              ${KNOWN_THINKING_LEVELS.map((level) => html`<option value=${level}>${level}</option>`)}
+            </select>
+            <small id="session-naming-thinking-level-help">${t("ui.sessionNaming.thinkingHelp", "Controls reasoning for naming only. Off disables optional thinking where supported; model support varies.")}</small>
+          </div>
+          <section class="effective-card ui-settings-summary" aria-labelledby="naming-summary-heading" aria-describedby="naming-summary-help">
+            <h3 id="naming-summary-heading">${t("ui.sessionNaming.nextRequestHeading", "For the next naming request")}</h3>
+            <small id="naming-summary-help">${t("ui.sessionNaming.nextRequestHelp", "Saved naming settings apply without a restart. Existing names and in-progress naming requests are unchanged.")}</small>
+            <dl>
+              <div><dt>${t("ui.sessionNaming.model", "Naming model")}</dt><dd>${config.effectiveConfig.sessionNaming?.model ?? t("ui.sessionNaming.useSessionModel", "Use session model")}</dd></div>
+              <div><dt>${t("ui.sessionNaming.maxTokens", "Naming token budget")}</dt><dd>${config.effectiveConfig.sessionNaming?.maxTokens ?? 24}</dd></div>
+              <div><dt>${t("ui.sessionNaming.timeoutSummary", "Naming timeout")}</dt><dd>${t("ui.sessionNaming.seconds", "{seconds} seconds", { seconds: String((config.effectiveConfig.sessionNaming?.timeoutMs ?? 10000) / 1000) })}</dd></div>
+              <div><dt>${t("ui.sessionNaming.thinkingLevel", "Naming thinking level")}</dt><dd>${config.effectiveConfig.sessionNaming?.thinkingLevel ?? "minimal"}</dd></div>
+            </dl>
+          </section>
         `}
       </settings-panel-frame>
+      ${this.namingPickerOpen ? html`
+        <command-picker title=${t("ui.sessionNaming.selectModel", "Select naming model")} searchable
+          .options=${[
+            { value: "", label: t("ui.sessionNaming.useSessionModel", "Use session model"), description: t("ui.sessionNaming.sessionModelHelp", "Use the conversation’s model for naming.") },
+            ...(this.namingModelsLoading || this.namingModelsError !== "" ? [] : namingOptions),
+          ]}
+          .selectedValue=${config?.config.sessionNaming?.model ?? ""}
+          .onCancel=${() => { this.namingPickerOpen = false; }}
+          .onPick=${(value: string) => {
+            if (this.loading || this.saving || targetId !== this.targetId || namingContextKey !== this.namingContextKey) return;
+            if (value !== "" && (this.namingModelsLoading || this.namingModelsError !== "" || !namingOptions.some((option) => option.value === value))) return;
+            this.namingPickerOpen = false;
+            void this.saveNamingField("model", value === "" ? undefined : value, targetId);
+          }}
+        ></command-picker>
+      ` : null}
     `;
   }
 
@@ -205,8 +315,9 @@ export class SettingsSessiondPanel extends LitElement {
     return html`<div class="loading-card">${this.loading ? t("ui.settingsSessiondPanel.loadingConfiguration", "Loading configuration…") : t("ui.settingsSessiondPanel.configurationUnavailableReload", "Configuration unavailable. Reload.")}</div>`;
   }
 
-  private async saveAgentProfile(event: Event): Promise<void> {
+  private async saveAgentProfile(event: Event, targetId = this.targetId): Promise<void> {
     event.preventDefault();
+    if (targetId !== this.targetId || this.loading || this.saving) return;
     this.agentLocalError = "";
     try {
       await this.onSave?.(agentProfileConfigPatchFromDraft(this.agentDraft));
@@ -219,6 +330,20 @@ export class SettingsSessiondPanel extends LitElement {
     this.agentDraft = { ...this.agentDraft, ...patch };
     this.agentDraftDirty = true;
     this.agentLocalError = "";
+  }
+
+  private async saveNamingField<K extends keyof NonNullable<PiWebConfigValues["sessionNaming"]>>(
+    key: K, value: NonNullable<PiWebConfigValues["sessionNaming"]>[K], targetId = this.targetId,
+  ): Promise<void> {
+    if (targetId !== this.targetId || this.loading || this.saving || this.configResponse === undefined) return;
+    const current = { ...this.configResponse.config.sessionNaming, [key]: value };
+    const sessionNaming = {
+      ...(current.model === undefined ? {} : { model: current.model }),
+      ...(current.maxTokens === undefined ? {} : { maxTokens: current.maxTokens }),
+      ...(current.thinkingLevel === undefined ? {} : { thinkingLevel: current.thinkingLevel }),
+      ...(current.timeoutMs === undefined ? {} : { timeoutMs: current.timeoutMs }),
+    };
+    await this.onSave?.({ sessionNaming });
   }
 
   private async toggleSpawnSessions(event: Event): Promise<void> {
@@ -274,7 +399,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function sessiondDescription(targetLabel: string): string {
-  return t("ui.settingsSessiondPanel.theseSettingsAffectLongLivedSessionRuntimesOn", "These settings affect long-lived session runtimes on {targetLabel}. Changes are saved immediately but take effect only after restarting that machine's session daemon.", { targetLabel: targetLabel });
+  return t("ui.sessionNaming.description", "Configure agent permissions and session naming on {targetLabel}. Naming changes apply to the next naming request without a restart. Agent permission changes require that machine's session daemon to restart. Restarting interrupts active sessions and running work.", { targetLabel });
 }
 
 export interface SessiondPanelNoticeContext {

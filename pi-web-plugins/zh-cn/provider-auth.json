@@ -13,5 +13,6 @@
   "providerAuth.valueRequired": "必须填写一个值",
   "providerAuth.invalidSelection": "无效的登录选项",
   "providerAuth.promptCancelled": "输入请求已取消",
-  "providerAuth.flowExpired": "登录流程已过期"
+  "providerAuth.flowExpired": "登录流程已过期",
+  "providerAuth.invalidManagementContext": "管理上下文无效"
 }

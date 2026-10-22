@@ -32,6 +32,10 @@ afterEach(() => {
 });
 
 describe("federated route contract", () => {
+  it("allowlists naming model reads without creating a new session socket", () => {
+    expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path === "/models")).toEqual([{ method: "GET", path: "/models" }]);
+    expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path === "/models")).toBe(false);
+  });
   it("allowlists dedicated MCP authentication without adding an OAuth callback or socket", () => {
     expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("/mcp"))).toEqual([
       { method: "GET", path: "/sessions/:sessionId/mcp/auth/servers" },
@@ -82,6 +86,7 @@ describe("federated route contract", () => {
       { method: "GET", path: "/sessions/:sessionId/models/catalog" },
       { method: "POST", path: "/sessions/:sessionId/models/enabled" },
       { method: "POST", path: "/sessions/:sessionId/models/scope" },
+      { method: "GET", path: "/models" },
     ]);
     expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("models"))).toBe(false);
   });
@@ -190,6 +195,7 @@ describe("federated route contract", () => {
       { method: "GET", path: "/sessions/:sessionId/models/catalog" },
       { method: "POST", path: "/sessions/:sessionId/models/enabled" },
       { method: "POST", path: "/sessions/:sessionId/models/scope" },
+      { method: "GET", path: "/models" },
     ]);
     expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("models"))).toBe(false);
   });
@@ -201,6 +207,7 @@ describe("federated route contract", () => {
       ignoreParseFailure(piWebApi.piWebStatus(machineId)),
       ignoreParseFailure(piWebApi.checkForUpdates(machineId)),
       ignoreParseFailure(configApi.config(machineId)),
+      ignoreParseFailure(configApi.namingModels({ machineId, projectId: workspace.projectId })),
       ignoreParseFailure(configApi.saveConfig({ spawnSessions: true }, machineId)),
       ignoreParseFailure(pluginsApi.plugins(machineId)),
       ignoreParseFailure(piPackagesApi.packages(machineId)),

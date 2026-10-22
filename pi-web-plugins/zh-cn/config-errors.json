@@ -169,5 +169,20 @@
   "configError.field.field.must.be.a.boolean.field.be00df": "{value1} 字段 必须是布尔值: {value2}",
   "configError.field.field.must.be.a.boolean.field.be00df.selectedMachine": "{value1} 字段 必须是布尔值: {value2}",
   "configError.field.field.must.be.a.valid.agent.directory.source.agentdirsource.934d85": "{value1} 字段 agentDirSource 必须是有效的代理目录来源",
-  "configError.field.field.must.be.a.valid.agent.directory.source.agentdirsource.934d85.selectedMachine": "{value1} 字段 agentDirSource 必须是有效的代理目录来源"
+  "configError.field.field.must.be.a.valid.agent.directory.source.agentdirsource.934d85.selectedMachine": "{value1} 字段 agentDirSource 必须是有效的代理目录来源",
+  "configError.sessionNaming.object": "PI WEB 配置 sessionNaming 必须为对象：{source}",
+  "configError.sessionNaming.unknownKey": "PI WEB 配置 sessionNaming 包含未知字段 {key}：{source}",
+  "configError.sessionNaming.model": "PI WEB 配置 sessionNaming.model 必须为 provider/model-id，且两部分均非空：{source}",
+  "configError.sessionNaming.maxTokens": "PI WEB 配置 sessionNaming.maxTokens 必须为正安全整数：{source}",
+  "configError.sessionNaming.thinkingLevel": "PI WEB 配置 sessionNaming.thinkingLevel 必须为有效的思考等级：{source}",
+  "configError.sessionNaming.timeoutMs": "PI WEB 配置 sessionNaming.timeoutMs 必须为 1 到 2147483647 之间的整数：{source}",
+  "configError.sessionNaming.object.selectedMachine": "所选机器的 sessionNaming 配置必须为对象：{source}",
+  "configError.sessionNaming.unknownKey.selectedMachine": "所选机器的 sessionNaming 配置包含未知字段 {key}：{source}",
+  "configError.sessionNaming.model.selectedMachine": "所选机器的 sessionNaming.model 配置必须为 provider/model-id，且两部分均非空：{source}",
+  "configError.sessionNaming.maxTokens.selectedMachine": "所选机器的 sessionNaming.maxTokens 配置必须为正安全整数：{source}",
+  "configError.sessionNaming.thinkingLevel.selectedMachine": "所选机器的 sessionNaming.thinkingLevel 配置必须为有效的思考等级：{source}",
+  "configError.sessionNaming.timeoutMs.selectedMachine": "所选机器的 sessionNaming.timeoutMs 配置必须为 1 到 2147483647 之间的整数：{source}",
+  "configError.sessionArchive.object": "PI WEB 配置 sessionArchive 必须为对象：{source}",
+  "configError.sessionArchive.unknownKey": "PI WEB 配置 sessionArchive 包含未知字段 {key}：{source}",
+  "configError.sessionArchive.directory": "PI WEB 配置 sessionArchive.directory 必须为非空路径：{source}"
 }

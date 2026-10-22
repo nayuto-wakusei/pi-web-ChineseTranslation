@@ -1330,7 +1330,7 @@ export interface PiSessionServiceDependencies {
    * a session is being constructed. Omit to report the startup phase alone.
    */
   catalogRefreshStatus?: CatalogRefreshStatus;
-  /** Live config reader for request-time workspace defaults. */
+  /** Live config reader for request-time attachment defaults and automatic session naming. */
   config?: Pick<PiWebConfigService, "read">;
   workbench?: WorkbenchRuntimeDependencies;
   /** PI WEB session nesting facts appended only to ordinary-mode sessions. */
@@ -4330,14 +4330,27 @@ export class PiSessionService {
   private maybeGenerateSessionName(session: PiAgentSession, firstMessage: string): void {
     if (session.sessionName !== undefined || session.messages.length !== 0 || session.isStreaming || session.isCompacting) return;
 
-    const model = session.model;
-    if (model === undefined) return;
-
-    void generateShortSessionName(session.agent.streamFunction, model, firstMessage).then((name) => {
+    void this.generateSessionName(session, firstMessage).then((name) => {
+      if (name === undefined) this.logger.info({ sessionId: session.sessionId }, "Session naming returned no title; using the first-message fallback");
       this.applyGeneratedSessionName(session, name ?? fallbackSessionName(firstMessage));
-    }).catch(() => {
+    }).catch((error: unknown) => {
+      const errorCategory = error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? "timeout" : "generation";
+      this.logger.info({ sessionId: session.sessionId, errorCategory }, "Session naming failed; using the first-message fallback");
       this.applyGeneratedSessionName(session, fallbackSessionName(firstMessage));
     });
+  }
+
+  private async generateSessionName(session: PiAgentSession, firstMessage: string): Promise<string | undefined> {
+    // One request keeps its settings even if the operator edits the config while it runs.
+    const naming = this.config === undefined ? {} : (await this.config.read()).effectiveConfig.sessionNaming ?? {};
+    let model = session.model;
+    if (naming.model !== undefined) {
+      const parsed = parseModelSpec(naming.model);
+      model = parsed === undefined ? undefined : session.modelRuntime.getModel(parsed.provider, parsed.modelId);
+      if (model === undefined) throw new Error("Configured session naming model is unavailable");
+    }
+    if (model === undefined) return undefined;
+    return generateShortSessionName(session.agent.streamFunction, model, firstMessage, naming);
   }
 
   private applyGeneratedSessionName(session: PiAgentSession, name: string | undefined): void {

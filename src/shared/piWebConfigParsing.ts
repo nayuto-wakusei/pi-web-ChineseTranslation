@@ -2,6 +2,7 @@ import { requireDefaultThemePreference } from "./themePreference.js";
 import { UserFacingError, type TranslationParameters } from "./i18n.js";
 import type { PiWebConfigValues } from "./apiTypes.js";
 import { isPiWebPluginId, piWebPluginIdPattern } from "./pluginIds.js";
+import { isKnownThinkingLevel } from "./thinkingLevels.js";
 
 export type ParsedPiWebConfig = PiWebConfigValues;
 
@@ -25,6 +26,8 @@ export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unk
     ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
     ...(config.attachments !== undefined ? { attachments: config.attachments } : {}),
     ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
+    ...(config.sessionNaming !== undefined ? { sessionNaming: config.sessionNaming } : {}),
+    ...(config.sessionArchive !== undefined ? { sessionArchive: config.sessionArchive } : {}),
     ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
     ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
   };
@@ -71,9 +74,51 @@ function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseCo
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["attachments"] !== undefined ? { attachments: parseAttachmentsConfig(value["attachments"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", context.format === "file" ? context.path : "request") } : {}),
+    ...(value["sessionNaming"] !== undefined ? { sessionNaming: parseSessionNamingConfig(value["sessionNaming"], context.format === "file" ? context.path : "request") } : {}),
+    ...(value["sessionArchive"] !== undefined ? { sessionArchive: parseSessionArchiveConfig(value["sessionArchive"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseBoolean(value["spawnSessions"], "spawnSessions", context) } : {}),
     ...(value["subsessions"] !== undefined ? { subsessions: parseBoolean(value["subsessions"], "subsessions", context) } : {}),
   };
+}
+
+export function parseSessionNamingConfig(value: unknown, source: string): NonNullable<PiWebConfigValues["sessionNaming"]> {
+  if (!isRecord(value)) throw new UserFacingError("configError.sessionNaming.object", "PI WEB config sessionNaming must be an object: {source}", { source });
+  const unknownKey = Object.keys(value).find((key) => key !== "model" && key !== "maxTokens" && key !== "thinkingLevel" && key !== "timeoutMs");
+  if (unknownKey !== undefined) throw new UserFacingError("configError.sessionNaming.unknownKey", "PI WEB config sessionNaming has unknown key {key}: {source}", { key: JSON.stringify(unknownKey), source });
+  const model = value["model"];
+  const maxTokens = value["maxTokens"];
+  const thinkingLevel = value["thinkingLevel"];
+  const timeoutMs = value["timeoutMs"];
+  if (model !== undefined && (typeof model !== "string" || !/^[^/\s]+\/\S+$/.test(model))) {
+    throw new UserFacingError("configError.sessionNaming.model", "PI WEB config sessionNaming.model must be an exact provider/model-id with non-empty parts: {source}", { source });
+  }
+  if (maxTokens !== undefined && (typeof maxTokens !== "number" || !Number.isSafeInteger(maxTokens) || maxTokens <= 0)) {
+    throw new UserFacingError("configError.sessionNaming.maxTokens", "PI WEB config sessionNaming.maxTokens must be a positive safe integer: {source}", { source });
+  }
+  if (thinkingLevel !== undefined && (typeof thinkingLevel !== "string" || !isKnownThinkingLevel(thinkingLevel))) {
+    throw new UserFacingError("configError.sessionNaming.thinkingLevel", "PI WEB config sessionNaming.thinkingLevel must be a known thinking level: {source}", { source });
+  }
+  if (timeoutMs !== undefined && (typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2147483647)) {
+    throw new UserFacingError("configError.sessionNaming.timeoutMs", "PI WEB config sessionNaming.timeoutMs must be an integer from 1 to 2147483647: {source}", { source });
+  }
+  return {
+    ...(model === undefined ? {} : { model }),
+    ...(maxTokens === undefined ? {} : { maxTokens }),
+    ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  };
+}
+
+export function parseSessionArchiveConfig(value: unknown, source: string): NonNullable<PiWebConfigValues["sessionArchive"]> {
+  if (!isRecord(value)) throw new UserFacingError("configError.sessionArchive.object", "PI WEB config sessionArchive must be an object: {source}", { source });
+  const unknownKey = Object.keys(value).find((key) => key !== "directory");
+  if (unknownKey !== undefined) throw new UserFacingError("configError.sessionArchive.unknownKey", "PI WEB config sessionArchive has unknown key {key}: {source}", { key: JSON.stringify(unknownKey), source });
+  const directory = value["directory"];
+  if (directory === undefined) return {};
+  if (typeof directory !== "string" || directory.trim() === "" || directory.includes("\u0000")) {
+    throw new UserFacingError("configError.sessionArchive.directory", "PI WEB config sessionArchive.directory must be a non-empty path: {source}", { source });
+  }
+  return { directory };
 }
 
 const AUDIT_LOG_KEYS = new Set(["normalMode", "managementMode"]);

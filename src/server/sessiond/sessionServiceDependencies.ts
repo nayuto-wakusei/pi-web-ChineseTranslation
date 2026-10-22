@@ -23,7 +23,7 @@ export interface SessionServiceDependencyInput {
   onUnreadChanged: NonNullable<PiSessionServiceDependencies["onUnreadChanged"]>;
   /** Read-only view of the background refresher; see the assembly below. */
   catalogRefreshStatus: NonNullable<PiSessionServiceDependencies["catalogRefreshStatus"]>;
-  /** Live global config reader for request-time workspace-effective defaults (e.g. the attachments save folder). */
+  /** Live global config reader for request-time attachment defaults and session naming. */
   config: NonNullable<PiSessionServiceDependencies["config"]>;
   /** Omitted when the operator has not enabled session spawning. */
   spawnTargets?: NonNullable<PiSessionServiceDependencies["spawnTargets"]>;

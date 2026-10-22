@@ -27,6 +27,7 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", () => undefined);
   vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
   vi.spyOn(configApi, "config").mockResolvedValue(configResponse({}));
+  vi.spyOn(configApi, "namingModels").mockResolvedValue({ models: [] });
   vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([]));
   vi.spyOn(piPackagesApi, "packages").mockResolvedValue({ packages: [] });
   vi.spyOn(api, "runtime").mockResolvedValue({ machineId: remoteMachine.id, ok: true, checkedAt: "now", capabilities: [] });
@@ -40,6 +41,34 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   expect(unexpectedRequest).not.toHaveBeenCalled();
+});
+
+describe("naming model app settings context", () => {
+  it("does not infer normal model credentials when no owning project is selected", async () => {
+    const app = await mount(session);
+    expect(settings(app).namingModelsTarget).toBeUndefined();
+    expect(configApi.namingModels).not.toHaveBeenCalled();
+  });
+
+  it("binds model discovery to the selected machine and refreshes the target on a project change", async () => {
+    const app = await mount(session);
+    const current: unknown = Reflect.get(app, "state");
+    if (typeof current !== "object" || current === null) throw new Error("Missing app state");
+    Reflect.set(app, "state", { ...current, selectedProject: { id: "project-a", name: "Project A", path: "/repo", createdAt: "now" } });
+    await settle(app);
+    expect(settings(app).namingModelsTarget).toEqual({ machineId: remoteMachine.id, projectId: "project-a" });
+    expect(configApi.namingModels).toHaveBeenCalledWith({ machineId: remoteMachine.id, projectId: "project-a" });
+    Reflect.set(app, "state", { ...current, selectedProject: { id: "project-b", name: "Project B", path: "/other", createdAt: "now" } });
+    await settle(app);
+    expect(settings(app).namingModelsTarget).toEqual({ machineId: remoteMachine.id, projectId: "project-b" });
+  });
+
+  it("uses management authentication without inventing a normal project target", async () => {
+    window.history.replaceState(null, "", "/?embed=management&token=test-entry");
+    const app = await mount(session);
+    expect(settings(app).namingModelsTarget).toEqual({ machineId: remoteMachine.id });
+    expect(configApi.namingModels).toHaveBeenCalledWith({ machineId: remoteMachine.id });
+  });
 });
 
 describe("MCP app settings binding", () => {

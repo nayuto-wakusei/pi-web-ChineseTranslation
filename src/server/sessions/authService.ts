@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { getAgentDir, ModelRuntime } from "../../piSdk.js";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
-import type { AuthProvidersResponse, AuthType, OAuthFlowState } from "../../shared/apiTypes.js";
+import type { AuthProvidersResponse, AuthType, ModelSelectionResponse, OAuthFlowState } from "../../shared/apiTypes.js";
 import { getLoginProviderOptions, getLogoutProviderOptions } from "./authProviderOptions.js";
 import { OAuthLoginFlowService } from "./oauthLoginFlowService.js";
 import { createTranslator, type Translator } from "../../shared/i18n.js";
@@ -105,6 +105,17 @@ export class AuthService {
   dispose(): void {
     this.authFlows.dispose();
     this.listeners.clear();
+  }
+
+  /** Credential-available models of this service's project or management runtime. */
+  async availableModels(): Promise<ModelSelectionResponse> {
+    await this.runtime.refresh({ allowNetwork: false });
+    return {
+      models: this.runtime.getAvailableSnapshot().map((model) => ({
+        provider: model.provider, id: model.id, name: model.name,
+        contextWindow: model.contextWindow, reasoning: model.reasoning,
+      })),
+    };
   }
 
   async authProviders(mode: "login" | "logout", authType?: AuthType): Promise<AuthProvidersResponse> {

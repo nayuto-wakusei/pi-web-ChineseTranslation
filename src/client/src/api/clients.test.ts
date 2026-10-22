@@ -247,6 +247,33 @@ describe("ordinary mode auth API", () => {
 });
 
 describe("settings config and plugin APIs", () => {
+  it("loads naming models through the selected machine and owning project under the application base", async () => {
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/" });
+    const response = { models: [{ provider: "provider", id: "naming", name: "Naming" }] };
+    const fetchMock = stubSequenceFetch([jsonResponse(response), jsonResponse({ models: [] })]);
+    await expect(configApi.namingModels({ machineId: "remote /a", projectId: "project /a" })).resolves.toEqual(response);
+    await expect(configApi.namingModels({ machineId: "local", projectId: "local-project" })).resolves.toEqual({ models: [] });
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "https://pi.example.test/nested/api/machines/remote%20%2Fa/models?projectId=project+%2Fa",
+      "https://pi.example.test/nested/api/machines/local/models?projectId=local-project",
+    ]);
+  });
+
+  it("keeps management naming model queries in the original management transport scope", async () => {
+    setApiScope("management");
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/" });
+    vi.stubGlobal("location", { href: "https://pi.example.test/nested/?embed=management&token=test-entry" });
+    const fetchMock = stubJsonFetch({ models: [] });
+    await configApi.namingModels({ machineId: "remote a" });
+    const input = fetchCall(fetchMock, 0)[0];
+    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+    expect(url.pathname).toBe("/nested/api/machines/remote%20a/models");
+    expect(url.searchParams.get("embed")).toBe("management");
+    expect(url.searchParams.get("projectId")).toBeNull();
+  });
+
   it("preserves gateway config and plugin routes by default", async () => {
     const fetchMock = stubSequenceFetch([
       jsonResponse(piWebConfigResponse({ host: "127.0.0.1" })),

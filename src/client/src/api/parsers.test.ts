@@ -16,6 +16,28 @@ import { ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOT
 import { parseAskUserOutcome, parseAskUserRequest, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionModelCatalogResponse, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeForkResult, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
+  it("preserves all naming configuration overrides and reset objects at both response boundaries", () => {
+    const response = { path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {}, envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false } };
+    for (const field of ["config", "effectiveConfig"] as const) {
+      for (const sessionNaming of [{}, { model: "provider/org/model", maxTokens: 48, thinkingLevel: "high", timeoutMs: 2_000 }, { thinkingLevel: "off" }]) {
+        expect(parsePiWebConfigResponse({ ...response, [field]: { sessionNaming } })[field]).toEqual({ sessionNaming });
+      }
+      for (const sessionNaming of [[], "model", { model: "no-provider" }, { maxTokens: 0 }, { maxTokens: 1.5 }, { thinkingLevel: "invalid" }, { timeoutMs: 0 }, { timeoutMs: 2_147_483_648 }, { unexpected: true }]) {
+        expect(() => parsePiWebConfigResponse({ ...response, [field]: { sessionNaming } })).toThrow();
+      }
+      expect(parsePiWebConfigResponse(response)[field]).not.toHaveProperty("sessionNaming");
+    }
+  });
+
+  it("preserves archive directory configuration without inventing defaults or accepting invalid paths", () => {
+    const response = { path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {}, envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false } };
+    for (const field of ["config", "effectiveConfig"] as const) {
+      for (const sessionArchive of [{}, { directory: "relative/archive" }]) expect(parsePiWebConfigResponse({ ...response, [field]: { sessionArchive } })[field]).toEqual({ sessionArchive });
+      for (const sessionArchive of [[], null, { directory: "" }, { directory: "  " }, { directory: false }, { directory: "valid", unknown: true }]) expect(() => parsePiWebConfigResponse({ ...response, [field]: { sessionArchive } })).toThrow();
+      expect(parsePiWebConfigResponse(response)[field]).not.toHaveProperty("sessionArchive");
+    }
+  });
+
   it.each(["javascript:alert(1)", "data:text/html,unsafe", "file:///private", "/relative/authorization"])("rejects an unsafe MCP authorization link: %s", (url) => {
     const flow = { flowId: "mcp-flow", providerId: "mcp", providerName: "MCP server", status: "running", progress: [], target: "mcp", auth: { url } };
     expect(() => parseOAuthFlowState(flow)).toThrow();

@@ -172,6 +172,13 @@ export function piWebDataDir(env: NodeJS.ProcessEnv = process.env, cwd = process
   return resolve(cwd, configured);
 }
 
+/** Resolve new archive destinations without changing the archive index location. */
+export function sessionArchiveDirectory(env: NodeJS.ProcessEnv = process.env, config: Pick<PiWebConfig, "sessionArchive"> = {}, cwd = process.cwd()): string {
+  const fromEnv = env["PI_WEB_SESSION_ARCHIVE_DIR"];
+  const configured = fromEnv !== undefined && fromEnv !== "" ? fromEnv : config.sessionArchive?.directory;
+  return configured === undefined ? join(piWebDataDir(env, cwd), "archived-sessions") : resolve(cwd, configured);
+}
+
 export function piWebConfigPath(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
   const configured = env["PI_WEB_CONFIG"];
   if (configured === undefined || configured === "") return defaultPiWebConfigPath(env);
@@ -305,6 +312,8 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["uploads"];
   delete existing["attachments"];
   delete existing["maxUploadBytes"];
+  delete existing["sessionNaming"];
+  delete existing["sessionArchive"];
   delete existing["spawnSessions"];
   delete existing["subsessions"];
   delete existing["askUser"];

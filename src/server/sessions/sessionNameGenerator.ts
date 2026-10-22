@@ -1,5 +1,5 @@
 import { normalizeContext, type Api, type AssistantMessage, type Model } from "../../piAi.js";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 const SESSION_NAME_TIMEOUT_MS = 10_000;
 const SESSION_NAME_MAX_INPUT_CHARS = 4_000;
@@ -15,7 +15,18 @@ export function requireInitialSessionName(value: unknown): string {
   return value;
 }
 
-export async function generateShortSessionName<TApi extends Api>(streamFn: StreamFn, model: Model<TApi>, firstMessage: string): Promise<string | undefined> {
+interface SessionNameGenerationOptions {
+  maxTokens?: number;
+  thinkingLevel?: ThinkingLevel;
+  timeoutMs?: number;
+}
+
+export async function generateShortSessionName<TApi extends Api>(
+  streamFn: StreamFn,
+  model: Model<TApi>,
+  firstMessage: string,
+  { maxTokens = 24, thinkingLevel = "minimal", timeoutMs = SESSION_NAME_TIMEOUT_MS }: SessionNameGenerationOptions = {},
+): Promise<string | undefined> {
   const stream = await streamFn(
     model,
     normalizeContext({
@@ -27,9 +38,9 @@ export async function generateShortSessionName<TApi extends Api>(streamFn: Strea
       }],
     }),
     {
-      maxTokens: 24,
-      reasoning: "minimal",
-      signal: AbortSignal.timeout(SESSION_NAME_TIMEOUT_MS),
+      maxTokens,
+      ...(thinkingLevel === "off" ? {} : { reasoning: thinkingLevel }),
+      signal: AbortSignal.timeout(timeoutMs),
     },
   );
 
