@@ -1,7 +1,8 @@
 import { t, setTranslator } from "./i18n.js";
 import type { StylesheetIntegrationCapabilityV1, PiWebPlugin, PluginCapability } from "@chainingintention/pi-web-cn/plugin-api";
 import { RELAYS_ROOT } from "./relayDiscovery.js";
-import { defineRelaysPanelElement } from "./relaysPanelElement.js";
+import { relayIdentityFromMetadata } from "./relayIdentity.js";
+import { defineRelaysPanelElement, RELAY_SELECTION_QUERY_KEY } from "./relaysPanelElement.js";
 
 const stylesheetIntegrationCapability: PluginCapability<StylesheetIntegrationCapabilityV1, 1> = {
   pluginId: "pi-web", id: "stylesheet-integration", version: 1,
@@ -20,7 +21,7 @@ function isStylesheetIntegration(value: unknown): value is StylesheetIntegration
     && "subscribe" in value && typeof value.subscribe === "function";
 }
 
-const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
+const plugin = {
   apiVersion: 4,
   name: t("bundled.relays.relays.715ce8", "Relays"),
   requires: [stylesheetIntegrationCapability],
@@ -47,6 +48,34 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
             },
           },
         ],
+        sessionLabels: [
+          {
+            id: "session.relay",
+            items: (context) => {
+              const identity = relayIdentityFromMetadata(context.session.metadata);
+              if (identity === undefined) return [];
+              return [{
+                type: "render",
+                render: () => html`
+                  <button
+                    type="button"
+                    style="border:0; padding:0; background:transparent; color:var(--pi-accent); font:inherit; text-align:start; overflow-wrap:anywhere; cursor:pointer"
+                    title=${identity.packetPath}
+                    aria-label=${t("bundled.relays.open.packet", "Open Relay {name}, leg {leg}", { name: identity.relayName, leg: identity.leg })}
+                    @click=${() => context.navigate({
+                      machineId: context.machine.id,
+                      projectId: context.workspace.projectId,
+                      workspaceId: context.workspace.id,
+                      view: "workspace",
+                      tool: `${runtimePluginId}:workspace.relays`,
+                      query: { [RELAY_SELECTION_QUERY_KEY]: identity.packetPath },
+                    }, { mode: "patch" })}
+                  >${t("bundled.relays.label", "relay")}</button>
+                `,
+              }];
+            },
+          },
+        ],
         workspacePanels: [
           {
             id: "workspace.relays",
@@ -65,6 +94,6 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
       },
     };
   },
-};
+} satisfies Extract<PiWebPlugin, { apiVersion: 4 }>;
 
 export default plugin;

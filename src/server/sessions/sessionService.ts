@@ -1,5 +1,4 @@
 import type {
-  AskUserCloseResponse,
   AskUserSubmission,
   ExtensionDialogAnswer,
   ExtensionDialogCloseResponse,
@@ -73,8 +72,8 @@ export interface SessionRouteService {
   dismissNotification(ref: SessionRouteRef, request: Omit<SessionNotificationDismissRequest, "cwd">, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
   dismissAllNotifications(ref: SessionRouteRef, request: Omit<SessionNotificationDismissAllRequest, "cwd">, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
   clearQueue(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
-  submitAsk(ref: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse>;
-  cancelAsk(ref: SessionRouteLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse>;
+  submitAsk(ref: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
+  cancelAsk(ref: SessionRouteLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   answerDialog(ref: SessionRouteLookup, dialogId: string, value: ExtensionDialogAnswer, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse>;
   cancelDialog(ref: SessionRouteLookup, dialogId: string, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse>;
   dismissWarning(ref: SessionRouteLookup, dismissId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;

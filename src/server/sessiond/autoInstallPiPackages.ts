@@ -2,9 +2,9 @@
  * Sessiond-startup auto-install reconciliation for Pi packages PI WEB ships
  * "out of the box" (see the `relay-pi-package-autoinstall` relay).
  *
- * Some Pi-package plugins (currently just `@jmfederico/pi-relay`, the Relays
- * plugin) are shipped inside PI WEB's own npm tarball but must be installed
- * as a real Pi package for pi's own package resolution to pick them up,
+ * Pi-package plugins such as Relays and Workflows are shipped inside PI WEB's
+ * own npm tarball but must be installed as real Pi packages for pi's own
+ * package resolution to pick them up,
  * rather than being bundled-discovered by directory scan. To keep today's
  * zero-extra-steps experience, sessiond reconciles this at startup for the
  * active agent profile: if the profile does not already have a package

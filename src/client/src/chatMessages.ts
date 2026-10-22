@@ -1,12 +1,20 @@
 import { t } from "./i18n";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE } from "../../shared/apiTypes";
-import { parseAskUserOutcome } from "./api/parsers";
+import { parseAskUserOutcome, parseAskUserRequest } from "./api/parsers";
 import type { ChatLine, ChatPart, ToolExecutionPart, ToolPreview } from "./components/shared";
 
 export function normalizeMessages(messages: unknown[], transcriptStart?: number): ChatLine[] {
-  const lines = transcriptStart === undefined
-    ? messages.flatMap(normalizeMessage)
-    : messages.flatMap((message, index) => normalizeMessage(message).map((line) => ({ ...line, transcriptIndex: transcriptStart + index })));
+  const lines: ChatLine[] = [];
+  messages.forEach((message, index) => {
+    let normalized = normalizeMessage(message);
+    if (normalized.every((line) => line.parts.length === 0) && getString(message, "role") !== undefined
+      && lines.at(-1)?.parts.at(-1)?.type === "askUserQuestion") {
+      // Invisible conversation entries still close a preceding question.
+      const emptyLine = normalized[0] ?? withMessageMeta({ role: normalizeRole(getString(message, "role")), parts: [] }, message);
+      normalized = [{ ...emptyLine, parts: [{ type: "empty" }] }];
+    }
+    lines.push(...normalized.map((line) => transcriptStart === undefined ? line : { ...line, transcriptIndex: transcriptStart + index }));
+  });
   return coalesceToolExecutions(lines).filter((message) => message.parts.length > 0);
 }
 
@@ -64,7 +72,15 @@ export function normalizeMessage(message: unknown): ChatLine[] {
   const supersededRecord = rawRole === "toolResult"
     ? askUserRecordFromToolDetails(getString(message, "toolName") ?? "", getProperty(message, "details"))
     : undefined;
-  const parts = supersededRecord === undefined ? contentParts : [...contentParts, supersededRecord];
+  const question = rawRole === "toolResult"
+    ? askUserQuestionFromToolDetails(getString(message, "toolName") ?? "", getProperty(message, "details"), getBoolean(message, "isError") === true)
+    : undefined;
+  // Every tool result needs a result part, even when its output is empty or
+  // image-only, so coalescing can finish the call without losing chronology.
+  const resultParts = rawRole === "toolResult" && !contentParts.some((part) => part.type === "toolResult")
+    ? [toolResultPartFromText(contentParts.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n"), message), ...contentParts.filter((part) => part.type === "image")]
+    : contentParts;
+  const parts = [...resultParts, ...(supersededRecord === undefined ? [] : [supersededRecord]), ...(question === undefined ? [] : [question])];
   const skillLines = role === "user" ? normalizeSkillInvocation(parts) : undefined;
   if (skillLines !== undefined) return skillLines.map((line) => withMessageMeta(line, message));
   const source = normalizeSource(message);
@@ -210,6 +226,17 @@ function askUserRecordPart(message: unknown): Extract<ChatPart, { type: "askUser
   return parsedAskUserRecord(getProperty(message, "details"));
 }
 
+/** Only validated successful results, never tool-call arguments, offer questions. */
+export function askUserQuestionFromToolDetails(toolName: string, details: unknown, isError: boolean): Extract<ChatPart, { type: "askUserQuestion" }> | undefined {
+  if (toolName !== "ask_user" || isError) return undefined;
+  try {
+    return { type: "askUserQuestion", ask: parseAskUserRequest(getProperty(details, "ask")) };
+  } catch {
+    // Invalid persisted results retain their ordinary tool-output presentation.
+    return undefined;
+  }
+}
+
 /** Project the superseded ask carried by an `ask_user` tool result, if any. */
 export function askUserRecordFromToolDetails(toolName: string, details: unknown): Extract<ChatPart, { type: "askUserRecord" }> | undefined {
   if (toolName !== "ask_user") return undefined;
@@ -281,13 +308,24 @@ function coalesceToolExecutions(lines: ChatLine[]): ChatLine[] {
 
       if (part.type === "toolResult") {
         const target = part.toolCallId === undefined ? undefined : pendingTools.get(part.toolCallId);
-        if (target !== undefined && mergeToolResultInto(result, target, part)) {
+        if (target !== undefined && mergeToolResultInto(result, target, part, line.meta)) {
           pendingTools.delete(part.toolCallId ?? "");
+          // Coalescing must not erase a later conversation entry and reopen an
+          // earlier question. The question itself always stays at result position.
+          if (result.at(-1)?.parts.at(-1)?.type === "askUserQuestion"
+            && !line.parts.some((item) => item.type === "askUserQuestion" || item.type === "askUserRecord")) {
+            passthroughParts.push({ type: "toolResultBoundary", ...(part.toolCallId === undefined ? {} : { toolCallId: part.toolCallId }) });
+          }
           continue;
         }
       }
 
-      passthroughParts.push(part);
+      if (part.type === "askUserQuestion" || part.type === "askUserRecord") {
+        flushPassthrough();
+        result.push({ role: line.role, parts: [part], ...metadata });
+      } else {
+        passthroughParts.push(part);
+      }
     }
 
     flushPassthrough();
@@ -307,7 +345,7 @@ function toolExecutionFromCall(part: Extract<ChatPart, { type: "toolCall" }>): T
   };
 }
 
-function mergeToolResultInto(lines: ChatLine[], target: { lineIndex: number; partIndex: number }, result: Extract<ChatPart, { type: "toolResult" }>): boolean {
+function mergeToolResultInto(lines: ChatLine[], target: { lineIndex: number; partIndex: number }, result: Extract<ChatPart, { type: "toolResult" }>, meta: ChatLine["meta"]): boolean {
   const line = lines[target.lineIndex];
   const current = line?.parts[target.partIndex];
   if (line === undefined || current?.type !== "toolExecution") return false;
@@ -320,7 +358,7 @@ function mergeToolResultInto(lines: ChatLine[], target: { lineIndex: number; par
     ...(result.details === undefined ? {} : { details: result.details }),
     ...(preview === undefined ? {} : { preview }),
   };
-  lines[target.lineIndex] = { ...line, parts: [...line.parts.slice(0, target.partIndex), next, ...line.parts.slice(target.partIndex + 1)] };
+  lines[target.lineIndex] = { ...line, parts: [...line.parts.slice(0, target.partIndex), next, ...line.parts.slice(target.partIndex + 1)], ...(meta === undefined ? {} : { meta }) };
   return true;
 }
 

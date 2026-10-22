@@ -120,24 +120,22 @@ describe("notification socket guards", () => {
     expect(parseSessionSocketEvent({ type: "session.startup", activity })).toBeUndefined();
   });
 
-  it("accepts validated ask frames and drops malformed ones", () => {
+  it("rejects retired ask frames while carrying questions in ordinary transcript events", () => {
     const ask = {
       askId: "ask-1",
       askedAt: "2026-07-20T00:00:00.000Z",
       questions: [{ id: "q1", question: "Which database?", options: [{ value: "pg", label: "Postgres" }] }],
     };
 
-    expect(parseSessionSocketEvent({ type: "ask.opened", ask })).toEqual({
-      type: "ask.opened", ask: { ...ask, questions: ask.questions.map((question) => ({ ...question, allowOther: true })) },
-    });
-    expect(parseSessionSocketEvent({ type: "ask.closed", askId: "ask-1", reason: "superseded" }))
-      .toEqual({ type: "ask.closed", askId: "ask-1", reason: "superseded" });
+    expect(parseSessionSocketEvent({ type: "ask.opened", ask })).toBeUndefined();
+    expect(parseSessionSocketEvent({ type: "ask.closed", askId: "ask-1", reason: "superseded" })).toBeUndefined();
     expect(parseSessionSocketEvent({ type: "ask.opened", ask: { ...ask, questions: [] } })).toBeUndefined();
     expect(parseSessionSocketEvent({ type: "ask.opened" })).toBeUndefined();
     expect(parseSessionSocketEvent({ type: "ask.opened", ask: { ...ask, questions: [{ ...ask.questions[0], allowOther: "yes" }] } })).toBeUndefined();
     expect(parseSessionSocketEvent({ type: "ask.closed", askId: "ask-1", reason: "ignored" })).toBeUndefined();
-    // Ask frames are per-session only, so they must not be accepted globally.
     expect(parseRealtimeSocketEvent({ type: "ask.opened", ask })).toBeUndefined();
+    const message = { role: "toolResult", toolName: "ask_user", toolCallId: "ask-call", content: [], details: { ask }, isError: false };
+    expect(parseSessionSocketEvent({ type: "message.end", message })).toEqual({ type: "message.end", message });
   });
 
   it("accepts validated dialog frames and drops malformed ones", () => {

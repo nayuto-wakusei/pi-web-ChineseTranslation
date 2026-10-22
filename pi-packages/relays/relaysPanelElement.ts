@@ -1,6 +1,7 @@
 import { t } from "./i18n.js";
 import type { StylesheetIntegrationCapabilityV1, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import { isMarkdownDocumentPath, renderRelayDocumentHtml } from "./markdownDocument.js";
+import { isRelayPacketPath } from "./relayIdentity.js";
 import {
   ancestorDirectoryPaths,
   collectDirectoryPaths,
@@ -19,12 +20,13 @@ import {
 } from "./relayDiscovery.js";
 
 export const relaysPanelTagName = "pi-web-relays-panel";
+export const RELAY_SELECTION_QUERY_KEY = "relay";
 
 export function defineRelaysPanelElement(): void {
   if (!customElements.get(relaysPanelTagName)) customElements.define(relaysPanelTagName, PiWebRelaysPanel);
 }
 
-/** Selection a scan should restore after reloading, when the entries still exist. */
+/** Exact packet selection; the document is restored when it still exists. */
 interface RelaySelection {
   relayPath?: string | undefined;
   documentPath?: string | undefined;
@@ -121,17 +123,21 @@ class PiWebRelaysPanel extends HTMLElement {
   set context(value: WorkspacePanelContext | undefined) {
     const previousKey = this.contextValue === undefined ? undefined : contextKey(this.contextValue);
     const nextKey = value === undefined ? undefined : contextKey(value);
+    const previousRelay = linkedRelayPath(this.contextValue);
+    const nextRelay = linkedRelayPath(value);
     this.contextValue = value;
-    // Parent app updates should not rescan or re-render this panel for the
-    // same workspace (mirrors the workspace-tasks panel).
-    if (previousKey === nextKey) return;
+    // Unrelated host renders should not rescan. A picker already starts its
+    // load before publishing navigation, so adopting that route does not load twice.
+    if (previousKey === nextKey && (previousRelay === nextRelay
+      || (nextRelay !== undefined && nextRelay === this.selectedRelayPath))) return;
     this.expandedDirs = new Set();
     if (value === undefined) {
+      ++this.scanToken;
       this.resetScanState();
       this.renderAll();
       return;
     }
-    void this.scan(value, {});
+    void this.scan(value, { relayPath: nextRelay });
   }
 
   /** Rescan relays, then reload the selected relay's documents and the open document. */
@@ -140,14 +146,28 @@ class PiWebRelaysPanel extends HTMLElement {
     this.resetScanState();
     this.renderAll();
 
+    const requestedPath = selection.relayPath ?? linkedRelayPath(context);
+    if (requestedPath !== undefined && !isRelayPacketPath(requestedPath)) {
+      this.listing = { kind: "unavailable", detail: t("bundled.relays.invalid.packet.link", "Relay links must select a normalized workspace-relative packet directory.") };
+      this.renderAll();
+      return;
+    }
     const listing = await listWorkspaceRelays(context.files);
     if (!this.isCurrentScan(context, token)) return;
-    this.listing = listing;
-
-    // listWorkspaceRelays returns most recently modified first, so the first
-    // relay is the default pre-selection.
-    const relay = listing.kind === "loaded"
-      ? listing.relays.find((candidate) => candidate.path === selection.relayPath) ?? listing.relays[0]
+    // An exact link need not be under the discovery root. Keep that packet in
+    // the picker even if the default root is absent/unavailable, and let its
+    // own document load report a missing or unreadable target rather than
+    // silently substituting another relay.
+    const discovered = listing.kind === "loaded" ? listing.relays : [];
+    this.listing = requestedPath === undefined ? listing : {
+      kind: "loaded",
+      relays: discovered.some((relay) => relay.path === requestedPath) ? discovered : [
+        { name: documentName(requestedPath), path: requestedPath }, ...discovered,
+      ],
+    };
+    // Default discovery remains most recently modified first.
+    const relay = this.listing.kind === "loaded"
+      ? this.listing.relays.find((candidate) => candidate.path === requestedPath) ?? this.listing.relays[0]
       : undefined;
     this.selectedRelayPath = relay?.path;
     this.renderToolbar();
@@ -162,6 +182,7 @@ class PiWebRelaysPanel extends HTMLElement {
     const token = ++this.scanToken;
     this.selectedRelayPath = relayPath;
     this.expandedDirs = new Set();
+    context.navigation?.set(RELAY_SELECTION_QUERY_KEY, relayPath);
     await this.loadDocuments(context, token, relayPath, undefined);
   }
 
@@ -396,7 +417,7 @@ class PiWebRelaysPanel extends HTMLElement {
       return `${partialNotice}
         <div class="empty-state">
           <strong>${escapeHtml(t("bundled.relays.this.relay.has.no.documents.yet.d5948c", "This relay has no documents yet."))}</strong>
-          <p>${escapeHtml(t("bundled.relays.document.files", "Relay packages usually include {files}.", { files: "status.md, charter.md, operations.md, log.md" }))}</p>
+          <p>${escapeHtml(t("bundled.relays.packet.documents", "Relay packets contain charter.md (goal), status.md (current baton), and log.md (history). An optional decisions.md keeps consequential decisions and their reasons."))}</p>
         </div>
       `;
     }
@@ -470,7 +491,12 @@ function chevronSvg(): string {
 }
 
 function contextKey(context: WorkspacePanelContext): string {
-  return `${context.machine.id}:${context.workspace.projectId}:${context.workspace.id}`;
+  return JSON.stringify([context.machine.id, context.workspace.projectId, context.workspace.id]);
+}
+
+function linkedRelayPath(context: WorkspacePanelContext | undefined): string | undefined {
+  const value = context?.navigation?.query[RELAY_SELECTION_QUERY_KEY];
+  return typeof value === "string" ? value : value?.[0];
 }
 
 function documentName(path: string): string {

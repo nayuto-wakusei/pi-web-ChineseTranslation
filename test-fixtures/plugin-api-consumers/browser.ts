@@ -181,6 +181,12 @@ export const pluginV5: PiWebPlugin = {
     const version: 5 = apiVersion;
     return {
       contributions: {
+        messageActions: [{
+          id: "reopen-question",
+          title: "Reopen question",
+          visible: ({ message }) => message.isQuestion === true,
+          run: async (context) => { await context.history.goBack(); },
+        }],
         actions: [{
           id: "discover",
           title: "Discover",

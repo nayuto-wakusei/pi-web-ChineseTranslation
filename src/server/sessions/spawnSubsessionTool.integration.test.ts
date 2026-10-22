@@ -81,10 +81,11 @@ function streamSequence(messages: AssistantMessage[]): StreamFn {
 }
 
 async function runYieldBatch(subsessions: SubsessionSummary[], includeSentinel = false) {
-  const list = vi.fn(() => Promise.resolve(subsessions));
+  const list = vi.fn<SubsessionToolDeps["list"]>(() => Promise.resolve(subsessions));
   const deps: SubsessionToolDeps = {
     spawn: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace" })),
     list,
+    join: async (parentId, parentFile) => ({ subsessions: await list(parentId, parentFile), completions: [] }),
     check: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace", status: "idle" as const, finalText: "", messageCount: 0 })),
     read: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace", status: "idle" as const, entries: [], total: 0, matched: 0, start: 0, hasMore: false })),
   };

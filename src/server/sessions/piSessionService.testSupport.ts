@@ -322,3 +322,90 @@ export function emptyArchiveStore(): NonNullable<PiSessionServiceDependencies["a
     isArchived: () => Promise.resolve(false),
   };
 }
+
+/** Local type for ReadonlySessionManager — it's defined in pi-coding-agent's session-manager.d.ts but not re-exported. */
+export interface LocalReadonlySessionManager {
+  getCwd: () => string;
+  getSessionId: () => string;
+  getSessionFile: () => string | undefined;
+  getSessionDir: () => string;
+  getLeafId: () => string;
+  getLeafEntry: () => unknown;
+  getEntry: () => unknown;
+  getLabel: () => string | undefined;
+  getBranch: () => readonly unknown[];
+  buildContextEntries: () => readonly unknown[];
+  buildSessionProjection: () => unknown;
+  getHeader: () => unknown;
+  getEntries: () => readonly unknown[];
+  getTree: () => unknown;
+  getSessionName: () => string | undefined;
+}
+
+/** Local type for AgentToolCallOutcome — not re-exported from pi-coding-agent index. */
+interface LocalAgentToolCallOutcome { id: string; result: unknown; isError: boolean }
+
+/**
+ * Minimal readonly session manager stub for test contexts in pi 0.99+.
+ * Satisfies the full `ReadonlySessionManager` Pick<SessionManager, ...> contract.
+ */
+export function stubReadonlySessionManager(
+  patch: Partial<LocalReadonlySessionManager> = {},
+): LocalReadonlySessionManager {
+  return {
+    getCwd: () => "/workspace",
+    getSessionId: () => "session-1",
+    getSessionFile: () => undefined,
+    getSessionDir: () => "/workspace/sessions",
+    getLeafId: () => "leaf-1",
+    getLeafEntry: () => undefined,
+    getEntry: () => undefined,
+    getLabel: () => undefined,
+    getBranch: () => [],
+    buildContextEntries: () => [],
+    buildSessionProjection: () => undefined,
+    getHeader: () => undefined,
+    getEntries: () => [],
+    getTree: () => undefined,
+    getSessionName: () => undefined,
+    ...patch,
+  };
+}
+
+/**
+ * Stub an `ExtensionToolContext` for test stubs that need to pass
+ * `tool.execute()`-compatible context. Satisfies the full pi 0.99+
+ * `ExtensionToolContext` surface which extends `ExtensionContext` with
+ * `tools` and `executeTool`, and adds ui, mode, signal, etc.
+ */
+// eslint-disable @typescript-eslint/consistent-type-assertions
+export function stubExtensionToolContext(
+  patch: { sessionManager?: Partial<LocalReadonlySessionManager> } & Record<string, unknown> = {},
+): import("../../piSdk.js").ExtensionToolContext {
+  const { sessionManager, model, thinkingLevel, ...rest } = patch;
+  // @ts-expect-error -- pi 0.99+ ExtensionToolContext uses unique-symbol-based TranscriptContext from a nested pi-coding-agent dependency.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+  return {
+    ui: {},
+    mode: "tui",
+    hasUI: false,
+    cwd: "/workspace",
+    sessionManager: stubReadonlySessionManager(sessionManager),
+    modelRegistry: {},
+    model,
+    scopedModels: [],
+    tools: [],
+    executeTool: (): Promise<LocalAgentToolCallOutcome> => { throw new Error("executeTool not implemented in test stub"); },
+    isIdle: () => true,
+    isProjectTrusted: () => false,
+    signal: undefined,
+    abort: () => { /* no-op stub */ },
+    hasPendingMessages: () => false,
+    shutdown: () => { /* no-op stub */ },
+    getContextUsage: () => undefined,
+    compact: () => { /* no-op stub */ },
+    getSystemPrompt: () => "",
+    thinkingLevel,
+    ...rest,
+  } as import("../../piSdk.js").ExtensionToolContext;
+}

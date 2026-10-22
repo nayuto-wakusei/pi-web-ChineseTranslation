@@ -147,6 +147,35 @@ describe.each(skillNames)("bundled %s duplicate diagnostics", (name) => {
 });
 
 describe("full-privilege Relay cleanup", () => {
+  it.each(skillNames.flatMap((name) => ["original", "edited", "additional file", "junction"].map((variant) => ({ name, variant }))))("handles pre-dispatch $name copies without widening cleanup ($variant)", async ({ name, variant }) => {
+    const { cwd, root, projectSkill, bundledSkill } = await fixture(name);
+    const previous = await readFile(new URL(`./fixtures/${name}-pre-dispatch.md`, import.meta.url), "utf8");
+    const content = previous.replace(/\r?\n/g, "\r\n") + (variant === "edited" ? "\r\nUser changes\r\n" : "");
+    if (variant === "junction") {
+      const outside = join(root, "outside");
+      await mkdir(outside);
+      await writeFile(join(outside, "SKILL.md"), content);
+      await mkdir(dirname(dirname(projectSkill)), { recursive: true });
+      await symlink(outside, dirname(projectSkill), "junction");
+    } else {
+      await mkdir(dirname(projectSkill), { recursive: true });
+      await writeFile(projectSkill, content);
+    }
+    if (variant === "additional file") await writeFile(join(dirname(projectSkill), "custom.txt"), "User file");
+    const diagnostic = collision(name, projectSkill, bundledSkill);
+    expect(deduplicateBundledRelaySkills(cwd, { skills: [], diagnostics: [diagnostic] }).diagnostics).toEqual([diagnostic]);
+    await removeUnmodifiedManagedRelaySkills(cwd);
+    if (variant === "original") {
+      await expect(readdir(dirname(projectSkill))).rejects.toMatchObject({ code: "ENOENT" });
+      await ensureManagedRelaySkills(cwd);
+      expect(await readFile(projectSkill, "utf8")).toBe(await readFile(bundledSkill, "utf8"));
+      expect(deduplicateBundledRelaySkills(cwd, { skills: [], diagnostics: [diagnostic] }).diagnostics).toEqual([]);
+    } else {
+      expect(await readFile(projectSkill, "utf8")).toBe(content);
+      if (variant === "additional file") expect(await readFile(join(dirname(projectSkill), "custom.txt"), "utf8")).toBe("User file");
+    }
+  });
+
   it("does not create missing project directories", async () => {
     const { cwd } = await fixture("relay-runner");
     await removeUnmodifiedManagedRelaySkills(cwd);

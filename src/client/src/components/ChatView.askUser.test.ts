@@ -20,16 +20,17 @@ describe("ChatView open ask_user form", () => {
     if (!Reflect.set(view, "scrollToOpenAsk", () => { askStartScrolls += 1; })) throw new Error("Could not observe ChatView.scrollToOpenAsk");
     if (!Reflect.set(view, "scrollToBottom", () => { bottomScrolls += 1; })) throw new Error("Could not observe ChatView.scrollToBottom");
 
-    view.pendingAsk = {
+    view.onSubmitAsk = () => undefined;
+    view.messages = [{ role: "tool", entryId: "question-entry", parts: [{ type: "askUserQuestion", ask: {
       askId: "ask-open",
       askedAt: "2026-07-20T10:00:00.000Z",
       questions: [{ id: "editor", question: "Which editor?", options: [{ value: "vim", label: "Vim" }] }],
-    };
+    } }] }];
     await view.updateComplete;
 
     expect(askStartScrolls).toBe(1);
     expect(bottomScrolls).toBe(0);
-    expect(view.shadowRoot?.querySelector("ask-user-card")?.getAttribute("data-scroll-anchor-id")).toBe("ask:ask-open");
+    expect(view.shadowRoot?.querySelector("ask-user-card")?.parentElement?.getAttribute("data-scroll-anchor-id")).toBe('ask:ask-open');
   });
 });
 

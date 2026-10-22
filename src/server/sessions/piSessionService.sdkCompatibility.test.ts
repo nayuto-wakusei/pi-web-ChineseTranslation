@@ -202,8 +202,8 @@ describe("Pi SDK compatibility through the production session service", () => {
       const parentId = runtime.session.sessionId;
       const parentFile = runtime.session.sessionFile;
       expect(list).toHaveBeenCalledWith(parentId, parentFile, context);
-      expect(check).toHaveBeenCalledWith(parentId, "child", parentFile, context);
-      expect(read).toHaveBeenCalledWith(parentId, "child", expect.any(Object), parentFile, context);
+      expect(check).toHaveBeenCalledWith(parentId, "child", parentFile, "test-check_subsession", context);
+      expect(read).toHaveBeenCalledWith(parentId, "child", expect.any(Object), parentFile, "test-read_subsession", context);
     } finally {
       await service.dispose();
       await rm(root, { recursive: true, force: true });

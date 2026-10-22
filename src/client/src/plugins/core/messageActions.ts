@@ -5,7 +5,7 @@ import { writeClipboardText } from "../../clipboard";
 
 export function createCoreMessageActions(writeText = writeClipboardText): MessageActionContribution[] {
   const historyAction = {
-    visible: ({ message }: MessageActionAvailabilityContext) => message.role === "user" || message.role === "assistant",
+    visible: ({ message }: MessageActionAvailabilityContext) => message.role === "user" || message.role === "assistant" || (message.role === "tool" && message.isQuestion === true),
     enabled: ({ session }: MessageActionAvailabilityContext) => !session.archived && !session.pending && !session.busy,
   };
   return [{

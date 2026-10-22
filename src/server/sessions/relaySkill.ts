@@ -10,6 +10,10 @@ const BUNDLED_SKILLS_DIRECTORY = fileURLToPath(new URL("../../../skills/", impor
 const PACKAGED_SKILLS_DIRECTORY = fileURLToPath(new URL("../../../dist/pi-packages/relays/skills/", import.meta.url));
 // Original relay-runner template shipped before d530ab1a; never match by name alone.
 const LEGACY_RUNNER_SHA256 = "27e453f521a63997fd391881b46be568d78e75e163a8e2a2e9f25ec9609b2237";
+const PRE_DISPATCH_SKILL_SHA256 = {
+  relay: "d75f91a850ae7ea8dc5ce72092887abc6a5ee036a2fec41d36571aed434e13ec",
+  "relay-runner": "26722ad125a2877e33fc5f7a3b83e5806b775cc70082de40f1b78f5daadd0954",
+};
 
 function normalizedSkill(content: string): string {
   return content.replace(/\r\n/g, "\n");
@@ -40,8 +44,10 @@ export async function removeUnmodifiedManagedRelaySkills(cwd: string): Promise<v
       if (files.length !== 1 || files[0] !== "SKILL.md") continue;
       const content = normalizedSkill(await readFile(skillPath, "utf8"));
       const current = normalizedSkill(await readFile(join(BUNDLED_SKILLS_DIRECTORY, name, "SKILL.md"), "utf8"));
-      const isLegacyRunner = name === "relay-runner" && createHash("sha256").update(content).digest("hex") === LEGACY_RUNNER_SHA256;
-      if (content !== current && !isLegacyRunner) continue;
+      const hash = createHash("sha256").update(content).digest("hex");
+      const isHistoricalCopy = hash === PRE_DISPATCH_SKILL_SHA256[name]
+        || (name === "relay-runner" && hash === LEGACY_RUNNER_SHA256);
+      if (content !== current && !isHistoricalCopy) continue;
       assertManagedSkillPath(projectRoot, skillPath, "file");
       // No recursive removal: unexpected additions must not be deleted.
       await unlink(skillPath);

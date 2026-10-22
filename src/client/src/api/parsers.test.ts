@@ -12,7 +12,7 @@ describe("slash command argument hints", () => {
 });
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../../shared/apiTypes";
-import { parseAskUserCloseResponse, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionModelCatalogResponse, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeForkResult, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
+import { parseAskUserOutcome, parseAskUserRequest, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionModelCatalogResponse, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeForkResult, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("parses model catalog enabled state and rejects malformed rows", () => {
@@ -753,78 +753,51 @@ describe("API parsers", () => {
     })).toThrow("Invalid notification clear reason");
   });
 
-  it("parses an open ask and normalizes every question to allow custom answers", () => {
-    const parsed = parseSessionStatus({ ...statusWire(), pendingAsk: pendingAskWire() });
-
-    expect(parsed.pendingAsk).toEqual({
+  it("parses a durable question request", () => {
+    expect(parseAskUserRequest(askRequestWire())).toEqual({
       askId: "ask-1",
       askedAt: "2026-07-20T00:00:00.000Z",
       questions: [
         { id: "q1", question: "Which database?", detail: "Pick the primary store", options: [{ value: "pg", label: "Postgres", detail: "Relational" }, { value: "sqlite", label: "SQLite" }], allowOther: true },
-        { id: "q2", question: "Which extras?", options: [{ value: "metrics", label: "Metrics" }], allowOther: true, multiple: true },
+        { id: "q2", question: "Which extras?", options: [{ value: "metrics", label: "Metrics" }], multiple: true, allowOther: true },
       ],
     });
   });
 
-  it("omits the pending ask entirely when the field is absent", () => {
-    expect(parseSessionStatus(statusWire()).pendingAsk).toBeUndefined();
+  it("does not adopt legacy pending-question status as conversation state", () => {
+    expect(parseSessionStatus({ ...statusWire(), pendingAsk: askRequestWire() })).not.toHaveProperty("pendingAsk");
   });
 
-  it("validates an ask before rendering it", () => {
-    const ask = pendingAskWire();
+  it("validates a question payload before rendering it", () => {
+    const ask = askRequestWire();
     const first = ask.questions[0];
-    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [] } })).toThrow("Pending ask has no questions");
-    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [first, first] } })).toThrow("Duplicate ask question id");
-    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, askId: "" } })).toThrow("Expected non-empty string field: askId");
-    expect(parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [{ id: "q1", question: "Anything?", options: [] }] } }).pendingAsk?.questions[0])
+    expect(() => parseAskUserRequest({ ...ask, questions: [] })).toThrow("Ask has no questions");
+    expect(() => parseAskUserRequest({ ...ask, questions: [first, first] })).toThrow("Duplicate ask question id");
+    expect(() => parseAskUserRequest({ ...ask, askId: "" })).toThrow("Expected non-empty string field: askId");
+    expect(parseAskUserRequest({ ...ask, questions: [{ id: "q1", question: "Anything?", options: [] }] }).questions[0])
       .toEqual({ id: "q1", question: "Anything?", options: [], allowOther: true });
-    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [{ id: "q1", question: "Anything?", options: [], allowOther: "yes" }] } })).toThrow("Expected optional boolean field: allowOther");
-    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [{ id: "q1", question: "Which?", options: [{ value: "a", label: "A" }, { value: "a", label: "Also A" }] }] } })).toThrow("Duplicate ask option value");
-    expect(() => parseSessionStatus({ ...statusWire(), pendingAsk: { ...ask, questions: [{ id: "q1", question: "x".repeat(ASK_USER_TEXT_MAX_LENGTH + 1), options: [{ value: "a", label: "A" }] }] } })).toThrow("String field exceeds limit: question");
+    expect(() => parseAskUserRequest({ ...ask, questions: [{ id: "q1", question: "Anything?", options: [], allowOther: "yes" }] })).toThrow("Expected optional boolean field: allowOther");
+    expect(() => parseAskUserRequest({ ...ask, questions: [{ id: "q1", question: "Which?", options: [{ value: "a", label: "A" }, { value: "a", label: "Also A" }] }] })).toThrow("Duplicate ask option value");
+    expect(() => parseAskUserRequest({ ...ask, questions: [{ id: "q1", question: "x".repeat(ASK_USER_TEXT_MAX_LENGTH + 1), options: [] }] })).toThrow("String field exceeds limit: question");
   });
 
-  it("parses a closed ask response carrying the outcome and recomputed status", () => {
-    const response = parseAskUserCloseResponse({
-      result: "closed",
-      outcome: askOutcomeWire(),
-      sessionStatus: statusWire(),
+  it("parses the recorded human response", () => {
+    const outcome = parseAskUserOutcome(askOutcomeWire());
+    expect(outcome).toMatchObject({
+      askId: "ask-1", reason: "submitted", answeredCount: 1, unansweredIds: ["q2"], summary: "Answered 1 of 2; unanswered: q2",
     });
-
-    expect(response.result).toBe("closed");
-    expect(response.outcome).toMatchObject({
-      askId: "ask-1",
-      reason: "submitted",
-      answeredCount: 1,
-      unansweredIds: ["q2"],
-      summary: "Answered 1 of 2; unanswered: q2",
-    });
-    expect(response.outcome?.questions[0]).toMatchObject({ answered: true, values: ["pg"] });
-    expect(response.sessionStatus.sessionId).toBe("s1");
+    expect(outcome.questions[0]).toMatchObject({ answered: true, values: ["pg"] });
   });
 
-  it("parses a stale close as an ordinary race with no outcome", () => {
-    const response = parseAskUserCloseResponse({ result: "stale", sessionStatus: statusWire() });
-
-    expect(response).toEqual({ result: "stale", sessionStatus: parseSessionStatus(statusWire()) });
-  });
-
-  it("rejects close responses whose outcome contradicts itself", () => {
+  it("rejects answer records that contradict their payload", () => {
     const outcome = askOutcomeWire();
-    expect(() => parseAskUserCloseResponse({ result: "closed", sessionStatus: statusWire() })).toThrow("Ask close response outcome mismatch");
-    expect(() => parseAskUserCloseResponse({ result: "stale", outcome, sessionStatus: statusWire() })).toThrow("Ask close response outcome mismatch");
-    expect(() => parseAskUserCloseResponse({ result: "closed", outcome: { ...outcome, answeredCount: 2 }, sessionStatus: statusWire() })).toThrow("Ask outcome answered count mismatch");
-    expect(() => parseAskUserCloseResponse({ result: "closed", outcome: { ...outcome, unansweredIds: [] }, sessionStatus: statusWire() })).toThrow("Ask outcome unanswered ids mismatch");
-    expect(() => parseAskUserCloseResponse({ result: "closed", outcome: { ...outcome, reason: "ignored" }, sessionStatus: statusWire() })).toThrow("Invalid ask close reason");
-    expect(() => parseAskUserCloseResponse({
-      result: "closed",
-      outcome: { ...outcome, questions: [{ ...askAnsweredRecordWire(), answered: false }, askUnansweredRecordWire()] },
-      sessionStatus: statusWire(),
-    })).toThrow("Ask answer contradicts its answered flag");
-    expect(() => parseAskUserCloseResponse({
-      result: "closed",
-      outcome: { ...outcome, questions: [{ ...askAnsweredRecordWire(), values: ["mysql"] }, askUnansweredRecordWire()] },
-      sessionStatus: statusWire(),
-    })).toThrow("Ask answer selected an option the question never offered");
+    expect(() => parseAskUserOutcome({ ...outcome, answeredCount: 2 })).toThrow("Ask outcome answered count mismatch");
+    expect(() => parseAskUserOutcome({ ...outcome, unansweredIds: [] })).toThrow("Ask outcome unanswered ids mismatch");
+    expect(() => parseAskUserOutcome({ ...outcome, reason: "ignored" })).toThrow("Invalid ask close reason");
+    expect(() => parseAskUserOutcome({ ...outcome, questions: [{ ...askAnsweredRecordWire(), answered: false }, askUnansweredRecordWire()] }))
+      .toThrow("Ask answer contradicts its answered flag");
+    expect(() => parseAskUserOutcome({ ...outcome, questions: [{ ...askAnsweredRecordWire(), values: ["mysql"] }, askUnansweredRecordWire()] }))
+      .toThrow("Ask answer selected an option the question never offered");
   });
 
   it("parses open extension dialogs on the session status, oldest first", () => {
@@ -901,7 +874,7 @@ function statusWire() {
   };
 }
 
-function pendingAskWire() {
+function askRequestWire() {
   return {
     askId: "ask-1",
     askedAt: "2026-07-20T00:00:00.000Z",
@@ -913,12 +886,12 @@ function pendingAskWire() {
 }
 
 function askAnsweredRecordWire() {
-  const ask = pendingAskWire();
+  const ask = askRequestWire();
   return { question: ask.questions[0], answered: true, values: ["pg"] };
 }
 
 function askUnansweredRecordWire() {
-  const ask = pendingAskWire();
+  const ask = askRequestWire();
   return { question: ask.questions[1], answered: false, values: [] };
 }
 
@@ -1503,18 +1476,6 @@ describe("Upstream transport and navigation contracts", () => {
     expect(() => parseSessionTreeForkResult({ session })).toThrow("cancelled");
   });
 
-  it("parses an open ask", () => {
-    const parsed = parseSessionStatus({ ...statusWire(), pendingAsk: pendingAskWire() });
-
-    expect(parsed.pendingAsk).toEqual({
-      askId: "ask-1",
-      askedAt: "2026-07-20T00:00:00.000Z",
-      questions: [
-        { id: "q1", question: "Which database?", detail: "Pick the primary store", options: [{ value: "pg", label: "Postgres", detail: "Relational" }, { value: "sqlite", label: "SQLite" }], allowOther: true },
-        { id: "q2", question: "Which extras?", options: [{ value: "metrics", label: "Metrics" }], multiple: true, allowOther: true },
-      ],
-    });
-  });
 });
 
   describe("session UI metadata", () => {

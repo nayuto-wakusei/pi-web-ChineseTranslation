@@ -3,7 +3,7 @@ import { browserStorage } from "./browserStorage";
 
 /**
  * What the user has entered for one question but has not submitted yet. Kept in
- * the browser because the daemon owns "there is an open ask" while the browser
+ * the browser; the transcript owns question availability, while the browser
  * owns "what I have typed so far".
  */
 export interface AskDraftAnswer {

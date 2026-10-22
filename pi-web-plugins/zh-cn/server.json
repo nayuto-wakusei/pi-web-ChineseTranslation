@@ -1,5 +1,11 @@
 {
   "session.authRemoved": "{provider}/{model} 的认证已移除。请使用 /model 选择其他模型。",
+  "session.metadataUnsupported": "会话管理器不支持初始化界面元数据",
+  "session.initialNameUnsupported": "会话管理器不支持设置初始名称",
+  "session.parentReceiptUnavailable": "父会话 {parentSessionId} 暂不可接收子会话结果",
+  "session.subsessionCompletionPersistFailed": "无法记录子会话 {sessionId} 的完成结果；该结果仍为未读。修复会话存储后请重试。",
+  "session.action.receiveSubsessions": "接收子会话结果",
+  "session.action.deliverSubsessions": "投递子会话结果",
   "workbench.skillDisabled": "该Skill已被管理员停用，请刷新工作台授权后重试。",
   "workbench.searchLabel": "检索授权能力",
   "workbench.callLabel": "调用授权能力",

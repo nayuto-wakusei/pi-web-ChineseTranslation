@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAgentSession, SessionManager } from "../../piSdk.js";
 import { describe, expect, it, vi } from "vitest";
-import type { SessionTreeNavigateRequest, SessionTreeSummaryChoice } from "../../shared/apiTypes.js";
-import { PendingAskStore } from "./pendingAskStore.js";
+import { ASK_USER_ANSWERS_CUSTOM_TYPE, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice } from "../../shared/apiTypes.js";
+import { createAskUserRequest } from "./askUserDomain.js";
 import { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionServiceDependencies } from "./piSessionService.js";
@@ -63,7 +63,7 @@ function treeHarness(
 
 describe("PiSessionService session-tree behavior", () => {
   it.each(["moved", "summarized", "unchanged", "cancelled", "failed"] as const)(
-    "handles pending questions when tree navigation is %s",
+    "does not create question events or cancellation records when tree navigation is %s",
     async (scenario) => {
       let leafId = "leaf-1";
       const navigateTree = vi.fn<NavigateTree>(() => {
@@ -74,34 +74,26 @@ describe("PiSessionService session-tree behavior", () => {
           ...(scenario === "summarized" ? { summaryEntry: { id: "target-1" } } : {}),
         });
       });
-      const { service, fake, hub } = treeHarness({ getLeafId: () => leafId }, { navigateTree });
+      const questionEntry = {
+        id: "leaf-1", type: "message", message: {
+          role: "toolResult", toolName: "ask_user", isError: false, details: { ask: {
+            askId: "ask-1", askedAt: "2026-01-01T00:00:00.000Z", questions: [{ id: "choice", question: "Which option?", options: [] }],
+          } },
+        },
+      };
+      const { service, fake, hub } = treeHarness({
+        getLeafId: () => leafId, getBranch: () => leafId === "leaf-1" ? [questionEntry] : [],
+      }, { navigateTree });
       try {
         await service.status(sessionRef(SESSION_ID));
-        const { ask } = await service.openAsk({
-          sessionId: SESSION_ID,
-          questions: [{ id: "choice", question: "Which option?", options: [] }],
-        });
         const navigation = service.navigateTree(sessionRef(SESSION_ID), navigationRequest(
           { mode: scenario === "summarized" ? "default" : "none" },
         ));
         if (scenario === "failed") await expect(navigation).rejects.toThrow("navigation failed");
         else await expect(navigation).resolves.toEqual({ cancelled: scenario === "cancelled" });
 
-        const moved = scenario === "moved" || scenario === "summarized";
-        const status = await service.status(sessionRef(SESSION_ID));
-        const closedEvents = hub.sessionEvents.filter(({ event }) => event.type === "ask.closed");
-        if (moved) {
-          expect(status).not.toHaveProperty("pendingAsk");
-          expect(closedEvents).toEqual([{
-            sessionId: SESSION_ID,
-            event: { type: "ask.closed", askId: ask.askId, reason: "cancelled" },
-          }]);
-          await expect(service.submitAsk(sessionRef(SESSION_ID), ask.askId, { answers: [] }))
-            .resolves.toMatchObject({ result: "stale" });
-        } else {
-          expect(status.pendingAsk).toEqual(ask);
-          expect(closedEvents).toEqual([]);
-        }
+        expect(await service.status(sessionRef(SESSION_ID))).not.toHaveProperty("pendingAsk");
+        expect(hub.sessionEvents.filter(({ event }) => event.type.startsWith("ask."))).toEqual([]);
         expect(fake.calls.sendCustomMessage).toEqual([]);
         expect(fake.calls.prompt).toEqual([]);
       } finally {
@@ -146,29 +138,21 @@ describe("PiSessionService session-tree behavior", () => {
     await service.dispose();
   });
 
-  it("closes an open question when navigation changes the leaf, without appending a cancellation", async () => {
-    const pendingAskStore = new PendingAskStore();
+  it("keeps question replies branch-owned when navigation changes the leaf, without appending a cancellation", async () => {
     let leafId = "leaf-1";
+    const ask = createAskUserRequest([{ id: "continue", question: "Continue?", options: [] }]);
+    const entry = { type: "message", message: { role: "toolResult", toolName: "ask_user", isError: false, details: { ask } } };
     const sendCustomMessage = vi.fn(() => Promise.resolve());
     const { service, hub } = treeHarness(
-      { getSessionId: () => SESSION_ID, getLeafId: () => leafId },
-      {
-        navigateTree: () => {
-          leafId = "rewound-leaf";
-          return Promise.resolve({ cancelled: false });
-        },
-        sendCustomMessage,
-      },
-      { pendingAskStore },
+      { getLeafId: () => leafId, getBranch: () => leafId === "leaf-1" ? [entry] : [] },
+      { navigateTree: () => { leafId = "rewound-leaf"; return Promise.resolve({ cancelled: false }); }, sendCustomMessage },
     );
-    pendingAskStore.open({ sessionId: SESSION_ID, questions: [{ id: "continue", question: "继续？", options: [] }] });
-
-    await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest({ mode: "none" }))).resolves.toEqual({ cancelled: false });
-
-    expect(pendingAskStore.pendingAsk(SESSION_ID)).toBeUndefined();
-    expect(sendCustomMessage).not.toHaveBeenCalled();
-    expect(hub.sessionEvents.some((entry) => entry.sessionId === SESSION_ID && entry.event.type === "ask.closed" && entry.event.reason === "cancelled")).toBe(true);
-    await service.dispose();
+    try {
+      await expect(service.navigateTree(sessionRef(SESSION_ID), navigationRequest({ mode: "none" }))).resolves.toEqual({ cancelled: false });
+      await expect(service.submitAsk(sessionRef(SESSION_ID), ask.askId, { answers: [] })).rejects.toThrow("Unknown ask ID");
+      expect(sendCustomMessage).not.toHaveBeenCalled();
+      expect(hub.sessionEvents.some(({ event }) => event.type.startsWith("ask."))).toBe(false);
+    } finally { await service.dispose(); }
   });
 
   it("maps none, default, and trimmed custom summary choices exactly and returns only editor text", async () => {
@@ -635,6 +619,63 @@ describe("PiSessionService session-tree behavior", () => {
     expect(hub.sessionEvents.filter(({ event }) => event.type === "status.update").length).toBeGreaterThanOrEqual(4);
 
     await service.dispose();
+  });
+  it.each(["fork", "back"] as const)("%s to questions excludes the old answer", async (action) => {
+    const question = { id: "question", type: "message", message: {
+      role: "toolResult", toolName: "ask_user", isError: false, details: { ask: { askId: "ask-1" } },
+    } };
+    const answer = { id: "answer", type: "custom_message", customType: ASK_USER_ANSWERS_CUSTOM_TYPE, display: true };
+    const navigateTree = vi.fn<NavigateTree>(() => Promise.resolve({ cancelled: false }));
+    const fork = vi.fn(() => Promise.resolve({ cancelled: false }));
+    const { service, fake } = treeHarness({ getBranch: () => [question, answer] }, { navigateTree });
+    fake.runtime.fork = fork;
+    try {
+      if (action === "fork") {
+        await service.forkFromTree(sessionRef(SESSION_ID), { entryId: "question", expectedLeafId: "leaf-1", retainCheckpoint: true });
+        expect(fork).toHaveBeenCalledWith("question", { position: "at" });
+      } else {
+        await service.navigateTree(sessionRef(SESSION_ID), {
+          targetId: "question", expectedLeafId: "leaf-1", retainCheckpoint: true, summary: { mode: "none" },
+        });
+        expect(navigateTree).toHaveBeenCalledWith("question", { summarize: false });
+      }
+    } finally { await service.dispose(); }
+  });
+
+  it("reopens questions through native navigation and accepts a different answer", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-web-question-history-"));
+    const manager = SessionManager.inMemory(directory, { id: SESSION_ID });
+    const { session } = await createAgentSession({
+      cwd: directory, agentDir: join(directory, "agent"), modelRuntime: testModelRuntime, noTools: "all", sessionManager: manager,
+    });
+    const navigateTree: NavigateTree = (id, options) => session.navigateTree(id, options);
+    const fake = fakeRuntime(SESSION_ID, { sessionManager: manager, navigateTree });
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR, modelRuntime: testModelRuntime, archiveStore: emptyArchiveStore(),
+      createAgentRuntime: runtimeCreator(fake.runtime), sessionManager: sessionGateway([sessionRecord(SESSION_ID, directory)]), heartbeatIntervalMs: 60_000,
+    });
+    try {
+      const questionId = manager.appendMessage({ role: "toolResult", toolCallId: "call", toolName: "ask_user", isError: false,
+        content: [{ type: "text", text: "Posted questions" }], timestamp: Date.now(), details: { ask: {
+          askId: "ask-1", askedAt: "2026-01-01T00:00:00.000Z", questions: [{ id: "choice", question: "Which database?", options: [] }],
+        } },
+      });
+      manager.appendCustomMessageEntry(ASK_USER_ANSWERS_CUSTOM_TYPE, "Old answer", true, { askId: "ask-1" });
+      const ref = sessionRef(SESSION_ID, directory);
+      await service.navigateTree(ref, {
+        targetId: questionId, expectedLeafId: manager.getLeafId(), retainCheckpoint: true, summary: { mode: "none" },
+      });
+      expect(manager.getLeafId()).toBe(questionId);
+      expect(manager.getBranch().some((entry) => entry.type === "custom_message")).toBe(false);
+      await service.submitAsk(ref, "ask-1", { answers: [{ id: "choice", values: [], otherText: "A different database" }] });
+      expect(fake.calls.sendCustomMessage[0]?.message.details).toMatchObject({
+        askId: "ask-1", questions: [{ otherText: "A different database" }],
+      });
+    } finally {
+      await service.dispose();
+      session.dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
 

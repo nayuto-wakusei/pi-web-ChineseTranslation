@@ -4,10 +4,11 @@ import { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "../realtime/
 import type { WorkspaceAttribution } from "./workspaceAttribution.js";
 
 export interface ActiveCwdActivity { cwd: string; hasSessionActivity: boolean; hasTerminalActivity: boolean; }
+interface ActivitySnapshot { workspaces: readonly ActiveCwdActivity[]; sessions: readonly { sessionId: string; cwd: string }[]; }
 type ActivitySource =
-  | { snapshot(scope?: SessionEventScope): { workspaces: readonly ActiveCwdActivity[] } }
-  | { activeSnapshot(scope?: SessionEventScope): { workspaces: readonly ActiveCwdActivity[] } };
-interface UnreadSource { catalogSnapshot(scope?: SessionEventScope): { sessions: readonly { cwd: string }[] } | Promise<{ sessions: readonly { cwd: string }[] }>; }
+  | { snapshot(scope?: SessionEventScope): ActivitySnapshot }
+  | { activeSnapshot(scope?: SessionEventScope): ActivitySnapshot };
+interface UnreadSource { catalogSnapshot(scope?: SessionEventScope): { sessions: readonly { sessionId: string; cwd: string }[] } | Promise<{ sessions: readonly { sessionId: string; cwd: string }[] }>; }
 interface Publisher { publish(snapshot: MachineStatusSnapshot, scope: SessionEventScope): void; }
 interface Logger { warn(details: Record<string, unknown>, message: string): void; }
 
@@ -19,7 +20,8 @@ export interface MachineStatusServiceDependencies {
   logger: Logger;
 }
 
-type MachineStatusTree = Pick<MachineStatusSnapshot, "machine" | "projects" | "workspaces" | "unattributed">;
+type MachineStatusTree = Pick<MachineStatusSnapshot, "machine" | "projects" | "workspaces" | "unattributed">
+  & { sessions: Readonly<Record<string, StatusFlags>> };
 
 export class MachineStatusService {
   private readonly epochId = randomUUID();
@@ -33,7 +35,7 @@ export class MachineStatusService {
     const current = this.states.get(scope);
     if (current !== undefined) return current;
     const initial: MachineStatusSnapshot = {
-      epochId: this.epochId, revision: 0, machine: {}, projects: {}, workspaces: {}, unattributed: {}, generatedAt: new Date().toISOString(),
+      epochId: this.epochId, revision: 0, machine: {}, projects: {}, workspaces: {}, sessions: {}, unattributed: {}, generatedAt: new Date().toISOString(),
     };
     this.states.set(scope, initial);
     return initial;
@@ -71,7 +73,13 @@ export class MachineStatusService {
   }
 
   private async computeTree(scope: SessionEventScope): Promise<MachineStatusTree> {
-    const flagsByCwd = await this.flagsByCwd(scope);
+    const activitySource = this.dependencies.activity;
+    const activity = "activeSnapshot" in activitySource ? activitySource.activeSnapshot(scope) : activitySource.snapshot(scope);
+    const unread = await this.dependencies.unread.catalogSnapshot(scope);
+    const flagsByCwd = this.flagsByCwd(activity.workspaces, unread.sessions);
+    const sessions = new FlagAccumulator();
+    for (const session of activity.sessions) sessions.add(session.sessionId, { [CORE_STATUS_FLAGS.working]: true });
+    for (const session of unread.sessions) sessions.add(session.sessionId, { [CORE_STATUS_FLAGS.unread]: true });
     const attributions = await this.dependencies.attribution.attribute(flagsByCwd.keys(), scope);
     const projects = new FlagAccumulator();
     const workspaces = new FlagAccumulator();
@@ -84,19 +92,17 @@ export class MachineStatusService {
     const rolledProjects = projects.rollUp();
     const rolledWorkspaces = workspaces.rollUp();
     const rolledUnattributed = rollUpStatusFlags(unattributed);
-    return { machine: rollUpStatusFlags([...Object.values(rolledProjects), ...Object.values(rolledWorkspaces), rolledUnattributed]), projects: rolledProjects, workspaces: rolledWorkspaces, unattributed: rolledUnattributed };
+    return { machine: rollUpStatusFlags([...Object.values(rolledProjects), ...Object.values(rolledWorkspaces), rolledUnattributed]), projects: rolledProjects, workspaces: rolledWorkspaces, sessions: sessions.rollUp(), unattributed: rolledUnattributed };
   }
 
-  private async flagsByCwd(scope: SessionEventScope): Promise<Map<string, StatusFlags>> {
+  private flagsByCwd(activities: readonly ActiveCwdActivity[], unreadSessions: readonly { cwd: string }[]): Map<string, StatusFlags> {
     const flagsByCwd = new Map<string, Record<string, boolean>>();
     const setFlag = (cwd: string, flagId: string): void => { if (cwd === "") return; const flags = flagsByCwd.get(cwd) ?? {}; flags[flagId] = true; flagsByCwd.set(cwd, flags); };
-    const activitySource = this.dependencies.activity;
-    const snapshot = "snapshot" in activitySource ? activitySource.snapshot(scope) : activitySource.activeSnapshot(scope);
-    for (const activity of snapshot.workspaces) {
+    for (const activity of activities) {
       if (activity.hasSessionActivity) setFlag(activity.cwd, CORE_STATUS_FLAGS.working);
       if (activity.hasTerminalActivity) setFlag(activity.cwd, CORE_STATUS_FLAGS.terminal);
     }
-    for (const session of (await this.dependencies.unread.catalogSnapshot(scope)).sessions) setFlag(session.cwd, CORE_STATUS_FLAGS.unread);
+    for (const session of unreadSessions) setFlag(session.cwd, CORE_STATUS_FLAGS.unread);
     return flagsByCwd;
   }
 }
@@ -108,7 +114,7 @@ class FlagAccumulator {
 }
 
 function isSameStatusTree(left: MachineStatusTree, right: MachineStatusSnapshot): boolean {
-  return isSameFlags(left.machine, right.machine) && isSameFlags(left.unattributed, right.unattributed) && isSameNodes(left.projects, right.projects) && isSameNodes(left.workspaces, right.workspaces);
+  return isSameFlags(left.machine, right.machine) && isSameFlags(left.unattributed, right.unattributed) && isSameNodes(left.projects, right.projects) && isSameNodes(left.workspaces, right.workspaces) && isSameNodes(left.sessions, right.sessions ?? {});
 }
 function isSameNodes(left: Readonly<Record<string, StatusFlags>>, right: Readonly<Record<string, StatusFlags>>): boolean {
   const leftIds = Object.keys(left);

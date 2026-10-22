@@ -5,14 +5,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { attachWorkbenchAccessHandle, workbenchAccessHandle } from "../managementEmbed.js";
 import { eventScopeFromManagementContext, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
 import { PiSessionService, type PiAgentSession } from "./piSessionService.js";
+import { createAskUserRequest } from "./askUserDomain.js";
 import { fakeRuntime, fakeSessionManager, ScopeCapturingSessionEventHub, sessionGateway, sessionRecord, sessionRef, testManagementContext, testModelRuntime, type RuntimeCreator } from "./piSessionService.testSupport.js";
 
 const id = "shared-session";
 const questions = [{ id: "choice", question: "Choose", options: [] }];
 
 async function modeService() {
-  const normal = fakeRuntime(id);
-  const managed = fakeRuntime(id);
+  const normalAsk = createAskUserRequest(questions);
+  const managedAsk = createAskUserRequest(questions);
+  const questionBranch = (ask: typeof normalAsk) => [{ type: "message", message: { role: "toolResult", toolName: "ask_user", isError: false, details: { ask } } }];
+  const normal = fakeRuntime(id, { sessionManager: fakeSessionManager("/workspace", { getBranch: () => questionBranch(normalAsk) }) });
+  const managed = fakeRuntime(id, { sessionManager: fakeSessionManager("/workspace", { getBranch: () => questionBranch(managedAsk) }) });
   const context = testManagementContext();
   const events = new ScopeCapturingSessionEventHub();
   const service = new PiSessionService(events, {
@@ -25,7 +29,7 @@ async function modeService() {
   });
   await service.status(sessionRef(id));
   await service.status(sessionRef(id), context);
-  return { service, normal, managed, context, events };
+  return { service, normal, managed, context, events, normalAsk, managedAsk };
 }
 
 async function trackedModeService() {
@@ -96,31 +100,28 @@ async function trackedModeService() {
 afterEach(() => { vi.useRealTimers(); });
 
 describe("session mode ownership", () => {
-  it("keeps asks and their events separate for the same normal and management session id", async () => {
-    const { service, normal, managed, context, events } = await modeService();
+  it("keeps durable requests and replies separate for the same normal and management session id", async () => {
+    const { service, normal, managed, context, events, normalAsk, managedAsk } = await modeService();
     try {
-      const ordinary = await service.openAsk({ sessionId: id, questions });
-      const management = await service.openAsk({ sessionId: id, questions }, context);
-      expect(management.superseded).toBeUndefined();
-      expect((await service.status(sessionRef(id))).pendingAsk?.askId).toBe(ordinary.ask.askId);
-      expect((await service.status(sessionRef(id), context)).pendingAsk?.askId).toBe(management.ask.askId);
-      expect(await service.submitAsk(sessionRef(id), management.ask.askId, { answers: [] })).toMatchObject({ result: "stale" });
-      await service.submitAsk(sessionRef(id), management.ask.askId, { answers: [] }, context);
+      await expect(service.submitAsk(sessionRef(id), managedAsk.askId, { answers: [] })).rejects.toThrow("Unknown ask ID");
+      await expect(service.submitAsk(sessionRef(id), normalAsk.askId, { answers: [] }, context)).rejects.toThrow("Unknown ask ID");
+      await service.submitAsk(sessionRef(id), managedAsk.askId, { answers: [] }, context);
       expect(normal.calls.sendCustomMessage).toHaveLength(0);
       expect(managed.calls.sendCustomMessage).toHaveLength(1);
-      expect((await service.status(sessionRef(id))).pendingAsk?.askId).toBe(ordinary.ask.askId);
-      expect(events.sessionEvents.filter(({ event }) => event.type === "ask.opened" || event.type === "ask.closed").map(({ scope }) => scope))
-        .toEqual([NORMAL_SESSION_EVENT_SCOPE, eventScopeFromManagementContext(context), eventScopeFromManagementContext(context)]);
+      await service.submitAsk(sessionRef(id), normalAsk.askId, { answers: [] });
+      expect(normal.calls.sendCustomMessage).toHaveLength(1);
+      expect(events.sessionEvents.filter(({ event }) => event.type.startsWith("ask."))).toEqual([]);
+      expect(events.sessionEvents.filter(({ event }) => event.type === "status.update").map(({ scope }) => scope))
+        .toEqual(expect.arrayContaining([NORMAL_SESSION_EVENT_SCOPE, eventScopeFromManagementContext(context)]));
     } finally { await service.dispose(); }
   });
 
-  it("does not clear the other mode's open ask when stopping a runtime", async () => {
-    const { service, context } = await modeService();
+  it("preserves the other mode's durable question when stopping a runtime", async () => {
+    const { service, normal, context, normalAsk } = await modeService();
     try {
-      const ordinary = await service.openAsk({ sessionId: id, questions });
-      await service.openAsk({ sessionId: id, questions }, context);
       await service.stop(sessionRef(id), context);
-      expect((await service.status(sessionRef(id))).pendingAsk?.askId).toBe(ordinary.ask.askId);
+      await service.submitAsk(sessionRef(id), normalAsk.askId, { answers: [] });
+      expect(normal.calls.sendCustomMessage).toHaveLength(1);
     } finally { await service.dispose(); }
   });
 
@@ -196,9 +197,9 @@ describe("session mode ownership", () => {
       expect(await service.listSubsessions(parentId, normal.parentFile)).toEqual([{ sessionId: childId, cwd: "/workspace", status: "idle" }]);
       expect(await service.listSubsessions(parentId, managed.parentFile, context)).toEqual([{ sessionId: childId, cwd: "/workspace", status: "idle" }]);
       expect(await service.checkSubsession(parentId, childId, normal.parentFile)).toMatchObject({ finalText: "ordinary result" });
-      expect(await service.checkSubsession(parentId, childId, managed.parentFile, context)).toMatchObject({ finalText: "managed result" });
+      expect(await service.checkSubsession(parentId, childId, managed.parentFile, undefined, context)).toMatchObject({ finalText: "managed result" });
       expect((await service.readSubsession(parentId, childId, {}, normal.parentFile)).entries[0]?.parts[0]).toMatchObject({ text: "ordinary result" });
-      expect((await service.readSubsession(parentId, childId, {}, managed.parentFile, context)).entries[0]?.parts[0]).toMatchObject({ text: "managed result" });
+      expect((await service.readSubsession(parentId, childId, {}, managed.parentFile, undefined, context)).entries[0]?.parts[0]).toMatchObject({ text: "managed result" });
     } finally { await fixture.dispose(); }
   });
 
@@ -208,7 +209,7 @@ describe("session mode ownership", () => {
     try {
       await service.status(sessionRef(parentId));
       await service.status(sessionRef(parentId), context);
-      await service.checkSubsession(parentId, childId, managed.parentFile, context);
+      await service.checkSubsession(parentId, childId, managed.parentFile, undefined, context);
       await service.stop(sessionRef(parentId), context);
       const creationCount = creates.length;
       managed.child.session.isStreaming = true;
@@ -251,7 +252,7 @@ describe("session mode ownership", () => {
       await service.status(sessionRef(parentId));
       await service.status(sessionRef(parentId), context);
       await service.checkSubsession(parentId, childId, normal.parentFile);
-      await service.checkSubsession(parentId, childId, managed.parentFile, context);
+      await service.checkSubsession(parentId, childId, managed.parentFile, undefined, context);
       normal.child.session.isStreaming = true;
       managed.child.session.isStreaming = true;
       normal.child.emit({ type: "agent_start" });
@@ -276,7 +277,7 @@ describe("session mode ownership", () => {
     try {
       expect(await service.listSubsessions(parentId, normal.parentFile)).toHaveLength(1);
       expect(await service.listSubsessions(parentId, undefined, context)).toEqual([]);
-      await expect(service.checkSubsession(parentId, childId, undefined, context)).rejects.toThrow("not one of your subsessions");
+      await expect(service.checkSubsession(parentId, childId, undefined, undefined, context)).rejects.toThrow("not one of your subsessions");
       expect(await service.checkSubsession(parentId, childId, normal.parentFile)).toMatchObject({ finalText: "ordinary result" });
       expect(creates).toHaveLength(1);
       expect(creates[0]?.managementContext).toBeUndefined();

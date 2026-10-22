@@ -206,9 +206,10 @@ describe("reconcileAutoInstallablePiPackages", () => {
       });
 
       expect(install).toHaveBeenCalledWith(join(PACKAGE_ROOT, "dist", "pi-packages", "relays"));
+      expect(install).toHaveBeenCalledWith(join(PACKAGE_ROOT, "dist", "pi-packages", "workflows"));
     });
 
-    it("does not install through the production defaults once the isolated dismissal store recorded a dismissal", async () => {
+    it("does not reinstall a dismissed package while reconciling other production defaults", async () => {
       const { installer, install } = fakeInstaller();
       const dismissalChecker = new PiPackageDismissalStore(join(tempDir, "pi-package-dismissals.json"));
       await dismissalChecker.dismiss("/agent", KNOWN_PACKAGE_ID);
@@ -221,7 +222,8 @@ describe("reconcileAutoInstallablePiPackages", () => {
         packageRoot: PACKAGE_ROOT,
       });
 
-      expect(install).not.toHaveBeenCalled();
+      expect(install).not.toHaveBeenCalledWith(join(PACKAGE_ROOT, "dist", "pi-packages", "relays"));
+      expect(install).toHaveBeenCalledExactlyOnceWith(join(PACKAGE_ROOT, "dist", "pi-packages", "workflows"));
     });
   });
 });

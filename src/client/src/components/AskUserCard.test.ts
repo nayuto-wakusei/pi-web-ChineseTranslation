@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AskUserOutcome, AskUserQuestion, PendingAskUser } from "../../../shared/apiTypes";
+import type { AskUserOutcome, AskUserQuestion, AskUserRequest } from "../../../shared/apiTypes";
 import { saveAskDraft } from "../askDrafts";
 import { AskUserCard, type AskUserSubmitCallback } from "./AskUserCard";
 
@@ -122,6 +122,20 @@ describe("ask-user-card live form", () => {
     });
   });
 
+  it("skips all questions explicitly without sending retained draft values", async () => {
+    const onSubmit = vi.fn<AskUserSubmitCallback>();
+    const card = await mountOpenAsk(openAsk([question("editor", "Choose an editor", [option("vim", "Vim")])]), onSubmit);
+    inputWithValue(renderRoot(card), "vim").click();
+    await card.updateComplete;
+    buttonWithText(renderRoot(card), "跳过问题").click();
+    await Promise.resolve();
+    expect(onSubmit).toHaveBeenCalledWith("ask-1", { answers: [] });
+    card.open = false;
+    await card.updateComplete;
+    expect(renderRoot(card).textContent).toContain("草稿回答 · 未发送");
+    expect(renderRoot(card).textContent).toContain("Vim");
+  });
+
   it("names unanswered questions before allowing a partial submit", async () => {
     const onSubmit = vi.fn<AskUserSubmitCallback>();
     const card = await mountOpenAsk(openAsk([
@@ -149,6 +163,47 @@ describe("ask-user-card live form", () => {
     expect(onSubmit).toHaveBeenCalledWith("ask-1", {
       answers: [{ id: "editor", values: ["vim"] }],
     });
+  });
+});
+
+describe("ask-user-card closed request", () => {
+  it("is collapsed and retains every original option and supporting detail without answer controls", async () => {
+    const card = new AskUserCard();
+    card.ask = openAsk([question("editor", "Choose an editor", [
+      { value: "vim", label: "Vim", detail: "Modal editing" },
+      { value: "code", label: "VS Code", detail: "Graphical editor" },
+    ], { detail: "Used for examples." })]);
+    document.body.append(card);
+    await card.updateComplete;
+    const root = renderRoot(card);
+    const disclosure = requiredElement(root.querySelector("details"), "closed question disclosure");
+    expect(disclosure.open).toBe(false);
+    requiredElement(disclosure.querySelector("summary"), "question summary").click();
+    expect(disclosure.open).toBe(true);
+    expect(root.textContent).toContain("Used for examples.");
+    expect(root.textContent).toContain("Vim");
+    expect(root.textContent).toContain("Modal editing");
+    expect(root.textContent).toContain("VS Code");
+    expect(root.textContent).toContain("Graphical editor");
+    expect(root.textContent).toContain("未回答");
+    expect(root.querySelector("input, textarea, button, select")).toBeNull();
+  });
+
+  it("restores drafts when the same question is remounted and never makes archived cards writable", async () => {
+    const ask = openAsk([question("notes", "Anything else?", [])]);
+    const card = await mountOpenAsk(ask);
+    const textarea = requiredElement(renderRoot(card).querySelector("textarea"), "draft textarea");
+    textarea.value = "Keep this draft";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await card.updateComplete;
+    card.remove();
+    const restored = await mountOpenAsk(ask);
+    expect(renderRoot(restored).querySelector("textarea")?.value).toBe("Keep this draft");
+    restored.onSubmit = undefined;
+    await restored.updateComplete;
+    expect(renderRoot(restored).querySelector("textarea, input, button")).toBeNull();
+    expect(renderRoot(restored).textContent).toContain("Keep this draft");
+    expect(renderRoot(restored).textContent).toContain("草稿回答 · 未发送");
   });
 });
 
@@ -215,11 +270,12 @@ describe("ask-user-card record mode", () => {
   });
 });
 
-async function mountOpenAsk(ask: PendingAskUser, onSubmit?: AskUserSubmitCallback): Promise<AskUserCard> {
+async function mountOpenAsk(ask: AskUserRequest, onSubmit: AskUserSubmitCallback = vi.fn<AskUserSubmitCallback>()): Promise<AskUserCard> {
   const card = new AskUserCard();
   card.ask = ask;
+  card.open = true;
   card.draftSessionId = "local:session-1";
-  if (onSubmit !== undefined) card.onSubmit = onSubmit;
+  card.onSubmit = onSubmit;
   document.body.append(card);
   await card.updateComplete;
   return card;
@@ -244,7 +300,7 @@ function requiredElement<T>(value: T | null | undefined, label: string): T {
   return value;
 }
 
-function openAsk(questions: AskUserQuestion[]): PendingAskUser {
+function openAsk(questions: AskUserQuestion[]): AskUserRequest {
   return { askId: "ask-1", askedAt: "2026-07-20T10:00:00.000Z", questions };
 }
 

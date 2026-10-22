@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DisplayedMessageActionAvailabilityContext, DisplayedMessageActionContext, EntryMessageActionContribution, MessageActionAvailabilityContext, MessageActionContext, MessageActionContribution, MessageActionFeedback } from "../../../plugin-api";
+import { normalizeMessages } from "../chatMessages";
 import * as clipboard from "../clipboard";
 import { corePlugin } from "../plugins/core";
 import { PluginRegistry } from "../plugins/registry";
@@ -284,3 +285,77 @@ describe("plugin-defined transcript message actions", () => {
     expect(button(view, "分叉").disabled).toBe(true);
   });
 });
+
+it.each([false, true])("offers existing history actions on question requests (answered: %s), targeting the tool result", async (answered) => {
+    const { view } = await mount();
+    const question = { id: "q", question: "Choose?", options: [] };
+    const ask = { askId: "ask", askedAt: "2026-07-20T10:00:00.000Z", questions: [question] };
+    view.messages = normalizeMessages([
+      { role: "assistant", content: [{ type: "toolCall", id: "ask-call", name: "ask_user", arguments: { questions: ask.questions } }] },
+      { role: "toolResult", toolName: "ask_user", toolCallId: "ask-call", entryId: "question-result",
+        content: "Questions posted", details: { ask }, isError: false },
+    ]);
+    if (answered) view.messages = [...view.messages, { role: "user", entryId: "answer-record", parts: [{ type: "askUserRecord", outcome: {
+      askId: ask.askId, askedAt: ask.askedAt, closedAt: "2026-07-20T10:01:00.000Z", reason: "submitted",
+      questions: [{ question, answered: true, values: [], otherText: "Custom answer" }],
+      answeredCount: 1, unansweredIds: [], summary: "Answered",
+    } }] }];
+    view.historyReady = true;
+    view.onSubmitAsk = vi.fn();
+    const onAction = vi.fn().mockResolvedValue(undefined);
+    view.onMessageAction = onAction;
+    await settle(view);
+
+    const card = view.renderRoot.querySelector("ask-user-card");
+    expect(card?.classList.contains(answered ? "closed-question-card" : "open-question-card")).toBe(true);
+    expect(card?.closest(".event-group")).toBeNull();
+    expect(buttons(view).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "分叉", "回退",
+    ]);
+    expect(card?.parentElement?.querySelectorAll(".msg-action")).toHaveLength(2);
+    button(view, "回退").click();
+    await settle(view);
+    button(view, "分叉").click();
+    await settle(view);
+    const expected = { ...base, message: { entryId: "question-result", role: "tool", text: "", isQuestion: true } };
+    expect(onAction.mock.calls).toEqual([[expected, "core:message.back"], [expected, "core:message.fork"]]);
+
+    view.messages = view.messages.map((message) => {
+      const entryless = { ...message };
+      delete entryless.entryId;
+      return entryless;
+    });
+    await settle(view);
+    expect(buttons(view)).toEqual([]);
+  });
+
+it("targets the real entry and anchor when an event group spans invisible conversation entries", async () => {
+    const { view } = await mount([{ id: "inspect", title: "Inspect entry", run: () => undefined }]);
+    const onEntry = vi.fn(() => Promise.resolve());
+    view.onMessageAction = onEntry;
+    view.messageStart = 20;
+    view.messages = [
+      { role: "assistant", entryId: "first", parts: [{ type: "thinking", text: "First thought" }] },
+      { role: "tool", entryId: "boundary", parts: [{ type: "toolResultBoundary", toolCallId: "earlier" }] },
+      { role: "assistant", entryId: "empty", parts: [{ type: "empty" }] },
+      { role: "assistant", entryId: "last", parts: [{ type: "thinking", text: "Last thought" }] },
+    ];
+    await settle(view);
+    const groups = view.renderRoot.querySelectorAll("details.event-group");
+    expect(groups).toHaveLength(1);
+    const group = groups[0];
+    if (!(group instanceof HTMLDetailsElement)) throw new Error("Missing event group");
+    group.open = true;
+    group.dispatchEvent(new Event("toggle"));
+    await settle(view);
+    const sections = Array.from(groups[0]?.querySelectorAll<HTMLElement>("section.group-msg") ?? []);
+    expect(sections.map((section) => section.dataset["index"])).toEqual(["20", "23"]);
+    expect(sections.map((section) => section.dataset["scrollAnchorId"])).toEqual(["e:20", "e:23"]);
+    const action = sections[1]?.querySelector<HTMLButtonElement>('button[title="Inspect entry"]');
+    if (action === null || action === undefined) throw new Error("Missing last entry action");
+    action.click();
+    await settle(view);
+    expect(onEntry).toHaveBeenCalledExactlyOnceWith({
+      ...base, message: { entryId: "last", role: "assistant", text: "" },
+    }, "custom:inspect");
+  });

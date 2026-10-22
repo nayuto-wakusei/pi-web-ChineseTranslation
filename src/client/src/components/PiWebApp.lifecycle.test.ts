@@ -17,6 +17,27 @@ afterEach(() => {
 });
 
 describe("PiWebApp connection lifecycle", () => {
+  it.each(["", "?embed=management"])("enables history readiness after authenticated startup (%s)", (search) => {
+    const app = createConnectedApp(search);
+    replaceMethod(app, "connectRealtime", vi.fn());
+    replaceMethod(app, "refreshWorkspaceActivity", () => Promise.resolve());
+    replaceMethod(app, "refreshMachineStatusSnapshots", () => Promise.resolve());
+    replaceMethod(app, "loadClientConfig", () => Promise.resolve());
+    replaceMethod(app, "ensureGatewayPluginsLoaded", () => Promise.resolve());
+    replaceMethod(app, "loadProjectsAndRestoreRoute", () => Promise.resolve());
+    replaceMethod(app, "schedulePiWebStatusRefresh", vi.fn());
+    const renegotiate = replaceMethod(app, "renegotiateUnreadMachines", vi.fn(() => {
+      expect(Reflect.get(app, "unreadConnected")).toBe(true);
+      return Promise.resolve();
+    }));
+
+    expect(Reflect.get(app, "unreadConnected")).toBe(false);
+    callMethod(app, "startAuthenticatedApp");
+    expect(renegotiate).toHaveBeenCalledOnce();
+    callMethod(app, "startAuthenticatedApp");
+    expect(renegotiate).toHaveBeenCalledOnce();
+  });
+
   it("starts authenticated resources again after disconnecting and reconnecting", () => {
     const app = createConnectedApp();
     const connectRealtime = replaceMethod(app, "connectRealtime", vi.fn());

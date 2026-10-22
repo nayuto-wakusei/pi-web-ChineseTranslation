@@ -107,6 +107,8 @@ describe("component localization", () => {
   ])("localizes complete progress messages in %s while preserving model content", async (locale, progress, heading) => {
     setClientTranslations(locale, locale === "en" ? {} : dictionary);
     const card = new AskUserCard();
+    card.open = true;
+    card.onSubmit = () => Promise.resolve();
     card.ask = {
       askId: "locale-test",
       askedAt: "2026-10-20T00:00:00.000Z",

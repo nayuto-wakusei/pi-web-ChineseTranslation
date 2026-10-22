@@ -2,7 +2,7 @@ import type { Api, AssistantMessage, Model, TranscriptContext } from "@earendil-
 import { createAssistantMessageEventStream } from "../../piAi.js";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { describe, expect, it } from "vitest";
-import { cleanSessionName, deterministicSessionName, fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
+import { cleanSessionName, fallbackSessionName, generateShortSessionName, requireInitialSessionName } from "./sessionNameGenerator.js";
 
 function fakeModel(): Model<Api> {
   return { id: "fake-model", name: "Fake Model", api: "anthropic-messages", provider: "anthropic", baseUrl: "https://example.test", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000, maxTokens: 100 };
@@ -75,26 +75,12 @@ describe("sessionNameGenerator", () => {
     expect(cleanSessionName('Title: "Fix Session Naming."\nextra')).toBe("Fix Session Naming");
   });
 
-  it("builds deterministic names for relay handoff prompts", () => {
-    expect(deterministicSessionName('Relay "handoff-check" leg 2 begins now.\n\nYou are the next runner.'))
-      .toBe("Relay handoff-check leg 2");
-    expect(deterministicSessionName('Relay "handoff-check" leg review-final begins now.'))
-      .toBe("Relay handoff-check leg review-final");
+  it("preserves explicit extension names", () => {
+    expect(requireInitialSessionName("A workflow leg 2")).toBe("A workflow leg 2");
   });
 
-  it.each(["R1a", "G-D1-L09", "phase-2", "R1-a"])("supports structured relay leg identifiers (%s)", (legIdentifier) => {
-    expect(deterministicSessionName(`Relay "handoff-check" leg ${legIdentifier} begins now.`))
-      .toBe(`Relay handoff-check leg ${legIdentifier}`);
-  });
-
-  it("preserves the relay leg when truncating deterministic relay names", () => {
-    expect(deterministicSessionName('Relay "very-long-relay-name-that-would-otherwise-push-the-leg-number-out-of-view" leg 42 begins now.'))
-      .toBe("Relay very-long-relay-name-that-would-otherwise-push leg 42");
-  });
-
-  it("does not build deterministic names for non-canonical relay prompts", () => {
-    expect(deterministicSessionName('You are continuing Relay "handoff-check" under the Relay method.'))
-      .toBeUndefined();
+  it.each([undefined, null, "", " ", " padded", "padded ", "two\nlines", "control\0character", "a".repeat(61)])("rejects invalid initial names (%j)", (value) => {
+    expect(() => requireInitialSessionName(value)).toThrow("Initial session name");
   });
 
   it("builds a concise fallback from the first request", () => {

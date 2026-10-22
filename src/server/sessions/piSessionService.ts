@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
-import { readSessionUiMetadata, requireSessionUiMetadata } from "./sessionMetadata.js";
+import { createHash, randomUUID } from "node:crypto";
+import { readSessionUiMetadata, requireSessionUiMetadata, SESSION_UI_METADATA_CUSTOM_TYPE } from "./sessionMetadata.js";
 import { UserFacingError, createTranslator, userFacingErrorMessage } from "../../shared/i18n.js";
 import { realpathSync, statSync } from "node:fs";
 import { clientSessionFirstMessagePreview } from "./clientSessionPreview.js";
@@ -30,6 +30,8 @@ import {
   type AgentSessionRuntimeDiagnostic,
   type AgentSessionServices,
   type CreateAgentSessionServicesOptions,
+  type CustomMessageEntryDraft,
+  type ExtensionFactory,
   type CreateAgentSessionRuntimeFactory,
   type EditToolDetails,
   type EditToolOptions,
@@ -59,7 +61,7 @@ import { projectSessionTree, type ProjectableSessionTreeNode } from "./sessionTr
 import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInput } from "./sessionArchiveStore.js";
 import { findArchiveCandidateByExactId, planSessionArchiveTree } from "./sessionArchiveTree.js";
 import type { ActiveSession } from "./sessionRuntimeStore.js";
-import { deterministicSessionName, fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
+import { fallbackSessionName, generateShortSessionName, requireInitialSessionName } from "./sessionNameGenerator.js";
 import type { PluginSessionSnapshot } from "../../shared/pluginCatalogTypes.js";
 import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
 import { attachmentsToInlineImages, saveAttachmentsToWorkspace } from "./attachmentService.js";
@@ -67,7 +69,7 @@ import { loadEffectiveProjectAttachmentsConfig } from "../workspaces/projectPiWe
 import type { PiWebConfigService } from "../configRoutes.js";
 import { parsePromptAttachments } from "../../shared/promptAttachments.js";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_LIMIT, type PiWebAttachmentsConfig } from "../../shared/apiTypes.js";
-import type { AskUserCloseResponse, AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionDefaults, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
+import type { AskUserOutcome, AskUserSubmission, ExtensionDialogAnswer, ExtensionDialogCloseResponse, ExtensionDialogKind, ExtensionDialogOutcome, SavedPromptAttachment, SessionBulkArchiveResponse, SessionBulkDeleteArchivedResponse, SessionBulkFailure, SessionBulkMutationRef, SessionDefaults, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationCatalogSnapshot, SessionNotificationClearReason, SessionNotificationDismissAllRequest, SessionNotificationDismissRequest, SessionNotificationInboxSnapshot, SessionUnreadAcknowledgeRequest, SessionUnreadCatalogSnapshot, SessionWarning } from "../../shared/apiTypes.js";
 import type { PiWebHostPiSessionConnection } from "../../server-plugin-api.js";
 import { PiSessionEventConnections } from "./piSessionEventConnections.js";
 import { resolveWebProjectTrusted } from "./projectTrust.js";
@@ -86,13 +88,16 @@ import { managementPrivilegeRequested, managementPrivileges, managementUsesNorma
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
 import { createScopedSettingsManager, resolveSettingsScopeDirectory, type SessionSettingsMode } from "./projectSettingsScope.js";
 import { parseSessionDefaults, parseSessionDefaultsUpdate } from "../../shared/sessionDefaults.js";
-import { createAskUserToolDefinition, type AskUserInvocation, type AskUserToolDeps } from "./askUserTool.js";
-import { PendingAskStore, renderAskUserAnswersText, type PendingAskCloseResult, type PendingAskOpenResult } from "./pendingAskStore.js";
+import { createAskUserToolDefinition } from "./askUserTool.js";
+import { createAskUserOutcome, renderAskUserAnswersText, resolveAskUserRequest } from "./askUserDomain.js";
+import { createSubsessionCompletionDelivery } from "./subsessionCompletionDelivery.js";
+import { completionReceiptIds, persistedSubsessionCompletions, renderSubsessionCompletions, SUBSESSION_COMPLETION_ENTRY_TYPE, SUBSESSION_NOTIFICATION_CUSTOM_TYPE, SUBSESSION_RECEIPT_ENTRY_TYPE, SubsessionCompletionInbox, type SubsessionCompletion } from "./subsessionCompletionInbox.js";
+import { createExtensionSessionDispatch } from "./extensionSessionDispatch.js";
 import { PendingExtensionDialogStore, type ExtensionDialogCancelReason } from "./pendingExtensionDialogStore.js";
 import { ExtensionDialogWaiters, effectiveExtensionDialogTimeoutMs, extensionDialogCancelValue } from "./extensionDialogWaiters.js";
 import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type SpawnSessionResult } from "./spawnSessionTool.js";
-import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
-import { buildTranscriptView } from "./subsessionTranscript.js";
+import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionJoinResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
+import { buildTranscriptView, type TranscriptView } from "./subsessionTranscript.js";
 import { planSessionCleanup, summarizeSessionCleanupExecution, type NormalizedSessionCleanupRequest, type SessionCleanupPlan } from "./sessionCleanup.js";
 import type { SpawnTargetDecision, SpawnTargetResolver } from "./spawnTargetResolver.js";
 import { createManagedAgentToolOptions, createManagedBashToolDefinition, createManagedPythonToolDefinition } from "./managementAgentTools.js";
@@ -247,11 +252,7 @@ interface QueuedPrompt {
   echoUserMessage?: boolean;
 }
 
-interface DeferredSubsessionNotification {
-  parentId: string;
-  childId: string;
-  text: string;
-}
+
 
 interface TreeExclusiveOperationTarget {
   sessionId: string;
@@ -322,6 +323,8 @@ interface PersistedChildSubsessionLink {
 type SessionCreationProvenance = "tracked-subsession" | "host-one-shot";
 
 interface StartSessionOptions {
+  metadata?: import("../../shared/pluginApiTypes.js").SessionUiMetadata;
+  name?: string;
   parentSession?: string;
   managementContext?: ManagementEmbedContext;
   initialModel?: AgentModel;
@@ -431,6 +434,7 @@ export interface PiSessionManager {
   resetLeaf(): void;
   getHeader?(): { parentSession?: string; timestamp?: string } | null | undefined;
   appendCustomEntry?(customType: string, data?: unknown): string;
+  appendSessionInfo?(name: string): string;
 }
 
 export interface PiSessionManagerGateway {
@@ -895,8 +899,10 @@ type SpawnSessionFn = (input: ScopedSpawnSessionInvocation) => Promise<SpawnSess
 interface ScopedSubsessionToolDeps {
   spawn(input: ScopedSpawnSubsessionInvocation): Promise<SpawnSubsessionResult>;
   list(parentSessionId: string, parentSessionFile?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionSummary[]>;
-  check(parentSessionId: string, sessionId: string, parentSessionFile?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionCheckResult>;
-  read(parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionReadResult>;
+  join(parentSessionId: string, parentSessionFile?: string, toolCallId?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionJoinResult>;
+  prepare(parentSessionId: string, parentSessionFile?: string, managementContext?: ManagementEmbedContext): Promise<CustomMessageEntryDraft | undefined>;
+  check(parentSessionId: string, sessionId: string, parentSessionFile?: string, toolCallId?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionCheckResult>;
+  read(parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string, toolCallId?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionReadResult>;
 }
 
 type ResolveSettingsScopeDirectory = (cwd: string, mode: SessionSettingsMode) => Promise<string>;
@@ -922,6 +928,7 @@ async function createNormalPermissionSessionServices(options: Required<Pick<Crea
   appendSystemPromptSections: readonly string[];
   eventBus: ReturnType<typeof createEventBus>;
   agentsFilesOverride?: (base: AgentContextFilesResult) => AgentContextFilesResult;
+  extensionFactories?: ExtensionFactory[];
 }) {
   const { cwd, agentDir, settingsManager, projectTrustRequiring } = options;
   const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
@@ -933,7 +940,7 @@ async function createNormalPermissionSessionServices(options: Required<Pick<Crea
     resourceLoaderOptions: {
       ...piWebResourceLoaderOptions(options.appendSystemPromptSections),
       eventBus: options.eventBus,
-      extensionFactories: await getBuiltinExtensionFactories(),
+      extensionFactories: [...await getBuiltinExtensionFactories(), ...(options.extensionFactories ?? [])],
       ...(options.agentsFilesOverride === undefined ? {} : { agentsFilesOverride: options.agentsFilesOverride }),
       skillsOverride: (base: SkillCollectionResult) => deduplicateBundledRelaySkills(cwd, base),
     },
@@ -960,7 +967,7 @@ function createDefaultRuntimeFactory(
   sessionManagers: Pick<PiSessionManagerGateway, "open">,
   spawn?: SpawnSessionFn,
   subsessions?: ScopedSubsessionToolDeps,
-  askUser?: AskUserToolDeps,
+  askUserEnabled = false,
   workbench?: WorkbenchRuntimeDependencies,
   logger: PiSessionLogger = noopLogger,
   managementAudit?: ManagementAuditRecorder,
@@ -971,7 +978,7 @@ function createDefaultRuntimeFactory(
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent, managementContext, initialModel, initialThinkingLevel, delegationToolsEnabled }) => {
     const scopedModelRuntime = managementContext === undefined ? await normalModelRuntimeForCwd(cwd) : await managementModelRuntime();
     if (managementContext !== undefined) {
-      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, sessionManagers, spawn, subsessions, askUser, managementContext, workbench, logger, managementAudit, managementProjectIdForCwd, managementAllowPrivileged, appendSystemPromptSections)({
+      return createManagementRuntimeFactory(scopedModelRuntime, resolveSettingsScope, sessionManagers, spawn, subsessions, askUserEnabled, managementContext, workbench, logger, managementAudit, managementProjectIdForCwd, managementAllowPrivileged, appendSystemPromptSections)({
         cwd,
         agentDir,
         sessionManager,
@@ -995,6 +1002,8 @@ function createDefaultRuntimeFactory(
       // Only normal runtimes register a host connection; privileged management
       // packages keep their own event bus without exposing a normal-mode session.
       const eventBus = createEventBus();
+      let dispatchEnabled = false;
+      const sessionDispatch = createExtensionSessionDispatch(cwd, { ...(spawn === undefined ? {} : { spawn }), isEnabled: () => dispatchEnabled });
       const { services, projectTrustDiagnostics } = await createNormalPermissionSessionServices({
         cwd,
         agentDir,
@@ -1003,6 +1012,7 @@ function createDefaultRuntimeFactory(
         projectTrustRequiring,
         appendSystemPromptSections,
         eventBus,
+        extensionFactories: [sessionDispatch, ...(subsessions === undefined ? [] : [createSubsessionCompletionDelivery(subsessions)])],
       });
       const modelOptions = await resolveSessionModelOptions({
         services,
@@ -1013,7 +1023,8 @@ function createDefaultRuntimeFactory(
       services.diagnostics.push(...modelOptions.diagnostics);
       const resolvedDelegationToolsEnabled = delegationToolsEnabled
         ?? await sessionAllowsDelegationTools(sessionManager, sessionManagers);
-      const customTools = createPiWebCustomToolDefinitions(cwd, resolvedDelegationToolsEnabled, spawn, subsessions, askUser);
+      dispatchEnabled = resolvedDelegationToolsEnabled;
+      const customTools = createPiWebCustomToolDefinitions(cwd, resolvedDelegationToolsEnabled, spawn, subsessions, askUserEnabled);
       const result = await createAgentSessionFromServices({
         services,
         sessionManager,
@@ -1037,7 +1048,7 @@ function createManagementRuntimeFactory(
   sessionManagers: Pick<PiSessionManagerGateway, "open">,
   spawn: SpawnSessionFn | undefined,
   subsessions: ScopedSubsessionToolDeps | undefined,
-  askUser: AskUserToolDeps | undefined,
+  askUserEnabled: boolean,
   managementContext: ManagementEmbedContext,
   workbench: WorkbenchRuntimeDependencies | undefined,
   logger: PiSessionLogger,
@@ -1083,16 +1094,19 @@ function createManagementRuntimeFactory(
       : {
           spawn: (input: SpawnSubsessionInvocation) => subsessions.spawn({ ...input, managementContext }),
           list: (parentSessionId: string, parentSessionFile?: string) => subsessions.list(parentSessionId, parentSessionFile, managementContext),
-          check: (parentSessionId: string, sessionId: string, parentSessionFile?: string) => subsessions.check(parentSessionId, sessionId, parentSessionFile, managementContext),
-          read: (parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string) => subsessions.read(parentSessionId, sessionId, query, parentSessionFile, managementContext),
+          join: (parentSessionId: string, parentSessionFile?: string, toolCallId?: string) => subsessions.join(parentSessionId, parentSessionFile, toolCallId, managementContext),
+          prepare: (parentSessionId: string, parentSessionFile?: string) => subsessions.prepare(parentSessionId, parentSessionFile, managementContext),
+          check: (parentSessionId: string, sessionId: string, parentSessionFile?: string, toolCallId?: string) => subsessions.check(parentSessionId, sessionId, parentSessionFile, toolCallId, managementContext),
+          read: (parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string, toolCallId?: string) => subsessions.read(parentSessionId, sessionId, query, parentSessionFile, toolCallId, managementContext),
         };
-    const scopedAskUser = askUser === undefined ? undefined : {
-      open: (input: Parameters<AskUserToolDeps["open"]>[0]) => askUser.open({ ...input, managementContext }),
-    };
+    const managementFactories = [
+      ...(normalPermissions ? [createExtensionSessionDispatch(cwd, { ...(scopedSpawn === undefined ? {} : { spawn: scopedSpawn }), isEnabled: () => resolvedDelegationToolsEnabled })] : []),
+      ...(scopedSubsessions === undefined ? [] : [createSubsessionCompletionDelivery(scopedSubsessions)]),
+    ];
     const controlledManagementTools = [
       ...(resolvedDelegationToolsEnabled && scopedSpawn !== undefined ? [defineTool(createSpawnSessionToolDefinition(cwd, { spawn: scopedSpawn }))] : []),
       ...(resolvedDelegationToolsEnabled && scopedSubsessions !== undefined ? createSubsessionToolDefinitions(cwd, scopedSubsessions).map((tool) => defineTool(tool)) : []),
-      ...(scopedAskUser === undefined ? [] : [createAskUserToolDefinition(scopedAskUser)]),
+      ...(askUserEnabled ? [createAskUserToolDefinition()] : []),
       ...workbenchTools,
     ];
     const controlledManagementToolNames = controlledManagementTools.map((tool) => tool.name);
@@ -1123,6 +1137,7 @@ function createManagementRuntimeFactory(
         projectTrustRequiring: false,
         appendSystemPromptSections,
         eventBus: createEventBus(),
+        extensionFactories: managementFactories,
         agentsFilesOverride: (base) => filterPrivilegedManagementContextFiles(cwd, managementContext, base),
       }) : { services: await createAgentSessionServices({
         cwd,
@@ -1130,6 +1145,7 @@ function createManagementRuntimeFactory(
         modelRuntime,
         settingsManager,
         resourceLoaderOptions: {
+          extensionFactories: managementFactories,
           agentsFilesOverride: (base) => filterManagedGlobalContextFiles(cwd, agentDir, base),
           skillsOverride: (base) => receipt === undefined ? filterManagedProjectSkills(cwd, base, agentDir) : filterManagedWorkbenchSkills(cwd, base, receipt, agentDir),
         },
@@ -1142,7 +1158,7 @@ function createManagementRuntimeFactory(
       });
       services.diagnostics.push(...modelOptions.diagnostics);
       const customTools = normalPermissions ? createPiWebCustomToolDefinitions(
-        cwd, resolvedDelegationToolsEnabled, scopedSpawn, scopedSubsessions, scopedAskUser,
+        cwd, resolvedDelegationToolsEnabled, scopedSpawn, scopedSubsessions, askUserEnabled,
       ) : [
         ...managedAgentToolDefinitions(cwd, createManagedAgentToolOptions(cwd)),
         createManagedPythonToolDefinition(cwd, managementContext, { network: privileges.network }),
@@ -1179,13 +1195,13 @@ export function createPiWebCustomToolDefinitions(
   delegationEnabled: boolean,
   spawn?: SpawnSessionFn,
   subsessions?: SubsessionToolDeps,
-  askUser?: AskUserToolDeps,
+  askUserEnabled = false,
 ): ToolDefinition[] {
   return [
     ...managedAgentToolDefinitions(cwd),
     ...(delegationEnabled && spawn !== undefined ? [defineTool(createSpawnSessionToolDefinition(cwd, { spawn }))] : []),
     ...(delegationEnabled && subsessions !== undefined ? createSubsessionToolDefinitions(cwd, subsessions).map((tool) => defineTool(tool)) : []),
-    ...(askUser === undefined ? [] : [createAskUserToolDefinition(askUser)]),
+    ...(askUserEnabled ? [createAskUserToolDefinition()] : []),
   ];
 }
 
@@ -1268,8 +1284,6 @@ export interface PiSessionServiceDependencies {
    * questions reach the user of the asking session, not another session.
    */
   askUserEnabled?: boolean;
-  /** Daemon-lifetime open-ask state; defaults to an in-memory store in tests. */
-  pendingAskStore?: PendingAskStore;
   /** Daemon-lifetime open-dialog state; defaults to an in-memory store in tests. */
   pendingExtensionDialogStore?: PendingExtensionDialogStore;
   /**
@@ -1349,7 +1363,11 @@ export class PiSessionService {
   /** Runtime/session-identity reservations for operations that must not overlap tree navigation. */
   private readonly treeExclusiveRuntimeOperationCounts = new WeakMap<PiSessionRuntime, number>();
   private readonly treeExclusiveSessionOperationCounts = new Map<string, number>();
-  private readonly deferredSubsessionNotifications = new WeakMap<PiAgentSession, DeferredSubsessionNotification[]>();
+  private readonly subsessionInboxes = new Map<string, SubsessionCompletionInbox>();
+  private readonly subsessionStoppedParents = new WeakSet<PiAgentSession>();
+  private readonly subsessionDeliveringParents = new WeakSet<PiAgentSession>();
+  private readonly subsessionDeliveryScheduled = new WeakSet<PiAgentSession>();
+
   private readonly deferredGeneratedSessionNames = new WeakMap<PiAgentSession, string>();
   private readonly compactionPromptQueues = new Map<string, QueuedPrompt[]>();
   private readonly compactionDrainTimers = new Map<string, NodeJS.Timeout>();
@@ -1365,8 +1383,8 @@ export class PiSessionService {
   /** Session file path -> its parsed header. Headers are written once, so successful reads are cached. */
   /**
    * Tracked subsession id -> whether a completion notification is armed.
-   * Armed when the child starts working; firing on completion disarms it so a
-   * child that works again (and stops again) notifies the parent each time.
+   * Armed by agent_start or early prompt failure, never standalone commands
+   * or compaction. Completion disarms the latch until the next run.
    */
   private readonly subsessionNotifyArmed = new Map<string, boolean>();
   private readonly archiveStore: SessionArchiveRepository;
@@ -1395,7 +1413,7 @@ export class PiSessionService {
   private readonly notificationGenerationBySession = new WeakMap<PiAgentSession, SessionNotificationGeneration>();
   private readonly idleSessionFileResolutions = new WeakMap<PiAgentSession, { at: number; path: string | undefined }>();
   private readonly unreadStore: SessionUnreadStore;
-  private readonly pendingAskStore: PendingAskStore;
+
   private readonly pendingExtensionDialogStore: PendingExtensionDialogStore;
   private readonly extensionDialogsTimeoutMs: number;
   /** The parked extension Promise resolvers behind the store's open dialogs. */
@@ -1447,7 +1465,6 @@ export class PiSessionService {
     this.notificationStore = deps.notificationStore ?? new SessionNotificationStore();
     this.unreadStore = deps.unreadStore ?? new SessionUnreadStore();
     this.onUnreadChanged = deps.onUnreadChanged;
-    this.pendingAskStore = deps.pendingAskStore ?? new PendingAskStore();
     this.pendingExtensionDialogStore = deps.pendingExtensionDialogStore ?? new PendingExtensionDialogStore();
     this.extensionDialogsTimeoutMs = deps.extensionDialogsTimeoutMs ?? DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS;
     this.catalogRefreshStatus = deps.catalogRefreshStatus;
@@ -1471,10 +1488,12 @@ export class PiSessionService {
       !subsessionsActive ? undefined : {
         spawn: (input) => this.spawnSubsession(input),
         list: (parentSessionId, parentSessionFile, managementContext) => this.listSubsessions(parentSessionId, parentSessionFile, managementContext),
-        check: (parentSessionId, sessionId, parentSessionFile, managementContext) => this.checkSubsession(parentSessionId, sessionId, parentSessionFile, managementContext),
-        read: (parentSessionId, sessionId, query, parentSessionFile, managementContext) => this.readSubsession(parentSessionId, sessionId, query, parentSessionFile, managementContext),
+        join: (parentSessionId, parentSessionFile, toolCallId, managementContext) => this.joinSubsessions(parentSessionId, parentSessionFile, toolCallId, managementContext),
+        prepare: (parentSessionId, parentSessionFile, managementContext) => this.prepareSubsessionDelivery(parentSessionId, parentSessionFile, managementContext),
+        check: (parentSessionId, sessionId, parentSessionFile, toolCallId, managementContext) => this.checkSubsession(parentSessionId, sessionId, parentSessionFile, toolCallId, managementContext),
+        read: (parentSessionId, sessionId, query, parentSessionFile, toolCallId, managementContext) => this.readSubsession(parentSessionId, sessionId, query, parentSessionFile, toolCallId, managementContext),
       },
-      deps.askUserEnabled === true ? { open: (input) => this.openAsk(input, input.managementContext) } : undefined,
+      deps.askUserEnabled === true,
       deps.workbench,
       this.logger,
       this.managementAudit,
@@ -1599,7 +1618,6 @@ export class PiSessionService {
     const activeSessions = Array.from(new Set(this.active.values()));
     for (const active of activeSessions) {
       this.forgetUnreadActivity(active.runtime.session);
-      this.pendingAskStore.forgetSession(this.dialogSessionKey(active.runtime.session));
       this.endSessionExtensionDialogs(active.runtime.session);
     }
     this.active.clear();
@@ -1614,6 +1632,7 @@ export class PiSessionService {
     this.subsessionLinks.clear();
     this.subsessionHydratedParents.clear();
     this.subsessionNotifyArmed.clear();
+    this.subsessionInboxes.clear();
     this.notificationStore.clearAll("service-dispose");
     for (const store of this.scopedNotificationStores.values()) store.clearAll("service-dispose");
     await Promise.all(activeSessions.map(async (active) => {
@@ -1830,8 +1849,19 @@ export class PiSessionService {
   }
 
   private async startSession(cwd: string, options: InternalStartSessionOptions): Promise<ClientSession> {
+    const metadata = options.metadata === undefined ? undefined : requireSessionUiMetadata(options.metadata);
+    const name = options.name === undefined ? undefined : requireInitialSessionName(options.name);
+    const manager = this.sessionManager.create(cwd, options.parentSession === undefined ? undefined : { parentSession: options.parentSession });
+    if (metadata !== undefined) {
+      if (manager.appendCustomEntry === undefined) throw new UserFacingError("session.metadataUnsupported", "Session manager does not support UI metadata initialization");
+      manager.appendCustomEntry(SESSION_UI_METADATA_CUSTOM_TYPE, { version: 1, metadata });
+    }
+    if (name !== undefined) {
+      if (manager.appendSessionInfo === undefined) throw new UserFacingError("session.initialNameUnsupported", "Session manager does not support initial naming");
+      manager.appendSessionInfo(name);
+    }
     const active = await this.create(
-      this.sessionManager.create(cwd, options.parentSession === undefined ? undefined : { parentSession: options.parentSession }),
+      manager,
       cwd,
       {
         ...(options.managementContext === undefined ? {} : { managementContext: options.managementContext }),
@@ -1871,6 +1901,8 @@ export class PiSessionService {
     const created = await this.start(decision.cwd, {
       ...(model === undefined ? {} : { initialModel: model }),
       ...(input.thinkingLevel === undefined ? {} : { initialThinkingLevel: input.thinkingLevel }),
+      ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+      ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.managementContext === undefined ? {} : { managementContext: input.managementContext }),
     });
     const modelUsed = this.activeForLookup(created.id, input.managementContext)?.runtime.session.model;
@@ -2068,93 +2100,23 @@ export class PiSessionService {
     return model;
   }
 
-  /**
-   * Register the question set an agent wants the user to answer as the session's
-   * open ask. Deliberately does not wait for the user: `ask_user` terminates the
-   * run and the submitted answers come back later as a follow-up message.
-   *
-   * Rejected question sets throw {@link PendingAskValidationError}, which the
-   * agent loop reports to the model as an error tool result.
-   */
-  // eslint-disable-next-line @typescript-eslint/require-await -- async so a rejected question set becomes a rejection rather than a synchronous throw from a promise-returning method.
-  async openAsk(input: AskUserInvocation, managementContext?: ManagementEmbedContext): Promise<PendingAskOpenResult> {
-    const scope = eventScopeFromManagementContext(managementContext);
-    const sessionKey = scope === NORMAL_SESSION_EVENT_SCOPE ? input.sessionId : activeSessionKey(input.sessionId, scope);
-    const result = this.pendingAskStore.open({ ...input, sessionId: sessionKey });
-    // A supersede closes the earlier ask, so the browsers watching it must hear
-    // that before they hear about its replacement.
-    if (result.superseded !== undefined) this.publishAskClosed(input.sessionId, result.superseded, scope);
-    this.events.publish(input.sessionId, { type: "ask.opened", ask: result.ask }, scope);
-    this.publishStatusForSessionId(input.sessionId, scope);
-    return result;
-  }
-
-  /**
-   * Record the user's answers to the session's open ask and hand them to the
-   * model. The answers travel as a system-authored custom message rather than a
-   * user message, so they are not attributed to the human in the transcript;
-   * they still wake an idle session (`triggerTurn`) and queue behind in-flight
-   * work (`deliverAs: "followUp"`), which is how the run that `ask_user`
-   * terminated continues.
-   */
-  async submitAsk(ref: PiSessionLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse> {
+  /** Reply to a durable request on the active branch; repeated answers remain ordinary replies. */
+  async submitAsk(ref: PiSessionLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    // Checked before the store closes the ask so a refused delivery cannot
-    // discard answers the user already submitted.
     this.assertTreeNavigationInactive(session, this.t("session.action.answer", "answer questions"));
-    return this.closeAsk(session, this.pendingAskStore.submit(this.dialogSessionKey(session), askId, submission));
+    const ask = resolveAskUserRequest(await this.readableSessionBranch(session), askId);
+    const outcome = createAskUserOutcome(ask, submission, this.now().toISOString());
+    return this.deliverAskOutcome(session, outcome);
   }
 
-  /**
-   * Close the open ask without answers. The model is still told, naming every
-   * question as unanswered: it was promised a follow-up message and would
-   * otherwise wait for one that never comes.
-   */
-  async cancelAsk(ref: PiSessionLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse> {
+  /** Record a skip as a new reply without consuming the original request. */
+  async cancelAsk(ref: PiSessionLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus> {
     await this.assertWritable(ref);
     const session = await this.getOrOpen(ref, managementContext);
-    this.assertTreeNavigationInactive(session, this.t("session.action.dismiss", "dismiss questions"));
-    return this.closeAsk(session, this.pendingAskStore.cancel(this.dialogSessionKey(session), askId));
-  }
-
-  /**
-   * Publish and deliver a closed ask. A stale close is reported rather than
-   * thrown: losing the race against a supersede, another browser, or a session
-   * that went away is ordinary, and the returned status tells the browser what
-   * the session's open ask is now.
-   */
-  private async closeAsk(session: PiAgentSession, result: PendingAskCloseResult): Promise<AskUserCloseResponse> {
-    if (result.status === "stale") return { result: "stale", sessionStatus: this.statusFromSession(session) };
-    const { outcome } = result;
-    this.publishAskClosed(session.sessionId, outcome, this.eventScopeForSession(session));
-    await this.runSessionEntryMutation(session, this.t("server.main.07f784061918", "deliver answers to your questions"), () => session.sendCustomMessage(
-      { customType: ASK_USER_ANSWERS_CUSTOM_TYPE, content: renderAskUserAnswersText(outcome), display: true, details: outcome },
-      { triggerTurn: true, deliverAs: "followUp" },
-    ));
-    this.publishStatus(session);
-    return { result: "closed", outcome, sessionStatus: this.statusFromSession(session) };
-  }
-
-  private publishAskClosed(sessionId: string, outcome: AskUserOutcome, scope: string): void {
-    this.events.publish(sessionId, { type: "ask.closed", askId: outcome.askId, reason: outcome.reason }, scope);
-  }
-
-  /**
-   * Void the session's open ask because the user sent a chat message instead of
-   * answering it. Every browser closes the card as cancelled, and the model is
-   * told — without being woken — so the notice rides into the turn the message
-   * itself triggers rather than becoming a turn of its own.
-   */
-  private async voidOpenAskForUserMessage(session: PiAgentSession): Promise<void> {
-    const outcome = this.pendingAskStore.cancelOpen(this.dialogSessionKey(session));
-    if (outcome === undefined) return;
-    this.publishAskClosed(session.sessionId, outcome, this.eventScopeForSession(session));
-    await this.runSessionEntryMutation(session, this.t("server.main.90b5a8ac7c7d", "void the open questions"), () => session.sendCustomMessage(
-      { customType: ASK_USER_ANSWERS_CUSTOM_TYPE, content: renderAskUserAnswersText(outcome), display: true, details: outcome },
-      { triggerTurn: false, deliverAs: "followUp" },
-    ));
-    this.publishStatus(session);
+    this.assertTreeNavigationInactive(session, this.t("session.action.dismiss", "skip questions"));
+    const ask = resolveAskUserRequest(await this.readableSessionBranch(session), askId);
+    return this.deliverAskOutcome(session, createAskUserOutcome(ask, undefined, this.now().toISOString()));
   }
 
   /**
@@ -2301,28 +2263,41 @@ export class PiSessionService {
   }
 
   /** Status and final result of a subsession, scoped to the caller's children. */
-  async checkSubsession(parentSessionId: string, sessionId: string, parentSessionFile?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionCheckResult> {
+  async checkSubsession(parentSessionId: string, sessionId: string, parentSessionFile?: string, toolCallId?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionCheckResult> {
+    const scope = eventScopeFromManagementContext(managementContext);
     const session = await this.openSubsession(parentSessionId, sessionId, parentSessionFile, managementContext);
+    // Finalize the same completion even if its event/heartbeat notification has
+    // not run yet. Inspection must not leave a future notice armed for this run.
+    this.reconcileSubsessionCompletion(session);
+    const status = this.subsessionStatus(session);
     const messages = historyMessages(session);
+    const completion = this.subsessionCompletionForOutput(parentSessionId, parentSessionFile, session, messages, scope);
+    if (status !== "working" && completion !== undefined) this.receiveSubsessionCompletions(parentSessionId, parentSessionFile, [completion], toolCallId, scope);
     return {
       sessionId,
       cwd: session.sessionManager.getCwd(),
-      status: this.subsessionStatus(session),
+      status,
       finalText: finalAssistantText(messages),
       messageCount: messages.length,
+      ...(status === "working" || completion?.errorDetail === undefined ? {} : { errorDetail: completion.errorDetail }),
     };
   }
 
   /** Filtered, paginated transcript of a subsession, scoped to the caller's children. */
-  async readSubsession(parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionReadResult> {
+  async readSubsession(parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string, toolCallId?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionReadResult> {
+    const scope = eventScopeFromManagementContext(managementContext);
     const session = await this.openSubsession(parentSessionId, sessionId, parentSessionFile, managementContext);
-    const view = buildTranscriptView(historyMessages(session), query);
-    return {
-      sessionId,
-      cwd: session.sessionManager.getCwd(),
-      status: this.subsessionStatus(session),
-      ...view,
-    };
+    this.reconcileSubsessionCompletion(session);
+    const messages = historyMessages(session);
+    const view = buildTranscriptView(messages, query);
+    const status = this.subsessionStatus(session);
+    const completion = this.subsessionCompletionForOutput(parentSessionId, parentSessionFile, session, messages, scope);
+    const errorDetail = status === "working" ? undefined : completion?.errorDetail;
+    if (status !== "working" && completion !== undefined
+      && (transcriptReturnsFinalOutput(messages, view, completion.finalText) || (completion.finalText === "" && errorDetail !== undefined))) {
+      this.receiveSubsessionCompletions(parentSessionId, parentSessionFile, [completion], toolCallId, scope);
+    }
+    return { sessionId, cwd: session.sessionManager.getCwd(), status, ...view, ...(errorDetail === undefined ? {} : { errorDetail }) };
   }
 
   /** Open a session after verifying it is one of the caller's tracked children. */
@@ -2382,6 +2357,14 @@ export class PiSessionService {
     this.subsessionLinks.set(childKey, scopedLink);
     if (!this.subsessionNotifyArmed.has(childKey)) this.subsessionNotifyArmed.set(childKey, false);
 
+    const childManager = this.activeChildForSubsessionLink(scopedLink)?.runtime.session.sessionManager
+      ?? (link.childSessionFile === undefined ? undefined : this.sessionManager.open(link.childSessionFile));
+    if (childManager !== undefined) {
+      for (const completion of persistedSubsessionCompletions(childManager.getEntries?.() ?? childManager.getBranch())) {
+        if (completion.sessionId === childSessionId) this.subsessionInbox(parentSessionId, link.parentSessionFile, scope).record(completion);
+      }
+    }
+
     const cwd = this.cwdForVerifiedSubsession(scopedLink);
     await this.publishUnreadMutations(this.unreadForScope(scope).excludeSession(childSessionId, cwd));
     return scopedLink;
@@ -2409,6 +2392,9 @@ export class PiSessionService {
     this.subsessionParents.delete(childKey);
     this.subsessionLinks.delete(childKey);
     this.subsessionNotifyArmed.delete(childKey);
+    for (const [key, inbox] of this.subsessionInboxes) {
+      if (key.startsWith(activeSessionKey(parentSessionId ?? "", scope) + "\0")) inbox.forgetChild(childSessionId);
+    }
     if (parentSessionId === undefined) return;
     const parentKey = activeSessionKey(parentSessionId, scope);
     const children = this.subsessionChildren.get(parentKey);
@@ -2569,32 +2555,67 @@ export class PiSessionService {
     });
   }
 
-  /**
-   * Drive parent notifications from a tracked child's status. Arms a pending
-   * notification while the child is working, and when it stops fires a single
-   * follow-up message to the parent via {@link prompt} (which queues if the
-   * parent is busy and delivers immediately when it is idle).
-   */
-  private updateSubsessionTracking(session: PiAgentSession): void {
+  /** Persist one immutable result per agent run, shared by all delivery paths. */
+  private updateSubsessionTracking(session: PiAgentSession, agentStarted = false, agentSettled = false): void {
     const link = this.subsessionLinkForActiveChild(session);
     if (link === undefined) return;
     const childId = link.childSessionId;
     const childKey = activeSessionKey(childId, link.eventScope);
-    if (this.hasActiveWork(session)) {
+    if (agentStarted) {
       this.subsessionNotifyArmed.set(childKey, true);
       return;
     }
+    // Native settlement is authoritative even while the host prompt Promise's
+    // mutation receipt is unwinding. Capture now, before another run can start.
+    if (!agentSettled && this.hasActiveWork(session)) return;
     if (this.subsessionNotifyArmed.get(childKey) !== true) return;
+    const activity = this.activityForSession(session);
+    const messages = historyMessages(session);
+    const completion: SubsessionCompletion = {
+      completionId: randomUUID(), sessionId: childId, cwd: session.sessionManager.getCwd(),
+      status: activity?.phase === "error" ? "error" : "idle",
+      finalText: finalAssistantText(messages), messageCount: messages.length,
+      ...(activity?.phase !== "error" || activity.detail === undefined ? {} : { errorDetail: activity.detail }),
+    };
+    try {
+      session.sessionManager.appendCustomEntry?.(SUBSESSION_COMPLETION_ENTRY_TYPE, completion);
+    } catch (error: unknown) {
+      // Keep the latch armed so a later reconciliation can retry persistence.
+      this.logSubsessionNotificationFailure(link.parentSessionId, childId, error);
+      return;
+    }
     this.subsessionNotifyArmed.set(childKey, false);
-    const status: SubsessionStatus = this.activityForSession(session)?.phase === "error" ? "error" : "idle";
-    const finalText = finalAssistantText(historyMessages(session));
-    const outputSection = formatSubsessionNotificationOutput(childId, finalText);
-    const workingIds = this.workingSubsessionIds(link.parentSessionId, link.eventScope);
-    const next = workingIds.length === 0
-      ? "No other tracked subsessions are working."
-      : `Still working: ${workingIds.join(", ")}. Continue working, or call yield_to_subsessions alone and last at the next join point. Further completion notices arrive automatically; do not poll.`;
-    const text = `Subsession ${childId} stopped working (${status}).\n${next}\n\n${outputSection}`;
-    void this.notifyParentOfSubsession(link, text);
+    this.subsessionInbox(link.parentSessionId, link.parentSessionFile, link.eventScope).record(completion);
+    void this.wakeParentForSubsession(link);
+  }
+
+  private async wakeParentForSubsession(link: ScopedTrackedSubsessionLink): Promise<void> {
+    try {
+      const session = await this.getOrOpenParentForSubsession(link);
+      this.scheduleSubsessionDelivery(session);
+    } catch (error: unknown) {
+      this.logSubsessionNotificationFailure(link.parentSessionId, link.childSessionId, error);
+    }
+  }
+
+  private subsessionReceiptOwner(session: PiAgentSession) {
+    return {
+      parentSessionId: session.sessionId,
+      parentSessionFile: session.sessionFile ?? null,
+      scopeHash: createHash("sha256").update(this.eventScopeForSession(session)).digest("hex"),
+    };
+  }
+
+  private subsessionReceiptMatches(session: PiAgentSession, entry: unknown): boolean {
+    if (!isRecord(entry)) return true;
+    const data = entry["type"] === "custom" && entry["customType"] === SUBSESSION_RECEIPT_ENTRY_TYPE
+      ? entry["data"] : entry["type"] === "custom_message" && entry["customType"] === SUBSESSION_NOTIFICATION_CUSTOM_TYPE ? entry["details"] : undefined;
+    if (!isRecord(data)) return true;
+    const owner = data["receiptOwner"];
+    if (owner === undefined) return this.eventScopeForSession(session) === NORMAL_SESSION_EVENT_SCOPE;
+    const expected = this.subsessionReceiptOwner(session);
+    return isRecord(owner) && owner["parentSessionId"] === expected.parentSessionId
+      && owner["parentSessionFile"] === expected.parentSessionFile && owner["scopeHash"] === expected.scopeHash;
   }
 
   private async getOrOpenParentForSubsession(link: ScopedTrackedSubsessionLink): Promise<PiAgentSession> {
@@ -2612,29 +2633,6 @@ export class PiSessionService {
     return (await this.create(sessionManager, sessionManager.getCwd(), {
       ...(link.managementContext === undefined ? {} : { managementContext: link.managementContext }),
     })).runtime.session;
-  }
-
-  /**
-   * Deliver a subsession-completion notice to the parent as a system-authored
-   * custom message rather than a user message, so it is not attributed to the
-   * human in the transcript. It still wakes an idle parent (`triggerTurn`) and
-   * queues behind in-flight work (`deliverAs: "followUp"`), preserving the
-   * established "queue if busy, send and act if idle" behavior.
-   */
-  private async notifyParentOfSubsession(link: ScopedTrackedSubsessionLink, text: string): Promise<void> {
-    const { parentSessionId: parentId, childSessionId: childId } = link;
-    try {
-      const session = await this.getOrOpenParentForSubsession(link);
-      if (this.treeNavigations.has(session)) {
-        const pending = this.deferredSubsessionNotifications.get(session) ?? [];
-        pending.push({ parentId, childId, text });
-        this.deferredSubsessionNotifications.set(session, pending);
-        return;
-      }
-      await this.deliverSubsessionNotification(session, { parentId, childId, text });
-    } catch (error: unknown) {
-      this.logSubsessionNotificationFailure(parentId, childId, error);
-    }
   }
 
   async transcriptSnapshot(ref: PiSessionLookup, page?: { limit?: number }, managementContext?: ManagementEmbedContext): Promise<SessionTranscriptSnapshot> {
@@ -2976,7 +2974,6 @@ export class PiSessionService {
     // the form is void: keeping it open would invite answers to questions the
     // conversation has already moved past. Ignored duplicates skip this on
     // purpose: they must not void an ask posted after the queued original.
-    await this.voidOpenAskForUserMessage(session);
     if (session.isCompacting) {
       this.enqueuePromptDuringCompaction(session, promptText, behavior ?? "followUp", images, echoUserMessage);
       return;
@@ -3009,10 +3006,16 @@ export class PiSessionService {
     const submission: ExtensionCommandSubmission = { session, active: true };
     const commandName = text.trim().split(/\s+/)[0]?.replace(/^\//, "");
     const isExtensionCommand = text.trim().startsWith("/") && session.extensionRunner.getRegisteredCommands().some((command) => command.invocationName === commandName);
+    const trackEarlyFailure = behavior === undefined && this.subsessionLinkForActiveChild(session) !== undefined && !isExtensionCommand;
+    let agentStarted = false;
+    const unsubscribe = !trackEarlyFailure ? undefined : session.subscribe((event) => {
+      if (getString(event, "type") === "agent_start") agentStarted = true;
+    });
     const promptPromise = this.runSessionEntryMutation(session, this.t("server.main.94306b2fc35c", "send a prompt"), () => isExtensionCommand
       ? this.extensionCommandExecution.run({ submission }, () => session.prompt(text, promptOptions))
       : session.prompt(text, promptOptions)).finally(() => {
       submission.active = false;
+      unsubscribe?.();
       if (echo !== undefined) {
         const remaining = (this.pendingPromptEchoes.get(session) ?? []).filter((pending) => pending !== echo);
         if (remaining.length === 0) this.pendingPromptEchoes.delete(session);
@@ -3020,9 +3023,15 @@ export class PiSessionService {
       }
     });
     void promptPromise.catch((error: unknown) => {
+      this.subsessionStoppedParents.add(session);
       const message = error instanceof Error ? error.message : String(error);
       this.publishActivity(session, this.t("activity.error", "An error occurred"), "error", message);
       this.events.publish(session.sessionId, { type: "session.error", message }, eventScope);
+      if (this.isCurrentActiveSession(session)) {
+        const link = this.subsessionLinkForActiveChild(session);
+        if (trackEarlyFailure && !agentStarted && link !== undefined) this.subsessionNotifyArmed.set(activeSessionKey(link.childSessionId, link.eventScope), true);
+        this.updateSubsessionTracking(session);
+      }
     });
     return promptPromise;
   }
@@ -3197,12 +3206,6 @@ export class PiSessionService {
         return { cancelled: true, ...(result.aborted === undefined ? {} : { aborted: result.aborted }) };
       }
 
-      if (session.sessionManager.getLeafId() !== oldLeafId) {
-        // Questions belong to the branch we left. Close them without appending a
-        // cancellation message or waking the rewound session.
-        const outcome = this.pendingAskStore.cancelOpen(this.dialogSessionKey(session));
-        if (outcome !== undefined) this.publishAskClosed(session.sessionId, outcome, this.eventScopeForSession(session));
-      }
 
       if (result.summaryEntry !== undefined) {
         this.unpersistedTreeBranchLeaves.delete(session);
@@ -3229,7 +3232,7 @@ export class PiSessionService {
         this.publishStatus(session);
       } else {
         this.deferredGeneratedSessionNames.delete(session);
-        this.deferredSubsessionNotifications.delete(session);
+        this.subsessionInbox(session.sessionId, session.sessionFile, this.eventScopeForSession(session)).releaseClaims();
       }
     }
   }
@@ -3579,6 +3582,7 @@ export class PiSessionService {
   async abort(ref: PiSessionLookup, managementContext?: ManagementEmbedContext): Promise<void> {
     const active = this.activeForLookup(ref, managementContext);
     if (active === undefined) return;
+    this.subsessionStoppedParents.add(active.runtime.session);
     this.clearCompactionPromptQueue(active.runtime.session);
     clearSessionQueue(active.runtime.session);
     this.abortRunScopedExtensionDialogs(active.runtime.session);
@@ -3774,7 +3778,6 @@ export class PiSessionService {
       this.publishNotificationMutations(mutations);
     }
     this.forgetUnreadActivity(active.runtime.session);
-    this.pendingAskStore.forgetSession(this.dialogSessionKey(active.runtime.session));
     this.endSessionExtensionDialogs(active.runtime.session);
     this.rememberManagementMediaFile(active.runtime.session, active.eventScope);
     this.active.delete(activeSessionKey(sessionId, active.eventScope));
@@ -4157,10 +4160,22 @@ export class PiSessionService {
       this.sessionEvents.close(active.runtime.session);
     }
     this.reconcileRuntimeMessageCount(session);
+    this.restoreSubsessionReceipts(session);
     const unsubscribe = session.subscribe((event) => {
       const eventType = getString(event, "type");
       const message = getProperty(event, "message");
       const entry = getProperty(event, "entry");
+      const inbox = this.subsessionInbox(session.sessionId, session.sessionFile, active.eventScope);
+      if (eventType === "agent_start") {
+        this.restoreSubsessionReceipts(session, false);
+        this.subsessionStoppedParents.delete(session);
+      }
+      if (eventType === "message_end" && getString(message, "role") === "assistant"
+        && (getString(message, "stopReason") === "aborted" || getString(message, "stopReason") === "error")) this.subsessionStoppedParents.add(session);
+      if (eventType === "entry_appended" && getString(entry, "type") === "custom_message"
+        && getString(entry, "customType") === SUBSESSION_NOTIFICATION_CUSTOM_TYPE && this.subsessionReceiptMatches(session, entry)) inbox.receive(completionReceiptIds(getProperty(entry, "details")));
+      if (eventType === "turn_end" || eventType === "agent_settled") this.restoreSubsessionReceipts(session);
+      if (eventType === "agent_settled") this.scheduleSubsessionDelivery(session);
       const role = getString(message, "role");
       if ((eventType === "message_end" && (role === "user" || role === "assistant" || role === "toolResult" || role === "system"))
         || (eventType === "entry_appended" && getString(entry, "type") === "message")) {
@@ -4181,13 +4196,6 @@ export class PiSessionService {
       this.auditToolExecutionEvent(active, event);
       this.auditAssistantResponseEvent(active, event);
       this.publishActivityForEvent(session, event);
-      if (eventType === "message_start" && isRecord(event) && getString(event["message"], "role") === "user") {
-        void this.voidOpenAskForUserMessage(session).catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          this.publishActivity(session, this.t("activity.extensionError", "Extension error"), "error", message);
-          this.events.publish(session.sessionId, { type: "session.error", message }, active.eventScope);
-        });
-      }
       if (eventType === "message_start" && role === "user") this.suggestedInputs.delete(this.dialogSessionKey(session));
       if (eventType === "agent_end") this.abortRunScopedExtensionDialogs(session);
       if (eventType === "compaction_end") {
@@ -4197,7 +4205,8 @@ export class PiSessionService {
       }
       if (eventType === "agent_start" || eventType === "agent_end") this.scheduleCompactionQueueDrain(session);
       this.publishStatus(session);
-      this.updateSubsessionTracking(session);
+      this.updateSubsessionTracking(session, eventType === "agent_start", eventType === "agent_settled");
+      if (eventType === "bash_execution_end" || eventType === "compaction_end") this.scheduleSubsessionDelivery(session);
     });
     active.unsubscribe = () => {
       if (active.eventScope === NORMAL_SESSION_EVENT_SCOPE) this.sessionEvents.close(session);
@@ -4206,6 +4215,7 @@ export class PiSessionService {
       this.assistantStreamIds.delete(session);
     };
     this.active.set(activeSessionKey(session.sessionId, active.eventScope), active);
+    this.scheduleSubsessionDelivery(session);
   }
 
   private publishCompactionOutcome(session: PiAgentSession, event: unknown): void {
@@ -4295,12 +4305,6 @@ export class PiSessionService {
 
   private maybeGenerateSessionName(session: PiAgentSession, firstMessage: string): void {
     if (session.sessionName !== undefined || session.messages.length !== 0 || session.isStreaming || session.isCompacting) return;
-
-    const deterministicName = deterministicSessionName(firstMessage);
-    if (deterministicName !== undefined) {
-      this.applyGeneratedSessionName(session, deterministicName);
-      return;
-    }
 
     const model = session.model;
     if (model === undefined) return;
@@ -4484,6 +4488,7 @@ export class PiSessionService {
     if (remaining <= 0) this.sessionEntryMutationCounts.delete(session);
     else this.sessionEntryMutationCounts.set(session, remaining);
     this.observeUnreadActivityState(session);
+    if (remaining <= 0 && !this.subsessionDeliveringParents.has(session)) this.scheduleSubsessionDelivery(session);
   }
 
   private isSessionEntryMutationActive(session: PiAgentSession, ignoredReceipts = 0): boolean {
@@ -4778,7 +4783,6 @@ export class PiSessionService {
     const model = session.model === undefined ? undefined : modelToClientModel(session.model);
     const contextUsage = session.getContextUsage();
     const warnings = this.warningsForSession(session);
-    const pendingAsk = this.pendingAskStore.pendingAsk(this.dialogSessionKey(session));
     const pendingDialogs = this.pendingExtensionDialogStore.pendingDialogs(this.dialogSessionKey(session));
     const suggestedInput = this.suggestedInputs.get(this.dialogSessionKey(session));
     return {
@@ -4797,7 +4801,6 @@ export class PiSessionService {
       cost: stats.cost,
       ...(contextUsage === undefined ? {} : { contextUsage }),
       ...(warnings.length === 0 ? {} : { warnings }),
-      ...(pendingAsk === undefined ? {} : { pendingAsk }),
       ...(pendingDialogs.length === 0 ? {} : { pendingDialogs }),
       ...(suggestedInput === undefined ? {} : { suggestedInput }),
     };
@@ -4918,13 +4921,7 @@ dismissAllNotifications(
     return result.snapshot;
   }
 
-private async deliverSubsessionNotification(session: PiAgentSession, notification: DeferredSubsessionNotification): Promise<void> {
-    await this.runSessionEntryMutation(session, this.t("session.action.notify", "deliver a subsession notification"), () => session.sendCustomMessage(
-      { customType: SUBSESSION_NOTIFICATION_CUSTOM_TYPE, content: notification.text, display: true, details: { sessionId: notification.childId } },
-      { triggerTurn: true, deliverAs: "followUp" },
-    ));
-    this.publishStatus(session);
-  }
+
 
 private logSubsessionNotificationFailure(parentId: string, childId: string, error: unknown): void {
     this.logger.info(
@@ -5369,13 +5366,147 @@ private flushDeferredTreeNavigationWork(session: PiAgentSession): void {
       }
     }
 
-    const notifications = this.deferredSubsessionNotifications.get(session) ?? [];
-    this.deferredSubsessionNotifications.delete(session);
-    for (const notification of notifications) {
-      void this.deliverSubsessionNotification(session, notification).catch((error: unknown) => {
-        this.logSubsessionNotificationFailure(notification.parentId, notification.childId, error);
-      });
+    this.restoreSubsessionReceipts(session);
+    this.scheduleSubsessionDelivery(session);
+  }
+
+  private async deliverAskOutcome(session: PiAgentSession, outcome: AskUserOutcome): Promise<ClientSessionStatus> {
+    // Pi persists/displays the structured message and wakes an idle agent, or
+    // queues it behind in-flight work. Ordinary entry-mutation protection still
+    // applies, but there is no answer-specific stale/duplicate gate.
+    await this.runSessionEntryMutation(session, this.t("server.main.07f784061918", "deliver answers to your questions"), () => session.sendCustomMessage(
+      { customType: ASK_USER_ANSWERS_CUSTOM_TYPE, content: renderAskUserAnswersText(outcome), display: true, details: outcome },
+      { triggerTurn: true, deliverAs: "followUp" },
+    ));
+    this.publishStatus(session);
+    return this.statusFromSession(session);
+  }
+
+  async joinSubsessions(parentSessionId: string, parentSessionFile?: string, toolCallId?: string, managementContext?: ManagementEmbedContext): Promise<SubsessionJoinResult> {
+    const scope = eventScopeFromManagementContext(managementContext);
+    const subsessions = await this.listSubsessions(parentSessionId, parentSessionFile, managementContext);
+    this.reconcileSubsessionCompletions(parentSessionId, parentSessionFile, scope);
+    const completions = this.subsessionInbox(parentSessionId, parentSessionFile, scope).pending();
+    this.receiveSubsessionCompletions(parentSessionId, parentSessionFile, completions, toolCallId, scope);
+    return { subsessions, completions };
+  }
+
+  private subsessionInbox(parentSessionId: string, parentSessionFile?: string, scope = NORMAL_SESSION_EVENT_SCOPE): SubsessionCompletionInbox {
+    const file = nonEmptyString(parentSessionFile) ?? nonEmptyString(this.active.get(activeSessionKey(parentSessionId, scope))?.runtime.session.sessionFile);
+    const key = subsessionHydratedParentKey(activeSessionKey(parentSessionId, scope), file);
+    let inbox = this.subsessionInboxes.get(key);
+    if (inbox === undefined) {
+      inbox = new SubsessionCompletionInbox();
+      this.subsessionInboxes.set(key, inbox);
     }
+    return inbox;
+  }
+
+  private restoreSubsessionReceipts(session: PiAgentSession, releaseClaims = true): void {
+    this.subsessionInbox(session.sessionId, session.sessionFile, this.eventScopeForSession(session)).restoreReceipts(session.sessionManager.getBranch().filter((entry) => this.subsessionReceiptMatches(session, entry)), releaseClaims);
+  }
+
+  private subsessionCompletionForOutput(parentId: string, parentFile: string | undefined, child: PiAgentSession, messages: readonly unknown[], scope: string): SubsessionCompletion | undefined {
+    const branch = persistedSubsessionCompletions(child.sessionManager.getBranch()).filter(({ sessionId }) => sessionId === child.sessionId);
+    // A child can be rewound independently of its parent. Never acknowledge an
+    // abandoned branch's newer result while returning the current branch's text.
+    const completion = branch.at(-1) ?? (child.sessionManager.appendCustomEntry === undefined
+      ? this.subsessionInbox(parentId, parentFile, scope).latest(child.sessionId) : undefined);
+    return completion?.finalText === finalAssistantText(messages) ? completion : undefined;
+  }
+
+  private receiveSubsessionCompletions(parentId: string, parentFile: string | undefined, completions: readonly SubsessionCompletion[], toolCallId: string | undefined, scope: string): void {
+    if (completions.length === 0) return;
+    const parent = this.active.get(activeSessionKey(parentId, scope))?.runtime.session;
+    if (parent === undefined || (parentFile !== undefined && !sessionFileMatches(parent, parentFile))) {
+      throw new UserFacingError("session.parentReceiptUnavailable", "Parent session {parentSessionId} is not available to receive subsession results", { parentSessionId: parentId });
+    }
+    const inbox = this.subsessionInbox(parentId, parentFile, scope);
+    const completionIds = completions.map(({ completionId }) => completionId).filter((id) => !inbox.hasReceived(id));
+    if (completionIds.length === 0) return;
+    // Persist before removing unread results. A storage failure leaves the
+    // answer unread and fails the tool instead of losing the notification.
+    this.assertTreeNavigationInactive(parent, this.t("session.action.receiveSubsessions", "receive subsession results"));
+    parent.sessionManager.appendCustomEntry?.(SUBSESSION_RECEIPT_ENTRY_TYPE, { receiptOwner: this.subsessionReceiptOwner(parent), completionIds, ...(toolCallId === undefined ? {} : { toolCallId }) });
+    inbox.receive(completionIds);
+  }
+
+  private reconcileSubsessionCompletions(parentId: string, parentFile: string | undefined, scope: string): void {
+    for (const childId of this.subsessionChildren.get(activeSessionKey(parentId, scope)) ?? []) {
+      if (!this.subsessionLinkBelongsToParent(parentId, nonEmptyString(parentFile), childId, scope)) continue;
+      const link = this.subsessionLinks.get(activeSessionKey(childId, scope));
+      const child = link === undefined ? undefined : this.activeChildForSubsessionLink(link)?.runtime.session;
+      if (child !== undefined) this.reconcileSubsessionCompletion(child);
+    }
+  }
+
+  private reconcileSubsessionCompletion(session: PiAgentSession): void {
+    this.updateSubsessionTracking(session);
+    if (!this.hasActiveWork(session) && this.subsessionNotifyArmed.get(activeSessionKey(session.sessionId, this.eventScopeForSession(session))) === true) {
+      throw new UserFacingError("session.subsessionCompletionPersistFailed", "Could not record completion of subsession {sessionId}; its result remains unread. Retry after fixing session storage.", { sessionId: session.sessionId });
+    }
+  }
+
+  async prepareSubsessionDelivery(parentId: string, parentFile?: string, managementContext?: ManagementEmbedContext): Promise<CustomMessageEntryDraft | undefined> {
+    const scope = eventScopeFromManagementContext(managementContext);
+    await this.hydrateSubsessionsForParent(parentId, nonEmptyString(parentFile), managementContext);
+    const parent = this.active.get(activeSessionKey(parentId, scope))?.runtime.session;
+    if (parent === undefined || (parentFile !== undefined && !sessionFileMatches(parent, parentFile))) return undefined;
+    // Tool receipts are intents until the successful (possibly nested) result
+    // is persisted. Reconcile those intents without releasing in-flight drafts.
+    this.restoreSubsessionReceipts(parent, false);
+    this.reconcileSubsessionCompletions(parentId, parentFile, scope);
+    const completions = this.subsessionInbox(parentId, parentFile, scope).claim();
+    if (completions.length === 0) return undefined;
+    return {
+      type: "custom_message", customType: SUBSESSION_NOTIFICATION_CUSTOM_TYPE, display: true,
+      content: renderSubsessionCompletions(completions, this.workingSubsessionIds(parentId, scope)),
+      details: { receiptOwner: this.subsessionReceiptOwner(parent), sessionId: completions[0]?.sessionId, completionIds: completions.map(({ completionId }) => completionId) },
+    };
+  }
+
+  private async deliverPendingSubsessionCompletions(session: PiAgentSession): Promise<void> {
+    if (this.hasActiveWork(session) || !this.isCurrentActiveSession(session) || this.subsessionStoppedParents.has(session)) return;
+    const inbox = this.subsessionInbox(session.sessionId, session.sessionFile, this.eventScopeForSession(session));
+    const completions = inbox.claim();
+    if (completions.length === 0) return;
+    const completionIds = completions.map(({ completionId }) => completionId);
+    this.subsessionDeliveringParents.add(session);
+    let delivered = false;
+    try {
+      await this.runSessionEntryMutation(session, this.t("session.action.deliverSubsessions", "deliver subsession results"), () => session.sendCustomMessage(
+        {
+          customType: SUBSESSION_NOTIFICATION_CUSTOM_TYPE, display: true,
+          content: renderSubsessionCompletions(completions, this.workingSubsessionIds(session.sessionId, this.eventScopeForSession(session))),
+          details: { receiptOwner: this.subsessionReceiptOwner(session), sessionId: completions[0]?.sessionId, completionIds },
+        },
+        { triggerTurn: true },
+      ));
+      inbox.receive(completionIds);
+      delivered = true;
+    } catch (error: unknown) {
+      this.subsessionStoppedParents.add(session);
+      throw error;
+    } finally {
+      inbox.release(completionIds);
+      this.subsessionDeliveringParents.delete(session);
+      if (delivered) this.scheduleSubsessionDelivery(session);
+      this.publishStatus(session);
+    }
+  }
+
+  private scheduleSubsessionDelivery(session: PiAgentSession): void {
+    if (this.subsessionDeliveryScheduled.has(session) || this.subsessionInbox(session.sessionId, session.sessionFile, this.eventScopeForSession(session)).pending().length === 0) return;
+    this.subsessionDeliveryScheduled.add(session);
+    // Settlement can precede the host prompt-mutation receipt's finally block.
+    // Recheck on the next tick, closing the yield/child-completion race without
+    // restarting a stopped run or putting rendered answers in a follow-up queue.
+    setTimeout(() => {
+      this.subsessionDeliveryScheduled.delete(session);
+      void this.deliverPendingSubsessionCompletions(session).catch((error: unknown) => {
+        this.logSubsessionNotificationFailure(session.sessionId, "inbox", error);
+      });
+    }, 0);
   }
 }
 
@@ -5837,19 +5968,6 @@ const SUBSESSION_LINK_CUSTOM_TYPE = "pi-web.subsession.link";
 /** custom entry type used to mark a child as created by spawn_subsession. */
 const SUBSESSION_CHILD_LINK_CUSTOM_TYPE = "pi-web.subsession.spawned";
 
-/** customType marking a parent-facing subsession-completion notice. */
-const SUBSESSION_NOTIFICATION_CUSTOM_TYPE = "subsession.completion";
-
-const SUBSESSION_NOTIFICATION_MAX_OUTPUT_CHARS = 2000;
-
-/** Avoid duplicating a partial result in context when deliberate inspection can return the full output. */
-function formatSubsessionNotificationOutput(childSessionId: string, text: string): string {
-  if (text.length > SUBSESSION_NOTIFICATION_MAX_OUTPUT_CHARS) {
-    return `Output from subsession ${childSessionId} was too long for this completion notice and was omitted. Call check_subsession with sessionId "${childSessionId}" to retrieve the final output.`;
-  }
-  return `--- SUBSESSION OUTPUT: ${childSessionId} ---\n${text === "" ? "(no output)" : text}`;
-}
-
 /** Most recent assistant text from a history message list, or "" if none. */
 function finalAssistantText(messages: readonly unknown[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -5891,4 +6009,18 @@ async function resolveManagementAuditIdentity(
     ...(context.user.displayName === undefined ? {} : { userDisplayName: context.user.displayName }),
     projectId,
   };
+}
+
+function transcriptReturnsFinalOutput(messages: readonly unknown[], view: TranscriptView, finalText: string): boolean {
+  if (finalText === "") return false;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const text = finalAssistantText([messages[index]]);
+    if (text === "") continue;
+    const entry = view.entries.find((candidate) => candidate.index === index && candidate.role === "assistant");
+    if (entry === undefined || text !== finalText) return false;
+    const texts = entry.parts.filter((part) => part.kind === "text");
+    return texts.every((part) => part.truncated === undefined)
+      && texts.map((part) => part.text).join("\n").trim() === finalText.trim();
+  }
+  return false;
 }

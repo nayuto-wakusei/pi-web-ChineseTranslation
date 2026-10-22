@@ -5,7 +5,7 @@ import type { ChatLine } from "./components/shared";
 const text = (role: ChatLine["role"], value: string): ChatLine => ({ role, parts: [{ type: "text", text: value }] });
 
 function renderedMessages(groups: readonly ChatGroup[]): ChatLine[] {
-  return groups.flatMap((group) => group.kind === "group" ? group.messages : [group.message]);
+  return groups.flatMap((group) => group.kind === "group" ? group.messages.map(({ message }) => message) : [group.message]);
 }
 
 describe("canonicalEntryActionHeaders", () => {

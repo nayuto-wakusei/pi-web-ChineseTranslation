@@ -3,6 +3,7 @@ import { type TemplateResult } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import type { QueuedSessionMessage, SessionStatus, SessionWarning } from "../api";
 import { parseSessionStatus } from "../api/parsers";
+import type { ChatGroup } from "../chatGroups";
 import {
   notificationTargetKey,
   notificationTrayIsCollapsed,
@@ -385,8 +386,9 @@ interface GroupBodyRenderCall {
 }
 
 type RenderQueuedMessages = (this: ChatView) => TemplateResult;
-type RenderMessageGroup = (this: ChatView, messages: ChatLine[], startIndex: number, endIndex: number, defaultOpen: boolean) => TemplateResult;
-type RenderMessageGroupBody = (this: ChatView, messages: ChatLine[], startIndex: number) => TemplateResult;
+type EventMessageGroup = Extract<ChatGroup, { kind: "group" }>;
+type RenderMessageGroup = (this: ChatView, group: EventMessageGroup, defaultOpen: boolean) => TemplateResult;
+type RenderMessageGroupBody = (this: ChatView, group: EventMessageGroup, entryActionHeaders?: ReadonlySet<ChatLine>) => TemplateResult;
 type RenderWarnings = (this: ChatView) => TemplateResult | null;
 type RenderNotificationTray = (this: ChatView) => TemplateResult | null;
 type FocusPendingNotificationTarget = (this: ChatView) => void;
@@ -401,7 +403,8 @@ function renderQueuedMessages(view: ChatView): TemplateResult {
 function renderMessageGroup(view: ChatView, messages: ChatLine[], startIndex: number, endIndex: number, defaultOpen: boolean): TemplateResult {
   const method: unknown = Reflect.get(view, "renderMessageGroup");
   if (!isRenderMessageGroup(method)) throw new Error("ChatView.renderMessageGroup is not callable");
-  return method.call(view, messages, startIndex, endIndex, defaultOpen);
+  const group: EventMessageGroup = { kind: "group", messages: messages.map((message, offset) => ({ message, index: startIndex + offset })), startIndex, endIndex };
+  return method.call(view, group, defaultOpen);
 }
 
 function renderWarnings(view: ChatView): TemplateResult | null {
@@ -426,9 +429,9 @@ function observeGroupBodyRenders(view: ChatView): GroupBodyRenderCall[] {
   const method: unknown = Reflect.get(view, "renderMessageGroupBody");
   if (!isRenderMessageGroupBody(method)) throw new Error("ChatView.renderMessageGroupBody is not callable");
   const calls: GroupBodyRenderCall[] = [];
-  const observed: RenderMessageGroupBody = function (messages, startIndex) {
-    calls.push({ messages, startIndex });
-    return method.call(this, messages, startIndex);
+  const observed: RenderMessageGroupBody = function (group, entryActionHeaders) {
+    calls.push({ messages: group.messages.map(({ message }) => message), startIndex: group.startIndex });
+    return method.call(this, group, entryActionHeaders);
   };
   if (!Reflect.set(view, "renderMessageGroupBody", observed)) throw new Error("Could not observe ChatView.renderMessageGroupBody");
   return calls;

@@ -404,6 +404,23 @@ describe("session API compatibility", () => {
     expect(JSON.parse(requestBody(init))).toEqual({ cwd: "/repo with spaces" });
   });
 
+  it("submits question answers and skips through encoded machine routes with ordinary status responses", async () => {
+    const wireStatus = { sessionId: "s /?", isStreaming: true, isCompacting: false, isBashRunning: false, pendingMessageCount: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 };
+    const fetchMock = stubSequenceFetch([jsonResponse(wireStatus), jsonResponse(wireStatus)]);
+    const ref = { id: "s /?", cwd: "/repo with spaces" };
+    const answers = [{ id: "q1", values: ["pg"] }];
+
+    await expect(sessionsApi.submitAsk(ref, "ask 1", { answers }, "remote /?")).resolves.toMatchObject(wireStatus);
+    await expect(sessionsApi.cancelAsk(ref, "ask 1", "remote /?")).resolves.toMatchObject(wireStatus);
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/ask/submit",
+      "https://pi.example.test/api/machines/remote%20%2F%3F/sessions/s%20%2F%3F/ask/cancel",
+    ]);
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ cwd: ref.cwd, askId: "ask 1", answers });
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ cwd: ref.cwd, askId: "ask 1" });
+  });
+
   it("answers and cancels extension dialogs through encoded machine routes", async () => {
     const answered = {
       result: "closed",

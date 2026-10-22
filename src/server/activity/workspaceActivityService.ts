@@ -35,8 +35,15 @@ export class WorkspaceActivityService {
   }
 
   /** Activity projection consumed by the daemon-owned machine status tree. */
-  activeSnapshot(scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): { workspaces: readonly ActiveWorkspaceActivity[] } {
-    return { workspaces: this.activeCwds(scope).map((cwd) => this.summaryForCwd(cwd, scope)) };
+  activeSnapshot(scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): { workspaces: readonly ActiveWorkspaceActivity[]; sessions: { sessionId: string; cwd: string }[] } {
+    return {
+      workspaces: this.activeCwds(scope).map((cwd) => this.summaryForCwd(cwd, scope)),
+      sessions: [...this.sessions].flatMap(([key, record]) => {
+        const identity = unscopedKey(key);
+        return identity.scope === scope && isSessionActive(record.status, record.activity)
+          ? [{ sessionId: identity.id, cwd: record.cwd }] : [];
+      }),
+    };
   }
 
   applySessionStatus(cwd: string, status: SessionStatus, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {

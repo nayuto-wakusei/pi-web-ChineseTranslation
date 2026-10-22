@@ -31,6 +31,12 @@ export const KNOWN_AUTO_INSTALLABLE_PI_PACKAGES: readonly KnownAutoInstallablePi
     description: "Tool-agnostic Relay method, opinionated runner profile, and human-gated preparation prompts for independent Pi session chains.",
     shippedPathSegments: ["dist", "pi-packages", "relays"],
   },
+  {
+    id: "@jmfederico/pi-web-workflows",
+    label: "Workflows",
+    description: "Opinionated workflow prompts and shortcuts, starting with /worktree for named Git worktrees based on the invoking checkout's HEAD.",
+    shippedPathSegments: ["dist", "pi-packages", "workflows"],
+  },
 ];
 
 export const KNOWN_AUTO_INSTALLABLE_PI_PACKAGE_IDS: readonly string[] = KNOWN_AUTO_INSTALLABLE_PI_PACKAGES.map((known) => known.id);

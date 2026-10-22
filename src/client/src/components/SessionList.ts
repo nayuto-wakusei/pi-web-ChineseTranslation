@@ -11,6 +11,7 @@ import type { SessionLabelItem } from "../plugins/types";
 import { renderSessionLabelItems } from "./sessionLabel";
 import { normalizeSessionPath } from "../sessionPaths";
 import { isSessionActive } from "../../../shared/activity";
+import { CORE_STATUS_FLAGS, type StatusFlags } from "../../../shared/machineStatus";
 import { AnchoredPopupController } from "./anchoredPopup";
 import { renderActionActivityIndicator, type ActivityIndicatorKind } from "./activityBadge";
 import type { KeyboardNavigableSection } from "./navigationFocus";
@@ -59,6 +60,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) pinnedSessionIds: string[] = [];
   @property({ attribute: false }) statuses: Record<string, SessionStatus> = {};
   @property({ attribute: false }) activities: Record<string, SessionActivity> = {};
+  // Undefined is an older daemon; an empty map is an authoritative idle snapshot.
+  @property({ attribute: false }) sessionFlags: Readonly<Record<string, StatusFlags>> | undefined;
   @property({ attribute: false }) sending: Record<string, true> = {};
   @property({ attribute: false }) unreadSessionIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) selected?: SessionInfo;
@@ -361,7 +364,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const bulkSelected = showsCheckbox && this.selectedSessionIds.has(session.id);
     const status = this.statuses[session.id];
     const activity = this.activities[session.id];
-    const indicatorKind = sessionRowActivityKind(session, status, activity, this.sending[session.id] === true);
+    const indicatorKind = sessionRowActivityKind(session, status, activity, this.sending[session.id] === true, this.sessionFlags);
+    const isWorking = sessionRowActivityKind(session, status, activity, false, this.sessionFlags) === "session";
     const unread = sessionRowUnread(session, this.unreadSessionIds);
     const persistenceOptions = this.sessionPersistenceOptions();
     const canArchive = isArchivableSessionInfo(session, status, persistenceOptions);
@@ -408,7 +412,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
                       ${descendantCount > 0 ? html`<button title="${t("ui.sessionList.archiveThisSessionAndItsDescendants", "Archive this session and its descendants")}" @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>${t("ui.main.6844d936c280", "Archive with descendants (")}${descendantCount}）</button>` : null}
                     ` : null}
                     ${session.parentSessionPath !== undefined ? html`<button title="${t("ui.sessionList.detachFromParent", "Detach from parent")}" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>${t("ui.sessionList.detachFromParent", "Detach from parent")}</button>` : null}
-                    ${canReloadSession ? html`<button title=${isSessionActive(this.statuses[session.id], this.activities[session.id]) ? t("ui.sessionList.stopCurrentSessionActivityBeforeReloadingFromDisk", "Stop current session activity before reloading from disk") : t("ui.sessionList.reloadTheSessionFromDiskWithoutRefreshingPi", "Reload the session from disk without refreshing Pi runtime resources")} ?disabled=${isSessionActive(this.statuses[session.id], this.activities[session.id])} @click=${() => { this.openMenuSessionId = undefined; this.onReload?.(session); }}>${t("ui.sessionList.reloadFromDisk", "Reload from disk")}</button>` : null}
+                    ${canReloadSession ? html`<button title=${isWorking ? t("ui.sessionList.stopCurrentSessionActivityBeforeReloadingFromDisk", "Stop current session activity before reloading from disk") : t("ui.sessionList.reloadTheSessionFromDiskWithoutRefreshingPi", "Reload the session from disk without refreshing Pi runtime resources")} ?disabled=${isWorking} @click=${() => { this.openMenuSessionId = undefined; this.onReload?.(session); }}>${t("ui.sessionList.reloadFromDisk", "Reload from disk")}</button>` : null}
                   `}
             </div>
           ` : null}
@@ -875,10 +879,14 @@ export function sessionRowActivityKind(
   status: SessionStatus | undefined,
   activity: SessionActivity | undefined,
   sending: boolean,
+  sessionFlags?: Readonly<Record<string, StatusFlags>>,
 ): ActivityIndicatorKind | undefined {
   if (isCachedNewSessionInfo(session) || session.archived === true) return undefined;
   if (sending) return "sending";
-  if (isSessionActive(status, activity)) return "session";
+  const working = sessionFlags === undefined
+    ? isSessionActive(status, activity)
+    : sessionFlags[session.id]?.[CORE_STATUS_FLAGS.working] === true;
+  if (working) return "session";
   return undefined;
 }
 

@@ -17,6 +17,7 @@ export function messageActionMessage(message: ChatLine, role = message.role): Me
   if (message.entryId === undefined) return undefined;
   return Object.freeze({
     entryId: message.entryId,
+    ...(message.parts.some((part) => part.type === "askUserQuestion") ? { isQuestion: true } : {}),
     role,
     text: message.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n\n"),
   });

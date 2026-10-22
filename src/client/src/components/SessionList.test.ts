@@ -13,6 +13,29 @@ afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 describe("sessionRowActivityKind", () => {
   const idle = sessionStatus("s");
 
+  it("updates reload availability when the complete daemon session map changes", async () => {
+    const list = sessionList([session("s", { persisted: true })], new Set());
+    list.canReload = true;
+    list.statuses = { s: { ...idle, isStreaming: true } };
+    list.sessionFlags = {};
+    document.body.append(list);
+    await list.updateComplete;
+    list.shadowRoot?.querySelector<HTMLButtonElement>(".action-menu-toggle")?.click();
+    await list.updateComplete;
+    const reloadButton = (): HTMLButtonElement => {
+      const button = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-panel button") ?? [])].find((item) => item.textContent.includes("从磁盘重新加载"));
+      if (button === undefined) throw new Error("Missing reload action");
+      return button;
+    };
+    expect(reloadButton().disabled).toBe(false);
+    list.sessionFlags = { s: { "core:working": true } };
+    await list.updateComplete;
+    expect(reloadButton().disabled).toBe(true);
+    list.sessionFlags = {};
+    await list.updateComplete;
+    expect(reloadButton().disabled).toBe(false);
+  });
+
   it("reports 'sending' for an uploading session, taking precedence over server activity", () => {
     expect(sessionRowActivityKind(session("s"), idle, undefined, true)).toBe("sending");
     expect(sessionRowActivityKind(session("s"), { ...idle, isStreaming: true }, undefined, true)).toBe("sending");
@@ -20,6 +43,16 @@ describe("sessionRowActivityKind", () => {
 
   it("reports 'session' for server activity when not sending", () => {
     expect(sessionRowActivityKind(session("s"), { ...idle, isStreaming: true }, undefined, false)).toBe("session");
+  });
+
+  it("uses the complete daemon projection instead of stale chat status and activity", () => {
+    const staleStatus = { ...idle, isStreaming: true };
+    const staleActivity = { sessionId: "s", phase: "active" as const, label: "Working", at: "now" };
+    expect(sessionRowActivityKind(session("s"), staleStatus, staleActivity, false, {})).toBeUndefined();
+    expect(sessionRowActivityKind(session("s"), idle, undefined, false, { s: { "core:working": true } })).toBe("session");
+    expect(sessionRowActivityKind(session("s"), idle, undefined, true, {})).toBe("sending");
+    // Older daemons omit the projection and retain event-based compatibility.
+    expect(sessionRowActivityKind(session("s"), staleStatus, staleActivity, false, undefined)).toBe("session");
   });
 
   it("shows no active-work indicator for a session that is only starting up", () => {

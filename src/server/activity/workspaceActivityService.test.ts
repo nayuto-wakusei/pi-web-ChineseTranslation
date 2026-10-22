@@ -23,6 +23,40 @@ function activityRecord() {
 }
 
 describe("WorkspaceActivityService", () => {
+  it("exposes individual active sessions even when they share a cwd", () => {
+    const { service } = activityRecord();
+    service.applySessionStatus("/repo", status({ sessionId: "s1", isStreaming: true }));
+    service.applySessionActivity("/repo", { sessionId: "s2", phase: "active", label: "tool", at: "now" });
+    service.updateTerminal({ id: "t1", cwd: "/terminal", exited: false });
+
+    expect(service.activeSnapshot().sessions).toEqual([
+      { sessionId: "s1", cwd: "/repo" }, { sessionId: "s2", cwd: "/repo" },
+    ]);
+    service.applySessionStatus("/repo", status());
+    expect(service.activeSnapshot().sessions).toEqual([{ sessionId: "s2", cwd: "/repo" }]);
+    expect(service.activeSnapshot().workspaces).toContainEqual(expect.objectContaining({ cwd: "/repo", hasSessionActivity: true, hasTerminalActivity: false }));
+
+    service.applySessionActivity("/moved", { sessionId: "s2", phase: "active", label: "tool", at: "now" });
+    expect(service.activeSnapshot().sessions).toEqual([{ sessionId: "s2", cwd: "/moved" }]);
+    service.removeSession("s2");
+    expect(service.activeSnapshot().sessions).toEqual([]);
+  });
+
+  it("keeps active-session snapshots scope-local and excludes startup and terminal-only activity", () => {
+    const { service } = activityRecord();
+    service.applySessionStatus("/normal", status({ sessionId: "same", isStreaming: true }));
+    service.applySessionStatus("/managed", status({ sessionId: "same", isStreaming: true }), "management:one");
+    service.applySessionActivity("/startup", { sessionId: "starting", phase: "active", label: "Opening", at: "now", startup: true });
+    service.updateTerminal({ id: "t1", cwd: "/terminal", exited: false });
+
+    expect(service.activeSnapshot().sessions).toEqual([{ sessionId: "same", cwd: "/normal" }]);
+    expect(service.activeSnapshot("management:one").sessions).toEqual([{ sessionId: "same", cwd: "/managed" }]);
+    expect(service.activeSnapshot("management:two").sessions).toEqual([]);
+    service.applySessionStatus("/normal", status({ sessionId: "same" }));
+    expect(service.activeSnapshot().sessions).toEqual([]);
+    expect(service.activeSnapshot("management:one").sessions).toEqual([{ sessionId: "same", cwd: "/managed" }]);
+  });
+
   it("records session activity by cwd and reports every change", () => {
     const { service, onChanged } = activityRecord();
 

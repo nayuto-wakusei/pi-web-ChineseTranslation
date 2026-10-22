@@ -756,8 +756,8 @@ export interface QueuedSessionMessage {
 }
 
 /**
- * `customType` of the follow-up custom message that carries a closed ask back to
- * the model and into the transcript. Its `details` are an {@link AskUserOutcome}.
+ * `customType` of a conversation entry carrying answers or a skip back to the
+ * model. Its `details` are an {@link AskUserOutcome}.
  */
 export const ASK_USER_ANSWERS_CUSTOM_TYPE = "pi-web.ask.answers";
 
@@ -803,17 +803,17 @@ export interface AskUserQuestion {
 }
 
 /**
- * The open, unanswered question set of a session. Daemon-owned and reported in
- * {@link SessionStatus}, so a reconnecting or reloading browser rehydrates it
- * without depending on having seen the `ask.opened` event.
+ * A validated question set stored in a successful `ask_user` tool result.
+ * It is actionable only at the active conversation's tail; no runtime state is
+ * needed to render it after a reload or session-daemon restart.
  */
-export interface PendingAskUser {
+export interface AskUserRequest {
   askId: string;
   askedAt: string;
   questions: AskUserQuestion[];
 }
 
-/** Why an ask stopped being the session's open ask. */
+/** The recorded response kind; `superseded` is retained for legacy transcripts. */
 export type AskUserCloseReason = "submitted" | "superseded" | "cancelled";
 
 /**
@@ -822,7 +822,7 @@ export type AskUserCloseReason = "submitted" | "superseded" | "cancelled";
  * same thing.
  */
 export interface AskUserAnswer {
-  /** Matches an {@link AskUserQuestion.id} of the open ask. */
+  /** Matches an {@link AskUserQuestion.id} of the referenced question set. */
   id: string;
   /** Selected {@link AskUserQuestionOption.value} entries; several only when the question allows it. */
   values: string[];
@@ -830,13 +830,13 @@ export interface AskUserAnswer {
   otherText?: string;
 }
 
-/** One submit of the open ask: answers for some or all of its questions. */
+/** Answers for some or all questions of a recorded request. */
 export interface AskUserSubmission {
   answers: AskUserAnswer[];
 }
 
 /**
- * One question of a closed ask paired with what came back for it. Carries the
+ * One question paired with a human response. Carries the
  * question itself so the record renders without the original ask still existing.
  */
 export interface AskUserQuestionRecord {
@@ -848,9 +848,9 @@ export interface AskUserQuestionRecord {
 }
 
 /**
- * The complete result of an ask, computed when it closes. Shared by the
- * model-facing follow-up message and the browser's read-only record, so both
- * report the same answered and unanswered questions.
+ * One recorded response to a question set. Shared by the model-facing message
+ * and browser rendering, so both report the same answered and unanswered
+ * questions. Multiple responses to the same request remain conversation facts.
  */
 export interface AskUserOutcome {
   askId: string;
@@ -863,21 +863,6 @@ export interface AskUserOutcome {
   unansweredIds: string[];
   /** One line, for example `Answered 3 of 5; unanswered: q2, q5`. */
   summary: string;
-}
-
-/**
- * Result of the browser closing an ask by submitting or cancelling it.
- *
- * `"stale"` is an ordinary race rather than an error: the named ask was already
- * submitted, superseded by a newer one, or gone with its session runtime. The
- * browser drops its card and trusts `sessionStatus`, which is returned in both
- * cases so closing an ask needs no follow-up status request.
- */
-export interface AskUserCloseResponse {
-  result: "closed" | "stale";
-  /** Present only when this call is the one that closed the ask. */
-  outcome?: AskUserOutcome;
-  sessionStatus: SessionStatus;
 }
 
 /** Length bound for extension-dialog ids. */
@@ -970,8 +955,8 @@ export interface ExtensionDialogCancelRequest {
 }
 
 /**
- * Result of the browser answering or cancelling an extension dialog. Mirrors
- * {@link AskUserCloseResponse}: `"stale"` is an ordinary lost race — another
+ * Result of the browser answering or cancelling an extension dialog.
+ * `"stale"` is an ordinary lost race - another
  * browser, a timeout, or a teardown closed the dialog first — not an error.
  * The browser drops its card and trusts `sessionStatus`, which is returned in
  * both cases so closing a dialog needs no follow-up status request.
@@ -1213,11 +1198,6 @@ export interface SessionStatus {
    */
   warnings?: SessionWarning[];
   /**
-   * The session's open `ask_user` question set, when one is waiting for the
-   * user. Daemon-owned, so it survives browser reload and web/API restarts.
-   */
-  pendingAsk?: PendingAskUser;
-  /**
    * The session's open extension dialogs, oldest first, when any are waiting
    * for the user. Daemon-owned, so they survive browser reload and web/API
    * restarts. Several may be open at once; the UI presents them as a queue.
@@ -1423,8 +1403,6 @@ type SessionUiEventBody =
   | { type: "session.error"; message: string }
   /** Technical details for the browser console, never transcript or notification content. */
   | { type: "session.diagnostic"; message: string }
-  | { type: "ask.opened"; ask: PendingAskUser }
-  | { type: "ask.closed"; askId: string; reason: AskUserCloseReason }
   | { type: "dialog.opened"; dialog: PendingExtensionDialog }
   | { type: "dialog.closed"; dialogId: string; reason: ExtensionDialogCloseReason; answer?: ExtensionDialogAnswer }
   | { type: "session.name"; sessionId: string; name?: string }

@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { api as defaultApi, type AskUserCloseResponse, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type MessagePage, type PendingAskUser, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSnapshot, type SessionTreeSummaryChoice, type Workspace } from "../api";
+import { api as defaultApi, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type MessagePage, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSnapshot, type SessionTreeSummaryChoice, type Workspace } from "../api";
 import type { AppState, ClosedExtensionDialog } from "../appState";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { BrowserErrorReporter, sessionBrowserErrorScope, workspaceBrowserErrorScope, type SessionBrowserErrorOwner } from "../browserErrors";
@@ -240,7 +240,7 @@ export class SessionController {
     // session must not cancel the in-flight upload indicator of the session
     // that is still sending; the per-session entry is cleared by send()'s
     // finally block when the request settles.
-    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingAsk: undefined, pendingDialogs: [], closedDialogs: [], availableThinkingLevels: [], treeDialog: undefined });
+    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingDialogs: [], closedDialogs: [], availableThinkingLevels: [], treeDialog: undefined });
   }
 
   deselectSession(options?: { forgetRememberedSelection?: boolean | undefined; updateUrl?: boolean | undefined }) {
@@ -404,7 +404,6 @@ export class SessionController {
       ...(options?.preserveTreeDialog === true ? {} : { treeDialog: undefined }),
       status: session.archived === true ? undefined : this.getState().sessionStatuses[session.id],
       activity: session.archived === true ? undefined : this.getState().sessionActivities[session.id],
-      pendingAsk: session.archived === true ? undefined : this.selectedPendingAsk(this.getState().sessionStatuses[session.id]),
       pendingDialogs: session.archived === true ? [] : (this.getState().sessionStatuses[session.id]?.pendingDialogs ?? []),
       closedDialogs: [],
       availableThinkingLevels: [],
@@ -415,7 +414,7 @@ export class SessionController {
         const page = await this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, machineId);
         if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id || !navigationIsCurrent(options?.navigation)) return;
         const history = this.transcripts.mergeHistory(transcriptKey, page);
-        this.setState({ ...history, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingAsk: undefined, pendingDialogs: [], closedDialogs: [] });
+        this.setState({ ...history, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingDialogs: [], closedDialogs: [] });
         this.onSelectedSessionReady?.({ machineId, session });
         if (options?.updateUrl !== false) this.updateUrl();
         return;
@@ -1039,7 +1038,7 @@ export class SessionController {
         sessions: nextSessions,
         sessionStatuses: omitKeys(state.sessionStatuses, affectedIds),
         sessionActivities: omitKeys(state.sessionActivities, affectedIds),
-        ...(selectedAffected ? { status: undefined, activity: undefined, pendingAsk: undefined, pendingDialogs: [], closedDialogs: [] } : {}),
+        ...(selectedAffected ? { status: undefined, activity: undefined, pendingDialogs: [], closedDialogs: [] } : {}),
       });
       const expected = this.navigationSelection();
       if (state.selectedSession !== undefined && deletedIdSet.has(state.selectedSession.id)) {
@@ -1376,14 +1375,14 @@ export class SessionController {
     }
   }
 
-  /** Send the answers the user entered for the session's open ask. */
+  /** Append the human's answers to a recorded question set. */
   submitAsk(askId: string, submission: AskUserSubmission): Promise<void> {
-    return this.closeOpenAsk(askId, (session, machineId) => this.api.submitAsk(session, askId, submission, machineId));
+    return this.sendAskResponse(askId, (session, machineId) => this.api.submitAsk(session, askId, submission, machineId));
   }
 
-  /** Close the session's open ask without answering it. */
+  /** Record that the human skipped a question set. */
   cancelAsk(askId: string): Promise<void> {
-    return this.closeOpenAsk(askId, (session, machineId) => this.api.cancelAsk(session, askId, machineId));
+    return this.sendAskResponse(askId, (session, machineId) => this.api.cancelAsk(session, askId, machineId));
   }
 
   answerDialog(dialogId: string, value: ExtensionDialogAnswer): Promise<void> {
@@ -1439,7 +1438,7 @@ export class SessionController {
     }
   }
 
-  private async closeOpenAsk(askId: string, close: (session: SessionInfo, machineId: string) => Promise<AskUserCloseResponse>): Promise<void> {
+  private async sendAskResponse(askId: string, send: (session: SessionInfo, machineId: string) => Promise<SessionStatus>): Promise<void> {
     const state = this.getState();
     const session = state.selectedSession;
     if (session === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) return;
@@ -1447,14 +1446,9 @@ export class SessionController {
     const errorOwner = this.captureSessionErrorOwner(session);
     const selectionSeq = this.selectionSeq;
     try {
-      const response = await close(session, machineId);
-      // The ask is gone either way: this call closed it, or it was already
-      // closed elsewhere. Its draft has nothing left to protect, and the answers
-      // now live in the daemon-owned outcome.
+      const status = await send(session, machineId);
       clearAskDraft(machineSessionKey(machineId, session.id), askId);
-      // Both outcomes carry the recomputed status, so no follow-up status
-      // request is needed to learn what the session's open ask is now.
-      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.applyStatus(response.sessionStatus);
+      if (this.isCurrentSessionSelection(session.id, machineId, selectionSeq)) this.applyStatus(status);
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
     }
@@ -1732,7 +1726,6 @@ export class SessionController {
       isLoadingEarlierMessages: false,
       status: undefined,
       activity,
-      pendingAsk: undefined,
       pendingDialogs: [],
       closedDialogs: [],
       availableThinkingLevels: [],
@@ -1789,7 +1782,7 @@ export class SessionController {
       sessionActivities: omitSessionActivity(state.sessionActivities, tempId),
       sendingPrompts: moveRecordKey(state.sendingPrompts, tempId, cachedSession.id),
       clientQueuedSessionMessages: moveRecordKey(state.clientQueuedSessionMessages, tempId, cachedSession.id),
-      ...(shouldHandoffSelection ? { selectedSession: cachedSession, status: state.sessionStatuses[cachedSession.id], activity: state.sessionActivities[cachedSession.id], pendingAsk: this.selectedPendingAsk(state.sessionStatuses[cachedSession.id]), pendingDialogs: state.sessionStatuses[cachedSession.id]?.pendingDialogs ?? [], closedDialogs: [] } : {}),
+      ...(shouldHandoffSelection ? { selectedSession: cachedSession, status: state.sessionStatuses[cachedSession.id], activity: state.sessionActivities[cachedSession.id], pendingDialogs: state.sessionStatuses[cachedSession.id]?.pendingDialogs ?? [], closedDialogs: [] } : {}),
       error: "",
     });
     this.applyReleasedCreatedSessions(releasedCreatedSessions, pending.machineId);
@@ -2039,9 +2032,9 @@ export class SessionController {
       ...(clearsStaleActivity ? { sessionActivities: omitSessionActivity(state.sessionActivities, status.sessionId) } : {}),
       status: isSelected ? status : state.status,
       activity: isSelected && clearsStaleActivity ? undefined : state.activity,
-      // The daemon owns whether an ask is open, so every status it publishes is
-      // authoritative for the selected session's card, including its removal.
-      ...(isSelected ? { pendingAsk: this.selectedPendingAsk(status) } : {}),
+      // Same for extension dialogs: the status projection is authoritative for
+      // the open list. Closed-card outcomes are event/response-driven instead,
+      // so a status without the dialog simply drops it from the open list.
       ...(isSelected ? { pendingDialogs: status.pendingDialogs ?? [] } : {}),
     });
   }
@@ -2071,22 +2064,6 @@ export class SessionController {
     const state = this.getState();
     if (!state.closedDialogs.some((entry) => entry.dialog.dialogId === dialogId)) return;
     this.setState({ closedDialogs: state.closedDialogs.filter((entry) => entry.dialog.dialogId !== dialogId) });
-  }
-
-  private applyOpenedAsk(ask: PendingAskUser): void {
-    const state = this.getState();
-    if (state.selectedSession === undefined) return;
-    this.setState({ pendingAsk: this.selectedPendingAsk({ pendingAsk: ask }) });
-  }
-
-  private applyClosedAsk(askId: string): void {
-    if (this.getState().pendingAsk?.askId !== askId) return;
-    this.setState({ pendingAsk: undefined });
-  }
-
-  private selectedPendingAsk(status: Pick<SessionStatus, "pendingAsk"> | undefined): PendingAskUser | undefined {
-    if (status?.pendingAsk === undefined) return undefined;
-    return status.pendingAsk;
   }
 
   private applySessionName(sessionId: string, name: string | undefined) {
@@ -2150,16 +2127,6 @@ export class SessionController {
     }
 
     this.flushPendingUpdates();
-    // Ask frames are applied after the buffered status they were published with,
-    // so the card follows the daemon's own open/close order.
-    if (event.type === "ask.opened") {
-      this.applyOpenedAsk(event.ask);
-      return;
-    }
-    if (event.type === "ask.closed") {
-      this.applyClosedAsk(event.askId);
-      return;
-    }
     if (event.type === "dialog.opened") {
       this.applyOpenedDialog(event.dialog);
       return;

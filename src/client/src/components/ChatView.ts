@@ -5,13 +5,15 @@ import { clientLocale, t } from "../i18n.js";
 import { LitElement, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
+import { ifDefined } from "lit/directives/if-defined.js";
 import { thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { ChatDisclosureController } from "../chatDisclosure";
 import { canonicalEntryActionHeaders, chatMessageHasHeader, groupChatMessages, summarizeChatGroup, type ChatGroup } from "../chatGroups";
+import { openTranscriptQuestion, transcriptQuestionOutcomes } from "../chatQuestions";
 import { capturePrependScrollAnchor, PREPEND_RESTORE_SETTLE_FRAMES, restorePrependScrollAnchor, type PrependScrollAnchor } from "../chatScrollAnchoring";
 import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import { ChatScrollController, distanceFromScrollBottom, findFirstVisibleArticle, isNearScrollBottom, type ChatAnchorScrollPosition, type ChatScrollRestoreResult } from "../chatScrollPosition";
-import type { AskUserSubmission, PendingAskUser, PendingExtensionDialog, QueuedSessionMessage, SessionActivity, SessionStatus, SessionWarningSeverity } from "../api";
+import type { AskUserSubmission, PendingExtensionDialog, QueuedSessionMessage, SessionActivity, SessionStatus, SessionWarningSeverity } from "../api";
 import type { ClosedExtensionDialog } from "../appState";
 import {
   notificationAnnouncementLabel,
@@ -240,6 +242,7 @@ export class ChatView extends LitElement {
   @property({ type: Number }) messageEnd = 0;
   @property({ type: Number }) messageTotal = 0;
   @property({ type: Boolean }) hasMore = false;
+  @property({ type: Boolean }) historyReady = true;
   @property({ type: Boolean }) loadingMore = false;
   @property({ type: Boolean }) isSendingPrompt = false;
   @property({ type: Boolean }) isCompacting = false;
@@ -248,14 +251,13 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) status?: SessionStatus;
   @property({ attribute: false }) onUseSuggestedInput: ((machineId: string, sessionId: string) => void) | undefined;
   @property({ attribute: false }) activity?: SessionActivity;
-  @property({ attribute: false }) pendingAsk?: PendingAskUser;
   @property({ attribute: false }) pendingDialogs: PendingExtensionDialog[] = [];
   @property({ attribute: false }) closedDialogs: ClosedExtensionDialog[] = [];
   @property({ attribute: false }) onAnswerDialog?: ExtensionDialogAnswerCallback;
   @property({ attribute: false }) onCancelDialog?: ExtensionDialogCancelCallback;
   @property({ attribute: false }) onDismissClosedDialog?: ExtensionDialogDismissCallback;
   @property({ attribute: false }) askDraftSessionId = "";
-  @property({ attribute: false }) onSubmitAsk?: (askId: string, submission: AskUserSubmission) => void | Promise<void>;
+  @property({ attribute: false }) onSubmitAsk: ((askId: string, submission: AskUserSubmission) => void | Promise<void>) | undefined;
   @property({ attribute: false }) notificationInbox?: SelectedSessionNotificationView;
   @property({ type: Boolean }) canClearServerQueue = false;
   @property({ attribute: false }) onClearServerQueue?: () => void;
@@ -282,6 +284,9 @@ export class ChatView extends LitElement {
   @state() private retainedEmptyNotificationTrayTargetKey: string | undefined;
   private pendingNotificationFocus: PendingNotificationFocus | undefined;
   private readonly disclosures = new ChatDisclosureController();
+  private lastOpenQuestionId: string | undefined;
+  private questionOutcomes = transcriptQuestionOutcomes([]);
+  private questionIds: ReadonlySet<string> = new Set();
   private readonly scrollController = new ChatScrollController();
   private suppressScrollSave = false;
   private suppressLoadMoreRequests = false;
@@ -401,6 +406,11 @@ export class ChatView extends LitElement {
   }
 
   protected override willUpdate(changed: Map<string, unknown>): void {
+    if (changed.has("messages")) {
+      this.questionOutcomes = transcriptQuestionOutcomes(this.messages);
+      this.questionIds = new Set(this.messages.flatMap((line) => line.parts.flatMap((part) => part.type === "askUserQuestion" ? [part.ask.askId] : [])));
+    }
+    if (changed.has("sessionId") || changed.has("machineId")) this.lastOpenQuestionId = undefined;
     const identity = this.currentMessageActionIdentity();
     if (identity !== this.messageActionIdentity) {
       this.messageActionIdentity = identity;
@@ -427,7 +437,8 @@ export class ChatView extends LitElement {
     if (changed.has("loadingMore") && !this.loadingMore) this.loadMoreRequested = false;
     if (changed.has("hasMore") && !this.hasMore) this.loadMoreRequested = false;
     if (changed.has("sessionId")) this.restoreScrollPosition();
-    const openedAsk = changed.has("pendingAsk") && this.isNewPendingAsk(changed.get("pendingAsk"));
+    const openQuestionId = this.openQuestion()?.askId;
+    const openedAsk = openQuestionId !== undefined && openQuestionId !== this.lastOpenQuestionId;
     const openedDialog = changed.has("pendingDialogs") && this.isNewOpenDialog(changed.get("pendingDialogs"));
     // The form uses the transcript scroller. Start a new long form at question
     // one rather than applying the usual live-tail scroll and landing at its end.
@@ -435,11 +446,12 @@ export class ChatView extends LitElement {
     else if (!changed.has("sessionId") && openedDialog && this.pinnedToBottom) this.scrollToOpenDialog();
     else if (!changed.has("sessionId") && this.liveTailContentChanged(changed) && this.pinnedToBottom) this.scrollToBottom();
     if (changed.has("messages") || changed.has("messageStart") || changed.has("messageTotal") || changed.has("hasMore") || changed.has("loadingMore")) this.scheduleConversationRailUpdate();
-    if (changed.has("messages") || changed.has("messageStart") || changed.has("hasMore") || changed.has("loadingMore") || changed.has("pendingAsk") || changed.has("pendingDialogs") || changed.has("closedDialogs")) this.continuePendingScrollRestore();
+    if (changed.has("messages") || changed.has("messageStart") || changed.has("hasMore") || changed.has("loadingMore") || changed.has("historyReady") || changed.has("messageEnd") || changed.has("messageTotal") || changed.has("onSubmitAsk") || changed.has("pendingDialogs") || changed.has("closedDialogs")) this.continuePendingScrollRestore();
     if (changed.has("messages") || changed.has("hasMore") || changed.has("loadingMore")) this.requestLoadMoreIfNeeded();
     if (changed.has("notificationInbox") && this.pendingNotificationFocus !== undefined) this.focusPendingNotificationTarget();
     if (changed.has("zoomedImage")) this.syncImageZoomDialog();
     if (this.onTranscriptRendered !== undefined) void this.reportRenderedTranscript();
+    this.lastOpenQuestionId = openQuestionId;
   }
 
   private async reportRenderedTranscript(): Promise<void> {
@@ -452,7 +464,7 @@ export class ChatView extends LitElement {
 
   private liveTailContentChanged(changed: Map<string, unknown>): boolean {
     return changed.has("messages")
-      || changed.has("pendingAsk")
+      || changed.has("historyReady") || changed.has("messageEnd") || changed.has("messageTotal") || changed.has("onSubmitAsk")
       || changed.has("pendingDialogs")
       || changed.has("closedDialogs")
       || changed.has("pendingMessageCount")
@@ -513,7 +525,7 @@ export class ChatView extends LitElement {
             groups,
             (group) => group.kind === "group" ? this.groupRenderKey(group.startIndex) : this.messageAnchorKey(group.index),
             (group, index) => {
-              if (group.kind === "group") return this.renderMessageGroup(group.messages, group.startIndex, group.endIndex, this.isLiveTailGroup(groups, index), entryActionHeaders);
+              if (group.kind === "group") return this.renderMessageGroup(group, this.isLiveTailGroup(groups, index), entryActionHeaders);
               if (group.kind === "tool-image") return this.renderToolImageOutput(group.message, group.index, entryActionHeaders, group.toolName);
               return this.renderMessage(group.message, group.index, entryActionHeaders);
             },
@@ -521,7 +533,6 @@ export class ChatView extends LitElement {
           ${this.renderQueuedMessages()}
           ${this.renderSessionActivity()}
           ${this.renderSuggestedInput()}
-          ${this.renderOpenAsk()}
           ${this.renderExtensionDialogs()}
         </div>
         ${this.renderActivityDock()}
@@ -809,18 +820,6 @@ export class ChatView extends LitElement {
     `;
   }
 
-  private renderOpenAsk() {
-    if (this.pendingAsk === undefined) return null;
-    return html`
-      <ask-user-card
-        data-scroll-anchor-id=${`ask:${this.pendingAsk.askId}`}
-        .ask=${this.pendingAsk}
-        .draftSessionId=${this.askDraftSessionId}
-        .onSubmit=${this.onSubmitAsk}
-      ></ask-user-card>
-    `;
-  }
-
   private renderExtensionDialogs() {
     const open = this.pendingDialogs[0];
     if (open === undefined && this.closedDialogs.length === 0) return null;
@@ -926,9 +925,12 @@ export class ChatView extends LitElement {
     const toolOnly = this.isToolExecutionOnlyMessage(message);
     const hasHeader = chatMessageHasHeader(message);
     const shellClass = toolOnly ? "msg tool-execution-shell" : "msg ask-user-record-shell";
+    const question = message.parts.find((part) => part.type === "askUserQuestion");
+    const anchor = question === undefined ? this.messageAnchorKey(index)
+      : message.entryId !== undefined && message.entryId !== "" ? `ask:${question.ask.askId}` : undefined;
     return html`
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
-      <article class=${hasHeader ? `msg ${message.role}` : shellClass} data-index=${index} data-scroll-anchor-id=${this.messageAnchorKey(index)}>
+      <article class=${hasHeader ? `msg ${message.role}` : shellClass} data-index=${index} data-scroll-anchor-id=${ifDefined(anchor)}>
         ${hasHeader ? this.renderMessageHeader(message, String(index), index, entryActionHeaders) : null}
         ${message.parts.map((part, partIndex) => this.renderPart(part, message, index, partIndex))}
       </article>
@@ -950,7 +952,8 @@ export class ChatView extends LitElement {
     return message.role === "tool" && message.parts.length > 0 && message.parts.every((part) => part.type === "toolExecution");
   }
 
-  private renderMessageGroup(messages: ChatLine[], startIndex: number, endIndex: number, defaultOpen: boolean, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
+  private renderMessageGroup(group: Extract<ChatGroup, { kind: "group" }>, defaultOpen: boolean, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
+    const { messages, startIndex, endIndex } = group;
     const disclosureKey = this.groupDisclosureKey(startIndex, endIndex, defaultOpen);
     const open = this.disclosures.isOpen(disclosureKey, defaultOpen);
     return html`
@@ -958,22 +961,22 @@ export class ChatView extends LitElement {
       <details class=${chatMessageGroupClassName(defaultOpen)} data-index=${startIndex} data-scroll-anchor-id=${this.groupAnchorKey(startIndex)} ?open=${open} @toggle=${(event: Event) => { this.onGroupToggle(disclosureKey, event, defaultOpen); }}>
         <summary>
           <b class="label">${chatMessageGroupLabel(defaultOpen)}</b>
-          <span>${summarizeChatGroup(messages)}</span>
+          <span>${summarizeChatGroup(messages.map((event) => event.message))}</span>
         </summary>
-        ${open ? this.renderMessageGroupBody(messages, startIndex, entryActionHeaders) : null}
+        ${open ? this.renderMessageGroupBody(group, entryActionHeaders) : null}
       </details>
     `;
   }
 
-  private renderMessageGroupBody(messages: ChatLine[], startIndex: number, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
+  private renderMessageGroupBody({ messages, startIndex }: Extract<ChatGroup, { kind: "group" }>, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
     return html`
       <div class="group-body">
-        ${messages.map((message, offset) => {
+        ${messages.map(({ message, index }, offset) => {
           const toolOnly = this.isToolExecutionOnlyMessage(message);
           return html`
-            <section class=${toolOnly ? "group-msg tool-execution-shell" : `group-msg ${message.role}`} data-index=${startIndex + offset} data-scroll-anchor-id=${this.eventAnchorKey(startIndex + offset)}>
-              ${chatMessageHasHeader(message) ? this.renderMessageHeader(message, `${String(startIndex)}:${String(offset)}`, startIndex + offset, entryActionHeaders) : null}
-              ${message.parts.map((part, partIndex) => this.renderPart(part, message, startIndex + offset, partIndex))}
+            <section class=${toolOnly ? "group-msg tool-execution-shell" : `group-msg ${message.role}`} data-index=${index} data-scroll-anchor-id=${this.eventAnchorKey(index)}>
+              ${chatMessageHasHeader(message) ? this.renderMessageHeader(message, `${String(startIndex)}:${String(offset)}`, index, entryActionHeaders) : null}
+              ${message.parts.map((part, partIndex) => this.renderPart(part, message, index, partIndex))}
             </section>
           `;
         })}
@@ -1064,10 +1067,21 @@ export class ChatView extends LitElement {
         <small>read ${part.path}</small>
       </div>
     `;
+    if (part.type === "askUserQuestion") {
+      const open = this.openQuestion()?.askId === part.ask.askId;
+      return html`<ask-user-card
+        class=${open ? "part open-question-card" : "part closed-question-card"}
+        .ask=${part.ask} .open=${open}
+        .outcomes=${this.questionOutcomes.get(part.ask.askId) ?? []}
+        .draftSessionId=${this.askDraftSessionId}
+        .onSubmit=${open ? this.onSubmitAsk : undefined}
+      ></ask-user-card>`;
+    }
     if (part.type === "askUserRecord") return html`
       <ask-user-card
         class="part"
         .outcome=${part.outcome}
+        .compact=${this.questionIds.has(part.outcome.askId)}
         .draftSessionId=${this.askDraftSessionId}
       ></ask-user-card>
     `;
@@ -1200,9 +1214,11 @@ export class ChatView extends LitElement {
     });
   }
 
-  private isNewPendingAsk(previous: unknown): boolean {
-    return this.pendingAsk !== undefined
-      && (typeof previous !== "object" || previous === null || Reflect.get(previous, "askId") !== this.pendingAsk.askId);
+  private openQuestion() {
+    return openTranscriptQuestion(this.messages, {
+      historyReady: this.historyReady, messageEnd: this.messageEnd,
+      messageTotal: this.messageTotal, writable: this.onSubmitAsk !== undefined,
+    });
   }
 
   private isNewOpenDialog(previous: unknown): boolean {
@@ -1227,7 +1243,7 @@ export class ChatView extends LitElement {
 
   private alignOpenAskToTop(): boolean {
     const chat = this.chat;
-    const card = this.renderRoot.querySelector<HTMLElement>(".chat > ask-user-card");
+    const card = this.renderRoot.querySelector<HTMLElement>(".chat ask-user-card.open-question-card");
     if (chat === undefined || card === null) return false;
     chat.scrollTop += card.getBoundingClientRect().top - chat.getBoundingClientRect().top;
     this.syncScrollMetrics();
@@ -1265,7 +1281,7 @@ export class ChatView extends LitElement {
       if (this.sessionId !== sessionId) return;
       this.withSuppressedScrollSave(() => {
         if (this.pendingDialogs.length > 0 && this.scrollController.readPosition(sessionId) === undefined && this.alignOpenDialogToTop()) return;
-        if (this.pendingAsk !== undefined && this.scrollController.readPosition(sessionId) === undefined && this.alignOpenAskToTop()) return;
+        if (this.openQuestion() !== undefined && this.scrollController.readPosition(sessionId) === undefined && this.alignOpenAskToTop()) return;
         const result = this.scrollController.restorePosition(sessionId, this.chat, this.scrollAnchorElements(), { fallbackToBottom: this.shouldFallbackToBottomForMissingAnchor() });
         this.handleScrollRestoreResult(sessionId, result);
       });
@@ -1450,7 +1466,7 @@ export class ChatView extends LitElement {
       groups,
       this.hasMore,
       this.loadingMore,
-      this.pendingAsk?.askId,
+      this.openQuestion()?.askId,
     ]);
   }
 

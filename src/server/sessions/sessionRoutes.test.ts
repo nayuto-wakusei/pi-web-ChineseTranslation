@@ -8,7 +8,6 @@ import fastifyWebsocket from "@fastify/websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../shared/apiTypes.js";
 import type {
-  AskUserCloseResponse,
   AskUserSubmission,
   ExtensionDialogAnswer,
   ExtensionDialogCloseResponse,
@@ -499,7 +498,7 @@ describe("session routes", () => {
       });
 
       expect(submitted.statusCode).toBe(200);
-      expect(submitted.json()).toMatchObject({ result: "closed", sessionStatus: { sessionId: "session-1" } });
+      expect(submitted.json()).toMatchObject({ sessionId: "session-1" });
       expect(routeService.submitAskCalls).toEqual([{
         lookup: { id: "session-1", cwd: resolve("/repo") },
         askId: "ask-1",
@@ -507,7 +506,7 @@ describe("session routes", () => {
         managementContext,
       }]);
       expect(cancelled.statusCode).toBe(200);
-      expect(cancelled.json()).toMatchObject({ result: "stale" });
+      expect(cancelled.json()).toMatchObject({ sessionId: "session-1" });
       expect(routeService.cancelAskCalls).toEqual([{ lookup: { id: "session-1", cwd: resolve("/repo") }, askId: "ask-2", managementContext }]);
     } finally {
       await routeService.dispose();
@@ -1210,16 +1209,16 @@ class CapturingRouteSessionService implements SessionRouteService {
     return Promise.resolve({ sessionId: typeof lookup === "string" ? lookup : lookup.id, pinned });
   }
 
-  submitAsk(lookup: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse> {
+  submitAsk(lookup: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<SessionStatus> {
     if (this.askError !== undefined) return Promise.reject(this.askError);
     this.submitAskCalls.push({ lookup, askId, submission, managementContext });
-    return Promise.resolve({ result: "closed", sessionStatus: idleStatus(lookup) });
+    return Promise.resolve(idleStatus(lookup));
   }
 
-  cancelAsk(lookup: SessionRouteLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<AskUserCloseResponse> {
+  cancelAsk(lookup: SessionRouteLookup, askId: string, managementContext?: ManagementEmbedContext): Promise<SessionStatus> {
     if (this.askError !== undefined) return Promise.reject(this.askError);
     this.cancelAskCalls.push({ lookup, askId, managementContext });
-    return Promise.resolve({ result: "stale", sessionStatus: idleStatus(lookup) });
+    return Promise.resolve(idleStatus(lookup));
   }
 
   answerDialog(lookup: SessionRouteLookup, dialogId: string, value: ExtensionDialogAnswer): Promise<ExtensionDialogCloseResponse> {

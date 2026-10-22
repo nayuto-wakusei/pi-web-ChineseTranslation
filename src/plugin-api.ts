@@ -441,6 +441,8 @@ export interface MessageActionMessage {
   readonly entryId: string;
   readonly role: "user" | "assistant" | "tool" | "system" | "bash" | "skill";
   readonly text: string;
+  /** True for the durable ask_user result that can be reopened through history. */
+  readonly isQuestion?: boolean;
 }
 
 /** Small, detached inputs for synchronous, side-effect-free availability checks. */
