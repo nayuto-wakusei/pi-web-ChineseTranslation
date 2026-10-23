@@ -1,4 +1,4 @@
-import { appendText, appendThinking, askUserQuestionFromToolDetails, askUserRecordFromToolDetails, normalizeMessage, normalizeMessages, previewFromDetails, summarizeArgs, textMessage, withMessageMeta } from "./chatMessages";
+import { appendText, appendThinking, askUserQuestionFromToolDetails, askUserRecordFromToolDetails, normalizeMessage, normalizeMessages, parseSkillReadPath, previewFromDetails, summarizeArgs, textMessage, withMessageMeta } from "./chatMessages";
 import type { ChatLine, ToolExecutionPart } from "./components/shared";
 import { appendShellChunk, finalizeShellMessage, shellStartMessage } from "./shellMessages";
 import type { SessionUiEvent } from "./sessionSocket";
@@ -150,15 +150,6 @@ function reconcileFinalAskUserRecord(messages: ChatLine[], displayEnded: ChatLin
 
 function withoutToolCalls(message: ChatLine): ChatLine {
   return { ...message, parts: message.parts.filter((part) => part.type !== "toolCall") };
-}
-
-function parseSkillReadPath(path: string | undefined): { name: string; path: string } | undefined {
-  if (path === undefined || path === "") return undefined;
-  const normalized = path.replace(/\\/g, "/");
-  if (!normalized.endsWith("/SKILL.md") && normalized !== "SKILL.md") return undefined;
-  const name = normalized.split("/").at(-2);
-  if (name === undefined || name === "") return undefined;
-  return { name, path };
 }
 
 function appendToolExecutionStart(messages: ChatLine[], event: Extract<SessionUiEvent, { type: "tool.start" }>): ChatLine[] {

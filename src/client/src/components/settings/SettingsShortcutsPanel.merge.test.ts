@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setClientTranslations } from "../../i18n";
 import type { AppAction } from "../../actions";
-import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
+import type { PiWebConfigValues } from "../../api";
+import { configResponse } from "../SettingsDialog.testSupport";
 import { COMPOSER_SEND_DESKTOP, COMPOSER_SEND_MOBILE } from "../../composerShortcuts";
 import { SettingsShortcutsPanel } from "./SettingsShortcutsPanel";
 
@@ -216,15 +217,5 @@ function shortcutAction(patch: Partial<AppAction> = {}): AppAction {
     group: "Navigation",
     run: vi.fn(),
     ...patch,
-  };
-}
-
-function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
-  return {
-    path: "/tmp/pi-web/config.json",
-    exists: true,
-    config,
-    effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
   };
 }

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { configApi, type PiWebConfigResponse } from "../api";
 import { t } from "../i18n";
 import { activeSettingsPanelTag, SettingsDialog } from "./SettingsDialog";
-import { callDialogPromise, callDialogUpdated, configResponse, deferred, getDialogProperty, remoteMachine, secondRemoteMachine, setDialogProperty, stubWindowTimers } from "./SettingsDialog.testSupport";
+import { callDialogPromise, callDialogUpdated, collectTemplateStrings, configResponse, deferred, getDialogProperty, remoteMachine, secondRemoteMachine, setDialogProperty, stubWindowTimers } from "./SettingsDialog.testSupport";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -15,14 +15,17 @@ describe("settings-dialog general settings machine targeting", () => {
   });
 
   it("routes each section to a single settings panel with no per-tab scope-note wrapper", () => {
-    // The old global "scope-note"/"This tab edits:" wrapper is gone: each section
-    // now maps to exactly one panel element. Assert that public routing contract
-    // (`activeSettingsPanelTag`) instead of scraping the rendered template markup.
     expect(activeSettingsPanelTag("general")).toBe("settings-general-panel");
     expect(activeSettingsPanelTag("sessiond")).toBe("settings-sessiond-panel");
     expect(activeSettingsPanelTag("packages")).toBe("settings-packages-panel");
     expect(activeSettingsPanelTag("plugins")).toBe("settings-plugins-panel");
     expect(activeSettingsPanelTag("shortcuts")).toBe("settings-shortcuts-panel");
+    const dialog = new SettingsDialog();
+    dialog.section = "general";
+    dialog.machine = remoteMachine;
+    const strings = collectTemplateStrings(dialog.render()).join("");
+    expect(strings).not.toContain("scope-note");
+    expect(strings).not.toContain("This tab edits:");
   });
 
   it("keeps gateway server config saves on the gateway config endpoint", async () => {

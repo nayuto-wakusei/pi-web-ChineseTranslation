@@ -41,31 +41,31 @@ describe("machine crumb", () => {
     expect(machineChip(await mountBar([machine("local")]))).toBeUndefined();
   });
 
-  it("shows a static gateway identity for a single machine in PWA mode", async () => {
-    const chip = machineChip(await mountBar([machine("local")], true));
+  it.each(["本地", "Local"])("shows a static gateway identity instead of %s in single-machine PWA mode", async (name) => {
+    const chip = machineChip(await mountBar([{ ...machine("local"), name }], true));
     expect(chip?.tagName).toBe("SPAN");
     expect(chip?.querySelector("img")?.getAttribute("src")).toContain("favicon.svg");
     expect(chip?.textContent).toContain(document.location.host);
-    expect(chip?.textContent).not.toContain("本地");
+    expect(chip?.textContent).not.toContain(name);
   });
 
-  it("keeps the browser-mode multi-machine chip as a plain picker", async () => {
-    const bar = await mountBar([machine("local"), machine("remote-a")]);
+  it.each(["本地", "Local"])("keeps the browser-mode multi-machine chip as a plain picker for %s", async (name) => {
+    const bar = await mountBar([{ ...machine("local"), name }, machine("remote-a")]);
     const opened: string[] = [];
     bar.onOpenSection = (section) => { opened.push(section); };
     const chip = machineChip(bar);
     expect(chip?.tagName).toBe("BUTTON");
-    expect(chip?.textContent).toContain("本地");
+    expect(chip?.textContent).toContain(name);
     expect(chip?.querySelector("img")).toBeNull();
     expect(chip?.textContent).not.toContain(document.location.host);
     chip?.click();
     expect(opened).toEqual(["machines"]);
   });
 
-  it("keeps local location identity on the multi-machine picker in PWA mode", async () => {
-    const chip = machineChip(await mountBar([machine("local"), machine("remote-a")], true));
+  it.each(["本地", "Local"])("keeps local location identity on the PWA multi-machine picker for %s", async (name) => {
+    const chip = machineChip(await mountBar([{ ...machine("local"), name }, machine("remote-a")], true));
     expect(chip?.tagName).toBe("BUTTON");
-    expect(chip?.textContent).toContain("本地");
+    expect(chip?.textContent).toContain(name);
     expect(chip?.querySelector("img")).not.toBeNull();
     expect(chip?.textContent).toContain(document.location.host);
   });

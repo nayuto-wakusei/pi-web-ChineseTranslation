@@ -1,4 +1,5 @@
 import { t } from "./i18n.js";
+import { formatFileSize } from "./formatFileSize.js";
 import type { StylesheetIntegrationCapabilityV1, ContentRendererOption, ContentRenderingCapability, FileContentResponse } from "@chainingintention/pi-web-cn/plugin-api";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { property } from "lit/decorators.js";
@@ -467,20 +468,6 @@ function metadataForFile(file: FileContentResponse, kind: WorkspaceFilePreviewKi
 
 function workspaceFileName(path: string): string {
   return path.split(/[\\/]/u).at(-1) ?? path;
-}
-
-function formatFileSize(size: number): string {
-  if (!Number.isFinite(size) || size < 0) return "0 B";
-  if (size < 1024) return `${String(size)} B`;
-  const kib = size / 1024;
-  if (kib < 1024) return `${formatScaledFileSize(kib)} KB`;
-  const mib = kib / 1024;
-  if (mib < 1024) return `${formatScaledFileSize(mib)} MB`;
-  return `${formatScaledFileSize(mib / 1024)} GB`;
-}
-
-function formatScaledFileSize(value: number): string {
-  return value >= 10 ? String(Math.round(value)) : value.toFixed(1);
 }
 
 function formattedTextStyles(): ReturnType<typeof css> {

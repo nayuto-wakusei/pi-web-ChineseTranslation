@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TemplateResult } from "lit";
-import type { PiWebConfigResponse, PiWebConfigValues, PiWebPluginInfo, PiWebPluginsResponse } from "../../api";
+import type { PiWebPluginInfo, PiWebPluginsResponse } from "../../api";
+import { configResponse } from "../SettingsDialog.testSupport";
 import { SettingsPluginsPanel, settingsPluginRows, type SettingsPluginRow } from "./SettingsPluginsPanel";
 import type { SettingsNotice } from "./SettingsPanelFrame";
 import { isTemplateResult, templateStrings, templateValues } from "../../templateInspection.testSupport";
@@ -323,17 +324,6 @@ function isBoolean(value: unknown): value is boolean {
 
 function isSettingsNotice(value: unknown): value is SettingsNotice {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
-}
-
-
-function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
-  return {
-    path: "/tmp/pi-web/config.json",
-    exists: true,
-    config,
-    effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
-  };
 }
 
 function pluginsResponse(plugins: PiWebPluginInfo[]): PiWebPluginsResponse {

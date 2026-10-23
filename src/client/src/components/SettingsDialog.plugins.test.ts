@@ -11,6 +11,14 @@ afterEach(() => {
 });
 
 describe("settings-dialog plugin settings machine targeting", () => {
+  it("never sends ordinary disable config for required Terminal", async () => {
+    const save = vi.spyOn(configApi, "saveConfig");
+    const dialog = new SettingsDialog();
+    setDialogProperty(dialog, "selectedPluginConfigResponse", configResponse({ plugins: { "pi-web.terminal": { enabled: true } } }));
+    await callDialogPromise(dialog, "togglePlugin", "pi-web.terminal", false);
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it("loads plugin config and plugin list from the selected machine", async () => {
     const config = configResponse({ plugins: { info: { enabled: true } } });
     const plugins = pluginsResponse([pluginInfo("info", true)]);

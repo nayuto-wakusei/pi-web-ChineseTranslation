@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { SettingsDialog } from "../../src/client/src/components/SettingsDialog";
 
 test("settings subpages retain shared spacing and visible controls", async ({ page }, testInfo) => {
   await page.route("**/api/**", (route) => route.abort());
@@ -16,12 +17,12 @@ test("settings subpages retain shared spacing and visible controls", async ({ pa
     if (tag === "settings-shortcuts-panel") {
       const choices = panel.locator(".prompt-enter-option");
       await expect(choices).toHaveCount(3);
-      const boxes = await Promise.all((await choices.all()).map((choice) => choice.boundingBox()));
-      for (let position = 1; position < boxes.length; position += 1) {
-        const previous = boxes[position - 1];
-        const current = boxes[position];
-        if (previous === null || previous === undefined || current === null || current === undefined) throw new Error("Missing Enter preference option");
-        expect(current.y).toBeGreaterThanOrEqual(previous.y + previous.height);
+      let bottom = 0;
+      for (const choice of await choices.all()) {
+        await expect(choice).toBeVisible();
+        const box = await choice.evaluate((node) => { const { top, bottom } = node.getBoundingClientRect(); return { top, bottom }; });
+        expect(box.top).toBeGreaterThanOrEqual(bottom);
+        bottom = box.bottom;
       }
     }
     await page.screenshot({ path: testInfo.outputPath(`${tag}.png`) });
@@ -50,10 +51,7 @@ test("settings machine selection and dirty confirmation fit the viewport without
   await confirmation.getByRole("button", { name: "放弃修改并切换", exact: true }).click();
   await expect(selector).toHaveValue("remote-b");
   await expect(upload).toHaveValue("remote-b/uploads");
-  expect(await dialog.evaluate((element) => {
-    const machine: unknown = Reflect.get(element, "machine");
-    return typeof machine === "object" && machine !== null && "id" in machine ? machine.id : undefined;
-  })).toBe("remote-a");
+  expect(await dialog.evaluate((element: SettingsDialog) => element.machine?.id)).toBe("remote-a");
   await selector.selectOption("remote-a");
   await upload.fill("pending/uploads");
   await selector.selectOption("remote-b");

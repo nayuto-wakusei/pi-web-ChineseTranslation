@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setClientTranslations } from "../../i18n";
-import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
+import { configResponse } from "../SettingsDialog.testSupport";
 import { SettingsGeneralPanel } from "./SettingsGeneralPanel";
 
 beforeEach(() => { setClientTranslations("en", {}); });
@@ -197,14 +197,4 @@ function submit(panel: SettingsGeneralPanel, index: number): void {
 function required<T>(value: T | null | undefined): T {
   if (value == null) throw new Error("Expected rendered General control");
   return value;
-}
-
-function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
-  return {
-    path: "/tmp/pi-web/config.json",
-    exists: true,
-    config,
-    effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
-  };
 }

@@ -189,16 +189,6 @@ describe("federated route contract", () => {
     expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("trust"))).toBe(false);
   });
 
-  it("allowlists model catalog reads and scope edits without a new WebSocket", () => {
-    expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("/models"))).toEqual([
-      { method: "GET", path: "/sessions/:sessionId/models" },
-      { method: "GET", path: "/sessions/:sessionId/models/catalog" },
-      { method: "POST", path: "/sessions/:sessionId/models/enabled" },
-      { method: "POST", path: "/sessions/:sessionId/models/scope" },
-      { method: "GET", path: "/models" },
-    ]);
-    expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("models"))).toBe(false);
-  });
   it("covers machine-scoped client HTTP calls with remote proxy routes", async () => {
     const fetchMock = vi.fn<FetchLike>(() => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);

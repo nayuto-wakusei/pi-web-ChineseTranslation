@@ -33,12 +33,25 @@ describe("shouldShowMachinesSection", () => {
 });
 
 describe("brand visibility", () => {
-  it("shows the PI WEB brand by default", async () => {
+  it("shows the PI WEB brand before machines load", async () => {
     const panel = new AppNavigationPanel();
     document.body.append(panel);
     await panel.updateComplete;
 
     expect(panel.shadowRoot?.querySelector("header strong")?.textContent).toBe("PI WEB");
+  });
+
+  it.each([false, true])("shows the plain brand and single-machine identity (locationIndicator=%s)", async (locationIndicator) => {
+    const panel = new AppNavigationPanel();
+    panel.machines = [machine("local")];
+    panel.locationIndicator = locationIndicator;
+    document.body.append(panel);
+    await panel.updateComplete;
+
+    expect(panel.shadowRoot?.querySelector("header strong")?.textContent).toBe("PI WEB");
+    expect(panel.shadowRoot?.querySelector(".brand-icon")).toBeNull();
+    expect(panel.shadowRoot?.querySelector(".brand-domain")).toBeNull();
+    expect(section(panel, "machine-switcher", MachineSwitcher).locationIndicator).toBe(locationIndicator);
   });
 
   it("hides the PI WEB brand when disabled", async () => {

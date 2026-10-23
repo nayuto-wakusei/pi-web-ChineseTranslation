@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { piPackagesApi, pluginsApi, type PiPackageMutationResponse } from "../api";
 import { SettingsDialog } from "./SettingsDialog";
-import { callDialogPromise, callDialogUpdated, deferred, getDialogProperty, packageInfo, packageMutationResponse, pluginInfo, pluginsResponse, remoteMachine, secondRemoteMachine } from "./SettingsDialog.testSupport";
+import { callDialogPromise, callDialogUpdated, deferred, getDialogProperty, packageInfo, packageMutationResponse, pluginInfo, pluginsResponse, remoteMachine, runtimeWithPackageManagement, secondRemoteMachine } from "./SettingsDialog.testSupport";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -9,12 +9,13 @@ afterEach(() => {
 });
 
 describe("settings-dialog Pi package orchestration", () => {
-  it("loads package data from the selected machine and ignores stale target responses", async () => {
+  it.each([undefined, runtimeWithPackageManagement])("loads package data and ignores stale target responses with runtime %j", async (runtime) => {
     const remotePackages = { packages: [packageInfo("npm:@acme/tools")] };
     const staleLoad = deferred<typeof remotePackages>();
     const packagesSpy = vi.spyOn(piPackagesApi, "packages").mockReturnValue(staleLoad.promise);
     const dialog = new SettingsDialog();
     dialog.machine = remoteMachine;
+    dialog.machineRuntime = runtime;
 
     const loadPromise = callDialogPromise(dialog, "loadPackagesForTarget");
     expect(packagesSpy.mock.calls).toEqual([["remote-a"]]);
@@ -31,13 +32,14 @@ describe("settings-dialog Pi package orchestration", () => {
     expect(getDialogProperty(dialog, "packageLoading")).toBe(false);
   });
 
-  it("runs remote package mutations against the selected machine without refreshing gateway plugins", async () => {
+  it.each([undefined, runtimeWithPackageManagement])("runs remote package mutations without refreshing gateway plugins with runtime %j", async (runtime) => {
     const installedPackages = [packageInfo("npm:@acme/new-tools")];
     const install = deferred<PiPackageMutationResponse>();
     const installSpy = vi.spyOn(piPackagesApi, "install").mockReturnValue(install.promise);
     const pluginsSpy = vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([pluginInfo("gateway", true)]));
     const dialog = new SettingsDialog();
     dialog.machine = remoteMachine;
+    dialog.machineRuntime = runtime;
 
     const installPromise = callDialogPromise(dialog, "installPiPackage", "npm:@acme/new-tools");
 

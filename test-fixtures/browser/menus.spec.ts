@@ -16,13 +16,11 @@ test("nested pickers share row geometry and dismiss only the top menu", async ({
   const option = command.locator(".ui-selection-option");
   const pin = command.locator(".default-pin");
   await expectInsideViewport(option);
-  const rowBox = await option.boundingBox();
-  const pinBox = await pin.boundingBox();
-  expect(rowBox).not.toBeNull();
-  expect(pinBox).not.toBeNull();
-  expect(rowBox?.height).toBeGreaterThanOrEqual(44);
-  expect(pinBox?.x).toBeGreaterThanOrEqual((rowBox?.x ?? 0) + (rowBox?.width ?? 0) - 1);
-  expect(Math.abs((rowBox?.height ?? 0) - (pinBox?.height ?? 0))).toBeLessThan(1);
+  const rowBox = await option.evaluate((node) => { const { height, right } = node.getBoundingClientRect(); return { height, right }; });
+  const pinBox = await pin.evaluate((node) => { const { height, left } = node.getBoundingClientRect(); return { height, left }; });
+  expect(rowBox.height).toBeGreaterThanOrEqual(44);
+  expect(pinBox.left).toBeGreaterThanOrEqual(rowBox.right - 1);
+  expect(Math.abs(rowBox.height - pinBox.height)).toBeLessThan(1);
   await page.screenshot({ path: testInfo.outputPath("command-menu.png") });
   await option.click();
   const model = page.locator("model-picker");
