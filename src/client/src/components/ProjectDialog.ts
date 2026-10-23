@@ -172,7 +172,7 @@ export class ProjectDialog extends LitElement {
       <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${"input"} .label=${t("client.actions.add.project.8964f5", "Add project")} @keydown=${(event: KeyboardEvent) => { this.onKeyDown(event); }}>
           <header class="ui-dialog-header">
             <strong class="ui-dialog-title">${t("client.actions.add.project.8964f5", "Add project")}</strong>
-            <button class="ui-button" @click=${() => { this.onCancel?.(); }} aria-label="${t("ui.projectDialog.closeAddProject", "Close add project")}">×</button>
+            <button class="ui-button ui-button--icon" @click=${() => { this.onCancel?.(); }} aria-label="${t("ui.projectDialog.closeAddProject", "Close add project")}">×</button>
           </header>
           <div class="body ui-dialog-body ui-form-body">
             <small id="project-machine-help" class="machine-hint">${this.machineId === "local" ? t("ui.projectDialog.localFolders", "Folders on the local machine (where PI WEB runs).") : t("ui.projectDialog.remoteFolders", "Folders on remote machine: {machineId}.", { machineId: this.machineId })} ${t("ui.projectDialog.machinePaths", "Paths are on this machine, not your browser's device.")}</small>
@@ -184,7 +184,7 @@ export class ProjectDialog extends LitElement {
               <div id="project-folder-error" class="trust-error ui-form-error" role="alert">${t("ui.projectDialog.folderLookupFailed", "Could not load folders on this machine. Check the connection and retry, or enter a folder path.")}</div>
               <button class="ui-button" type="button" @click=${() => { void this.loadSuggestions(); }}>${t("ui.projectDialog.retryFolderLookup", "Retry folder lookup")}</button>
             ` : null}
-            <div id="project-folder-status" class="suggestions" aria-live="polite">
+            <div id="project-folder-status" class="suggestions ui-selection-list" aria-live="polite">
               ${this.loading ? html`<div class="hint">${t("ui.projectDialog.loadingFolders", "Loading folders…")}</div>` : null}
               ${this.suggestions.map((suggestion, index) => html`
                 <button class=${index === this.selected ? "ui-button ui-selection-option selected" : "ui-button ui-selection-option"} @click=${() => { this.pick(suggestion); }}>

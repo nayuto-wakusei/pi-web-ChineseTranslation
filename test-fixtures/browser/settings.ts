@@ -40,6 +40,7 @@ const local = machine("local", "本地网关", "local");
 const first = machine("remote-a", "项目开发工作机", "remote");
 const second = machine("remote-b", "持续集成与构建服务器", "remote");
 const dialog = new SettingsDialog();
+dialog.actions = [{ id: "fixture", title: "打开导航", description: "选择应用中的其他页面", group: "通用", shortcut: "Ctrl+K", run: () => undefined }];
 dialog.machine = first;
 dialog.machines = [local, first, second];
 dialog.namingModelsTarget = { machineId: first.id, projectId: "fixture-project" };

@@ -73,7 +73,7 @@ export class SettingsPackagesPanel extends LitElement {
   private renderPanelContent(packages: PiPackageInfo[], target: PiPackageTargetContext, targetLabel: string): TemplateResult | null {
     if (this.packageManagementUnavailable) return null;
     if (this.packagesResponse === undefined) {
-      return html`<div class="loading-card">${this.loading ? t("ui.settingsPackagesPanel.loadingPiPackagesFrom", "Loading Pi packages from {targetLabel}…", { targetLabel: targetLabel }) : t("ui.settingsPackagesPanel.piPackageListForIsUnavailableReload", "Pi package list for {targetLabel} is unavailable. Reload.", { targetLabel: targetLabel })}</div>`;
+      return html`<div class="loading-card ui-settings-summary">${this.loading ? t("ui.settingsPackagesPanel.loadingPiPackagesFrom", "Loading Pi packages from {targetLabel}…", { targetLabel: targetLabel }) : t("ui.settingsPackagesPanel.piPackageListForIsUnavailableReload", "Pi package list for {targetLabel} is unavailable. Reload.", { targetLabel: targetLabel })}</div>`;
     }
     return html`
       ${this.renderInstallableKnownPackages(targetLabel)}
@@ -86,10 +86,12 @@ export class SettingsPackagesPanel extends LitElement {
     const suggestions = this.packagesResponse?.installableKnownPackages ?? [];
     if (suggestions.length === 0) return null;
     return html`
-      <section class="known-package-section" aria-label="${t("ui.main.232934a9166e", "Available known Pi packages")}">
-        <h3>${t("ui.main.fe790e3f4139", "Available packages")}</h3>
-        <p>${t("ui.main.645753db4480", "PI WEB ships these packages so you can install them on")} ${targetLabel}${t("ui.main.1d1f715fbd86", "with one click, with no path to type — including one you previously removed.")}</p>
-        <div class="known-package-list">
+      <section class="known-package-section ui-settings-section" aria-label="${t("ui.main.232934a9166e", "Available known Pi packages")}">
+        <div class="ui-settings-heading">
+          <h3>${t("ui.main.fe790e3f4139", "Available packages")}</h3>
+          <p>${t("ui.main.645753db4480", "PI WEB ships these packages so you can install them on")} ${targetLabel}${t("ui.main.1d1f715fbd86", "with one click, with no path to type — including one you previously removed.")}</p>
+        </div>
+        <div class="known-package-list ui-settings-list">
           ${suggestions.map((suggestion) => this.renderInstallableKnownPackage(suggestion))}
         </div>
       </section>
@@ -99,23 +101,23 @@ export class SettingsPackagesPanel extends LitElement {
   private renderInstallableKnownPackage(suggestion: PiPackageInstallableSuggestion): TemplateResult {
     const installing = isPiPackageOperationPending(this.operation, "install", suggestion.source);
     return html`
-      <article class="known-package-card">
+      <article class="known-package-card ui-settings-row">
         <div class="package-main">
           <strong>${suggestion.label}</strong>
           <small>${suggestion.description}</small>
         </div>
-        <button title=${t("ui.main.f3c72686db75", "Install {arg0}", { arg0: suggestion.label })} ?disabled=${this.isOperating} @click=${() => { void this.installKnownPackage(suggestion.source); }}>${installing ? t("ui.settingsPackagesPanel.installing", "Installing…") : t("ui.settingsPackagesPanel.install", "Install")}</button>
+        <button class="ui-button ui-button--action ui-button--primary" title=${t("ui.main.f3c72686db75", "Install {arg0}", { arg0: suggestion.label })} ?disabled=${this.isOperating} @click=${() => { void this.installKnownPackage(suggestion.source); }}>${installing ? t("ui.settingsPackagesPanel.installing", "Installing…") : t("ui.settingsPackagesPanel.install", "Install")}</button>
       </article>
     `;
   }
 
   private renderInstallForm(targetLabel: string): TemplateResult {
     return html`
-      <form class="install-card" @submit=${(event: Event) => { void this.installPackage(event); }}>
-        <label for="package-source">${t("ui.settingsPackagesPanel.piPackageSource", "Pi package source")}</label>
+      <form class="install-card ui-settings-section" @submit=${(event: Event) => { void this.installPackage(event); }}>
+        <label class="ui-form-field" for="package-source">${t("ui.settingsPackagesPanel.piPackageSource", "Pi package source")}</label>
         <div class="install-row">
           <input class="ui-input" id="package-source" aria-describedby="package-source-help package-source-error" aria-invalid=${this.validationMessage !== "" ? "true" : "false"} .value=${this.installSource} ?disabled=${this.isOperating} placeholder=${t("ui.settingsPackagesPanel.npmScopePackageGitUrlOrLocalPath", "npm:@scope/package, Git URL, or local path")} @input=${(event: Event) => { this.updateInstallSource(event); }}>
-          <button type="submit" title=${t("ui.settingsPackagesPanel.installThisPiPackage", "Install this Pi package")} ?disabled=${this.isOperating}>${isPiPackageOperationPending(this.operation, "install") ? t("ui.settingsPackagesPanel.installing", "Installing…") : t("ui.settingsPackagesPanel.install", "Install")}</button>
+          <button class="ui-button ui-button--action ui-button--primary" type="submit" title=${t("ui.settingsPackagesPanel.installThisPiPackage", "Install this Pi package")} ?disabled=${this.isOperating}>${isPiPackageOperationPending(this.operation, "install") ? t("ui.settingsPackagesPanel.installing", "Installing…") : t("ui.settingsPackagesPanel.install", "Install")}</button>
         </div>
         <div class="field-error" id="package-source-error" role="alert">${this.validationMessage}</div>
         <small id="package-source-help">${t("ui.settingsPackagesPanel.installationScope", "Installation runs on {machine} using Pi's default package location, equivalent to pi install <source>. PI WEB does not ask you to choose an installation location.", { machine: targetLabel })}</small>
@@ -129,9 +131,9 @@ export class SettingsPackagesPanel extends LitElement {
     const showUpdateAllReason = updateAllReason !== undefined && packages.length > 0;
     const updateAllTitle = updateAllReason ?? t("ui.settingsPackagesPanel.updateAllUserScopedPiPackages", "Update all user-scoped Pi packages");
     return html`
-      <section class="package-section" aria-label=${t("ui.settingsPackagesPanel.configuredPiPackages", "Configured Pi packages")}>
+      <section class="package-section ui-settings-section" aria-label=${t("ui.settingsPackagesPanel.configuredPiPackages", "Configured Pi packages")}>
         <div class="package-toolbar">
-          <div>
+          <div class="ui-settings-heading">
             <h3>${t("ui.settingsPackagesPanel.configuredPiPackages", "Configured Pi packages")}</h3>
             <p>${t("ui.settingsPackagesPanel.listScope", "This list comes from Pi package manager settings on {machine}.", { machine: targetLabel })}</p>
           </div>
@@ -147,8 +149,8 @@ export class SettingsPackagesPanel extends LitElement {
   }
 
   private renderPackageListContent(packages: PiPackageInfo[], targetLabel: string): TemplateResult {
-    if (this.loading && packages.length === 0) return html`<div class="loading-card">${t("ui.settingsPackagesPanel.loadingPackages", "Loading Pi packages from {machine}…", { machine: targetLabel })}</div>`;
-    if (packages.length === 0) return html`<div class="loading-card">${t("ui.settingsPackagesPanel.noPackages", "No Pi packages are configured in Pi settings on {machine}.", { machine: targetLabel })}</div>`;
+    if (this.loading && packages.length === 0) return html`<div class="loading-card ui-settings-summary">${t("ui.settingsPackagesPanel.loadingPackages", "Loading Pi packages from {machine}…", { machine: targetLabel })}</div>`;
+    if (packages.length === 0) return html`<div class="loading-card ui-settings-summary">${t("ui.settingsPackagesPanel.noPackages", "No Pi packages are configured in Pi settings on {machine}.", { machine: targetLabel })}</div>`;
     return html`
       <div class="package-list ui-settings-list">
         ${packages.map((packageInfo) => this.renderPackage(packageInfo))}
@@ -164,14 +166,14 @@ export class SettingsPackagesPanel extends LitElement {
     const updating = isPiPackageOperationPending(this.operation, "update", packageInfo.source);
     const removing = isPiPackageOperationPending(this.operation, "remove", packageInfo.source);
     return html`
-      <article class=${`package-card${packageInfo.filtered ? " filtered" : ""}`}>
+      <article class=${`package-card ui-settings-row${packageInfo.filtered ? " filtered" : ""}`}>
         <div class="package-main">
           <strong>${packageInfo.source}</strong>
           <small>${piPackageScopeLabel(packageInfo)} · ${piPackageFilteredLabel(packageInfo)}</small>
           <small>${t("ui.settingsPackagesPanel.installationPath", "Installation path: ")}<code>${piPackageInstalledPathLabel(packageInfo)}</code></small>
           ${updateReason === undefined ? null : html`<small class="action-note">${updateReason}</small>`}
         </div>
-        <div class="package-actions">
+        <div class="package-actions ui-settings-actions">
           <button class="secondary ui-button ui-button--action" title=${updateReason ?? t("ui.settingsPackagesPanel.updateThisPiPackage", "Update this Pi package")} ?disabled=${this.isOperating || updateReason !== undefined} @click=${() => { void this.updatePackage(packageInfo.source); }}>${updating ? t("ui.settingsPackagesPanel.updating", "Updating…") : t("ui.settingsPackagesPanel.update", "Update")}</button>
           <button class="danger ui-button ui-button--action" title=${removeReason} ?disabled=${this.isOperating || packageManagementUnavailable} @click=${() => { void this.removePackage(packageInfo); }}>${removing ? t("ui.settingsPackagesPanel.removing", "Removing…") : t("ui.settingsPackagesPanel.remove", "Remove")}</button>
         </div>

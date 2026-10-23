@@ -148,7 +148,7 @@ export class WorkspaceFilesPanel extends LitElement {
         @drop=${this.handleDrop}
       >
         <section class="toolbar ui-toolbar">
-          <strong>${t("ui.toolExecutionView.file", "File")}</strong>
+          <strong class="ui-toolbar-title">${t("ui.toolExecutionView.file", "File")}</strong>
           ${scope.treeLoading ? html`<span class="muted">${t("ui.main.300ee3dee4dc", "loading…")}</span>` : null}
           ${scope.treeStale ? html`<span class="stale">${t("ui.workspaceGitPanel.stale", "Stale")}</span>` : null}
           <div class="toolbar-actions ui-toolbar-group">

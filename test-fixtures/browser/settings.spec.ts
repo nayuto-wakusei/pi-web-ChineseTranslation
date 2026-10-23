@@ -1,5 +1,33 @@
 import { expect, test } from "@playwright/test";
 
+test("settings subpages retain shared spacing and visible controls", async ({ page }, testInfo) => {
+  await page.route("**/api/**", (route) => route.abort());
+  await page.goto("/settings.html");
+  const dialog = page.locator("settings-dialog");
+  const sections = dialog.locator(".settings-nav");
+  for (const [name, tag] of [[/^Pi 包/, "settings-packages-panel"], [/^PI WEB 插件/, "settings-plugins-panel"], [/^键盘/, "settings-shortcuts-panel"]] as const) {
+    await sections.getByRole("button", { name }).click();
+    const panel = dialog.locator(tag);
+    await expect(panel).toBeVisible();
+    const content = panel.locator(".ui-settings-section, .ui-settings-summary, .ui-settings-path").first();
+    await expect(content).toBeVisible();
+    expect(await content.evaluate((element) => parseFloat(getComputedStyle(element).paddingLeft))).toBeGreaterThanOrEqual(12);
+    expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    if (tag === "settings-shortcuts-panel") {
+      const choices = panel.locator(".prompt-enter-option");
+      await expect(choices).toHaveCount(3);
+      const boxes = await Promise.all((await choices.all()).map((choice) => choice.boundingBox()));
+      for (let position = 1; position < boxes.length; position += 1) {
+        const previous = boxes[position - 1];
+        const current = boxes[position];
+        if (previous === null || previous === undefined || current === null || current === undefined) throw new Error("Missing Enter preference option");
+        expect(current.y).toBeGreaterThanOrEqual(previous.y + previous.height);
+      }
+    }
+    await page.screenshot({ path: testInfo.outputPath(`${tag}.png`) });
+  }
+});
+
 test("settings machine selection and dirty confirmation fit the viewport without changing the workspace", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

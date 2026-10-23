@@ -250,12 +250,12 @@ function cacheKeyForContext(context: WorkspacePanelContext): string {
 }
 
 function renderMissingState(state: Extract<ConfigState, { kind: "missing" }>): string {
-  return `<div class="empty-state"><strong class="ui-toolbar-title toolbar-title">${escapeHtml(state.message)}</strong><p>${escapeHtml(state.hint)}</p></div>`;
+  return `<div class="empty-state"><strong>${escapeHtml(state.message)}</strong><p>${escapeHtml(state.hint)}</p></div>`;
 }
 
 function renderUnavailableState(state: Extract<ConfigState, { kind: "unavailable" }>): string {
   const detail = state.detail === undefined ? "" : `<pre>${escapeHtml(state.detail)}</pre>`;
-  return `<div class="status error"><strong class="ui-toolbar-title toolbar-title">${escapeHtml(state.message)}</strong><p>${escapeHtml(state.hint)}</p>${detail}</div>`;
+  return `<div class="status error"><strong>${escapeHtml(state.message)}</strong><p>${escapeHtml(state.hint)}</p>${detail}</div>`;
 }
 
 function renderTaskGroups(tasks: WorkspaceTask[], runningTaskId: string | undefined): string {
@@ -288,7 +288,7 @@ function renderTask(task: WorkspaceTask, runningTaskId: string | undefined): str
   return `
     <article class="task-card">
       <div class="task-copy">
-        <strong class="ui-toolbar-title toolbar-title">${escapeHtml(task.title)}</strong>
+        <strong>${escapeHtml(task.title)}</strong>
         ${description}
         <code>${escapeHtml(task.command)}</code>
       </div>

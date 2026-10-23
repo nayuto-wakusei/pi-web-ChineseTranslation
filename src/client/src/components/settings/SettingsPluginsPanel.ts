@@ -126,18 +126,18 @@ export class SettingsPluginsPanel extends LitElement {
   private renderPanelContent(plugins: SettingsPluginRow[], hasPluginResponse: boolean): TemplateResult {
     if (!hasPluginResponse && plugins.length === 0) {
       return html`
-        <div class="loading-card">${this.loading ? t("ui.settingsPluginsPanel.loadingPiWebPlugins", "Loading PI WEB plugins…") : t("ui.settingsPluginsPanel.piWebPluginListForIsUnavailableReload", "PI WEB plugin list for {targetLabel} is unavailable. Reload.", { targetLabel: this.targetLabel })}</div>
+        <div class="loading-card ui-settings-summary">${this.loading ? t("ui.settingsPluginsPanel.loadingPiWebPlugins", "Loading PI WEB plugins…") : t("ui.settingsPluginsPanel.piWebPluginListForIsUnavailableReload", "PI WEB plugin list for {targetLabel} is unavailable. Reload.", { targetLabel: this.targetLabel })}</div>
         ${this.renderRecoveryCommands()}
       `;
     }
     if (plugins.length === 0) {
       return html`
-        <div class="loading-card">${t("ui.main.686b703f41f3", "No PI WEB plugins are discovered or active on")} ${this.targetLabel} ${t("ui.main.b7ad7cf69387", ".")}</div>
+        <div class="loading-card ui-settings-summary">${t("ui.main.686b703f41f3", "No PI WEB plugins are discovered or active on")} ${this.targetLabel} ${t("ui.main.b7ad7cf69387", ".")}</div>
         ${this.renderRecoveryCommands()}
       `;
     }
     return html`
-      <div class="plugin-note">${this.targetLabel} ${t("ui.main.2432ea1a4c8b", ":")} <code>plugins</code>${t("ui.main.8ccf013eb3c2", ". Browser-only changes apply after a tab reload; server-backed changes follow sessiond's startup snapshot and can require a manual restart.")}</div>
+      <div class="plugin-note ui-settings-summary">${this.targetLabel} ${t("ui.main.2432ea1a4c8b", ":")} <code>plugins</code>${t("ui.main.8ccf013eb3c2", ". Browser-only changes apply after a tab reload; server-backed changes follow sessiond's startup snapshot and can require a manual restart.")}</div>
       <div class="plugin-list ui-settings-list">
         ${plugins.map((plugin) => this.renderPlugin(plugin))}
       </div>
@@ -153,7 +153,7 @@ export class SettingsPluginsPanel extends LitElement {
         ? t("ui.main.ccf65fb6a4e5", "Desired package/config absent")
         : configured?.enabled === false ? t("ui.settingsPluginsPanel.disabledByConfiguration", "Disabled by configuration") : configured?.enabled === true ? t("ui.settingsPluginsPanel.enabledByConfiguration", "Enabled by configuration") : t("ui.settingsPluginsPanel.enabledByDefault", "Enabled by default");
     return html`
-      <article class=${`plugin-card${plugin.enabled ? "" : " disabled"}`}>
+      <article class=${`plugin-card ui-settings-row${plugin.enabled ? "" : " disabled"}`}>
         <div class="plugin-main">
           <strong>${plugin.id}</strong>
           <small>${plugin.configOnly ? t("ui.main.40098da54072", "configured only · package not discovered") : `${pluginSourceLabel(plugin.source)} · ${pluginScopeLabel(plugin.scope)}${plugin.machineSpecific ? t("ui.settingsPluginsPanel.machineSpecific", " · Machine-specific") : ""}${plugin.required === true ? t("ui.main.5ce75af5c91a", " · required") : ""}${plugin.discovered ? "" : t("ui.main.b00e20aa7b93", " · active snapshot only")}`}</small>
@@ -190,7 +190,7 @@ export class SettingsPluginsPanel extends LitElement {
     const recovery = responseRecovery ?? (this.recoveryCommandsSupported ? PI_WEB_PLUGIN_RECOVERY_COMMANDS : undefined);
     if (recovery === undefined) return nothing;
     return html`
-      <aside class="recovery" aria-label="${t("ui.main.a444df361594", "Offline server-plugin recovery commands")}">
+      <aside class="recovery ui-settings-summary" aria-label="${t("ui.main.a444df361594", "Offline server-plugin recovery commands")}">
         <strong>${this.targetLabel} ${t("ui.main.ca56f3ca43d1", " offline recovery")}</strong>
         <small>${t("ui.main.277115ec7cae", "These commands edit config without contacting sessiond or importing plugins. They never include machine credentials.")}</small>
         <span>${t("ui.settingsPluginsPanel.checkSafeMode", "Check safe mode")}</span><code>${recovery.showSafeStart}</code>

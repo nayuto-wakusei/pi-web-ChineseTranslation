@@ -101,6 +101,7 @@ export class SettingsSessiondPanel extends LitElement {
         .notices=${this.panelNotices(config)}
         .onAction=${this.onReload}
       >
+        <section class="ui-settings-section">
         ${config === undefined ? this.renderUnavailableConfigState() : html`
           <div class="config-path-card ui-settings-path">
             <span>${t("ui.settingsShortcutsPanel.configurationFile", "Configuration file")}</span>
@@ -285,6 +286,7 @@ export class SettingsSessiondPanel extends LitElement {
             </dl>
           </section>
         `}
+        </section>
       </settings-panel-frame>
       ${this.namingPickerOpen ? html`
         <command-picker title=${t("ui.sessionNaming.selectModel", "Select naming model")} searchable

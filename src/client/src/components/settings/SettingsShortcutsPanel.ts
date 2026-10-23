@@ -123,14 +123,14 @@ export class SettingsShortcutsPanel extends LitElement {
       >
         ${this.renderPromptEnterPreferenceCard()}
         ${this.configResponse === undefined && !this.loading ? html`<p role="status">${t("ui.settingsShortcutsPanel.unavailable", "Shortcut settings are unavailable. Reload settings to try again.")}</p>` : nothing}
-        ${this.configResponse === undefined && this.loading ? html`<div class="loading-card">${t("ui.settingsShortcutsPanel.loadingShortcuts", "Loading shortcuts…")}</div>` : html`
+        ${this.configResponse === undefined && this.loading ? html`<div class="loading-card ui-settings-path">${t("ui.settingsShortcutsPanel.loadingShortcuts", "Loading shortcuts…")}</div>` : html`
           <div class="config-path-card ui-settings-path">
             <span>${t("ui.settingsShortcutsPanel.configurationFile", "Configuration file")}</span>
             <code>${this.configResponse?.path ?? t("bundled.updates.unknown.4d8c1c", "Unknown")}</code>
             <small>${t("ui.settingsShortcutsPanel.shortcutOverridesAreSavedUnder", "Shortcut overrides are saved under ")} <code>shortcuts</code> ${t("ui.settingsShortcutsPanel.aValueOf", ". A value of ")} <code>null</code> ${t("ui.settingsShortcutsPanel.disablesTheActionShortcut", " disables the action shortcut.")}</small>
           </div>
           <section class="shortcut-group ui-settings-section">
-            <h3>${t("ui.settingsShortcutsPanel.sendBehavior", "Send behavior")}</h3>
+            <div class="ui-settings-heading"><h3>${t("ui.settingsShortcutsPanel.sendBehavior", "Send behavior")}</h3></div>
             <label class="shortcut-input-label ui-form-field">
               <span>${t("ui.settingsShortcutsPanel.sendWhileRunning", "Send while agent is running")}</span>
               <select class="ui-select" aria-label=${t("ui.settingsShortcutsPanel.sendWhileRunning", "Send while agent is running")} .value=${live(this.configResponse?.config.defaultStreamingBehavior ?? "steer")} ?disabled=${this.loading || this.saving || this.configResponse === undefined} @change=${(event: Event) => { void this.saveSendBehavior(event); }}>
@@ -139,10 +139,10 @@ export class SettingsShortcutsPanel extends LitElement {
               </select>
             </label>
           </section>
-          ${groups.length === 0 ? html`<div class="loading-card">${t("ui.settingsShortcutsPanel.noRegisteredActions", "No registered actions.")}</div>` : groups.map((group) => html`
-            <section class="shortcut-group">
-              <h3>${group.name}</h3>
-              <div class="shortcut-list">
+          ${groups.length === 0 ? html`<div class="loading-card ui-settings-path">${t("ui.settingsShortcutsPanel.noRegisteredActions", "No registered actions.")}</div>` : groups.map((group) => html`
+            <section class="shortcut-group ui-settings-section">
+              <div class="ui-settings-heading"><h3>${group.name}</h3></div>
+              <div class="shortcut-list ui-settings-list">
                 ${group.actions.map((action) => this.renderShortcutRow(action, shortcutResolutions.get(action.id)))}
               </div>
             </section>
@@ -168,15 +168,15 @@ export class SettingsShortcutsPanel extends LitElement {
 
   private renderPromptEnterPreferenceCard(): TemplateResult {
     return html`
-      <section class="prompt-enter-card" aria-labelledby="prompt-enter-preference-title">
-        <div class="prompt-enter-copy">
+      <section class="prompt-enter-card ui-settings-section" aria-labelledby="prompt-enter-preference-title">
+        <div class="prompt-enter-copy ui-settings-heading">
           <span class="card-eyebrow">${t("ui.settingsShortcutsPanel.chatInput", "Chat input")}</span>
           <h3 id="prompt-enter-preference-title">${t("ui.settingsShortcutsPanel.enterKeyBehavior", "Enter key behavior")}</h3>
           <p>${t("ui.settingsShortcutsPanel.chooseEnterBehaviorInThisBrowserShiftEnter", "Choose Enter behavior in this browser. Shift+Enter performs the opposite action when supported; touch-keyboard auto-capitalization is ignored to prevent accidental sends.")}</p>
         </div>
-        <div class="prompt-enter-options" role="radiogroup" aria-label="${t("ui.settingsShortcutsPanel.enterAndShiftEnterBehaviorInChatInput", "Enter and Shift Enter behavior in chat input")}">
+        <div class="prompt-enter-options ui-settings-fields" role="radiogroup" aria-label="${t("ui.settingsShortcutsPanel.enterAndShiftEnterBehaviorInChatInput", "Enter and Shift Enter behavior in chat input")}">
           ${PROMPT_ENTER_OPTIONS.map((option) => html`
-            <label class="prompt-enter-option">
+            <label class="prompt-enter-option ui-checkbox-field">
               <input
                 type="radio"
                 name="prompt-enter-preference"
@@ -184,7 +184,7 @@ export class SettingsShortcutsPanel extends LitElement {
                 .checked=${this.promptEnterPreference === option.value}
                 @change=${() => { this.updatePromptEnterPreference(option.value); }}
               >
-              <span>
+              <span class="ui-form-field">
                 <strong>${option.label}</strong>
                 <small>${option.description}</small>
               </span>
@@ -227,7 +227,7 @@ export class SettingsShortcutsPanel extends LitElement {
             <small class=${displayState}>${shortcutStateLabel(displayState)}${hasDraft ? t("ui.settingsShortcutsPanel.unsaved", " · Unsaved") : ""}</small>
             ${conflictLabel === undefined ? null : html`<small class=${shortcutConflictClass(resolution)}>${conflictLabel}</small>`}
           </div>
-          <label class="shortcut-input-label">
+          <label class="shortcut-input-label ui-form-field">
             <span>${t("ui.settingsShortcutsPanel.shortcut", "Shortcut")}</span>
             <input
               class="shortcut-input ui-input"
@@ -246,9 +246,9 @@ export class SettingsShortcutsPanel extends LitElement {
           ${recordingHint !== "" ? html`<small class="recording-hint" id=${`recording-${action.id}`} role="status">${recordingHint}</small>` : null}
           <div class="shortcut-actions ui-settings-actions">
             <button class="primary ui-button ui-button--action ui-button--primary" aria-label=${t("ui.settingsShortcutsPanel.saveFor", "Save shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled || !hasDraft || inputText.trim() === ""} @click=${() => { void this.saveShortcut(action); }}>${t("ui.settingsShortcutsPanel.save", "Save")}</button>
-            <button aria-label=${this.recording?.actionId === action.id ? t("ui.settingsShortcutsPanel.cancelRecordingFor", "Cancel recording for {title}", { title: action.title }) : t("ui.settingsShortcutsPanel.recordFor", "Record shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled} @click=${() => { void this.toggleRecording(action.id); }}>${this.recording?.actionId === action.id ? t("ui.settingsShortcutsPanel.cancelRecording", "Cancel recording") : t("ui.settingsShortcutsPanel.record", "Record")}</button>
-            <button aria-label=${t("ui.settingsShortcutsPanel.disableFor", "Disable shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled || configured === null} @click=${() => { void this.setShortcutNone(action); }}>${t("ui.settingsShortcutsPanel.none", "None")}</button>
-            <button aria-label=${t("ui.settingsShortcutsPanel.restoreFor", "Restore default shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled || !hasConfiguredShortcut} @click=${() => { void this.resetShortcut(action); }}>${t("ui.settingsShortcutsPanel.reset", "Reset")}</button>
+            <button class="ui-button ui-button--action" aria-label=${this.recording?.actionId === action.id ? t("ui.settingsShortcutsPanel.cancelRecordingFor", "Cancel recording for {title}", { title: action.title }) : t("ui.settingsShortcutsPanel.recordFor", "Record shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled} @click=${() => { void this.toggleRecording(action.id); }}>${this.recording?.actionId === action.id ? t("ui.settingsShortcutsPanel.cancelRecording", "Cancel recording") : t("ui.settingsShortcutsPanel.record", "Record")}</button>
+            <button class="ui-button ui-button--action" aria-label=${t("ui.settingsShortcutsPanel.disableFor", "Disable shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled || configured === null} @click=${() => { void this.setShortcutNone(action); }}>${t("ui.settingsShortcutsPanel.none", "None")}</button>
+            <button class="ui-button ui-button--action" aria-label=${t("ui.settingsShortcutsPanel.restoreFor", "Restore default shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled || !hasConfiguredShortcut} @click=${() => { void this.resetShortcut(action); }}>${t("ui.settingsShortcutsPanel.reset", "Reset")}</button>
           </div>
         </div>
       </article>

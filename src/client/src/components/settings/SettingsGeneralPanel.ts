@@ -101,7 +101,7 @@ export class SettingsGeneralPanel extends LitElement {
         .notices=${this.panelNotices()}
         .onAction=${() => { this.reloadAll(); }}
       >
-        <div class="settings-sections">
+        <div class="settings-sections ui-settings-list">
           <slot name="appearance"></slot>
           ${this.renderGatewayServerSettings()}
           ${this.renderSelectedMachineAccessSettings()}
