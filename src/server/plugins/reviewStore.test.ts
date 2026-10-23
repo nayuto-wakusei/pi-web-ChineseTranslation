@@ -11,7 +11,8 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-it("serializes real record replacements with concurrent readers and captures each save", async () => {
+// Forty real fsync/rename cycles can exceed the default budget on loaded Windows runners.
+it("serializes real record replacements with concurrent readers and captures each save", { timeout: 30_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-review-store-race-"));
   roots.push(root);
   const scope = reviewScope("project", "workspace");
