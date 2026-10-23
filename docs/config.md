@@ -68,12 +68,12 @@ Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 �
 
 机器配置 `sessionNaming` 仅接受以下可选字段，不提供项目覆盖。设置保存后用于后续命名请求，无需重启；每次请求固定自己的有效设置，不覆盖用户已命名会话，也不切换聊天模型。
 
-| 字段 | 默认值 | 约束 |
-| --- | --- | --- |
-| `model` | 当前会话模型 | 精确 `provider/model-id`；使用原会话普通项目或管理 registry |
-| `maxTokens` | `24` | 正安全整数 |
-| `thinkingLevel` | `minimal` | 已知思考等级；`off` 不发送 reasoning 参数 |
-| `timeoutMs` | `10000` | 总耗时，整数 `1..2147483647` 毫秒 |
+| 设置 | 作用范围 | 默认值 | 改变什么 | 生效 / 重启 |
+| --- | --- | --- | --- | --- |
+| `sessionNaming.model` | 机器 | 当前会话模型 | 命名模型，精确 `provider/model-id`；使用原会话普通项目或管理 registry | 后续命名请求；无需重启 |
+| `sessionNaming.maxTokens` | 机器 | `24` | 命名输出 token 上限，正安全整数 | 后续命名请求；无需重启 |
+| `sessionNaming.thinkingLevel` | 机器 | `minimal` | 命名思考等级，须为已知等级；`off` 不发送 reasoning 参数 | 后续命名请求；无需重启 |
+| `sessionNaming.timeoutMs` | 机器 | `10000` | 命名总耗时上限，整数 `1..2147483647` 毫秒 | 后续命名请求；无需重启 |
 
 模型不可用、超时或命名失败时使用首条消息的回退名称；标题语言跟随用户请求。命名设置不把项目凭据切换为全局凭据。
 

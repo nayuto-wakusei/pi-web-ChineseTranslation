@@ -1,5 +1,5 @@
 import "./nodeThemePlugin.testSupport";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Project } from "../api";
 import { navigationOrderPort } from "../api/navigationOrder";
 import type { AppState } from "../appState";
@@ -13,11 +13,18 @@ import { PiWebApp } from "./PiWebApp";
 type RefreshCallback = () => void | Promise<void>;
 
 const project: Project = { id: "project-1", name: "repo", path: "/repo", createdAt: "2026-07-20T00:00:00.000Z" };
+const unexpectedFetch = vi.fn<typeof fetch>().mockRejectedValue(new Error("Topology wiring tests must not send HTTP requests"));
+
+beforeEach(() => {
+  unexpectedFetch.mockClear();
+  vi.stubGlobal("fetch", unexpectedFetch);
+});
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  expect(unexpectedFetch).not.toHaveBeenCalled();
 });
 
 describe("PiWebApp workspace topology refresh wiring", () => {
@@ -196,7 +203,7 @@ function captureRealtimeConnection(app: PiWebApp) {
 }
 
 function stubRealtimeSiblingRefreshes(app: PiWebApp): void {
-  for (const name of ["sessionUnread", "serverNotices"]) {
+  for (const name of ["sessionUnread", "serverNotices", "activity", "machineStatus"]) {
     const controller: unknown = Reflect.get(app, name);
     if (typeof controller !== "object" || controller === null) throw new Error(`${name} was unavailable`);
     Reflect.set(controller, "refresh", vi.fn().mockResolvedValue(undefined));
@@ -237,6 +244,7 @@ function stubBackgroundRefreshes(app: PiWebApp): void {
   vi.spyOn(navigationOrderPort, "load").mockResolvedValue({ ids: [], revision: 0 });
   const result = () => Promise.resolve();
   for (const name of [
+    "refreshMachineActivities",
     "refreshMachineStatusSnapshots",
     "refreshWorkspaceDeletionRuns",
     "loadClientConfig",

@@ -78,6 +78,17 @@ test("failed history loading removes its boundary without moving the durable rea
 
 test("native disclosures and changing image dimensions remain usable without horizontal overflow", async ({ page }, testInfo) => {
   const group = page.locator("chat-view details.event-group");
+  // Entering this deferred transcript region can reflow nearby Markdown. Let
+  // that work settle before a pointer press so its target stays under the cursor.
+  await group.locator("summary").first().scrollIntoViewIfNeeded();
+  await expect.poll(async () => await page.locator("chat-view .chat").evaluate((scroller) => {
+    const viewport = scroller.getBoundingClientRect();
+    const visible = [...scroller.querySelectorAll("formatted-text")].filter((element) => {
+      const box = element.getBoundingClientRect();
+      return box.height > 0 && box.bottom > viewport.top && box.top < viewport.bottom;
+    });
+    return visible.length > 0 && visible.every((element) => element.shadowRoot?.querySelector(".pending-source[hidden]") != null);
+  })).toBe(true);
   await group.locator("summary").first().click();
   await expect(group.locator(".group-body")).toBeVisible();
   await group.locator("summary").first().click();

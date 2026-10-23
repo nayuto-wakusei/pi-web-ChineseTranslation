@@ -288,30 +288,40 @@
 <div class="table-scroll" role="region" aria-label="会话命名配置" tabindex="0"><table class="reference-table settings-table">
 <thead>
 <tr>
-<th>字段</th>
-<th>默认值</th>
-<th>约束</th>
+<th scope="col">设置</th>
+<th scope="col">作用范围</th>
+<th scope="col">默认值</th>
+<th scope="col">改变什么</th>
+<th scope="col">生效 / 重启</th>
 </tr>
 </thead>
 <tbody><tr>
-<td><code>model</code></td>
+<th scope="row"><code>sessionNaming.model</code></th>
+<td>机器</td>
 <td>当前会话模型</td>
-<td>精确 <code>provider/model-id</code>；使用原会话普通项目或管理 registry</td>
+<td>命名模型，精确 <code>provider/model-id</code>；使用原会话普通项目或管理 registry</td>
+<td>后续命名请求；无需重启</td>
 </tr>
 <tr>
-<td><code>maxTokens</code></td>
+<th scope="row"><code>sessionNaming.maxTokens</code></th>
+<td>机器</td>
 <td><code>24</code></td>
-<td>正安全整数</td>
+<td>命名输出 token 上限，正安全整数</td>
+<td>后续命名请求；无需重启</td>
 </tr>
 <tr>
-<td><code>thinkingLevel</code></td>
+<th scope="row"><code>sessionNaming.thinkingLevel</code></th>
+<td>机器</td>
 <td><code>minimal</code></td>
-<td>已知思考等级；<code>off</code> 不发送 reasoning 参数</td>
+<td>命名思考等级，须为已知等级；<code>off</code> 不发送 reasoning 参数</td>
+<td>后续命名请求；无需重启</td>
 </tr>
 <tr>
-<td><code>timeoutMs</code></td>
+<th scope="row"><code>sessionNaming.timeoutMs</code></th>
+<td>机器</td>
 <td><code>10000</code></td>
-<td>总耗时，整数 <code>1..2147483647</code> 毫秒</td>
+<td>命名总耗时上限，整数 <code>1..2147483647</code> 毫秒</td>
+<td>后续命名请求；无需重启</td>
 </tr>
 </tbody></table></div>
 <p>模型不可用、超时或命名失败时使用首条消息的回退名称；标题语言跟随用户请求。命名设置不把项目凭据切换为全局凭据。</p>

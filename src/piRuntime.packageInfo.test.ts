@@ -13,15 +13,16 @@ async function sdkPackage() {
   return directory;
 }
 
-it("returns the cached selected host identity without reselecting another SDK", async () => {
+it("returns the cached canonical host identity without reselecting another SDK", async () => {
   vi.resetModules();
   const directory = await sdkPackage();
+  const canonicalDirectory = await realpath(directory);
   vi.stubEnv("PI_WEB_PI_PACKAGE_DIR", directory);
   const { piRuntimePackageInfo } = await import("./piRuntime.js");
-  expect(await piRuntimePackageInfo()).toEqual({ directory, version: "1.3.0" });
+  expect(await piRuntimePackageInfo()).toEqual({ directory: canonicalDirectory, version: "1.3.0" });
   const other = await sdkPackage();
   vi.stubEnv("PI_WEB_PI_PACKAGE_DIR", other);
-  expect(await piRuntimePackageInfo()).toEqual({ directory, version: "1.3.0" });
+  expect(await piRuntimePackageInfo()).toEqual({ directory: canonicalDirectory, version: "1.3.0" });
 });
 
 it.each(["name", "version"])("rejects a changed selected package %s instead of falling back", async (field) => {

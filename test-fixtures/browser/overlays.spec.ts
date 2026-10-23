@@ -1,4 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
+
+async function typePrompt(input: Locator, text: string): Promise<void> {
+  // CodeMirror needs native keyboard input; WebKit's contenteditable fill can
+  // leave its document unchanged without emitting an input event.
+  await input.press("ControlOrMeta+A");
+  await input.pressSequentially(text);
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/overlays.html");
@@ -8,7 +15,7 @@ test.beforeEach(async ({ page }) => {
 test("completions escape layout clipping, preserve editor focus, and disappear on session changes", async ({ page }) => {
   const input = page.locator("prompt-editor .cm-content");
   for (const trigger of ["/", "@", "#"]) {
-    await input.fill(trigger);
+    await typePrompt(input, trigger);
     const suggestion = page.locator("autocomplete-menu button").first();
     await expect(suggestion).toBeVisible();
     await suggestion.click({ trial: true });
@@ -16,14 +23,14 @@ test("completions escape layout clipping, preserve editor focus, and disappear o
     await input.press("Escape");
     await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
   }
-  await input.fill("/");
+  await typePrompt(input, "/");
   const pick = page.locator("autocomplete-menu button");
   await expect(pick).toBeVisible();
   if (test.info().project.name === "touch") await pick.tap();
   else await pick.click();
   await expect(input).toHaveText("/tree");
   await expect(input).toBeFocused();
-  await input.fill("/");
+  await typePrompt(input, "/");
   await expect(page.locator("autocomplete-menu button")).toBeVisible();
   await page.getByRole("button", { name: "Switch session", exact: true }).click();
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
@@ -70,10 +77,13 @@ test("popups follow shadow-root scrolling and stay within a resized viewport", a
 
 test("modal ownership dismisses background suggestions, allows owned menus, and restores focus", async ({ page }, testInfo) => {
   const input = page.locator("prompt-editor .cm-content");
-  await input.fill("/");
+  await typePrompt(input, "/");
   await expect(page.locator("autocomplete-menu button")).toBeVisible();
   const opener = page.getByRole("button", { name: "Open dialog", exact: true });
-  await opener.click();
+  // Safari does not retain button focus on pointer clicks. Keyboard activation
+  // establishes the same focus-restoration precondition in every browser.
+  await opener.focus();
+  await opener.press("Enter");
   const dialog = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 1", exact: true }) });
   await expect(page.getByRole("dialog", { name: "Dialog 1", exact: true })).toHaveCount(1);
   await expect(dialog.locator("dialog")).toBeVisible();
@@ -89,7 +99,9 @@ test("modal ownership dismisses background suggestions, allows owned menus, and 
   await page.keyboard.press("Escape");
   await expect(menu).not.toBeVisible();
   await expect(dialog.locator("dialog")).toBeVisible();
-  await dialog.getByRole("button", { name: "Open nested dialog" }).click();
+  const nestedOpener = dialog.getByRole("button", { name: "Open nested dialog" });
+  await nestedOpener.focus();
+  await nestedOpener.press("Enter");
   const nested = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 2", exact: true }) });
   await expect(nested.getByRole("textbox", { name: "Dialog input" })).toBeFocused();
   await page.keyboard.press("Escape");
@@ -101,7 +113,7 @@ test("modal ownership dismisses background suggestions, allows owned menus, and 
 });
 
 test("unmanaged plugin dialogs share the modality boundary", async ({ page }) => {
-  await page.locator("prompt-editor .cm-content").fill("/");
+  await typePrompt(page.locator("prompt-editor .cm-content"), "/");
   await expect(page.locator("autocomplete-menu button")).toBeVisible();
   await page.evaluate(() => { window.overlayFixture.openPluginModal(); });
   await expect(page.getByRole("textbox", { name: "Plugin input" })).toBeFocused();
@@ -111,7 +123,7 @@ test("unmanaged plugin dialogs share the modality boundary", async ({ page }) =>
 });
 
 test("hiding the conversation closes its suggestions", async ({ page }) => {
-  await page.locator("prompt-editor .cm-content").fill("/");
+  await typePrompt(page.locator("prompt-editor .cm-content"), "/");
   await expect(page.locator("autocomplete-menu button")).toBeVisible();
   await page.evaluate(() => { window.overlayFixture.hideConversation(); });
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);

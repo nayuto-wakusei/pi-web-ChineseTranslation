@@ -47,26 +47,27 @@ describe("machine-local language dictionaries", () => {
     }
   });
 
-  it("uses the machine config for CLI failures while preserving the exit code and unknown command", async () => {
+  it.each([true, false].flatMap((enabled) => [
+    { enabled, command: "unknown-user-command" },
+    { enabled, command: "plugins" },
+  ]))("uses the machine config for CLI $command (zh-cn enabled: $enabled)", async ({ enabled, command }) => {
     const directory = await mkdtemp(join(tmpdir(), "pi-web-cli-i18n-"));
     const path = join(directory, "config.json");
     const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url));
     try {
-      for (const enabled of [true, false]) {
-        await writeFile(path, JSON.stringify({ plugins: { "zh-cn": { enabled } } }));
-        const result = spawnSync(process.execPath, ["--import", "tsx", cliPath, "unknown-user-command"], {
-          env: { ...process.env, PI_WEB_CONFIG: path },
-          encoding: "utf8",
-        });
+      await writeFile(path, JSON.stringify({ plugins: { "zh-cn": { enabled } } }));
+      const args = command === "plugins" ? [command, "safe-start", "show", "--config", path] : [command];
+      const result = spawnSync(process.execPath, ["--import", "tsx", cliPath, ...args], {
+        env: { ...process.env, PI_WEB_CONFIG: path },
+        encoding: "utf8",
+      });
+      if (command === "unknown-user-command") {
         expect(result.status).toBe(1);
         expect(result.stderr).toContain(enabled ? "未知命令：unknown-user-command" : "Unknown command: unknown-user-command");
-        const recovery = spawnSync(process.execPath, ["--import", "tsx", cliPath, "plugins", "safe-start", "show", "--config", path], {
-          env: { ...process.env, PI_WEB_CONFIG: path },
-          encoding: "utf8",
-        });
-        expect(recovery.status).toBe(0);
-        expect(recovery.stdout).toContain(enabled ? "服务端插件安全启动：off" : "Server plugin safe start: off");
-        expect(recovery.stdout).toContain(path);
+      } else {
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain(enabled ? "服务端插件安全启动：off" : "Server plugin safe start: off");
+        expect(result.stdout).toContain(path);
       }
     } finally {
       await rm(directory, { recursive: true, force: true });

@@ -144,17 +144,20 @@ it("publishes real builds and recovers from a later failure without stopping the
     await writeRequiredBrowserBuildFixtures(cwd);
     const source = join(cwd, "pi-web-plugins", "entry.ts");
     await writeFile(source, "export const value = 1;");
-    child = fork(fileURLToPath(new URL("./build-plugins.mjs", import.meta.url)), ["--watch"], { cwd, execArgv: [], stdio: "ignore" });
-    expect((await once(child, "message"))[0]).toEqual({ type: "plugin-build-ready" });
+    child = fork(fileURLToPath(new URL("./build-plugins.mjs", import.meta.url)), ["--watch"], { cwd, execArgv: [], stdio: ["ignore", "ignore", "pipe", "ipc"] });
+    let diagnostics = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => { diagnostics += chunk; });
+    expect(await waitForBuildPublication(child, () => diagnostics)).toEqual({ type: "plugin-build-ready" });
     await expect(readFile(join(cwd, "dist", ".plugins-ready"), "utf8")).resolves.toBe("ready\n");
     await writeFile(source, "export const = ;");
     await vi.waitFor(async () => {
       await expect(readFile(join(cwd, "dist", ".plugins-ready"))).rejects.toMatchObject({ code: "ENOENT" });
     });
     expect(child.exitCode).toBeNull();
-    const rebuilt = once(child, "message");
+    const rebuilt = waitForBuildPublication(child, () => diagnostics);
     await writeFile(source, "export const value = 2;");
-    expect((await rebuilt)[0]).toEqual({ type: "plugin-build-ready" });
+    expect(await rebuilt).toEqual({ type: "plugin-build-ready" });
     await expect(readFile(join(cwd, "dist", ".plugins-ready"), "utf8")).resolves.toBe("ready\n");
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {
@@ -165,6 +168,25 @@ it("publishes real builds and recovers from a later failure without stopping the
   }
 });
 
+function waitForBuildPublication(child, diagnostics) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      child.off("message", published);
+      child.off("exit", exited);
+      child.off("error", failed);
+    };
+    const published = (message) => { cleanup(); resolve(message); };
+    const exited = (code, signal) => {
+      cleanup();
+      reject(new Error(`Builder exited before publication (${code ?? signal}): ${diagnostics()}`));
+    };
+    const failed = (error) => { cleanup(); reject(error); };
+    child.once("message", published);
+    child.once("exit", exited);
+    child.once("error", failed);
+  });
+}
+
 async function writeTerminalBuildFixture(cwd) {
   const terminalRoot = join(cwd, "pi-web-plugins", "terminal");
   await mkdir(join(terminalRoot, "server"), { recursive: true });
@@ -174,18 +196,21 @@ async function writeTerminalBuildFixture(cwd) {
 }
 
 async function writeRequiredBrowserBuildFixtures(cwd) {
-  for (const id of ["files", "mermaid"]) {
+  for (const id of ["files", "mermaid", "code-highlight"]) {
     const root = join(cwd, "pi-web-plugins", id);
     await mkdir(root, { recursive: true });
     await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }));
     await writeFile(join(root, "pi-web-plugin.ts"), "export default { apiVersion: 4, activate: () => ({ contributions: {} }) };");
     if (id === "mermaid") await writeFile(join(root, "mermaid-engine.ts"), "globalThis.fixtureMermaidEngine = true;");
   }
-  const packageRoot = join(cwd, "pi-packages", "captains-log");
-  await mkdir(packageRoot, { recursive: true });
-  await writeFile(join(packageRoot, "package.json"), JSON.stringify({ type: "module" }));
-  await writeFile(join(packageRoot, "pi-web-plugin.ts"), "export default { apiVersion: 4, activate: () => ({ contributions: {} }) };");
-  await writeFile(join(packageRoot, "vite.config.mjs"), `import { fileURLToPath } from "node:url";
-export default { build: { lib: { entry: fileURLToPath(new URL("./pi-web-plugin.ts", import.meta.url)), formats: ["es"], fileName: () => "pi-web-plugin.js" } } };
+  for (const id of ["captains-log", "workflows"]) {
+    const packageRoot = join(cwd, "pi-packages", id);
+    const entry = id === "captains-log" ? "pi-web-plugin" : "server-plugin";
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(join(packageRoot, "package.json"), JSON.stringify({ type: "module" }));
+    await writeFile(join(packageRoot, `${entry}.ts`), `export default { apiVersion: ${id === "captains-log" ? 4 : 3}, activate: () => ({ contributions: {} }) };`);
+    await writeFile(join(packageRoot, "vite.config.mjs"), `import { fileURLToPath } from "node:url";
+export default { build: { lib: { entry: fileURLToPath(new URL("./${entry}.ts", import.meta.url)), formats: ["es"], fileName: () => "${entry}.js" } } };
 `);
+  }
 }
