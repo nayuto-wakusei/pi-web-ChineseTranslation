@@ -26,6 +26,8 @@
 
 网关验证入口身份后把管理上下文传给 daemon，不能只在浏览器隐藏按钮。会话、HTTP 修改、WebSocket、独立会话和子会话都必须保留该上下文。工作区也必须在授权项目范围内。
 
+管理嵌入与普通模式的工作区列表共用 [WorkspaceProviderResolution](../../src/shared/apiTypes.ts) 响应结构：`status`（`provider`、`folder` 或 `degraded`）、`projectId`、可选 `ownerPluginId`、`workspaces` 和 `diagnostics`，每个工作区带有效配置。网关仍先验证管理身份与授权项目，再携带管理上下文解析工作区；共用响应结构不扩大授权范围。浏览器保持同一结构校验，提供者降级时保留状态与诊断，不将响应简化为裸工作区数组或静默忽略解析失败。
+
 Workbench 适配器在服务端保存访问状态及票据，以不透明 handle 联系 daemon；相同 entry token 的并发 bootstrap 复用同一 Agent Session。平台入口过期或资源授权失效时，应按提示回工作台重新进入，而不是复制旧票据到普通页面。
 
 entry token 交换为私有 Agent Session 后，access/capability tickets 必须留在服务端，只加载已授权的固定资源与 Skill 版本，并仅暴露受控能力工具。Workbench 集成与管理审计构造跨越网关和 daemon，两端使用相同有效 endpoint 与限额；这些配置或转发协议变化时重启两端。

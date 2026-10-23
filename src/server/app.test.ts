@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { FastifyInstance, InjectOptions, LightMyRequestCallback, LightMyRequestChain, LightMyRequestResponse } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
+import { parseWorkspaceProviderResolution } from "../client/src/api/parsers.js";
 import { recoveryPluginsResponse } from "./app.testSupport.js";
 import { ProjectService } from "./projects/projectService.js";
 import { ProjectStore } from "./storage/projectStore.js";
@@ -473,7 +474,17 @@ describe("buildApp", () => {
 
     const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces`, headers });
     expect(workspacesResponse.statusCode).toBe(200);
-    const [workspace] = workspacesResponse.json<Workspace[]>();
+    const resolution = parseWorkspaceProviderResolution(workspacesResponse.json());
+    expect(resolution).toMatchObject({ status: "folder", projectId: project.id, diagnostics: [] });
+    const aliasResponse = await app.inject({ method: "GET", url: `/api/machines/local/projects/${project.id}/workspaces`, headers });
+    expect(aliasResponse.statusCode).toBe(200);
+    expect(parseWorkspaceProviderResolution(aliasResponse.json())).toEqual(resolution);
+    for (const prefix of ["/api", "/api/machines/local"]) {
+      const denied = await app.inject({ method: "GET", url: `${prefix}/projects/not-authorized/workspaces`, headers });
+      expect(denied.statusCode).toBe(404);
+    }
+    expect(await projects.list()).toEqual([]);
+    const [workspace] = resolution.workspaces;
     if (workspace === undefined) throw new Error("Expected managed workspace");
     await expect(pathExists(workspace.path)).resolves.toBe(true);
 

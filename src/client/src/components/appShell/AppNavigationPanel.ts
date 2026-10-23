@@ -1,5 +1,6 @@
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n.js";
+import { uiButtonStyles } from "../ui/controlStyles";
 import { LitElement, css, html } from "lit";
 import { styleMap } from "lit/directives/style-map.js";
 import { NavigationSectionResizeController, type ResizableNavigationSection } from "../../appShell/navigationSectionResizeController";
@@ -243,7 +244,7 @@ export class AppNavigationPanel extends LitElement {
     const showHeader = this.showBrand || showMachineSwitcher || showHeaderActions || this.onTogglePanel !== undefined;
     return html`
       ${showHeader ? html`<header>
-        ${this.onTogglePanel === undefined ? null : html`<button type="button" class="panel-toggle" title=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} aria-label=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} aria-controls="navigation-panel" aria-expanded="true" @click=${() => { this.onTogglePanel?.(); }}>‹</button>`}
+        ${this.onTogglePanel === undefined ? null : html`<button type="button" class="ui-button ui-button--icon panel-toggle" title=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} aria-label=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} aria-controls="navigation-panel" aria-expanded="true" @click=${() => { this.onTogglePanel?.(); }}>‹</button>`}
         ${this.showBrand ? html`<strong>PI WEB</strong>` : null}
         ${showMachineSwitcher ? html`
           <machine-switcher
@@ -263,7 +264,7 @@ export class AppNavigationPanel extends LitElement {
         ${showHeaderActions ? html`<div class="header-actions">
           ${this.refreshControl}
           ${this.onShowActions === undefined ? null : html`
-            <button title="${t("client.actions.show.actions.a514ad", "Show actions")}" aria-label="${t("client.actions.show.actions.a514ad", "Show actions")}" @click=${() => { this.onShowActions?.(); }}>${t("ui.appNavigationPanel.actions", "Actions")}</button>
+            <button class="ui-button" title="${t("client.actions.show.actions.a514ad", "Show actions")}" aria-label="${t("client.actions.show.actions.a514ad", "Show actions")}" @click=${() => { this.onShowActions?.(); }}>${t("ui.appNavigationPanel.actions", "Actions")}</button>
           `}
         </div>` : null}
       </header>` : null}
@@ -404,6 +405,7 @@ export class AppNavigationPanel extends LitElement {
   }
 
   static override styles = css`
+    ${uiButtonStyles}
     @layer pi-web-base {
     :host { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
     :host([compact]) { flex: 1 1 auto; }
@@ -411,7 +413,7 @@ export class AppNavigationPanel extends LitElement {
     header strong { flex: 0 0 auto; display: flex; align-items: center; padding-inline: 12px; }
     machine-switcher { flex: 1 1 auto; min-width: 0; border-inline-start: 1px solid var(--pi-border-muted); }
     :host([compact]) header { display: none; }
-    .header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+    .header-actions { flex: 0 0 auto; display: flex; align-items: stretch; gap: 0; border-inline-start: 1px solid var(--pi-border-muted); }
     .navigation-sections { display: flex; flex-direction: column; flex: 1 1 0px; min-height: 0; }
     /* Projects and workspaces default to content height capped at a third of
        the area below the header, matching sessions when both lists are long.

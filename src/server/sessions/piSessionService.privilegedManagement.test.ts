@@ -262,7 +262,8 @@ describe("privileged management session permissions", () => {
       const bash = h.runtime().session.agent.state.tools.find((tool) => tool.name === "bash");
       if (bash === undefined) throw new Error("Expected the ordinary bash tool");
       const code = `require("node:fs").writeFileSync(${JSON.stringify(h.outside.replaceAll("\\", "/"))}, "FULL_BASH_SENTINEL")`;
-      await bash.execute("outside-bash-write", { command: `node -e '${code}'` }, new AbortController().signal);
+      const result = await bash.execute("outside-bash-write", { command: `node -e '${code}'` }, new AbortController().signal);
+      expect(result, JSON.stringify(result)).toMatchObject({ structuredContent: { exit_code: 0 } });
       expect(await readFile(h.outside, "utf8")).toBe("FULL_BASH_SENTINEL");
       expect(h.prepare).not.toHaveBeenCalled();
       expect(h.synchronize).not.toHaveBeenCalled();

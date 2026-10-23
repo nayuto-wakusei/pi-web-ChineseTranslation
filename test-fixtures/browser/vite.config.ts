@@ -11,6 +11,7 @@ export default defineConfig({
     emptyOutDir: true,
     rolldownOptions: {
       input: {
+        navigation: fileURLToPath(new URL("navigation.html", import.meta.url)),
         overlays: fileURLToPath(new URL("overlays.html", import.meta.url)),
         chat: fileURLToPath(new URL("chat.html", import.meta.url)),
         composer: fileURLToPath(new URL("composer.html", import.meta.url)),

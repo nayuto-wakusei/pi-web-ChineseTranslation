@@ -3,6 +3,11 @@ import { css } from "lit";
 /** Sidebar rows own their spacing so the space between labels remains clickable. */
 export const sidebarListStyles = css`
     @layer pi-web-base {
+  section > h2.ui-toolbar { background: var(--pi-surface); border-bottom-color: var(--pi-border); box-shadow: none; }
+  section > h2.ui-toolbar > .section-toggle { min-height: 44px; padding: 10px 14px; }
+  .empty-list { box-sizing: border-box; display: grid; gap: 8px; padding: 16px; line-height: 1.5; }
+  .empty-list strong { font-size: 14px; font-weight: 600; }
+  .empty-list small { white-space: normal; overflow-wrap: anywhere; }
   .list-body > .subheading:not(.ui-toolbar) { padding-inline: 10px; }
   .action-row {
     margin: 0;

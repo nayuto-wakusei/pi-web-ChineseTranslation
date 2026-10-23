@@ -415,33 +415,37 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   private renderHeading(sessionCount: number, currentSessions: SessionInfo[], unreadCount: number) {
     if (!this.collapsible) {
       return html`
-        <h2 class="ui-toolbar">
+        <h2 class="ui-toolbar session-heading">
           <span class="plain-heading">${t("ui.sessionSearchDialog.sessions", "Sessions")}</span>
-          ${this.renderSearchButton()}
-          ${this.renderCurrentSelectionButton(currentSessions)}
           ${this.renderUnreadCount(unreadCount)}
-          ${this.renderCleanupButton()}
-          ${this.renderStartButton()}
+          <span class="session-heading-actions ui-toolbar-group">
+            ${this.renderSearchButton()}
+            ${this.renderCurrentSelectionButton(currentSessions)}
+            ${this.renderCleanupButton()}
+            ${this.renderStartButton()}
+          </span>
         </h2>
       `;
     }
     const selectedSummary = this.selected === undefined ? t("ui.sessionList.noSessionSelected", "No session selected") : sessionLabel(this.selected);
     const selectedTitle = this.selected?.path ?? selectedSummary;
     return html`
-      <h2 class="ui-toolbar">
+      <h2 class="ui-toolbar session-heading">
         <button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${t("ui.sessionSearchDialog.sessions", "Sessions")}</span>${this.collapsed ? html`<small class="section-selected" dir="auto" title=${selectedTitle}>${selectedSummary}</small>` : null}</span></button>
-        ${this.renderSearchButton()}
-        ${this.renderCurrentSelectionButton(currentSessions)}
         ${this.renderUnreadCount(unreadCount)}
         <small class="section-count">${sessionCount}</small>
-        ${this.renderCleanupButton()}
-        ${this.renderStartButton()}
+        <span class="session-heading-actions ui-toolbar-group">
+          ${this.renderSearchButton()}
+          ${this.renderCurrentSelectionButton(currentSessions)}
+          ${this.renderCleanupButton()}
+          ${this.renderStartButton()}
+        </span>
       </h2>
     `;
   }
 
   private renderSearchButton() {
-    return html`<button class="session-search" title="${t("ui.sessionSearchDialog.searchSessionContent", "Search session content")}" aria-label="${t("ui.sessionSearchDialog.searchSessionContent", "Search session content")}" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onSearch?.(); }}>⌕</button>`;
+    return html`<button class="ui-button ui-button--icon session-search" title="${t("ui.sessionSearchDialog.searchSessionContent", "Search session content")}" aria-label="${t("ui.sessionSearchDialog.searchSessionContent", "Search session content")}" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onSearch?.(); }}>⌕</button>`;
   }
 
   private renderUnreadCount(unreadCount: number) {
@@ -453,16 +457,16 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   private renderCurrentSelectionButton(currentSessions: SessionInfo[]) {
     if (this.collapsed || currentSessions.length === 0) return null;
     const active = this.selectionScopes.has("current");
-    return html`<button class="bulk-select-entry ${active ? "selected" : ""}" title=${active ? t("ui.sessionList.closeCurrentSessionSelection", "Close current session selection") : t("ui.sessionList.selectCurrentSessions", "Select current sessions")} aria-label=${active ? t("ui.sessionList.closeCurrentSessionSelection", "Close current session selection") : t("ui.sessionList.selectCurrentSessions", "Select current sessions")} aria-expanded=${String(active)} aria-pressed=${String(active)} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleSelection("current", this.visibleSessionTree().currentSelectableSessions.slice(0, this.currentVisibleLimit)); }}>☑</button>`;
+    return html`<button class="ui-button ui-button--icon bulk-select-entry ${active ? "selected" : ""}" title=${active ? t("ui.sessionList.closeCurrentSessionSelection", "Close current session selection") : t("ui.sessionList.selectCurrentSessions", "Select current sessions")} aria-label=${active ? t("ui.sessionList.closeCurrentSessionSelection", "Close current session selection") : t("ui.sessionList.selectCurrentSessions", "Select current sessions")} aria-expanded=${String(active)} aria-pressed=${String(active)} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleSelection("current", this.visibleSessionTree().currentSelectableSessions.slice(0, this.currentVisibleLimit)); }}>☑</button>`;
   }
 
   private renderCleanupButton() {
-    return html`<button class="cleanup-entry" title=${this.canCleanup ? t("ui.sessionList.previewSessionCleanup", "Preview session cleanup") : this.cleanupUnavailableMessage} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onCleanup?.(); }}>${t("ui.sessionCleanupDialog.cleanUp2", "Clean up")}</button>`;
+    return html`<button class="ui-button cleanup-entry" title=${this.canCleanup ? t("ui.sessionList.previewSessionCleanup", "Preview session cleanup") : this.cleanupUnavailableMessage} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onCleanup?.(); }}>${t("ui.sessionCleanupDialog.cleanUp2", "Clean up")}</button>`;
   }
 
   private renderStartButton() {
     const title = this.startingCount > 0 ? t("ui.sessionList.startAnotherSession", "Start another session") : t("ui.sessionList.startNewSession", "Start new session");
-    return html`<button class="start-session-button" title=${title} aria-label=${title} ?disabled=${!this.canStart} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onStart?.(); }}>+</button>`;
+    return html`<button class="ui-button ui-button--icon start-session-button" title=${title} aria-label=${title} ?disabled=${!this.canStart} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onStart?.(); }}>+</button>`;
   }
 
   private renderStartingSession() {
@@ -482,7 +486,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     return html`
       <h2 class="subheading">
         <button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(this.archivedExpanded)} @click=${() => { this.toggleArchived(); }}><span>${this.archivedExpanded ? "▾" : "▸"} ${t("ui.sessionList.archived", "Archived")}</span></button>
-        ${this.archivedExpanded ? html`<button class="bulk-select-entry ${active ? "selected" : ""}" title=${active ? t("ui.sessionList.closeArchivedSessionSelection", "Close archived session selection") : t("ui.sessionList.selectArchivedSessions", "Select archived sessions")} aria-label=${active ? t("ui.sessionList.closeArchivedSessionSelection", "Close archived session selection") : t("ui.sessionList.selectArchivedSessions", "Select archived sessions")} aria-expanded=${String(active)} aria-pressed=${String(active)} @click=${() => { this.toggleSelection("archived", visibleArchivedSessions); }}>☑</button>` : null}
+        ${this.archivedExpanded ? html`<button class="ui-button ui-button--icon bulk-select-entry ${active ? "selected" : ""}" title=${active ? t("ui.sessionList.closeArchivedSessionSelection", "Close archived session selection") : t("ui.sessionList.selectArchivedSessions", "Select archived sessions")} aria-label=${active ? t("ui.sessionList.closeArchivedSessionSelection", "Close archived session selection") : t("ui.sessionList.selectArchivedSessions", "Select archived sessions")} aria-expanded=${String(active)} aria-pressed=${String(active)} @click=${() => { this.toggleSelection("archived", visibleArchivedSessions); }}>☑</button>` : null}
         <small class="section-count">${archivedSessions.length}</small>
       </h2>
     `;
@@ -833,12 +837,18 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
 
   static override styles = [listStyles, sidebarListStyles, css`
     @layer pi-web-base {
+    :host { container-type: inline-size; }
+    .session-heading { flex-wrap: wrap; align-items: center; padding: 4px 8px; gap: 4px; }
+    .session-heading > .section-toggle { width: auto; min-width: 64px; }
+    .plain-heading { flex: 1 1 auto; padding: 8px; }
+    .session-heading-actions { gap: 4px; margin-inline-start: auto; }
+    @container (max-width: 420px) {
+      .session-heading > .session-heading-actions { flex-basis: 100%; justify-content: flex-end; padding-top: 4px; border-inline-start: 0; border-top: 1px solid var(--pi-border-muted); }
+    }
     h2 { min-height: 30px; }
-    h2 > .section-count { flex: 0 0 auto; display: inline; color: var(--pi-muted); font-size: inherit; }
-    h2 > .section-unread-count { flex: 0 0 auto; display: inline; color: var(--pi-accent); font-size: inherit; text-transform: none; }
-    .bulk-select-entry { box-sizing: border-box; flex: 0 0 auto; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; font-size: 13px; line-height: 1; text-transform: none; }
-    .start-session-button { box-sizing: border-box; flex: 0 0 auto; display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 9px; }
-    .cleanup-entry { flex: 0 0 auto; padding: 5px 7px; font-size: 12px; text-transform: none; }
+    h2 > .section-count { flex: 0 0 auto; align-self: center; padding-inline: 6px; display: inline; color: var(--pi-muted); font-size: inherit; }
+    h2 > .section-unread-count { flex: 0 0 auto; align-self: center; padding-inline: 6px; display: inline; color: var(--pi-accent); font-size: inherit; text-transform: none; }
+    .bulk-select-entry, .start-session-button, .cleanup-entry { flex: 0 0 auto; text-transform: none; }
     .bulk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
     .bulk-row button { padding: 5px 7px; font-size: 12px; white-space: nowrap; }
     .bulk-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; margin-left: auto; }
@@ -851,8 +861,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .session-load-more-sentinel { display: grid; place-items: center; min-height: 36px; margin: 2px 0 6px; }
     .session-load-more-sentinel button { padding: 5px 9px; color: var(--pi-muted); font-size: 12px; }
      .plain-heading { min-width: 0; }
-     .session-search { box-sizing: border-box; width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 0; font: 19px/1 system-ui, sans-serif; text-transform: none; }
-     .session-search:focus-visible { border-color: var(--pi-accent); outline: 2px solid var(--pi-accent); outline-offset: 1px; }
+    .session-search { flex: 0 0 auto; font-size: 19px; text-transform: none; }
      .pin-indicator { margin-right: 5px; color: var(--pi-accent); font-size: 11px; }
     .session-secondary { display: flex; align-items: baseline; gap: 5px; min-width: 0; margin-top: 3px; }
     .session-meta, .session-label-separator { flex: 0 0 auto; }

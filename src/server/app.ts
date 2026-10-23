@@ -60,7 +60,7 @@ import {
   projectsFromManagedEmbedContext,
   type ManagementEmbedRuntime,
 } from "./managementEmbed.js";
-import type { Project, Workspace, WorkspaceEffectiveConfig } from "./types.js";
+import type { Project, WorkspaceEffectiveConfig } from "./types.js";
 import type { WorkspaceProviderResolution } from "../shared/apiTypes.js";
 import { createWorkbenchManagementRuntime } from "./workbench/gatewayIntegration.js";
 
@@ -121,7 +121,7 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
       const context = await managementContextForRequest(request, managementEmbed, reply);
       if (context !== undefined) {
         const project = await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, request.params.projectId, { create: true });
-        return await listWorkspacesWithEffectiveConfig(project, catalog, options.config, isLegacyWorkspaceService(workspaces) ? workspaces : undefined, { managementContext: context });
+        return await resolveWorkspacesWithEffectiveConfig(project, catalog, options.config, { managementContext: context }, isLegacyWorkspaceService(workspaces) ? workspaces : undefined);
       }
       const project = await projects.requireProject(request.params.projectId);
       return await resolveWorkspacesWithEffectiveConfig(project, catalog, options.config);
@@ -131,21 +131,11 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
   });
 }
 
-async function listWorkspacesWithEffectiveConfig(project: Project, workspaces: WorkspaceCatalog, config?: Pick<PiWebConfigService, "read">, legacyWorkspaces?: WorkspaceListAdapter, options: WorkspaceCatalogRequestOptions = {}): Promise<Workspace[]> {
-  const [workspaceList, effectiveConfig] = await Promise.all([
-    legacyWorkspaces === undefined ? workspaces.list(project.id, options) : legacyWorkspaces.list(project),
-    workspaceEffectiveConfig(project.path, config),
-  ]);
-  return workspaceList.map((workspace) => ({
-    ...workspace,
-    isGitRepo: workspace.provider?.metadata?.["isGitRepo"] === true,
-    isGitWorktree: workspace.provider?.metadata?.["isGitWorktree"] === true,
-    effectiveConfig,
-  }));
-}
-
-async function resolveWorkspacesWithEffectiveConfig(project: Project, workspaces: WorkspaceCatalog, config?: Pick<PiWebConfigService, "read">): Promise<WorkspaceProviderResolution> {
-  const [resolution, effectiveConfig] = await Promise.all([workspaces.resolveProject(project.id), workspaceEffectiveConfig(project.path, config)]);
+async function resolveWorkspacesWithEffectiveConfig(project: Project, workspaces: WorkspaceCatalog, config?: Pick<PiWebConfigService, "read">, options: WorkspaceCatalogRequestOptions = {}, legacyWorkspaces?: WorkspaceListAdapter): Promise<WorkspaceProviderResolution> {
+  const catalog = legacyWorkspaces === undefined
+    ? workspaces
+    : asWorkspaceCatalog({ requireProject: () => Promise.resolve(project) }, legacyWorkspaces);
+  const [resolution, effectiveConfig] = await Promise.all([catalog.resolveProject(project.id, options), workspaceEffectiveConfig(project.path, config)]);
   return {
     ...resolution,
     workspaces: resolution.workspaces.map((workspace) => ({
