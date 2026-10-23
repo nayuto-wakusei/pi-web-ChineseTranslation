@@ -1,12 +1,28 @@
 import { browserErrorScopeKey, visibleBrowserErrors, workspaceBrowserErrorScope } from "../browserErrors";
 import type { NavigationFreshness } from "./types";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
 import { isCachedNewSessionInfo, loadCachedNewSessions } from "../cachedNewSessions";
 import { loadStagedAttachments, saveStagedAttachments, type PendingAttachment } from "../promptAttachmentStaging";
 import { loadDraft, saveDraft } from "../promptDraftStorage";
 import { SessionController } from "./sessionController";
 import { createSessionControllerTestFixture, defaultApi, deferred, emptyPage, FakeSocket, MemoryStorage, oldSession, sessionKey, sessionLookupId, status, workspace, type AppState, type SessionInfo } from "./sessionController.testSupport";
+
+const unexpectedFetch = vi.fn<typeof fetch>(() => Promise.reject(new Error("Unexpected network request in pending-start fixture")));
+
+beforeEach(() => {
+  unexpectedFetch.mockClear();
+  vi.stubGlobal("fetch", unexpectedFetch);
+  vi.stubGlobal("localStorage", new MemoryStorage());
+  vi.spyOn(defaultApi, "streamSnapshot").mockResolvedValue({ seq: 0, partial: null });
+  vi.spyOn(defaultApi, "thinkingLevels").mockResolvedValue({ levels: [] });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  expect(unexpectedFetch).not.toHaveBeenCalled();
+});
 
 describe("SessionController pending starts", () => {
   it("creates and selects a temporary editable session before backend start resolves", async () => {
@@ -146,6 +162,7 @@ describe("SessionController pending starts", () => {
     const api = {
       startSession: () => startRequest.promise,
       sessions: () => Promise.resolve([oldSession]),
+      pinned: () => Promise.resolve({ sessionIds: [] }),
       messages: () => Promise.resolve(emptyPage),
       status: (session) => Promise.resolve(status(sessionLookupId(session))),
     } satisfies Partial<typeof defaultApi>;
@@ -240,6 +257,7 @@ describe("SessionController pending starts", () => {
     const state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [] };
     const api = {
       startSession: () => Promise.reject(new Error("backend unavailable")),
+      stop: () => Promise.resolve({ stopped: true }),
     } satisfies Partial<typeof defaultApi>;
     const fixture = createSessionControllerTestFixture({ initialState: state, api, socket: new FakeSocket() });
     const { controller } = fixture;
@@ -305,7 +323,11 @@ describe("SessionController pending starts", () => {
         selectedWorkspace: remoteWorkspace,
         sessions: [],
       },
-      api: { startSession: () => startRequest.promise },
+      api: {
+        startSession: () => startRequest.promise,
+        messages: () => Promise.resolve(emptyPage),
+        status: (session) => Promise.resolve(status(sessionLookupId(session))),
+      },
       dependencies: {
         isPendingSessionStartRouteCurrent: () => true,
         onPendingSessionStartCommitted: (navigation, session) => { committed.push({ navigation, session }); },
