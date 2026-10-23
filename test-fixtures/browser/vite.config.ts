@@ -11,6 +11,7 @@ export default defineConfig({
     emptyOutDir: true,
     rolldownOptions: {
       input: {
+        managementShell: fileURLToPath(new URL("management-shell.html", import.meta.url)),
         navigation: fileURLToPath(new URL("navigation.html", import.meta.url)),
         overlays: fileURLToPath(new URL("overlays.html", import.meta.url)),
         chat: fileURLToPath(new URL("chat.html", import.meta.url)),

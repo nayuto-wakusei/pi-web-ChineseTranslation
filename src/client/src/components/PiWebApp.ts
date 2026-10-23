@@ -866,7 +866,14 @@ export class PiWebApp extends LitElement {
       await this.refreshWorkspaceDeletionRuns();
       return;
     }
-    await this.withChatScrollTransition(() => this.restoreRouteFor(route, false));
+    const entryProject = this.apiScope === "management"
+      ? this.projects.managementEntryProject({ ...route, machineId: route.machineId ?? "local" })
+      : undefined;
+    if (entryProject !== undefined) {
+      await this.navigateToProjectFromController(entryProject, { expected: { ...route, machineId: route.machineId ?? "local" } });
+    } else {
+      await this.withChatScrollTransition(() => this.restoreRouteFor(route, false));
+    }
     if (this.shouldDeferRemoteRouteRestore(route, initialRouteMachineHealth)) this.deferRemoteRouteRestore(route);
     else {
       this.clearPendingRemoteRouteRestore();

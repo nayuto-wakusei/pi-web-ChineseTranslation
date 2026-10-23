@@ -43,6 +43,14 @@ export class ProjectController {
 
   readonly loadErrors = new Map<string, string>();
 
+  managementEntryProject(route: NavigationSelection): Project | undefined {
+    const state = this.getState();
+    if (route.machineId !== "local" || selectedMachineId(state) !== "local"
+      || route.projectId !== undefined || route.workspaceId !== undefined || route.sessionId !== undefined
+      || state.isLoadingProjects || this.loadErrors.has("local") || state.projects.length !== 1) return undefined;
+    return state.projects[0];
+  }
+
   async loadProjects() {
     const machineId = selectedMachineId(this.getState());
     this.loadErrors.delete(machineId);

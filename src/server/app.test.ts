@@ -405,9 +405,9 @@ describe("buildApp", () => {
     });
   });
 
-  it("creates managed project directories before exposing their workspace tree", async () => {
+  it.each([false, true])("creates managed project directories before exposing their workspace tree (privileged: %s)", async (privileged) => {
     await app.close();
-    piWebConfig = { normalAuth: { passwordHash: testPasswordHash("ordinary-pass") } };
+    piWebConfig = { normalAuth: { passwordHash: testPasswordHash("ordinary-pass") }, managementEmbed: { allowPrivileged: privileged } };
     const managementRoot = join(tempDir, "managed");
     const managementEmbed: ManagementEmbedRuntime = {
       enabled: true,
@@ -415,6 +415,7 @@ describe("buildApp", () => {
       authenticate: () => Promise.resolve({
         user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
         projects: [{ id: "p1", name: "Managed Project" }],
+        ...(privileged ? { privileged: { bash: true, network: true } } : {}),
       }),
     };
     const managedMachinesService = new MachineService(new MachineStore(join(tempDir, "managed-machines.json")));

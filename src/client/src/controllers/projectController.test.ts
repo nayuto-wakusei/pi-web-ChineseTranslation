@@ -15,6 +15,29 @@ function workspace(projectId: string, path: string): Workspace {
 }
 
 describe("ProjectController", () => {
+  it("only resolves an unambiguous successful local management entry", () => {
+    const managed = project("managed", "/managed");
+    let state = { ...initialAppState(), projects: [managed] };
+    const controller = new ProjectController(() => state, () => undefined, {
+      selectProject: vi.fn(), forgetProject: vi.fn(), clearSelection: vi.fn(),
+    });
+    const entry = { machineId: "local", projectId: undefined, workspaceId: undefined, sessionId: undefined };
+    expect(controller.managementEntryProject(entry)).toBe(managed);
+    for (const route of [
+      { ...entry, machineId: "remote" }, { ...entry, projectId: "explicit" },
+      { ...entry, workspaceId: "explicit" }, { ...entry, sessionId: "explicit" },
+    ]) expect(controller.managementEntryProject(route)).toBeUndefined();
+    controller.loadErrors.set("local", "Unavailable");
+    expect(controller.managementEntryProject(entry)).toBeUndefined();
+    controller.loadErrors.clear();
+    state = { ...state, isLoadingProjects: true };
+    expect(controller.managementEntryProject(entry)).toBeUndefined();
+    state = { ...state, isLoadingProjects: false, projects: [managed, project("other", "/other")] };
+    expect(controller.managementEntryProject(entry)).toBeUndefined();
+    state = { ...state, projects: [] };
+    expect(controller.managementEntryProject(entry)).toBeUndefined();
+  });
+
   it("keeps trust persistence owned by creation but passes the original route to navigation", async () => {
     const added = project("added", "/added");
     const main = workspace(added.id, added.path);

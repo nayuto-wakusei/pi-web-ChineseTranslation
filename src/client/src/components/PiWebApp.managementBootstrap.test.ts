@@ -6,6 +6,8 @@ import { PiWebStatusController } from "../controllers/piWebStatusController";
 import { MachinePluginLoadCoordinator } from "../plugins/machinePluginLoadCoordinator";
 import type { ExternalPluginLoadResult } from "../plugins/external";
 import { PiWebApp } from "./PiWebApp";
+import { initialAppState } from "../appState";
+import { readRoute, type ParsedAppRoute } from "../route";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -18,6 +20,43 @@ afterEach(() => {
 });
 
 describe("management app bootstrap boundaries", () => {
+  it.each(["management", "normal"])("selects the sole authorized entry project only in %s scope", async (scope) => {
+    history.replaceState({}, "", scope === "management" ? "/?embed=management" : "/");
+    const { app, navigate, restore } = entryHarness();
+    await invoke(app, "loadProjectsAndRestoreRoute");
+    if (scope === "management") {
+      expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ id: "managed" }), {
+        expected: { ...readRoute(), machineId: "local" },
+      });
+      expect(restore).not.toHaveBeenCalled();
+    } else {
+      expect(navigate).not.toHaveBeenCalled();
+      expect(restore).toHaveBeenCalled();
+    }
+  });
+
+  it("does not replace an explicit project route with the sole authorized project", async () => {
+    history.replaceState({}, "", "/?embed=management&project=requested");
+    const { app, navigate, restore } = entryHarness();
+    await invoke(app, "loadProjectsAndRestoreRoute");
+    expect(navigate).not.toHaveBeenCalled();
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ projectId: "requested" }), false);
+  });
+
+  it("does not let a delayed entry load overwrite newer navigation", async () => {
+    history.replaceState({}, "", "/?embed=management");
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => { finish = resolve; });
+    const { app, navigate, restore } = entryHarness(() => pending);
+    const loading = invoke(app, "loadProjectsAndRestoreRoute");
+    await Promise.resolve();
+    history.replaceState({}, "", "/?embed=management&project=newer&workspace=chosen");
+    finish();
+    await loading;
+    expect(navigate).not.toHaveBeenCalled();
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ projectId: "newer", workspaceId: "chosen" }), false);
+  });
+
   it("exposes management plugin import errors and clears them after a successful retry", async () => {
     history.replaceState({}, "", "/?embed=management");
     const app = new PiWebApp();
@@ -71,6 +110,25 @@ describe("management app bootstrap boundaries", () => {
     expect(status).toHaveBeenCalledOnce();
   });
 });
+
+function entryHarness(waitForProjects = () => Promise.resolve()) {
+  const app = new PiWebApp();
+  const project = { id: "managed", name: "Managed", path: "/managed", createdAt: "now" };
+  Reflect.set(app, "state", { ...initialAppState(), projects: [project] });
+  const machines: unknown = Reflect.get(app, "machines");
+  const projects: unknown = Reflect.get(app, "projects");
+  if (typeof machines !== "object" || machines === null || typeof projects !== "object" || projects === null) throw new Error("Missing controllers");
+  Reflect.set(machines, "loadMachines", () => Promise.resolve(true));
+  Reflect.set(projects, "loadProjects", waitForProjects);
+  const navigate = vi.fn().mockResolvedValue(true);
+  const restore = vi.fn<(route: ParsedAppRoute, updateUrl: boolean) => Promise<void>>().mockResolvedValue(undefined);
+  Reflect.set(app, "navigateToProjectFromController", navigate);
+  Reflect.set(app, "restoreRouteFor", restore);
+  Reflect.set(app, "restoreRoute", () => restore(readRoute(), false));
+  Reflect.set(app, "withChatScrollTransition", (action: () => Promise<void>) => action());
+  Reflect.set(app, "refreshWorkspaceDeletionRuns", () => Promise.resolve());
+  return { app, navigate, restore };
+}
 
 async function invoke(app: PiWebApp, name: string, ...args: unknown[]): Promise<void> {
   const method: unknown = Reflect.get(app, name);
