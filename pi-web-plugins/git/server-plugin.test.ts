@@ -56,6 +56,7 @@ describe("bundled Git workspace provider", () => {
     expect(workspaceProvider.fallback).toBe(true);
   });
 
+  // Like the backend fixtures, real Git worktree setup needs headroom on loaded Windows runners.
   it("lists roots, paths with spaces, detached worktrees, and hides prunable entries", async () => {
     const repository = await createRepository("repo with spaces");
     const linked = join(repository.parent, "feature worktree");
@@ -110,7 +111,7 @@ describe("bundled Git workspace provider", () => {
     expect(workspaces.map(({ path }) => path)).not.toContain(gone);
     expect(workspaces.filter(({ isMain }) => isMain)).toHaveLength(1);
     expect(workspaces.find(({ isMain }) => isMain)).not.toHaveProperty("removal");
-  });
+  }, 30_000);
 
   it("selects the registered checkout as main when linked worktrees use a bare backing repository", async () => {
     const seed = await createRepository("bare seed");

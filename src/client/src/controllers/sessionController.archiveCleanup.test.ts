@@ -1,11 +1,27 @@
 import type { SessionInfo } from "../api";
 import { deferred } from "./sessionController.testSupport";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { initialAppState } from "../appState";
 import { SessionController } from "./sessionController";
 import { InMemorySessionSelectionMemory } from "./sessionSelection";
 import { defaultApi, emptyPage, FakeSocket, oldSession, sessionLookupId, status, workspace, type AppState } from "./sessionController.testSupport";
+
+const unexpectedFetch = vi.fn<typeof fetch>(() => Promise.reject(new Error("Unexpected network request in archive/cleanup fixture")));
+
+beforeEach(() => {
+  unexpectedFetch.mockClear();
+  vi.stubGlobal("fetch", unexpectedFetch);
+  vi.spyOn(defaultApi, "streamSnapshot").mockResolvedValue({ seq: 0, partial: null });
+  vi.spyOn(defaultApi, "thinkingLevels").mockResolvedValue({ levels: [] });
+  vi.spyOn(defaultApi, "pinned").mockResolvedValue({ sessionIds: [] });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  expect(unexpectedFetch).not.toHaveBeenCalled();
+});
 
 describe("SessionController archive and cleanup", () => {
   it.each([false, true])("uses only visible workspace fallbacks when a remembered session is missing (visible: %s)", (hasVisible) => {

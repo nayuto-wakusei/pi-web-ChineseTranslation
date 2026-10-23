@@ -10,6 +10,9 @@ import { SessionController, type SessionControllerDependencies, type SessionEven
 // composition in tests; production always requests one atomic snapshot.
 export const defaultApi: typeof realApi = {
   ...realApi,
+  // Supplemental snapshot reads stay inside the fixture instead of falling back to HTTP.
+  streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+  thinkingLevels: () => Promise.resolve({ levels: [] }),
   transcriptSnapshot(session, options, machineId) {
     return transcriptSnapshotFixture(this.messages(session, options, machineId), this.status(session, machineId), this.streamSnapshot(session, machineId));
   },
