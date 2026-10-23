@@ -4,7 +4,7 @@ installPopoverFake();
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { trustApi } from "../api";
-import type { Workspace, WorkspaceActivity } from "../api";
+import type { Workspace, WorkspaceActivity, WorkspaceTrustResponse } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { machineStatusSnapshot } from "../machineStatus.testSupport";
 import { WorkspaceList } from "./WorkspaceList";
@@ -18,6 +18,7 @@ afterEach(() => {
   restoreClipboardStub();
   restoreClipboardStub = () => undefined;
   document.body.replaceChildren();
+  localStorage.clear();
 });
 
 describe("workspace-list removal actions", () => {
@@ -157,11 +158,11 @@ describe("workspace detail copy buttons", () => {
   });
 });
 
-describe("workspace trust toggle documentation link", () => {
-  it("links to the project-trust docs from the toggle's label row instead of verbose text", async () => {
-    vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
+describe("workspace trust menu item", () => {
+  it("puts the checkbox after its label and the documentation on a separate description line", async () => {
     const list = await mountWorkspaceList([workspace("ws-a")]);
     openMenu(list, "ws-a");
+    await list.updateComplete;
     await list.updateComplete;
 
     const trust = list.shadowRoot?.querySelector(".workspace-menu-trust");
@@ -177,7 +178,42 @@ describe("workspace trust toggle documentation link", () => {
     expect(trust?.textContent).not.toMatch(/Pi CLI/i);
     expect(trust?.textContent).not.toMatch(/respectProjectTrust/);
   });
+
+  it("disables the checkbox while saving, restores failed changes, and keeps the menu open", async () => {
+    vi.mocked(trustApi.workspaceTrust).mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
+    let rejectSave: (error: Error) => void = () => { throw new Error("Save not started"); };
+    const saving = new Promise<WorkspaceTrustResponse>((_resolve, reject) => { rejectSave = reject; });
+    const save = vi.spyOn(trustApi, "setWorkspaceTrust").mockReturnValueOnce(saving);
+    const list = await mountWorkspaceList([workspace("ws-a")]);
+    list.onSelect = vi.fn();
+    openMenu(list, "ws-a");
+    await list.updateComplete;
+    await list.updateComplete;
+    const checkbox = trustCheckbox(list);
+    expect(checkbox.checked).toBe(true);
+    expect(checkbox.disabled).toBe(false);
+    checkbox.click();
+    await list.updateComplete;
+    expect(save).toHaveBeenCalledWith("project-1", "ws-a", false, "local");
+    expect(checkbox.disabled).toBe(true);
+    rejectSave(new Error("Cannot save trust"));
+    await saving.catch(() => undefined);
+    await list.updateComplete;
+    expect(checkbox.disabled).toBe(false);
+    expect(checkbox.checked).toBe(true);
+    const error = list.shadowRoot?.querySelector('[role="alert"]');
+    expect(error?.textContent).toBe("Cannot save trust");
+    expect(checkbox.getAttribute("aria-describedby")).toContain(error?.id);
+    expect(list.onSelect).not.toHaveBeenCalled();
+    expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
+  });
 });
+
+function trustCheckbox(list: WorkspaceList): HTMLInputElement {
+  const checkbox = list.shadowRoot?.querySelector<HTMLInputElement>('.workspace-menu-trust input[type="checkbox"]');
+  if (!checkbox) throw new Error("Missing trust checkbox");
+  return checkbox;
+}
 
 function openMenu(list: WorkspaceList, workspaceLabel: string): void {
   const toggle = rowFor(list, workspaceLabel).querySelector<HTMLButtonElement>(".action-menu-toggle");
@@ -224,7 +260,10 @@ async function mountWorkspaceList(workspaces: Workspace[], statusSnapshot?: Mach
 
 function rowFor(list: WorkspaceList, workspaceLabel: string): Element {
   const rows = [...(list.shadowRoot?.querySelectorAll(".workspace-row") ?? [])];
-  const row = rows.find((candidate) => candidate.textContent.includes(workspaceLabel));
+  const row = rows.find((candidate) => {
+    const label = candidate.querySelector(".workspace-primary-label")?.textContent;
+    return label === workspaceLabel || label === `${workspaceLabel} · main`;
+  });
   if (row === undefined) throw new Error(`Expected a workspace row for ${workspaceLabel}`);
   return row;
 }

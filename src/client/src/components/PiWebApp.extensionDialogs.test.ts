@@ -5,7 +5,7 @@ import type { ExtensionDialogAnswer, PendingExtensionDialog, SessionInfo, Sessio
 import { initialAppState, type AppState, type ClosedExtensionDialog } from "../appState";
 import { SessionController } from "../controllers/sessionController";
 // Template inspection here is the escape hatch for verifying the chat-view
-// dialog callback wiring in a node environment (no DOM harness), mirroring
+// dialog callback wiring in the existing unmounted state harness, mirroring
 // PiWebApp.clearQueue.test.ts. See templateInspection.testSupport for the
 // proportionality rationale.
 import { templateValueAfterMarker } from "../templateInspection.testSupport";

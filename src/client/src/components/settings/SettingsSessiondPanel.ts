@@ -154,13 +154,15 @@ export class SettingsSessiondPanel extends LitElement {
             <label class="toggle ui-checkbox-field">
               <input
                 type="checkbox"
-                .checked=${effectiveSpawn}
+                id="spawn-sessions"
+                aria-describedby="spawn-sessions-help"
+                .checked=${live(effectiveSpawn)}
                 ?disabled=${this.loading || this.saving || spawnOverridden}
                 @change=${(event: Event) => { void this.toggleSpawnSessions(event); }}
               >
               <span>${t("ui.settingsSessiondPanel.enable", "Enable")} <code>spawn_session</code> ${t("ui.chatView.tool", "Tool")}</span>
             </label>
-            <small>${t("ui.settingsSessiondPanel.whenEnabledTheLlmCanStartSessionsWithin", "When enabled, the LLM can start sessions within workspaces of the same registered project, including any worktree, so every spawned session appears here. Enabled by default.")}</small>
+            <small id="spawn-sessions-help">${t("ui.settingsSessiondPanel.whenEnabledTheLlmCanStartSessionsWithin", "When enabled, the LLM can start sessions within workspaces of the same registered project, including any worktree, so every spawned session appears here. Enabled by default.")}</small>
           </div>
           <div class="field ui-form-field">
             <span class="field-heading">
@@ -170,13 +172,15 @@ export class SettingsSessiondPanel extends LitElement {
             <label class="toggle ui-checkbox-field">
               <input
                 type="checkbox"
-                .checked=${effectiveSubsessions}
+                id="subsessions"
+                aria-describedby="subsessions-help"
+                .checked=${live(effectiveSubsessions)}
                 ?disabled=${this.loading || this.saving || subsessionsOverridden || !effectiveSpawn}
                 @change=${(event: Event) => { void this.toggleSubsessions(event); }}
               >
               <span>${t("ui.settingsSessiondPanel.enable", "Enable")} <code>spawn_subsession</code> ${t("ui.chatView.tool", "Tool")}</span>
             </label>
-            <small>${t("ui.main.ff88ab94196f", "Agents can start child sessions they stay attached to (")}<code>spawn_subsession</code>${t("bundled.info.list.separator", ", ")}<code>list_subsessions</code>${t("bundled.info.list.separator", ", ")}<code>check_subsession</code>${t("bundled.info.list.separator", ", ")}<code>read_subsession</code>${t("ui.main.c36dc9dce940", ") and are notified when a child finishes. Requires \"Allow agents to start sessions\". On by default.")}</small>
+            <small id="subsessions-help">${t("ui.main.ff88ab94196f", "Agents can start child sessions they stay attached to (")}<code>spawn_subsession</code>${t("bundled.info.list.separator", ", ")}<code>list_subsessions</code>${t("bundled.info.list.separator", ", ")}<code>check_subsession</code>${t("bundled.info.list.separator", ", ")}<code>read_subsession</code>${t("ui.main.c36dc9dce940", ") and are notified when a child finishes. Requires \"Allow agents to start sessions\". On by default.")}</small>
           </div>
           <div class="field ui-form-field">
             <span class="field-heading">
@@ -187,7 +191,7 @@ export class SettingsSessiondPanel extends LitElement {
               <input
                 type="checkbox"
                 aria-label="${t("ui.settingsSessiondPanel.enableAgentQuestions", "Enable agent questions")}"
-                .checked=${effectiveAskUser}
+                .checked=${live(effectiveAskUser)}
                 ?disabled=${this.loading || this.saving || askUserOverridden || !askUserSupported}
                 @change=${(event: Event) => { void this.toggleAskUser(event); }}
               >

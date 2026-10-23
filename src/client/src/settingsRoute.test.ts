@@ -50,6 +50,7 @@ describe("settings route helpers", () => {
     expect(parseSettingsSection("packages")).toBe("packages");
     expect(parseSettingsSection("pi-packages")).toBe("packages");
     expect(parseSettingsSection("plugins")).toBe("plugins");
+    expect(parseSettingsSection("mcp")).toBe("mcp");
     expect(parseSettingsSection("shortcuts")).toBe("shortcuts");
     expect(parseSettingsSection("keyboard")).toBe("shortcuts");
     expect(parseSettingsSection("unknown")).toBeUndefined();
@@ -64,9 +65,9 @@ describe("settings route helpers", () => {
   it("writes settings deep links while preserving other route fields", () => {
     const { pushed } = installWindow("http://localhost/app?project=p1#bottom");
 
-    writeSettingsSection("general");
+    writeSettingsSection("mcp");
 
-    expect(pushed).toEqual(["http://localhost/app?project=p1&settings=general#bottom"]);
+    expect(pushed).toEqual(["http://localhost/app?project=p1&settings=mcp#bottom"]);
   });
 
   it("removes settings deep links with replace when closing", () => {

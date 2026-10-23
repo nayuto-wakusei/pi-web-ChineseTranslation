@@ -139,6 +139,7 @@ describe("PluginRegistry v5 host services", () => {
   });
 });
 
+
 describe("PluginRegistry", () => {
   it("projects selected-session state for external action checks and execution", async () => {
     const registry = new PluginRegistry();
@@ -420,6 +421,63 @@ describe("PluginRegistry", () => {
       contributionId: "example:workspace.panel",
       query: { binding: "example", aliases: ["legacy:workspace.panel"] },
     });
+  });
+
+  it.each([
+    { registrationPluginId: "example", sourcePluginId: undefined, machineId: "local" },
+    { registrationPluginId: machineScopedPluginId("remote-1", "example"), sourcePluginId: "example", machineId: "remote-1" },
+  ])("binds $machineId panel navigation to runtime and host-generated source IDs", async ({ registrationPluginId, sourcePluginId, machineId }) => {
+    const registry = new PluginRegistry();
+    let renderedNavigation: WorkspacePanelContext["navigation"];
+    const panel: WorkspacePanelContribution = {
+      id: "workspace.panel",
+      title: "Panel",
+      render: (context) => {
+        renderedNavigation = context.navigation;
+        return html`<p>Panel</p>`;
+      },
+    };
+    Reflect.set(panel, "sourceContributionId", "forged:workspace.panel");
+    Reflect.set(panel, "routeAliases", undefined);
+    Reflect.set(panel, "navigationAliases", undefined);
+    await registry.register({
+      id: registrationPluginId,
+      ...(sourcePluginId === undefined ? {} : { sourcePluginId, machineId }),
+      plugin: {
+        apiVersion: 4,
+        name: "Example",
+        activate: () => ({ contributions: { workspacePanels: [panel] } }),
+      },
+    });
+    const base = createWorkspacePanelContext(machineId);
+    const set = vi.fn();
+    const scope = vi.fn((binding: WorkspacePluginBinding, contributionId: QualifiedContributionId, aliases: readonly QualifiedContributionId[]): WorkspacePanelContext => ({
+      ...base,
+      navigation: {
+        version: 1,
+        contributionId,
+        query: { binding: binding.sourcePluginId, aliases },
+        set,
+      },
+    }));
+    const context = installWorkspacePanelScope(base, scope);
+
+    registry.getWorkspacePanels()[0]?.render(context);
+
+    expect(registry.getWorkspacePanels()[0]?.sourceContributionId).toBe("example:workspace.panel");
+    expect(scope).toHaveBeenCalledExactlyOnceWith(
+      { registrationPluginId, sourcePluginId: "example" },
+      `${registrationPluginId}:workspace.panel`,
+      machineId === "local" ? [] : ["example:workspace.panel"],
+    );
+    expect(renderedNavigation).toEqual({
+      version: 1,
+      contributionId: `${registrationPluginId}:workspace.panel`,
+      query: { binding: "example", aliases: machineId === "local" ? [] : ["example:workspace.panel"] },
+      set,
+    });
+    expect(registry.resolveWorkspacePanelRouteId("forged:workspace.panel", machineId)).toBeUndefined();
+    await registry.dispose();
   });
 
   it("rejects invalid panel navigation aliases transactionally", async () => {
@@ -1342,6 +1400,7 @@ describe("PluginRegistry", () => {
 
     expect(calls).toEqual(["openModelPicker", "openThinkingLevelPicker"]);
   });
+
 
   it("routes app reload and settings actions through the runtime context", async () => {
     const registry = new PluginRegistry();

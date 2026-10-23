@@ -54,6 +54,19 @@ function button(label = "让船长转述") {
   if (!match) throw new Error(`Missing button: ${label}`);
   return match;
 }
+it("requires stylesheet integration and preserves native controls during rerenders", async () => {
+  expect(plugin.requires).toMatchObject([{ pluginId: "pi-web", id: "stylesheet-integration", version: 1 }]);
+  expect(() => plugin.requires?.[0]?.parse({})).toThrow("stylesheet integration");
+  const app = await setup();
+  try {
+    expect(document.querySelector("style[data-ui-styles]")).toBeNull();
+    expect(button().classList.contains("ui-button--primary")).toBe(true);
+    const translate = button();
+    app.selectSession({ ...source, name: "Renamed source" });
+    expect(button()).toBe(translate);
+    expect([...document.querySelectorAll(".captains-log button")].every((control) => control.classList.contains("ui-button"))).toBe(true);
+  } finally { await app.dispose(); }
+});
 it("translates the session selected at click time, renders frozen reply chunks, and never polls", async () => {
   vi.useFakeTimers();
   const app = await setup();

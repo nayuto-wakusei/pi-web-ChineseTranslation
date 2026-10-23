@@ -60,6 +60,14 @@ describe("Docker command assets", () => {
     await execUtf8(bashExecutable, ["-n", join(repoRoot, "docker", "internal", "image", "install-opensuse-base")], process.env);
   });
 
+  it.each(["docker/Dockerfile", "docker/Dockerfile.dev"])("defaults %s to an overridable UTF-8 locale", async (path) => {
+    const dockerfile = await readRepoFile(path);
+
+    expect(dockerfile).toContain("  LANG=C.UTF-8 \\\n");
+    // LANG provides a default without overriding user-selected locale categories.
+    expect(dockerfile).not.toMatch(/\bLC_ALL=/u);
+  });
+
   it("packages the canonical Docker command and internal support assets", async () => {
     const [dockerfile, devDockerfile, runtimeCompose, devCompose, installer, devWrapper, dependencySync, dockerignore] = await Promise.all([
       readRepoFile("docker/Dockerfile"),
@@ -86,6 +94,8 @@ describe("Docker command assets", () => {
     expect(devDockerfile).toContain("COPY docker/internal/bin/hostexec /usr/local/bin/hostexec");
     expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/dev/sync-node-modules /usr/local/sbin/pi-web-dev-sync-node-modules");
     expect(devDockerfile).toContain("/opt/pi-web-dev-dependencies/node_modules");
+    // The seed can be hidden by the host /opt mount; the CLI must use the active volume.
+    expect(devDockerfile).toContain("ln -sf /workspace/node_modules/.bin/pi /usr/local/bin/pi");
     // Hooks can mutate the dependency seed, so its cache generation must be finalized afterward.
     expect(customImageHooksIndex).toBeGreaterThanOrEqual(0);
     expect(dependencyGenerationIndex).toBeGreaterThan(customImageHooksIndex);
@@ -116,7 +126,8 @@ describe("Docker command assets", () => {
     expect(devCompose).toContain("curl -fsS http://127.0.0.1:8504/api/pi-web/health");
     expect(devCompose).not.toContain("curl -fsS http://127.0.0.1:8504/api/pi-web/runtime");
     expect(devCompose).toContain("/usr/local/sbin/pi-web-dev-sync-node-modules");
-    expect(devCompose.match(/volumes: \*pi-web-dev-volumes/g)).toHaveLength(3);
+    expect(devCompose).toContain("volumes: *pi-web-dev-init-volumes");
+    expect(runtimeCompose).not.toContain("source: node_modules");
   });
 
   it("keeps the development daemon socket separate from runtime", async () => {
@@ -440,7 +451,8 @@ describe("Docker command assets", () => {
     expect(localConfig).toContain("PI_WEB_UID and PI_WEB_GID default to the current host user");
     const override = await readFile(join(devRoot, ".pi-web", "docker-compose-dev.host.generated.yml"), "utf8");
     expect(override).toContain(socketPath);
-    expect(override).toContain(devRoot);
+    // Dev Compose owns both checkout aliases; the shared host profile owns no checkout mounts.
+    expect(override).not.toContain(`source: '${devRoot}'`);
     const log = await readFile(fakeDocker.logPath, "utf8");
     expect(log).toContain(`compose --project-name pi-web-dev --env-file ${generatedEnvPath} -f ${devRoot}/docker/compose.dev.yml -f ${devRoot}/.pi-web/docker-compose-dev.host.generated.yml ps`);
   });

@@ -147,6 +147,30 @@ describe("mark-as-read actions", () => {
     expect(componentState(list, "openMenuSessionId")).toBeUndefined();
   });
 
+  it("retargets the floating menu to the clicked session and closes it when the session disappears", async () => {
+    const first = session("first");
+    const second = session("second");
+    const list = sessionList([first, second], new Set([first.id, second.id]));
+    const onMarkRead = vi.fn();
+    list.onMarkRead = onMarkRead;
+    await openSessionMenu(list, first);
+    await openSessionMenu(list, second);
+    expect(list.shadowRoot?.querySelectorAll(".action-menu-panel")).toHaveLength(1);
+    markReadMenuButton(list)?.click();
+    expect(onMarkRead).toHaveBeenCalledWith(second);
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector(".action-menu-panel")).toBeNull();
+
+    await openSessionMenu(list, first);
+    list.sessions = [{ ...first, archived: true }, second];
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector(".action-menu-panel")).toBeNull();
+    list.sessions = [second];
+    await list.updateComplete;
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector(".action-menu-panel")).toBeNull();
+  });
+
   it("hides Mark as read for read, transient, and archived sessions even when tracked as unread", async () => {
     const read = session("read");
     const cached = markCachedNewSessionInfo(session("cached"));

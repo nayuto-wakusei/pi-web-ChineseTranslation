@@ -65,11 +65,13 @@ describe("config routes", () => {
       spawnSessions: true,
       subsessions: true,
       shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null },
+      defaultTheme: { themeId: "themes:pi-web-light", auto: false },
       plugins: { info: { enabled: false, settings: { note: "hidden" } } },
       pathAccess: { allowedPaths: ["/tmp"] },
       uploads: { defaultFolder: "uploads\\manual" },
       attachments: { defaultFolder: "attachments\\saved" },
       maxUploadBytes: 1234,
+      sessionArchive: { directory: "/external/archives" },
       agent: { command: "agent-lab", dir: "~/agent-profiles/lab" },
     };
     const expectedConfig: PiWebConfigValues = {
@@ -87,6 +89,7 @@ describe("config routes", () => {
     expect(response.statusCode).toBe(200);
     expect(savedConfig).toEqual(expectedConfig);
     expect(response.json<PiWebConfigResponse>().config).toEqual(expectedConfig);
+    expect(parsePiWebConfigResponseBody(response.json()).config).toEqual(expectedConfig);
   });
 
   it("accepts local management embed auth config", async () => {

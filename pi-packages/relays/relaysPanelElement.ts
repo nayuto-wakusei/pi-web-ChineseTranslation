@@ -314,10 +314,10 @@ class PiWebRelaysPanel extends HTMLElement {
     }
     this.toolbar.hidden = false;
     this.toolbar.innerHTML = `
-      <strong>${escapeHtml(t("bundled.relays.relays.715ce8", "Relays"))}</strong>
+      <strong class="ui-toolbar-title">${escapeHtml(t("bundled.relays.relays.715ce8", "Relays"))}</strong>
       <span class="toolbar-actions ui-toolbar-group">
         ${this.renderRelayPicker()}
-        <button class="ui-button ui-button--compact ui-button--icon" data-refresh aria-label="${escapeAttr(t("bundled.relays.refresh.aee887", "Refresh"))}" title="${escapeAttr(t("bundled.relays.refresh.aee887", "Refresh"))}">${refreshIconSvg()}</button>
+        <button type="button" class="ui-button ui-button--compact ui-button--icon" data-refresh aria-label="${escapeAttr(t("bundled.relays.refresh.aee887", "Refresh"))}" title="${escapeAttr(t("bundled.relays.refresh.aee887", "Refresh"))}">${refreshIconSvg()}</button>
       </span>
     `;
   }
@@ -366,14 +366,14 @@ class PiWebRelaysPanel extends HTMLElement {
 
   private renderFileTab(file: RelayFileNode): string {
     const active = file.path === this.selectedDocumentPath;
-    return `<button class="ui-button ui-tab document-tab${active ? " selected" : ""}" data-document-path="${escapeAttr(file.path)}" title="${escapeAttr(file.relativePath)}"${active ? ' aria-current="page"' : ""}>${escapeHtml(file.name)}</button>`;
+    return `<button type="button" class="ui-button ui-tab document-tab${active ? " selected" : ""}" data-document-path="${escapeAttr(file.path)}" title="${escapeAttr(file.relativePath)}"${active ? ' aria-current="page"' : ""}>${escapeHtml(file.name)}</button>`;
   }
 
   private renderDirectoryChip(directory: RelayDirectoryNode, containsActivePath: string | undefined): string {
     const expanded = this.expandedDirs.has(directory.path);
     const containsActive = directory.path === containsActivePath;
     const title = containsActive ? t("ui.main.6a634d20bc86", "Contains the open document") : directory.relativePath;
-    return `<button class="ui-button ui-tab document-tab directory-tab${containsActive ? " contains-active" : ""}" data-directory-path="${escapeAttr(directory.path)}" title="${escapeAttr(title)}" aria-expanded="${expanded ? "true" : "false"}">${chevronSvg()}${escapeHtml(directory.name)}</button>`;
+    return `<button type="button" class="ui-button ui-tab document-tab directory-tab${containsActive ? " contains-active" : ""}" data-directory-path="${escapeAttr(directory.path)}" title="${escapeAttr(title)}" aria-expanded="${expanded ? "true" : "false"}">${chevronSvg()}${escapeHtml(directory.name)}</button>`;
   }
 
   /** Move the active marker between the mounted tab buttons without rebuilding them. */

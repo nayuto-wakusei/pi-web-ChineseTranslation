@@ -67,7 +67,7 @@ Lit 组件事件
 
 恢复读取由浏览器 controller 显式启用，只用于 resume、reconnect 和 Retry 的有界网络恢复，不自动重试发送、删除或其他 mutation。结束旧恢复会释放计时器、缓冲和协调状态，但不保证底层 HTTP 已物理中止；迟到结果仍须按连接世代及机器/会话作用域拒绝。成功只清除该次恢复捕获的同一个错误对象，不能覆盖随后产生的错误。见[机器/API](../modules/machines-api.md)。
 
-聊天原文、持久化历史、模型输入和审计由服务端及会话存储持有；浏览器 Markdown 变换仅产生 `displayText`。它不是翻译或重写原文的入口，也不能改变消息对应的实际 `thinkingLevel`。见[插件](../modules/plugins.md)。
+聊天原文、持久化历史、模型输入和审计由服务端及会话存储持有；daemon 在浏览器投影阶段运行 Markdown transformer 链，仅派生展示用 `displayText`，浏览器随后按原有策略净化和显示。该投影不重写原文，也不改变消息实际 `thinkingLevel`。见[插件](../modules/plugins.md)。
 
 ## 源码目录导航
 

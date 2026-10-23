@@ -76,6 +76,7 @@ describe("browser-only transcript Markdown transformation", () => {
   it("supports older SDK runners without a transformer getter", async () => {
     const message = { role: "user", content: "unchanged" };
     const { fake, service } = fixture([{ type: "message", message }]);
+    delete fake.session.extensionRunner.getMarkdownTransformers;
     expect(typeof fake.session.extensionRunner.getMarkdownTransformers).toBe("undefined");
     expect((await service.messages(ref)).messages).toEqual([message]);
     expect((await service.transcriptSnapshot(ref)).page.messages).toEqual([message]);

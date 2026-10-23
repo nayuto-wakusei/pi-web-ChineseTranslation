@@ -8,11 +8,13 @@ import {
   PI_WEB_HOST_WORKSPACES_CAPABILITY,
 } from "../../server-plugin-api.js";
 import type {
+  JsonObject,
   JsonValue,
   PiWebHostPiSessionsV1,
   PiWebHostWorkspacesV1,
   PiWebServerPlugin as SupportedPiWebServerPlugin,
   PluginCapability,
+  ProjectInput,
   LegacyServerPluginActivation as ServerPluginActivation,
   LegacyServerPluginActivationContext as ServerPluginActivationContext,
   ServerPluginNoticeInput,
@@ -230,7 +232,6 @@ describe("server plugin runtime", () => {
       await workspaces.closeAll();
     }
   });
-
   it("activates v3 and v5 with their own version and adapts only legacy workspace contexts", async () => {
     const logger = testLogger();
     const legacyRequest = vi.fn<(context: unknown) => null>(() => null);
@@ -1043,6 +1044,52 @@ describe("server plugin runtime", () => {
     expect(() => runtime.resolve(foreign)).toThrow("is not active");
   });
 
+  it("binds project settings resolvers to each plugin's catalog id and immutable activation settings", async () => {
+    const contexts = new Map<string, ServerPluginActivationContext>();
+    const alphaSettings = { nested: { value: "global alpha" } };
+    const resolver = vi.fn((pluginId: string, globalSettings: JsonObject, project: ProjectInput, signal: AbortSignal): Promise<JsonObject> => {
+      void signal;
+      return Promise.resolve(Object.freeze({ ...globalSettings, owner: pluginId, projectId: project.id }));
+    });
+    const runtime = await createServerPluginRuntime({
+      catalog: { snapshot: () => Promise.resolve(testSnapshot([
+        entry("alpha", { settings: alphaSettings }),
+        entry("beta", { settings: { value: "global beta" } }),
+      ])) },
+      importer: () => Promise.resolve({ default: plugin("Project settings fixture", (context) => {
+        contexts.set(context.pluginId, context);
+        return {};
+      }) }),
+      projectSettingsResolver: resolver,
+      logger: testLogger(),
+    });
+    try {
+      const alpha = contexts.get("alpha");
+      const beta = contexts.get("beta");
+      if (alpha?.resolveProjectSettings === undefined || beta?.resolveProjectSettings === undefined) {
+        throw new Error("Expected project settings resolvers for both plugins");
+      }
+      expect(resolver).not.toHaveBeenCalled();
+      expect(alpha.signal.aborted).toBe(true);
+      alphaSettings.nested.value = "catalog changed after activation";
+      const selected = { id: "project", name: "Project", path: "/projects/selected" };
+      const signal = new AbortController().signal;
+      expect(await alpha.resolveProjectSettings(selected, signal)).toEqual({ nested: { value: "global alpha" }, owner: "alpha", projectId: "project" });
+      expect(await beta.resolveProjectSettings(selected, signal)).toEqual({ value: "global beta", owner: "beta", projectId: "project" });
+      expect(resolver).toHaveBeenNthCalledWith(1, "alpha", alpha.settings, selected, signal);
+      expect(resolver.mock.calls[0]?.[1]).toBe(alpha.settings);
+      expect(resolver).toHaveBeenNthCalledWith(2, "beta", beta.settings, selected, signal);
+      expect(Object.isFrozen(alpha.settings["nested"])).toBe(true);
+
+      const scopeError = new Error("bad project scope");
+      resolver.mockRejectedValueOnce(scopeError);
+      await expect(alpha.resolveProjectSettings(selected, signal)).rejects.toBe(scopeError);
+      expect(runtime.healthRecords().map(({ state }) => state)).toEqual(["active", "active"]);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   it("freezes activation inputs, scopes invocation signals, and cancels lifetime before disposal", async () => {
     let activationContext: ServerPluginActivationContext | undefined;
     const lifecycleSignals: AbortSignal[] = [];
@@ -1070,6 +1117,8 @@ describe("server plugin runtime", () => {
     expect(Object.isFrozen(activationContext.logger)).toBe(true);
     expect(Object.isFrozen(activationContext.settings)).toBe(true);
     expect(activationContext.notices).toBeUndefined();
+    expect(activationContext.resolveProjectSettings).toBeUndefined();
+    expect(Object.hasOwn(activationContext, "resolveProjectSettings")).toBe(false);
     expect(lifecycleSignals).toHaveLength(2);
     expect(lifecycleSignals.every((signal) => signal.aborted)).toBe(true);
     expect(activationContext.lifetimeSignal.aborted).toBe(false);

@@ -56,6 +56,7 @@ describe("settings-general-panel copy", () => {
 describe("settings-general-panel save payloads", () => {
   it("keeps invalid attachment folders local and does not save selected-machine config", async () => {
     const panel = new SettingsGeneralPanel();
+    panel.machineConfigResponse = configResponse({});
     const onSaveMachineConfig = vi.fn();
     panel.onSaveMachineConfig = onSaveMachineConfig;
     setPanelProperty(panel, "machineDraft", {
@@ -112,6 +113,7 @@ describe("settings-general-panel save payloads", () => {
 
   it("saves external roots and upload defaults through the selected-machine save callback only", async () => {
     const panel = new SettingsGeneralPanel();
+    panel.machineConfigResponse = configResponse({});
     const onSave = vi.fn();
     const onSaveMachineConfig = vi.fn();
     const event = new Event("submit", { cancelable: true });
@@ -139,6 +141,7 @@ describe("settings-general-panel save payloads", () => {
 
   it("keeps invalid upload folders local and does not save selected-machine config", async () => {
     const panel = new SettingsGeneralPanel();
+    panel.machineConfigResponse = configResponse({});
     const onSaveMachineConfig = vi.fn();
     panel.onSaveMachineConfig = onSaveMachineConfig;
     setPanelProperty(panel, "machineDraft", {

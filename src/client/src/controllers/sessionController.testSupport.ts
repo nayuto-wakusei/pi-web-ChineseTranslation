@@ -146,6 +146,7 @@ export const replacementSession: SessionInfo = {
 
 export const emptyPage: MessagePage = { messages: [], start: 0, total: 0 };
 
+
 /** Assemble explicit fixture responses; never fall back to the real API. */
 export async function transcriptSnapshotFixture(
   page: MessagePage | Promise<MessagePage>,

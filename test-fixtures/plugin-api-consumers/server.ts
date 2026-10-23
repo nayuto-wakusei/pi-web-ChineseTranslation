@@ -1,4 +1,5 @@
 import {
+  createCompanionBackend,
   PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
   PI_WEB_HOST_CATALOG_CAPABILITY,
   PI_WEB_HOST_WORKSPACES_CAPABILITY,
@@ -38,6 +39,7 @@ const plugin: PiWebServerPlugin = {
   name: "Server declaration fixture",
   requires: [
     fixtureDependency,
+    PI_WEB_HOST_CATALOG_CAPABILITY,
     PI_WEB_HOST_WORKSPACES_CAPABILITY,
     PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
   ],
@@ -53,6 +55,9 @@ const plugin: PiWebServerPlugin = {
         signal.throwIfAborted();
         context.logger.info(capabilities.resolve(fixtureDependency).status());
         context.logger.info(context.dataDirectory);
+        // Capability versions are independent of the legacy v3 entrypoint.
+        const catalog = capabilities.resolve(PI_WEB_HOST_CATALOG_CAPABILITY);
+        await catalog.projects.list({ signal });
         const workspaces: PiWebHostWorkspacesV1 = capabilities.resolve(PI_WEB_HOST_WORKSPACES_CAPABILITY);
         const authority = await workspaces.resolve({
           projectId: "fixture-project",
@@ -74,6 +79,19 @@ const plugin: PiWebServerPlugin = {
     };
   },
 };
+
+export async function requestCompanionBackend(events: Parameters<typeof createCompanionBackend>[0], signal: AbortSignal) {
+  const backend = createCompanionBackend(events, "fixture.server");
+  const machine = backend.forScope({ kind: "machine" });
+  const project = backend.forScope({ kind: "project", projectId: "fixture-project" });
+  const workspace = backend.forScope({ kind: "workspace", projectId: "fixture-project", workspaceId: "fixture-workspace" });
+  const result = await machine.request?.("fixture.summary", null, { signal });
+  await project.request?.("fixture.summary", null, { signal });
+  const channel = await workspace.openChannel?.("fixture.watch", null, { signal, onData: () => undefined });
+  channel?.send(null);
+  channel?.close();
+  return { machineId: backend.machineId, result };
+}
 
 export { channelOnlyPeer };
 export default plugin;

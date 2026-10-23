@@ -1,4 +1,5 @@
 import { RenderIntentMemory } from "./renderIntentMemory";
+import { PLAIN_CODE_BLOCK_POLICY } from "./codeBlockPolicy";
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { html, render, type TemplateResult } from "lit";
@@ -62,6 +63,90 @@ function button(host: ContentRendererHost, label: string): HTMLButtonElement {
 }
 
 describe("shared content rendering", () => {
+  it("passes file and chat fence metadata through the service to renderer inputs", async () => {
+    const draw = vi.fn<ContentRendererContribution["render"]>(() => html`preview`);
+    const capability = createContentRenderingCapability(() => [{ id: "test", label: "Test", renderer: renderer(draw) }]);
+    const root = document.createElement("div");
+    document.body.append(root);
+    render(capability.renderText({ machineId: "remote", text: "source", language: "test", filePath: "dir/a.test" }), root);
+    const host = root.querySelector<ContentRendererHost>("pi-web-content-renderer");
+    if (host === null) throw new Error("Expected host");
+    await settleDeferredContent(host);
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({ machineId: "remote", text: "source", language: "test", filePath: "dir/a.test" });
+    await renderPublicMarkdown(capability.renderMarkdown({ machineId: "other", text: "```js extra\ncode\n```", toSafeHtml: renderWorkspaceMarkdownHtml }), root);
+    const boundary = root.querySelector<ContentRenderingBoundary>("pi-web-content-rendering-boundary");
+    const fence = boundary?.renderRoot.querySelector<ContentRendererHost>("pi-web-content-renderer");
+    if (fence === undefined || fence === null) throw new Error("Expected fence host");
+    await settleDeferredContent(fence);
+    expect(draw.mock.calls.at(-1)?.[0]).toMatchObject({ machineId: "other", text: "code", language: "js extra" });
+  });
+  it.each(["text", "markdown"] as const)("refreshes mounted %s previews only when the host dependency token changes", async (kind) => {
+    let revision: unknown = {};
+    const draw = vi.fn<ContentRendererContribution["render"]>(() => html`<b>Preview</b>`);
+    const contribution = renderer(draw);
+    const dependency = vi.fn(() => revision);
+    const capability = createContentRenderingCapability(() => [{ id: "test", label: "Test", renderer: contribution }], dependency);
+    const root = document.createElement("div");
+    document.body.append(root);
+    const refresh = async () => {
+      if (kind === "text") render(capability.renderText({ machineId: "remote", text: "source", language: "diagram" }), root);
+      else await renderPublicMarkdown(capability.renderMarkdown({ machineId: "remote", text: "```diagram\nsource\n```", toSafeHtml: renderWorkspaceMarkdownHtml }), root);
+      const host = root.querySelector<ContentRendererHost>("pi-web-content-renderer");
+      if (host === null) throw new Error("Expected host");
+      await settleDeferredContent(host);
+      return host;
+    };
+    const host = await refresh();
+    const preview = host.renderRoot.querySelector("b");
+    expect(await refresh()).toBe(host);
+    expect(draw).toHaveBeenCalledOnce();
+    expect(host.renderRoot.querySelector("b")).toBe(preview);
+    revision = {};
+    expect(await refresh()).toBe(host);
+    expect(draw).toHaveBeenCalledTimes(2);
+    expect(draw.mock.calls[0]?.[0].signal.aborted).toBe(true);
+    expect(dependency).toHaveBeenLastCalledWith({ machineId: "remote", text: "source", language: "diagram" });
+    expect(Object.keys(draw.mock.calls[1]?.[0] ?? {})).not.toContain("renderingRevision");
+  });
+
+  it("renders machine-scoped snapshots and refreshes unavailable renderers through the same input", async () => {
+    let enabled = true;
+    const registry = new PluginRegistry({ isContributionEnabled: () => enabled });
+    await registry.registerBatch(["local", "remote"].map((machineId) => ({
+      id: `${machineId}-diagram`, machineId, machineSpecific: true,
+      plugin: { apiVersion: 4, name: machineId, activate: () => ({ contributions: {
+        contentRenderers: [renderer(({ text }) => html`<div class="diagram">${machineId}: ${text}</div>`)],
+      } }) },
+    })));
+    const element = new FormattedText();
+    element.text = "```diagram\nsource\n```";
+    element.contentRendering = registry.getChatContentRendering("local");
+    document.body.append(element);
+    await settleDeferredContent(element);
+    expect((await hostIn(element)).shadowRoot?.querySelector(".diagram")?.textContent).toBe("local: source");
+
+    // A retained snapshot cannot render against another machine's request.
+    element.machineId = "remote";
+    await settleDeferredContent(element);
+    expect(element.shadowRoot?.querySelector("pi-web-content-renderer")).toBeNull();
+    expect(element.shadowRoot?.querySelector("pre")?.textContent).toBe("source\n");
+    element.contentRendering = registry.getChatContentRendering("remote");
+    await settleDeferredContent(element);
+    expect((await hostIn(element)).shadowRoot?.querySelector(".diagram")?.textContent).toBe("remote: source");
+
+    enabled = false;
+    element.contentRendering = registry.getChatContentRendering("remote");
+    await settleDeferredContent(element);
+    expect(element.shadowRoot?.querySelector("pi-web-content-renderer")).toBeNull();
+    expect(element.shadowRoot?.querySelector("pre")?.textContent).toBe("source\n");
+    enabled = true;
+    element.contentRendering = registry.getChatContentRendering("remote");
+    await settleDeferredContent(element);
+    expect((await hostIn(element)).shadowRoot?.querySelector(".diagram")?.textContent).toBe("remote: source");
+    element.remove();
+    await registry.dispose();
+  });
+
   it("remembers independent duplicate blocks only with an opt-in identity and expires on revisit", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
     const manual = { ...renderer(), renderMode: "manual" as const };
@@ -223,10 +308,11 @@ describe("shared content rendering", () => {
     expect(second.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe("已复制源码");
   });
 
-  it("does not expose intent memory through public Markdown even to untyped callers", async () => {
+  it("does not expose chat intent or source policy through public Markdown even to untyped callers", async () => {
     const capability = createContentRenderingCapability(() => [{ id: "manual", label: "Manual", renderer: { ...renderer(), renderMode: "manual" } }]);
     const request = { machineId: "local", text: "```diagram\nsource\n```", toSafeHtml: renderWorkspaceMarkdownHtml };
     Reflect.set(request, "intentKey", "untyped-public-memory");
+    Reflect.set(request, "codeBlocks", PLAIN_CODE_BLOCK_POLICY);
     const root = document.createElement("div");
     document.body.append(root);
     const mountHost = async () => {
@@ -238,6 +324,7 @@ describe("shared content rendering", () => {
     };
     const first = await mountHost();
     expect(first.intentKey).toBeUndefined();
+
     button(first, "Manual").click();
     await settleDeferredContent(first);
     expect(first.renderRoot.querySelector(".diagram")).not.toBeNull();
@@ -246,7 +333,7 @@ describe("shared content rendering", () => {
     expect(second.renderRoot.querySelector("pre")?.textContent).toBe("source");
   });
 
-  it("ignores an untyped rendererId with embedded controls and lets the chooser switch", async () => {
+  it("ignores an untyped rendererId with embedded controls and lets named buttons switch", async () => {
     const first = vi.fn<ContentRendererContribution["render"]>(() => html`<b>First</b>`);
     const second = vi.fn(() => html`<b>Second</b>`);
     const capability = createContentRenderingCapability(() => [
@@ -362,6 +449,7 @@ describe("shared content rendering", () => {
     expect(host.shadowRoot?.querySelector("pre code")?.textContent).toBe("two");
     button(host, "复制源码").click();
     expect(writeClipboardText).toHaveBeenLastCalledWith("two");
+
     button(host, "test / diagram").click();
     await settleDeferredContent(host);
     expect(host.shadowRoot?.querySelector("b")?.textContent).toBe("two");

@@ -245,7 +245,11 @@ async function smokeInstalledPiSdk(packageRoot, host, options = {}) {
       assert.equal(getPiWebRuntimeComponent(component).piVersion, sdk.VERSION);
     }
     const { getBuiltinExtensionFactories } = await import("./dist/server/sessions/builtinExtensionFactories.js");
-    assert.equal((await getBuiltinExtensionFactories()).length, ${JSON.stringify(host.version.startsWith("0.") ? 0 : 3)});
+    const mcpScope = {
+      directory: ${JSON.stringify(join(root, `mcp-${host.version}`))},
+      configAgentDir: ${JSON.stringify(fixtureEnv.PI_CODING_AGENT_DIR)},
+    };
+    assert.equal((await getBuiltinExtensionFactories(mcpScope)).length, ${JSON.stringify(host.version.startsWith("0.") ? 0 : 3)});
   `);
   const selectionEnv = options.localPeers ? {
     PI_WEB_PI_PACKAGE_DIR: undefined, PATH: join(options.pathHost.prefix, "bin"),

@@ -107,7 +107,7 @@ export class TerminalSoftKeys extends LitElement {
 
   static override styles = css`
     :host { flex: 0 0 auto; display: block; }
-    .terminal-soft-keys { display: flex; gap: 6px; align-items: center; padding: 6px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: pan-x; }
+    .terminal-soft-keys { display: flex; align-items: stretch; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: pan-x; }
     .terminal-soft-keys::-webkit-scrollbar { display: none; }
     button { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 32px; height: 32px; border: 0; border-inline-end: 1px solid var(--pi-border-muted); border-radius: 0; background: transparent; color: var(--pi-muted); padding: 0 10px; font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); cursor: pointer; touch-action: pan-x; -webkit-touch-callout: none; user-select: none; }
     button:hover:not(:disabled), button:active:not(:disabled) { background: var(--pi-surface); color: var(--pi-text); }

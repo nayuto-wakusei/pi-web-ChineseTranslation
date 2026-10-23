@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { configApi, piPackagesApi, pluginsApi, type PiPackageMutationResponse, type PiWebConfigResponse, type PiWebPluginsResponse } from "../api";
-import { SettingsDialog } from "./SettingsDialog";
+import { activeSettingsPanelTag, SettingsDialog } from "./SettingsDialog";
 import { t } from "../i18n";
 import { callDialogPromise, callDialogUpdated, collectTemplateStrings, configResponse, deferred, getDialogProperty, packageInfo, packageMutationResponse, pluginInfo, pluginsResponse, remoteMachine, runtimeWithPackageManagement, secondRemoteMachine, setDialogProperty, stubWindowTimers } from "./SettingsDialog.testSupport";
 
@@ -160,7 +160,7 @@ describe("settings-dialog general settings machine targeting", () => {
 
     const strings = collectTemplateStrings(dialog.render()).join("");
 
-    expect(strings).toContain("<settings-general-panel");
+    expect(activeSettingsPanelTag(dialog.section)).toBe("settings-general-panel");
     expect(strings).not.toContain("scope-note");
     expect(strings).not.toContain("This tab edits:");
   });
@@ -178,7 +178,7 @@ describe("settings-dialog general settings machine targeting", () => {
     expect(saveSpy.mock.calls).toEqual([[{ host: "0.0.0.0", port: 9000, allowedHosts: true }]]);
     expect(getDialogProperty(dialog, "configResponse")).toBe(savedConfig);
     expect(onConfigSaved).toHaveBeenCalledWith({ host: "0.0.0.0", port: 9000, allowedHosts: true });
-    expect(getDialogProperty(dialog, "savedMessage")).toBe("配置已保存。");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.settingsDialog.gatewaySaved", "Gateway settings saved. Restart the web service to apply address changes."));
     expect(getDialogProperty(dialog, "saving")).toBe(false);
   });
 
@@ -209,7 +209,7 @@ describe("settings-dialog general settings machine targeting", () => {
     expect(saveSpy.mock.calls).toEqual([[patch, "remote-a"]]);
     expect(getDialogProperty(dialog, "accessConfigResponse")).toBe(savedConfig);
     expect(getDialogProperty(dialog, "configResponse")).toBeUndefined();
-    expect(getDialogProperty(dialog, "savedMessage")).toBe("配置已保存。");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.settingsDialog.fileSettingsSaved", "File access and upload settings saved for {machine}.", { machine: remoteMachine.name }));
     expect(getDialogProperty(dialog, "saving")).toBe(false);
   });
 
@@ -464,7 +464,7 @@ describe("settings-dialog plugin settings machine targeting", () => {
     expect(pluginsSpy.mock.calls).toEqual([["remote-a"]]);
     expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBe(savedConfig);
     expect(getDialogProperty(dialog, "selectedPluginsResponse")).toBe(refreshedPlugins);
-    expect(getDialogProperty(dialog, "savedMessage")).toBe("配置已保存。");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.settingsDialog.pluginSettingsSaved", "Plugin settings saved for {machine}.", { machine: remoteMachine.name }));
     expect(getDialogProperty(dialog, "saving")).toBe(false);
   });
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
 import type { ExtensionDialogCloseResponse, ExtensionDialogKind, PendingExtensionDialog } from "../api";
 import { SessionController } from "./sessionController";
-import { defaultApi, deferred, EmitSocket, emptyPage, oldSession, runPendingAnimationFrames, sessionLookupId, status, workspace, type AppState, type SessionActivity, type SessionInfo, type SessionStatus } from "./sessionController.testSupport";
+import { transcriptSnapshotFixture, defaultApi, deferred, EmitSocket, emptyPage, oldSession, runPendingAnimationFrames, sessionLookupId, status, workspace, type AppState, type SessionActivity, type SessionInfo, type SessionStatus } from "./sessionController.testSupport";
 
 const BACKEND_SESSION_ID = "backend-session";
 
@@ -73,7 +73,7 @@ function pendingStartController(state: { current: AppState }, api: Partial<typeo
         startSession: () => startRequest.promise,
         messages: () => Promise.resolve(emptyPage),
         status: (session) => Promise.resolve(status(sessionLookupId(session))),
-        streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+        transcriptSnapshot: (session, _options, machineId) => transcriptSnapshotFixture(emptyPage, api.status?.(session, machineId) ?? status(sessionLookupId(session))),
         thinkingLevels: () => Promise.resolve({ levels: [] }),
         ...api,
       },

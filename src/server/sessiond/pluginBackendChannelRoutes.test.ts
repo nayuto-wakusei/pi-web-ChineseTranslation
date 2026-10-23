@@ -288,11 +288,15 @@ describe("session daemon plugin backend channels", () => {
   });
 
   it("enforces open and post-open data payload limits in the WebSocket receiver", async () => {
+    const receiverError = vi.fn();
+    app.websocketServer.on("connection", (socket) => { socket.on("error", receiverError); });
+    const receive = vi.fn();
+    const openChannel = vi.fn(() => ({ receive }));
     const workspaces = workspaceRegistry();
     const workspaceId = (await workspaces.resolve(project)).workspaces[0]?.id;
     if (workspaceId === undefined) throw new Error("Expected workspace");
     const registry = new PluginBackendRegistry({
-      contributions: [contribution(() => ({ receive: () => undefined }))],
+      contributions: [contribution(openChannel)],
       workspaces,
     });
     registerPluginBackendChannelRoutes(app, { projects: projectReader(), backends: registry });
@@ -305,7 +309,13 @@ describe("session daemon plugin backend channels", () => {
     const oversizedOpenClose = nextClose(oversizedOpen);
     await waitForOpen(oversizedOpen);
     oversizedOpen.send("x".repeat(PLUGIN_BACKEND_CHANNEL_OPEN_FRAME_MAX_BYTES + 1));
-    await expect(oversizedOpenClose).resolves.toMatchObject({ code: 1009 });
+    // The receiver rejects the frame header before consuming the whole payload.
+    // Windows can reset TCP with unread bytes, so the peer may observe 1006
+    // instead of receiving ws's 1009 close frame. Assert rejection at its owner.
+    expect([1009, 1006]).toContain((await oversizedOpenClose).code);
+    expect(receiverError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code: "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" }));
+    expect(openChannel).not.toHaveBeenCalled();
+    await vi.waitFor(() => { expect(registry.activeChannelCount()).toBe(0); });
 
     const oversizedData = connect(workspaceId);
     const messages = socketMessages(oversizedData);
@@ -314,7 +324,11 @@ describe("session daemon plugin backend channels", () => {
     expect(parsePluginBackendChannelServerEnvelope(await messages.next())).toMatchObject({ kind: "ready" });
     const oversizedDataClose = nextClose(oversizedData);
     oversizedData.send("x".repeat(PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES + 1));
-    await expect(oversizedDataClose).resolves.toMatchObject({ code: 1009 });
+    expect([1009, 1006]).toContain((await oversizedDataClose).code);
+    expect(receiverError).toHaveBeenCalledTimes(2);
+    expect(receiverError).toHaveBeenNthCalledWith(2, expect.objectContaining({ code: "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" }));
+    expect(openChannel).toHaveBeenCalledOnce();
+    expect(receive).not.toHaveBeenCalled();
     await vi.waitFor(() => { expect(registry.activeChannelCount()).toBe(0); });
 
     const unrelated = new WebSocket(`${serverUrl(app)}/unrelated-session-socket`);

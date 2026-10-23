@@ -42,6 +42,10 @@ pi-web logs
 
 排查顺序：浏览器错误/网络 → Web 状态 → daemon 状态 → 目标工作区 → 模型/插件后端。未认证 `/api/pi-web/status` 的 401 应先处理认证，不直接判定服务损坏。
 
+提供器变更被忽略时，daemon 以 `PROVIDER_MUTATION_IGNORED`、原因和恢复指引记录元数据诊断，不向浏览器或日志输出配置正文、凭据或回调内容。未变化的重复注册保持静默；诊断不放宽启动后提供器严格冻结及既有 models-only 接受边界。实现入口见 [globalProviderPolicy.ts](../../src/server/sessions/globalProviderPolicy.ts)。
+
+发布客户端的 Vite 内容哈希 `assets/` 使用 `public, max-age=31536000, immutable`，同 URL 的资源内容应保持不变；HTML 与未哈希文件继续重新验证。部署时保留这一浏览器交付边界，不把一年不可变缓存套用到 HTML。入口见 [app.ts](../../src/server/app.ts)。
+
 ## 活动、未读与通知
 
 活动用于描述正在启动、运行、工具调用或等待的状态；未读用于提醒尚未查看的会话更新；会话通知、警告用于提醒当前会话问题。它们不能互相当作可靠的历史审计数据库。

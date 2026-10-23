@@ -91,29 +91,29 @@ export class MachineDialog extends LitElement {
     const canSubmit = this.validInput() !== undefined && !this.submitting;
     return html`
       <modal-surface .onClose=${() => this.onCancel?.()} .busy=${this.submitting} .initialFocus=${"input[name='baseUrl']"} .label=${t("client.actions.add.machine.e4ad1b", "Add machine")} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
-          <form @submit=${(event: SubmitEvent) => { this.handleSubmit(event); }}>
+          <form aria-describedby=${this.error === "" ? "" : "machine-error"} @submit=${(event: SubmitEvent) => { this.handleSubmit(event); }}>
             <header class="ui-dialog-header">
               <strong class="ui-dialog-title">${t("client.actions.add.machine.e4ad1b", "Add machine")}</strong>
-              <button class="ui-button" type="button" @click=${() => { this.onCancel?.(); }} aria-label="${t("ui.common.close", "Close")}">×</button>
+              <button class="ui-button" type="button" @click=${() => { this.onCancel?.(); }} aria-label=${t("ui.machineDialog.closeAddMachine", "Close add machine")}>×</button>
             </header>
             <div class="body ui-dialog-body ui-form-body">
-              ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
+              ${this.error === "" ? null : html`<div id="machine-error" class="dialog-error" role="alert">${this.error}</div>`}
               <label class="ui-form-field">
                 ${t("ui.machineDialog.remotePiWebUrl", "Remote PI WEB URL")}
-                <input class="ui-input" name="baseUrl" type="url" .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" />
+                <input class="ui-input" name="baseUrl" type="url" aria-describedby="machine-url-help" aria-invalid=${urlError !== undefined ? "true" : "false"} .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" />
               </label>
-              <small class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? t("ui.machineDialog.enterAnAccessibleBaseUrlIncludingHttpOr", "Enter an accessible base URL, including http:// or https://.")}</small>
+              <small id="machine-url-help" aria-live="polite" class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? t("ui.machineDialog.enterAnAccessibleBaseUrlIncludingHttpOr", "Enter an accessible base URL, including http:// or https://.")}</small>
               ${hasUrl ? html`
                 <label class="ui-form-field">
                   ${t("ui.machineDialog.machineName", "Machine name")}
-                  <input class="ui-input" name="name" type="text" .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} placeholder=${this.previousSuggestedName || t("ui.machineDialog.developmentMachine", "Development machine")} autocomplete="off" />
+                  <input class="ui-input" name="name" type="text" aria-describedby="machine-name-help" aria-invalid=${this.name.trim() === "" ? "true" : "false"} .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} placeholder=${this.previousSuggestedName || t("ui.machineDialog.developmentMachine", "Development machine")} autocomplete="off" />
                 </label>
-                <small class="hint">${t("ui.machineDialog.suggestedFromTheUrlChangeItToA", "Suggested from the URL. Change it to a friendly sidebar name.")}</small>
+                <small id="machine-name-help" class=${this.name.trim() === "" ? "field-error" : "hint"}>${this.name.trim() === "" ? t("ui.machineDialog.enterMachineName", "Enter a machine name.") : t("ui.machineDialog.suggestedFromTheUrlChangeItToA", "Suggested from the URL. Change it to a friendly sidebar name.")}</small>
                 <label class="ui-form-field">
                   Bearer token <span class="optional">${t("ui.machineDialog.optional", "Optional")}</span>
-                  <input class="ui-input" name="token" type="password" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="${t("ui.machineDialog.leaveBlankIfTheRemoteMachineDoesNot", "Leave blank if the remote machine does not require a token")}" autocomplete="off" />
+                  <input class="ui-input" name="token" type="password" aria-describedby="machine-token-help" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="${t("ui.machineDialog.leaveBlankIfTheRemoteMachineDoesNot", "Leave blank if the remote machine does not require a token")}" autocomplete="off" />
                 </label>
-                <small class="hint">${t("ui.machineDialog.pasteOnlyTheTokenValuePiWebSends", "Paste only the token value; PI WEB sends it in the Authorization: Bearer header.")}</small>
+                <small id="machine-token-help" class="hint">${t("ui.machineDialog.tokenWithoutPrefix", "If the remote machine requires a token, paste it without the “Bearer” prefix.")}</small>
               ` : html`<p class="hint intro">${t("ui.machineDialog.afterEnteringAUrlPiWebSuggestsA", "After entering a URL, PI WEB suggests a machine name and allows an optional bearer token.")}</p>`}
             </div>
             <footer class="ui-dialog-footer">

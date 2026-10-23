@@ -52,6 +52,7 @@ describe("SessionController cached-new sessions", () => {
     const api: typeof defaultApi = {
       ...defaultApi,
       stop: (session) => { stoppedIds.push(sessionLookupId(session)); return Promise.resolve({ stopped: true }); },
+      transcriptSnapshot: (session) => Promise.resolve({ page: emptyPage, status: status(sessionLookupId(session)), seq: 0, partial: null }),
       messages: () => Promise.resolve(emptyPage),
       status: (session) => Promise.resolve(status(sessionLookupId(session))),
     };
@@ -150,7 +151,7 @@ describe("SessionController cached-new sessions", () => {
 
 
 describe("SessionController upstream navigation and runtime contracts", () => {
-  it("recreates missing browser-cached new sessions and moves their draft", async () => {
+  it.each(["before response", "after response"] as const)("recreates missing browser-cached new sessions across session.created broadcasts (%s)", async (broadcastTiming) => {
     const storage = new MemoryStorage();
     Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
     rememberCachedNewSession(oldSession);
@@ -158,17 +159,21 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     const carriedAttachment: PendingAttachment = { id: "attachment-1", kind: "file", name: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=", size: 5 };
     saveStagedAttachments(sessionKey(oldSession.id), [carriedAttachment]);
 
-    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [markCachedNewSessionInfo(oldSession)] };
+    const unrelatedSession = { ...oldSession, id: "unrelated-session", path: "/tmp/unrelated-session.jsonl" };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [markCachedNewSessionInfo(oldSession), unrelatedSession] };
     const urlUpdates: ({ replace?: boolean | undefined } | undefined)[] = [];
     const socket = new FakeSocket();
     const api: typeof defaultApi = {
       ...defaultApi,
-      startSession: () => Promise.resolve(replacementSession),
-      messages: (session) => {
-        if (sessionLookupId(session) === oldSession.id) return Promise.reject(new Error("Session not found"));
-        return Promise.resolve(emptyPage);
+      startSession: () => {
+        if (broadcastTiming === "before response") controller.applyGlobalEvent({ type: "session.created", session: replacementSession });
+        return Promise.resolve(replacementSession);
       },
-      status: (session) => Promise.resolve(status(sessionLookupId(session))),
+      transcriptSnapshot: (session) => {
+        if (sessionLookupId(session) === oldSession.id) return Promise.reject(new Error("Session not found"));
+        return Promise.resolve({ page: emptyPage, status: status(sessionLookupId(session)), seq: 0, partial: null });
+      },
+      thinkingLevels: () => Promise.resolve({ levels: [] }),
     };
     const controller = new SessionController(
       () => state,
@@ -179,9 +184,10 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     );
 
     await controller.selectSession(markCachedNewSessionInfo(oldSession), { updateUrl: false });
+    if (broadcastTiming === "after response") controller.applyGlobalEvent({ type: "session.created", session: replacementSession });
 
     expect(state.selectedSession?.id).toBe(replacementSession.id);
-    expect(state.sessions.map((session) => session.id)).toEqual([replacementSession.id]);
+    expect(state.sessions.map((session) => session.id)).toEqual([replacementSession.id, unrelatedSession.id]);
     expect(socket.connectedSessionIds).toEqual([oldSession.id, replacementSession.id]);
     expect(loadDraft(sessionKey(oldSession.id))).toBe("");
     expect(loadDraft(sessionKey(replacementSession.id))).toBe("draft text");
@@ -211,9 +217,9 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     const api: typeof defaultApi = {
       ...defaultApi,
       startSession: () => Promise.resolve(replacementSession),
-      messages: (session) => sessionLookupId(session) === oldSession.id
+      transcriptSnapshot: (session) => sessionLookupId(session) === oldSession.id
         ? Promise.reject(new Error("Session not found"))
-        : Promise.resolve(emptyPage),
+        : Promise.resolve({ page: emptyPage, status: status(sessionLookupId(session)), seq: 0, partial: null }),
       status: (session) => Promise.resolve(status(sessionLookupId(session))),
     };
     const controller = new SessionController(
@@ -280,4 +286,5 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     expect(state.selectedSession?.id).toBe(replacementSession.id);
     expect(state.sessions[0]?.id).toBe(replacementSession.id);
   });
+
 });

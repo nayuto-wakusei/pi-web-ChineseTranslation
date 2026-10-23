@@ -4,6 +4,7 @@ import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
 import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { live } from "lit/directives/live.js";
 import type { PiWebConfigResponse, PiWebPluginInfo, PiWebPluginsResponse } from "../../api";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../../../../shared/pluginRecoveryCommands";
 import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../../../shared/requiredTerminalPlugin";
@@ -163,7 +164,7 @@ export class SettingsPluginsPanel extends LitElement {
           ${plugin.server === undefined || plugin.required === true ? nothing : html`<small class="command">${t("ui.main.c54bd03f1522", "Offline disable:")} <code>${plugin.server.disableCommand}</code></small>`}
         </div>
         <label class="toggle ui-checkbox-field">
-          <input  type="checkbox" .checked=${plugin.enabled} ?disabled=${this.saving || this.configResponse === undefined || !plugin.editable} @change=${(event: Event) => { void this.togglePlugin(plugin, event); }}>
+          <input type="checkbox" aria-label=${plugin.required === true ? t("ui.settingsPluginsPanel.requiredLabel", "{id} is required", { id: plugin.id }) : t("ui.settingsPluginsPanel.enableLabel", "Enable {id}", { id: plugin.id })} .checked=${live(plugin.enabled)} ?disabled=${this.loading || this.saving || this.configResponse === undefined || !plugin.editable} @change=${(event: Event) => { void this.togglePlugin(plugin, event); }}>
           <span>${plugin.required === true ? t("ui.main.12ea99f8d0b5", "Required") : t("ui.settingsSessiondPanel.enabled", "Enabled")}</span>
         </label>
       </article>
@@ -192,10 +193,10 @@ export class SettingsPluginsPanel extends LitElement {
       <aside class="recovery" aria-label="${t("ui.main.a444df361594", "Offline server-plugin recovery commands")}">
         <strong>${this.targetLabel} ${t("ui.main.ca56f3ca43d1", " offline recovery")}</strong>
         <small>${t("ui.main.277115ec7cae", "These commands edit config without contacting sessiond or importing plugins. They never include machine credentials.")}</small>
-        <code>${recovery.showSafeStart}</code>
-        <code>${recovery.bundledOnly}</code>
-        <code>${recovery.noServerPlugins}</code>
-        <code>${recovery.clearSafeStart}</code>
+        <span>${t("ui.settingsPluginsPanel.checkSafeMode", "Check safe mode")}</span><code>${recovery.showSafeStart}</code>
+        <span>${t("ui.settingsPluginsPanel.bundledOnly", "Start with bundled server plugins only")}</span><code>${recovery.bundledOnly}</code>
+        <span>${t("ui.settingsPluginsPanel.noServerPlugins", "Start without server plugins (including Terminal)")}</span><code>${recovery.noServerPlugins}</code>
+        <span>${t("ui.settingsPluginsPanel.clearSafeMode", "Clear safe mode and start normally")}</span><code>${recovery.clearSafeStart}</code>
       </aside>
     `;
   }

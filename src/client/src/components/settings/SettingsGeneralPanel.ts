@@ -15,6 +15,7 @@ import {
   gatewayServerDraftFromConfig,
   machineAccessConfigPatchFromDraft,
   machineAccessDraftFromConfig,
+  reconcileConfigDraft,
   type GatewayServerConfigDraft,
   type MachineAccessConfigDraft,
 } from "./settingsConfigDraft";
@@ -39,6 +40,7 @@ export class SettingsGeneralPanel extends LitElement {
   @property() machineError = "";
   @property() savedMessage = "";
   @property() targetLabel = "selected machine";
+  @property() targetId = "local";
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
   @property({ attribute: false }) onReloadMachine?: () => void | Promise<void>;
   @property({ attribute: false }) onSave?: (config: PiWebConfigValues) => void | Promise<void>;
@@ -48,14 +50,44 @@ export class SettingsGeneralPanel extends LitElement {
   @state() private gatewayLocalError = "";
   @state() private machineLocalError = "";
 
+  private gatewayBaseline = emptyGatewayServerConfigDraft();
+  private machineBaseline = emptyMachineAccessConfigDraft();
+  private gatewaySubmission: { draft: GatewayServerConfigDraft; expected: GatewayServerConfigDraft } | undefined;
+  private machineSubmission: { draft: MachineAccessConfigDraft; expected: MachineAccessConfigDraft } | undefined;
+
+  get hasUnsavedMachineChanges(): boolean {
+    return !draftsEqual(this.machineDraft, this.machineBaseline);
+  }
+
+  discardMachineChanges(): void {
+    this.machineDraft = { ...this.machineBaseline };
+    this.machineLocalError = "";
+  }
+
   protected override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has("configResponse") && this.configResponse !== undefined) {
-      this.gatewayDraft = gatewayServerDraftFromConfig(this.configResponse.config);
-      this.gatewayLocalError = "";
+      const incoming = gatewayServerDraftFromConfig(this.configResponse.config);
+      const submission = this.gatewaySubmission;
+      const acknowledged = submission !== undefined && draftsEqual(incoming, submission.expected);
+      this.gatewayDraft = reconcileConfigDraft(this.gatewayDraft, acknowledged ? submission.draft : this.gatewayBaseline, incoming);
+      this.gatewayBaseline = incoming;
+      if (acknowledged) this.gatewaySubmission = undefined;
     }
-    if (changed.has("machineConfigResponse") && this.machineConfigResponse !== undefined) {
-      this.machineDraft = machineAccessDraftFromConfig(this.machineConfigResponse.config);
+    // Never rebase one machine's edits onto another, including cached panels
+    // whose unavailable transition occurred while they were disconnected.
+    if (changed.has("targetId") || changed.has("targetLabel") || (changed.has("machineConfigResponse") && this.machineConfigResponse === undefined)) {
+      this.machineDraft = emptyMachineAccessConfigDraft();
+      this.machineBaseline = emptyMachineAccessConfigDraft();
+      this.machineSubmission = undefined;
       this.machineLocalError = "";
+    }
+    if ((changed.has("machineConfigResponse") || changed.has("targetId") || changed.has("targetLabel")) && this.machineConfigResponse !== undefined) {
+      const incoming = machineAccessDraftFromConfig(this.machineConfigResponse.config);
+      const submission = this.machineSubmission;
+      const acknowledged = submission !== undefined && draftsEqual(incoming, submission.expected);
+      this.machineDraft = reconcileConfigDraft(this.machineDraft, acknowledged ? submission.draft : this.machineBaseline, incoming);
+      this.machineBaseline = incoming;
+      if (acknowledged) this.machineSubmission = undefined;
     }
   }
 
@@ -86,11 +118,11 @@ export class SettingsGeneralPanel extends LitElement {
           <h3>${t("ui.settingsGeneralPanel.gatewayServer", "Gateway server")}</h3>
           <p>${t("ui.settingsGeneralPanel.hostPortAndAllowedHostsAreSavedTo", "Host, port, and allowed hosts are saved to gateway configuration. Restart the web service after address changes for the running server to bind to the new address.")}</p>
         </div>
-        ${config === undefined && this.loading ? html`<div class="loading-card">${t("ui.settingsGeneralPanel.loadingGatewayConfiguration", "Loading gateway configuration…")}</div>` : html`
+        ${config === undefined ? html`<div class="loading-card">${this.loading ? t("ui.settingsGeneralPanel.loadingGatewayConfiguration", "Loading gateway configuration…") : t("ui.settingsGeneralPanel.gatewayUnavailable", "Gateway configuration is unavailable. Reload settings to try again.")}</div>` : html`
           <div class="config-path-card ui-settings-path">
             <span>${t("ui.settingsGeneralPanel.gatewayConfigurationFile", "Gateway configuration file")}</span>
-            <code>${config?.path ?? t("ui.settingsGeneralPanel.unknown", "Unknown")}</code>
-            <small>${config?.exists === true ? t("ui.settingsGeneralPanel.existingFile", "Existing file") : t("ui.settingsGeneralPanel.fileWillBeCreatedOnSave", "File will be created on save")}</small>
+            <code>${config.path}</code>
+            <small>${config.exists ? t("ui.settingsGeneralPanel.existingFile", "Existing file") : t("ui.settingsGeneralPanel.fileWillBeCreatedOnSave", "File will be created on save")}</small>
           </div>
           <form class="config-form ui-settings-fields" @submit=${(event: Event) => { void this.saveGatewayConfig(event); }}>
             <label class="field ui-form-field">
@@ -113,20 +145,22 @@ export class SettingsGeneralPanel extends LitElement {
 
             <div class="field ui-form-field">
               <span class="field-heading">
-                <span>${t("ui.settingsGeneralPanel.allowedHosts", "Allowed hosts")}</span>
+                <label for="allowed-hosts-mode">${t("ui.settingsGeneralPanel.allowedHosts", "Allowed hosts")}</label>
                 ${this.renderOverrideBadge("allowedHosts")}
               </span>
-              <select class="ui-input" .value=${this.gatewayDraft.allowedHostsMode} @change=${(event: Event) => { this.updateGatewayDraft({ allowedHostsMode: selectValue(event) === "all" ? "all" : "list" }); }}>
+              <select class="ui-input" id="allowed-hosts-mode" aria-describedby="allowed-hosts-help" .value=${this.gatewayDraft.allowedHostsMode} @change=${(event: Event) => { this.updateGatewayDraft({ allowedHostsMode: selectValue(event) === "all" ? "all" : "list" }); }}>
                 <option value="list">${t("ui.settingsGeneralPanel.allowListedHostsOnly", "Allow listed hosts only")}</option>
                 <option value="all">${t("ui.settingsGeneralPanel.allowAllHosts", "Allow all hosts")}</option>
               </select>
-              <textarea class="ui-input" .value=${this.gatewayDraft.allowedHostsText} ?disabled=${this.gatewayDraft.allowedHostsMode === "all"} rows="4" placeholder="example.local&#10;192.168.1.20" spellcheck="false" @input=${(event: Event) => { this.updateGatewayDraft({ allowedHostsText: textAreaValue(event) }); }}></textarea>
-              <small>${t("ui.settingsGeneralPanel.allowedHostsHint", "Enter one host per line, or select \"Allow all hosts\" to write true.")}</small>
+              <label for="allowed-hosts-list">${t("ui.settingsGeneralPanel.hostList", "Host list")}</label>
+              <textarea class="ui-input" id="allowed-hosts-list" aria-describedby="allowed-hosts-help" .value=${this.gatewayDraft.allowedHostsText} ?disabled=${this.gatewayDraft.allowedHostsMode === "all"} rows="4" placeholder="example.local&#10;192.168.1.20" spellcheck="false" @input=${(event: Event) => { this.updateGatewayDraft({ allowedHostsText: textAreaValue(event) }); }}></textarea>
+              <small id="allowed-hosts-help">${t("ui.settingsGeneralPanel.allowedHostsHint", "Enter one host per line, or select \"Allow all hosts\" to write true.")}</small>
             </div>
 
             ${this.renderGatewayEffectiveConfig()}
 
             <footer class="form-actions ui-settings-actions">
+              ${draftsEqual(this.gatewayDraft, this.gatewayBaseline) ? null : html`<small>${t("ui.settingsGeneralPanel.unsavedChanges", "Unsaved changes")}</small>`}
               <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${this.loading || this.saving}>${this.saving ? t("ui.settingsGeneralPanel.saving", "Saving…") : t("ui.settingsGeneralPanel.saveGatewayServerConfiguration", "Save gateway server configuration")}</button>
             </footer>
           </form>
@@ -178,6 +212,7 @@ export class SettingsGeneralPanel extends LitElement {
             ${this.renderMachineEffectiveConfig()}
 
             <footer class="form-actions ui-settings-actions">
+              ${draftsEqual(this.machineDraft, this.machineBaseline) ? null : html`<small>${t("ui.settingsGeneralPanel.unsavedChanges", "Unsaved changes")}</small>`}
               <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${this.machineLoading || this.saving}>${this.saving ? t("ui.settingsGeneralPanel.saving", "Saving…") : t("ui.settingsGeneralPanel.saveFileUploadConfiguration", "Save file/upload configuration")}</button>
             </footer>
           </form>
@@ -197,7 +232,7 @@ export class SettingsGeneralPanel extends LitElement {
   private renderMachineMessages(): TemplateResult | null {
     const error = this.machineLocalError || this.machineError;
     if (error === "") return null;
-    return html`<div class="message error-message">${error}</div>`;
+    return html`<div class="message error-message ui-form-error" role="alert">${error}</div>`;
   }
 
   private renderOverrideBadge(key: keyof PiWebConfigEnvOverrides): TemplateResult | null {
@@ -240,9 +275,18 @@ export class SettingsGeneralPanel extends LitElement {
 
   private async saveGatewayConfig(event: Event): Promise<void> {
     event.preventDefault();
+    if (this.configResponse === undefined || this.loading || this.saving || this.onSave === undefined) return;
     this.gatewayLocalError = "";
     try {
-      await this.onSave?.(gatewayServerConfigFromDraft(this.gatewayDraft, this.configResponse?.config ?? {}));
+      const config = gatewayServerConfigFromDraft(this.gatewayDraft, this.configResponse.config);
+      const submission = { draft: this.gatewayDraft, expected: gatewayServerDraftFromConfig(config) };
+      this.gatewaySubmission = submission;
+      try {
+        await this.onSave(config);
+        if (this.isConnected) await this.updateComplete;
+      } finally {
+        if (this.gatewaySubmission === submission) this.gatewaySubmission = undefined;
+      }
     } catch (error) {
       this.gatewayLocalError = errorMessage(error);
     }
@@ -250,11 +294,21 @@ export class SettingsGeneralPanel extends LitElement {
 
   private async saveMachineAccessConfig(event: Event): Promise<void> {
     event.preventDefault();
+    if (this.machineConfigResponse === undefined || this.machineLoading || this.saving || this.onSaveMachineConfig === undefined) return;
     this.machineLocalError = "";
+    const target = this.targetId;
     try {
-      await this.onSaveMachineConfig?.(machineAccessConfigPatchFromDraft(this.machineDraft));
+      const config = machineAccessConfigPatchFromDraft(this.machineDraft);
+      const submission = { draft: this.machineDraft, expected: machineAccessDraftFromConfig(config) };
+      this.machineSubmission = submission;
+      try {
+        await this.onSaveMachineConfig(config);
+        if (this.isConnected) await this.updateComplete;
+      } finally {
+        if (this.machineSubmission === submission) this.machineSubmission = undefined;
+      }
     } catch (error) {
-      this.machineLocalError = errorMessage(error);
+      if (this.targetId === target) this.machineLocalError = errorMessage(error);
     }
   }
 
@@ -316,6 +370,13 @@ function selectValue(event: Event): string {
 
 function textAreaValue(event: Event): string {
   return event.target instanceof HTMLTextAreaElement ? event.target.value : "";
+}
+
+function draftsEqual<T extends object>(left: T, right: T): boolean {
+  for (const key in left) {
+    if (left[key] !== right[key]) return false;
+  }
+  return true;
 }
 
 function errorMessage(error: unknown): string {

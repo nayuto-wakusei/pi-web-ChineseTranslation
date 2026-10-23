@@ -84,6 +84,8 @@ $PI_WEB_DATA_DIR/projects/<sha256(normalized-absolute-project-path)>/
 
 模型目录由 daemon 后台刷新，失败保留最后成功结果。重新打开模型选择器可读取新结果。提供器实现/连接基线变更与仅模型列表变更不是一回事，前者通常要求重启 daemon；`/reload` 不能随意重定义提供器。时间参数和离线变量语义见[目录刷新](../config.md#catalog-refresh)。
 
+普通设置页的命名模型目录同样需要设置目标机器上的显式注册项目。设置机器与活动工作区机器不同或缺少该项目上下文时，显示目录不可用，不借用活动会话、其他项目或全局凭据。切换设置目标不切换聊天的项目/工作区/会话；入口见 [SettingsDialog.ts](../../src/client/src/components/SettingsDialog.ts)。
+
 ## 自检与排障
 
 | 检查 | 预期 |

@@ -67,6 +67,35 @@ describe("buildApp remote machine proxy routes", () => {
     expect(request).toHaveBeenCalledWith("GET", "/api/projects?active=true", undefined);
   });
 
+  it("streams image bytes from the selected remote machine with cache headers intact", async () => {
+    const add = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = add.json<{ id: string }>();
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00, 0xc3, 0x28]);
+    const request = vi.fn<MachineClient["request"]>(() => Promise.resolve({
+      statusCode: 200,
+      headers: {
+        "content-type": "image/png",
+        "content-length": String(bytes.length),
+        "cache-control": "private, max-age=31536000, immutable",
+        "x-content-type-options": "nosniff",
+        "set-cookie": "must-not-cross=1",
+      },
+      body: Readable.from([bytes.subarray(0, 4), bytes.subarray(4)]),
+    }));
+    appTestContext.remoteClient = fakeRemoteClient({ request });
+    const mediaId = "a".repeat(64);
+    const response = await appTestContext.app.inject({ url: `/api/machines/${remote.id}/sessions/s1/media/${mediaId}?cwd=%2Frepo` });
+    expect(response.statusCode).toBe(200);
+    expect(response.rawPayload).toEqual(bytes);
+    expect(response.headers["content-type"]).toBe("image/png");
+    expect(response.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["set-cookie"]).toBeUndefined();
+    expect(proxiedCall(request, 0).arguments).toEqual(["GET", `/api/sessions/s1/media/${mediaId}?cwd=%2Frepo`, undefined]);
+    expect(proxiedCall(request, 0).signal).toBeInstanceOf(AbortSignal);
+    expect(appTestContext.sessionDaemonRequests).toEqual([]);
+  });
+
   it("preserves the force-refresh query when proxying update checks", async () => {
     const addResponse = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
     const remote = addResponse.json<{ id: string }>();

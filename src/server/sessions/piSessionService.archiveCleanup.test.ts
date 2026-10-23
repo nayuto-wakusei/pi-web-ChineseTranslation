@@ -120,6 +120,10 @@ describe("PiSessionService archive and cleanup", () => {
       heartbeatIntervalMs: 60_000,
     });
 
+    await service.status(sessionRef("root"));
+    await expect(service.archiveTree(sessionRef("roo"))).rejects.toThrow("未找到会话");
+    expect(archivedInputs).toEqual([]);
+    expect(service.activeCount()).toBe(1);
     await expect(service.archiveTree(sessionRef("root"))).resolves.toEqual({
       archived: true,
       sessionIds: ["root", "direct-child", "grandchild"],
@@ -204,7 +208,7 @@ describe("PiSessionService archive and cleanup", () => {
     await service.dispose();
   });
 
-  it("permanently deletes archived sessions through the archive store", async () => {
+  it("permanently deletes only exact archived session ids in the requested cwd", async () => {
     const deletedSessionIds: string[] = [];
     const notificationStore = new SessionNotificationStore({ daemonInstanceId: "daemon-delete-test" });
     const registration = notificationStore.registerSession("archived", "/workspace");
@@ -215,7 +219,7 @@ describe("PiSessionService archive and cleanup", () => {
       modelRuntime: testModelRuntime,
       notificationStore,
       archiveStore: {
-        list: () => Promise.resolve([archivedRecord]),
+        list: () => Promise.resolve([{ ...archivedRecord, sessionId: "archived-extended" }, archivedRecord]),
         get: () => Promise.resolve(undefined),
         archive: () => { throw new Error("archive should not be called for records that already have archive files"); },
         restore: () => Promise.resolve(),
@@ -233,7 +237,6 @@ describe("PiSessionService archive and cleanup", () => {
 
     expect(result.deletedSessionIds).toEqual(["archived"]);
     expect(result.failures).toEqual([{ sessionId: "active", error: "未找到已归档会话" }]);
-
     expect(deletedSessionIds).toEqual(["archived"]);
     expect(notificationStore.catalogSnapshot().sessions).toEqual([]);
     await service.dispose();

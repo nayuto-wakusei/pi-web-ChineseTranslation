@@ -182,7 +182,7 @@ export class ExtensionDialogCard extends LitElement {
     return html`
       <form class="dialog-input-form" @submit=${(event: SubmitEvent) => { this.submitInput(event, dialog); }}>
         <input
-          class="dialog-input"
+          class="ui-input dialog-input"
           type="text"
           name="dialog-answer"
           aria-label=${t("ui.extensionDialogCard.yourAnswer", "Your answer")}

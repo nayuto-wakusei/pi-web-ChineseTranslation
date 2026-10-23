@@ -25,7 +25,8 @@ const codeHighlightOutputDir = resolve(bundledPluginsOutputDir, "code-highlight"
 // Files, Terminal, Mermaid, and Code highlighting are exceptions to plain transpilation: each
 // browser entry is replaced below by a self-contained bundle. Terminal also
 // keeps a package-local transpiled server graph. Captain's Log likewise bundles
-// its browser entry after transpiling its standalone package graph.
+// its browser entry after transpiling its standalone package graph. Workflows
+// bundles its server entry against the public host API for standalone delivery.
 const buildTargets = [
   { rootDir: bundledPluginsSourceDir, outDir: bundledPluginsOutputDir, label: "plugin" },
   { rootDir: resolve("pi-packages"), outDir: resolve("dist/pi-packages"), label: "package" },

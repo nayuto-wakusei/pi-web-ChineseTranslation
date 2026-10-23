@@ -103,8 +103,11 @@
             <a href="#laptop-or-server">Laptop or server?</a>
             <a href="#plugins">Can I use local plugins?</a>
             <a href="#worktree-list-out-of-date">A worktree I created is missing</a>
+            <a href="#navigation-order">如何排列导航？</a>
+            <a href="#chat-images">聊天图片如何加载？</a>
             <a href="#sessions-stop">Sessions stop unexpectedly</a>
             <a href="#model-response-terminated">模型响应 terminated</a>
+            <a href="#provider-extension-no-effect">提供器扩展不生效</a>
             <a href="#logs">Where are logs?</a>
           </aside>
 
@@ -308,6 +311,17 @@
               <p>成功只清除该次恢复捕获的错误，不隐藏后来发生的其他错误。升级问题先用 <code>pi-web version</code> 检查本实例；只有 <code>--check</code> 才查询 npm。更新交接日志只证明派发，仍须检查安装与两项服务，详见<a href="install#update">更新安装</a>。</p>
             </article>
 
+            <article id="navigation-order" class="faq-item">
+              <h2>如何排列项目、工作区和会话？</h2>
+              <p>在项目或工作区行菜单选择上移/下移，普通导航顺序按机器保存，重载或换设备后仍可读取。会话的置顶与子会话分组不改变模型上下文；归档仍属独立视图。管理导航使用独立路径，不共用普通排序存储。</p>
+            </article>
+
+            <article id="chat-images" class="faq-item">
+              <h2>聊天图片如何加载？</h2>
+              <p>浏览器使用原生延迟加载，选择图片可放大；工作区外的 Markdown 图片需先确认显示。图片尺寸提示不能替代加载授权，也不通过图片加载回调修正聊天滚动。</p>
+              <p>媒体引用是独立读取契约，仅在请求 <code>media=reference</code> 时投影；当前浏览器默认仍为 inline。它不修改 Pi 会话原文或模型输入，也不自动为历史文件补写普通/管理归属。daemon 变更需安排重启，不能把刷新页面当作运行时升级。</p>
+            </article>
+
             <article id="session-unread" class="faq-item">
               <h2>When is a session marked as read?</h2>
               <p>
@@ -372,6 +386,12 @@
                 </div>
                 <pre id="http-idle-timeout-restart"><code><span class="prompt">$</span> systemctl --user restart pi-web-sessiond</code></pre>
               </div>
+            </article>
+
+            <article id="provider-extension-no-effect" class="faq-item">
+              <h2>提供器扩展已加载但不生效</h2>
+              <p>先查 daemon 日志中的 <code>PROVIDER_MUTATION_IGNORED</code> 及其原因。全局提供器须在启动基线阶段注册；实现或连接变化需手动重启 daemon，<code>/reload</code> 不足。重启可能中断会话与终端，应从托管会话之外操作。</p>
+              <p>重启不使仅项目或仅 <code>session_start</code> 注册变为有效。规则见<a href="config#pi-extension-provider-baseline">提供器基线</a>。</p>
             </article>
 
             <article id="logs" class="faq-item">

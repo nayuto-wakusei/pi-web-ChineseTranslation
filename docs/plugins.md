@@ -70,9 +70,15 @@
 
 v5 `stylesheets` 贡献包含 `id`、HTTP(S) `url` 和可选 `order`（默认 `1000`，较小先加载，同序按限定贡献 ID）。使用模块相对 URL 生成 CSS 文件地址，文件内资产相对 CSS 地址解析；不支持内联 CSS 或运行时 `@import`。v5 主题使用样式表；需要共享样式的组件使用公开 `StylesheetIntegrationCapabilityV1` 注册 shadow root 或创建 Lit lifecycle controller，并在断开时释放。主题属于网关应用，浏览器设备偏好优先于网关默认值。
 
+共享基础 UI 通过 `{ pluginId: "pi-web", id: "stylesheet-integration", version: 1, parse }` 声明依赖并在 `start` 中解析；组件使用 `createController(this, { sharedUi: true })` 或 `registerRoot(root, { sharedUi: true })`。省略 opt-in 只接收贡献样式，不接收共享按钮、选择器、工具栏、标签和文件行。宿主持有注入、排序与清理；原生事件、键盘交互、焦点与 ARIA 仍由消费者持有。共享 UI 不包含菜单、表单和对话框，插件不得深导入客户端私有样式。
+
+`stylesheet-integration` 能力可由支持的浏览器 v4/v5 入口声明，能力版本与入口版本独立；这不使旧入口获得 v5 专属的 `stylesheets` 贡献字段。
+
+基础主题同步提供默认布局与控件表现，主题 CSS 可扩展配色与布局；基础规则在 `pi-web-base` cascade layer，普通未分层主题规则遵循 CSS cascade 覆盖。内部选择器、共享类和外观仍属实验性，不因能力版本而冻结；具体控件入口见[共享 UI 导航](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/ui-primitives.md)。
+
 v5 `syntaxHighlighters` 返回有序、不重叠的 UTF-16 范围 token，不返回 HTML；宿主负责安全显示，插件遵守输入 `signal`。v5 内容渲染器还可提供 `title`、同步 `supports(request)`，并接收机器、语言和文件路径提示；正文仍是不可信输入，净化与清理要求不变。精确签名以公开声明为准。
 
-宿主 Markdown 变换只对完成文本产生浏览器 `displayText`，部分流式文本完成后才应用。不修改 canonical 消息、持久化历史、模型输入、审计原文或消息实际 `thinkingLevel`；复制和消息操作不能把派生显示误当原文。
+Pi 的 Markdown transformer 链在 daemon 的浏览器投影阶段运行，仅对完成及历史的用户、assistant 文本和 thinking 派生 `displayText`；部分流式文本完成后才应用，文件预览不受影响。canonical 消息、持久化历史、模型输入、审计原文和实际 `thinkingLevel` 不变。“复制消息”和消息操作使用原文；代码围栏的 Raw/Copy 使用变换后的围栏源码。
 
 ### 应用级面板与选择
 
@@ -118,23 +124,25 @@ Promise 在恢复完成时结束，也可在被较新导航取代时正常结束
 
 ### 聊天与文件内容预览
 
-浏览器插件可贡献 `contentRenderers`：`id`、Markdown 围栏标签 `languages`、不含点的 `fileExtensions`，以及同步返回 Lit 模板的 `render(input)`。选择器不区分大小写，语言或扩展名任一匹配即可。`renderMode?: 'manual' | 'automatic'` 默认 `manual`：先显示源码与“渲染”按钮，不调用渲染器。这是初始策略，不限制用户显式预览；无关正文更新不重启已激活预览。作者可选择 `automatic`，并负责高效激活与异步工作。
+浏览器插件的 `contentRenderers` 提供 `id`、围栏 `languages` 或不含点的 `fileExtensions`，同步 `render(input)` 返回 Lit 模板。`renderMode` 默认为 `manual`，用户选择命名视图后才激活；`automatic` 可自动显示。v5 还可用 `title` 命名视图、同步 `supports(request)` 判断资格，并接收机器、语言和文件路径提示；旧 v4 输入不变。
 
-同一渲染器用于聊天围栏、文件 Markdown 围栏和独立文本文件，遵循有效机器的插件可用性及便携/机器专属优先级。多个匹配项提供选择器，同时仅挂载选中项。默认按来源插件 ID（不是远端运行时前缀）、局部贡献 ID 的大小写敏感、与区域设置无关的码元顺序排序。标签同时标明插件与贡献；没有插件排序字段或排序 UI。
+同一渲染器用于聊天围栏、文件 Markdown 围栏和独立文本文件，并遵循所属机器可用性。浏览器先发现 bundled 默认插件，再发现 installed 覆盖，各组内部顺序保持不变。匹配项保持插件发现顺序，最后一个匹配的 automatic 渲染器是默认；后来的 manual 渲染器不抢占自动默认。异步加载完成顺序不决定优先级，用户显式选择优先。每个渲染器与“源码”（Raw）是单行横向滚动的命名按钮，同时仅挂载所选预览，不使用选择器菜单。
 
-聊天按代码块在当前浏览器标签页记忆显式渲染器与“源码/预览”选择：从最后一次显式选择起 **15 分钟**，最多 **128** 个最近选择块。作用域包含机器、会话、消息/entry、part、块和精确源码。查看或重新挂载不延长期限；到期在再次访问时生效，不撤掉正在显示的预览。源码变化或选中渲染器不可用会失效该选择并恢复确定性默认策略。自动渲染不产生显式记忆；DOM 不缓存，重新挂载重新渲染。刷新或关闭标签页清除记忆。文件 Markdown 不使用聊天记忆。
+聊天按代码块在当前标签页记忆显式渲染器与源码选择：从最后一次显式选择起 **15 分钟**，最多 **128** 个最近选择块，作用域包含机器、会话、entry、part、块和精确源码。重新挂载不延长期限，源码变化或渲染器不可用时恢复默认；页面重载清除记忆。独立文件使用自己的浏览器源码/预览偏好，URL 模式优先，默认策略不自动变成用户偏好。
 
-独立文件仅在没有浏览器本地“源码/预览”偏好时采用插件初始策略。已保存“预览”授权所有文件渲染，包括 Markdown 中的手动渲染器；已保存“源码”禁止预览。Markdown 预览内仍可逐块选择源码或渲染器，URL 模式优先。默认策略不会自动保存为用户选择，内置文件预览保留原默认行为。
+Raw 始终提供未高亮源码，Copy 复制当前代码块源码，即使正在预览也不复制图形。未闭合围栏、截断及超过 **100,000 UTF-16 码元**的输入不渲染；文件另有内联字节限制。渲染失败回退源码；追加正文不重启未变的闭合块，切换视图中止旧工作。Mermaid 图形保持手动激活，代码高亮与图形预览是独立视图。
 
-聊天图表块保留“源码”“预览”“复制源码”工具栏；独立文件在“下载”旁使用文件头部的“源码/预览”控件，遵循文件模式偏好。Markdown 文件图表保留逐块控件。未闭合围栏保持可复制源码；闭合围栏可在消息结束前预览。追加正文不重启未变的闭合块；失败回退源码；未知格式保持普通代码显示。
+`input` 的 `signal` 和 `fail(error)` 用于生命周期及异步错误；断开或中止时清理，过期错误不影响新视图。正文不可信，保留聊天和文件各自的净化器，不执行源码或放宽策略。
 
-`input` 包含 `text`、中止 `signal`、`fail(error)`。同步渲染，组件自己管理异步工作，在断开连接或中止时清理，通过 `fail` 报告异步错误；过期错误被忽略。文本不可信：转义/净化输出，不执行源码，不放宽 Markdown 策略。宿主跳过截断输入及超过 **100,000 UTF-16 码元**的块，文件还保留内联字节大小限制。聊天与文件 Markdown 保留各自的净化器。
+消费者在 `requires` 声明 `{ pluginId: "pi-web", id: "content-rendering", version: 1, parse }`，在 `start` 解析。`ContentRenderingCapability` 提供 `listRenderers(request)`、`renderText(request)` 和 `renderMarkdown({ machineId, text, truncated?, toSafeHtml, allowManualPreview? })`。列表按发现顺序返回 `{ id, label, renderMode }`，不调用渲染器。
 
-文件等消费者在 `requires` 声明 `{ pluginId: "pi-web", id: "content-rendering", version: 1, parse }`，在 `start` 中解析。公开 `ContentRenderingCapability` 描述 `listRenderers(request)`、`renderText(request)` 和 `renderMarkdown({ machineId, text, truncated?, toSafeHtml, allowManualPreview? })`。`listRenderers` 返回排序后的 `{ id, label, renderMode }`，不调用渲染器。
+只有 `controls: "external"` 的 `renderText` 接受 `rendererId`，缺失或不可用时使用上述默认规则；内嵌控件自己拥有选择。消费者使用外部控件时自己提供视图选择、源码访问及移除预览。`allowManualPreview: true` 可授权手动预览，但不覆盖逐块 Raw 选择；文件与聊天各自持有用户意图，能力不持久化偏好。`renderMarkdown` 使用消费者可信净化器。精确签名见[公开浏览器契约](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/plugin-api.ts)。
 
-只有 `controls: "external"` 的 `renderText` 接受可选 `rendererId`，缺失或不可用时选择首个匹配项。内嵌控件拥有选择，忽略外部 ID。消费者自己提供选择器、模式切换与源码访问（如文件头部）时使用外部控件，否则使用内嵌控件。外部“源码”控件必须移除预览。
+### 公开会话数据与消息操作
 
-消费者管理用户意图，可用 `allowManualPreview: true` 显式授权手动预览；Markdown 授权符合条件的围栏，但不覆盖逐块“源码”选择。省略或 `false` 保留渲染器默认策略及自动预览；聊天不传此覆盖。公开能力不存用户意图，聊天有界记忆是宿主私有策略。Markdown 请求不带文件路径或语言选择器，语言来自围栏。创建 `renderText` 模板不调用渲染器。每个 Markdown 图表独立选择；切换渲染器中止旧预览并清除错误。`renderMarkdown` 必须使用消费者可信净化器，不允许插入不可信 HTML。参见[文件消费者](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/pi-web-plugins/files/pi-web-plugin.ts)和 [Mermaid 贡献](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/mermaid)。
+会话快照中的 `metadata` 只包含主动发布的 UI-safe 命名空间数据，不暴露任意 custom entries。命名空间不构成权限或所有权隔离，插件须校验自己的 schema 并安全显示；旧宿主可省略该字段。服务端发布与浏览器读取都不应放入秘密。
+
+`messageActions` 默认针对持久 entry，调用时提供受保护的 `history.fork()`/`goBack()`；`target: "display"` 针对当前显示切片，可包含未持久化文本，但没有历史操作助手。两者提供的普通原文均排除 thinking/tool payload，不使用派生 `displayText`。可见性和可用性判断同步且无副作用，真正操作由调用上下文固定到原机器/会话；插件自己决定确认。
 
 ### 会话与配套扩展
 

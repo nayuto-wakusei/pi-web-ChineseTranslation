@@ -10,6 +10,36 @@ permissions:
   contents: read
 
 jobs:
+  browser-ui:
+    name: Browser surface contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install browser engines
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Check browser surface contracts
+        run: npm run test:browser
+
+      - name: Save browser failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-surface-failures
+          path: test-results/
+          retention-days: 7
+
   verify:
     name: Verify and package (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -41,6 +71,8 @@ jobs:
       - name: Check delivery artifacts
         run: npm run check:artifacts
 
-      - name: Smoke test npm 12 global package install
-        if: runner.os == 'Linux'
+      # Registry installs and native PTY checks belong to the main/manual delivery
+      # gate, not every PR. publish.yml also runs this before publication.
+      - name: Smoke test npm 12 global package install (main/manual)
+        if: runner.os == 'Linux' && github.event_name != 'pull_request'
         run: npm run smoke:package-install

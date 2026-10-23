@@ -181,9 +181,11 @@ describe("eventual project unread cleanup", () => {
   it("does not register a project if pre-add durable cleanup fails", async () => {
     const fixture = lifecycle([root]);
     complete(fixture.unread, removed.path);
-    fixture.reconcile.mockRejectedValueOnce(new Error("disk full"));
-    await expect(fixture.service.add({ path: removed.path })).rejects.toThrow("disk full");
+    const error = new Error("disk full");
+    fixture.reconcile.mockRejectedValueOnce(error);
+    await expect(fixture.service.add({ path: removed.path })).rejects.toBe(error);
     expect(fixture.projects.add).not.toHaveBeenCalled();
+    expect(fixture.onProjectsChanged).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(MINUTE);
     expect(fixture.unread.hasUnread()).toBe(false);
   });

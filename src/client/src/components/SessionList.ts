@@ -307,6 +307,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       if (NON_RENDERING_PROPERTIES.has(String(name))) continue;
       if (name === "sessions" && sessionsRenderEqual(previous, this.sessions)) continue;
       if (name === "selected" && selectedSessionRenderEqual(previous, this.selected)) continue;
+      // Group attention consumes each runtime signal once when its map changes.
+      if ((name === "statuses" || name === "activities") && this.sessionTree().currentAgentGroups.parentByAgentId.size > 0) return true;
       if (name === "statuses" && sessionRuntimeMapRenderEqual(previous, this.statuses, this.activities, this.sending, this.sessions, this.authoritativeSessionPersistence, "status")) continue;
       if (name === "activities" && sessionRuntimeMapRenderEqual(previous, this.activities, this.statuses, this.sending, this.sessions, this.authoritativeSessionPersistence, "activity")) continue;
       return true;
@@ -373,7 +375,9 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const tree = this.sessionTree();
     const { currentSelectableSessions } = tree;
     const { currentRows, archivedRows, currentAgentOffsets, archivedAgentOffsets, pinnedRowCount } = this.visibleSessionTree();
-    const agentAttention = this.agentGroupAttention(tree.currentRows, tree.currentAgentGroups);
+    const needsAgentAttention = !this.collapsed && currentRows.some(({ session }) =>
+      tree.currentAgentGroups.countByParentId.has(session.id) && !this.expandedAgentParents.has(session.id));
+    const agentAttention = needsAgentAttention ? this.agentGroupAttention(tree.currentRows, tree.currentAgentGroups) : undefined;
     if (!this.collapsed) tree.descendantCounts ??= unarchivedDescendantCounts(this.sessions);
     const unreadCount = unreadSessionCount(currentSelectableSessions, this.unreadSessionIds);
     const visibleCurrentRows = currentRows.slice(0, this.currentVisibleLimit);
@@ -390,7 +394,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
             ${pinnedRowCount > 0 ? html`<h2 class="subheading pin-heading">${t("ui.sessionList.pinned", "Pinned")}</h2>` : null}
             ${repeat(visibleCurrentRows, (row) => row.session.id, (row, index) => html`
               ${pinnedRowCount > 0 && index === pinnedRowCount ? html`<h2 class="subheading pin-heading">${t("ui.navigation.recent", "Recent")}</h2>` : null}
-              ${this.renderSession(row, "current", tree.currentAgentGroups.countByParentId.get(row.session.id) ?? 0, currentAgentOffsets.get(row.session.id) ?? 0, agentAttention.get(row.session.id))}
+              ${this.renderSession(row, "current", tree.currentAgentGroups.countByParentId.get(row.session.id) ?? 0, currentAgentOffsets.get(row.session.id) ?? 0, agentAttention?.get(row.session.id))}
             `)}
             ${pinnedRowCount > 0 && pinnedRowCount === visibleCurrentRows.length ? html`<h2 class="subheading pin-heading">${t("ui.navigation.recent", "Recent")}</h2>` : null}
             ${this.renderLoadMoreSentinel("current", visibleCurrentRows.length, currentRows.length)}

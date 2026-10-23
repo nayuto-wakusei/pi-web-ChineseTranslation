@@ -15,9 +15,18 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("machine-scoped socket urls", () => {
+  it("negotiates reference images only on encoded selected-session sockets under a nested base", () => {
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/pi-web/" });
+    sessionEvents({ id: "session /?#%", cwd: "/repo +/?#%" }, "remote /?#%");
+    expect(webSocketUrls).toEqual([
+      "wss://pi.example.test/nested/pi-web/api/machines/remote%20%2F%3F%23%25/sessions/session%20%2F%3F%23%25/events?cwd=%2Frepo+%2B%2F%3F%23%25&media=reference",
+    ]);
+  });
   it("defaults session sockets to the local machine scope", () => {
     sessionEvents({ id: "s1", cwd: "/repo" });
     globalSessionEvents();

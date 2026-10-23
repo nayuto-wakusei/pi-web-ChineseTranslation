@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("ChatView open extension dialogs", () => {
-  it("renders the oldest pending dialog at the transcript foot with a stable chat-scroll anchor", async () => {
+  it("renders the oldest pending dialog at the transcript foot without a synthetic scroll anchor", async () => {
     const view = await mountView();
     const oldest = openDialog("dlg-1", "Allow file writes?");
     view.pendingDialogs = [oldest, openDialog("dlg-2", "Pick a region", { kind: "select", options: ["eu", "us"] })];
@@ -23,7 +23,7 @@ describe("ChatView open extension dialogs", () => {
 
     const card = requiredElement(view.shadowRoot?.querySelector<ExtensionDialogCard>(".chat > extension-dialog-card.open-dialog-card"), "open dialog card");
     expect(card).toBeInstanceOf(ExtensionDialogCard);
-    expect(card.getAttribute("data-scroll-anchor-id")).toBe("dialog:dlg-1");
+    expect(card.hasAttribute("data-scroll-anchor-id")).toBe(false);
     expect(card.dialog).toBe(oldest);
     expect(view.shadowRoot?.querySelector(".queued-dialogs")?.textContent).toContain("另有 1 个扩展对话框正在排队");
   });
@@ -87,7 +87,7 @@ describe("ChatView closed extension dialogs", () => {
     expect(cards).toHaveLength(2);
     const closedCard = requiredElement(cards[0], "closed dialog card");
     expect(closedCard.classList.contains("closed-dialog-card")).toBe(true);
-    expect(closedCard.getAttribute("data-scroll-anchor-id")).toBe("closed-dialog:dlg-0");
+    expect(closedCard.hasAttribute("data-scroll-anchor-id")).toBe(false);
     expect(closedCard.outcome).toBe(closed);
     expect(cards[1]?.classList.contains("open-dialog-card")).toBe(true);
 

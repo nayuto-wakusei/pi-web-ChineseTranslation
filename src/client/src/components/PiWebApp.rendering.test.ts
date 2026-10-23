@@ -3,16 +3,24 @@ import { installNativeDialogFake } from "./nativeDialog.testSupport";
 installNativeDialogFake();
 
 import { LitElement, html } from "lit";
+import { installDeferredContent, settleDeferredContent } from "../formatting/deferredContent.testSupport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initialAppState, type AppState } from "../appState";
-import { api, configApi, piPackagesApi, pluginsApi, type SessionInfo, type Workspace } from "../api";
+import { api, configApi, piPackagesApi, pluginsApi, type SessionInfo, type SessionStatus, type SessionWarning, type Workspace } from "../api";
+import { reportBrowserError, sessionBrowserErrorScope, workspaceBrowserErrorScope, type BrowserErrorRecovery } from "../browserErrors";
 import { PluginRegistry } from "../plugins/registry";
+import type { ExternalPluginLoadResult } from "../plugins/external";
+import type { ContentRendererInput } from "../../../plugin-api";
 import { corePlugin } from "../plugins/core";
 import type { WorkspacePanelContext } from "../plugins/types";
 import { PiWebApp } from "./PiWebApp";
+import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
 import { ChatView } from "./ChatView";
+import { StatusBar } from "./StatusBar";
+import { ConversationLayout } from "./ConversationLayout";
 import type { ActionPalette } from "./ActionPalette";
 import { FormattedText } from "./FormattedText";
+import { ContentRendererHost } from "./ContentRendererHost";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { WorkspaceList } from "./WorkspaceList";
 import { ProjectList } from "./ProjectList";
@@ -26,8 +34,6 @@ import { PromptEditor } from "./PromptEditor";
 import { t } from "../i18n";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsShortcutsPanel } from "./settings/SettingsShortcutsPanel";
-import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
-import { installDeferredContent, settleDeferredContent } from "../formatting/deferredContent.testSupport";
 
 // Exercise the real shell and child rendering without starting API/socket
 // orchestration. The inherited Lit controllers and update lifecycle still run.
@@ -48,8 +54,7 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
   vi.stubGlobal("fetch", themeStylesheetFetch(unexpectedRequest));
   // Scroll scheduling is not under test; happy-dom supplies no layout metrics.
-  vi.stubGlobal("requestAnimationFrame", () => 1);
-  vi.stubGlobal("cancelAnimationFrame", () => undefined);
+  installDeferredContent();
 });
 
 afterEach(() => {
@@ -354,6 +359,24 @@ describe("application rendering boundaries", () => {
     expect(loadNavigationPreferences().mobileCollapsed).toBe(true);
   });
 
+  it("composes transcript, composer, and status under one conversation boundary", async () => {
+    const status = { ...sessionStatus(session.id), isStreaming: true };
+    const app = await mountApp({ selectedSession: session, status });
+    await settle(app);
+    const layout = app.shadowRoot?.querySelector<ConversationLayout>("conversation-layout");
+    expect(layout).toBeInstanceOf(ConversationLayout);
+    expect(layout?.status).toEqual(status);
+    expect(layout?.querySelector("chat-view")).toBeInstanceOf(ChatView);
+    expect(layout?.querySelector('[slot="composer"] prompt-editor')).toBe(promptEditor(app));
+    expect(layout?.querySelector('[slot="status"]')).toBeInstanceOf(StatusBar);
+    await layout?.updateComplete;
+    expect(layout?.shadowRoot?.querySelector(".activity-text")?.textContent).toBe(t("ui.chatView.running", "Running"));
+  });
+
+
+
+
+
   it("does not update the selected chat for unrelated shell state, but does update its transcript", async () => {
     const app = await mountApp({ selectedSession: session, sessions: [session], messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }] });
     await settle(app);
@@ -369,6 +392,63 @@ describe("application rendering boundaries", () => {
     await settle(app);
     expect(render).toHaveBeenCalledOnce();
     expect(chat.messages[0]?.parts[0]).toEqual({ type: "text", text: "new transcript" });
+  });
+
+  it.each(["before", "after"] as const)("updates diagram controls when plugins load %s the transcript without remounting or auto-preview", async (order) => {
+    const diagramSession = { ...session, id: `diagram-${order}` };
+    const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView: "chat" });
+    const messages: AppState["messages"] = [{ role: "assistant", parts: [{ type: "text", text: "```mermaid\ngraph TD; A-->B\n```" }] }];
+    if (order === "after") patchState(app, { selectedSession: diagramSession, sessions: [diagramSession], messages });
+    await settle(app);
+    const initialFormatted = app.shadowRoot?.querySelector("chat-view")?.shadowRoot?.querySelector("formatted-text");
+    if (order === "after") {
+      expect(initialFormatted).toBeInstanceOf(FormattedText);
+      expect(initialFormatted?.shadowRoot?.querySelector(".formatted")?.textContent).toContain("graph TD");
+      expect(initialFormatted?.shadowRoot?.querySelector("pi-web-content-renderer")).toBeNull();
+    }
+
+    const draw = vi.fn((input: ContentRendererInput) => { void input; return html`<b>Rendered diagram</b>`; });
+    const result: ExternalPluginLoadResult = {
+      terminalMode: "recovery-disabled", declarations: [{ id: "mermaid" }], failures: [],
+      registrations: [{ id: "mermaid", plugin: {
+        apiVersion: 5, name: "Mermaid", activate: () => ({ contributions: { contentRenderers: [{
+          id: "diagram", title: "Diagram", languages: ["mermaid"], render: draw,
+        }] } }),
+      } }],
+    };
+    const register: unknown = Reflect.get(app, "registerExternalPlugins");
+    if (typeof register !== "function") throw new Error("Expected plugin registration boundary");
+    expect(await register.call(app, "Test plugins", () => Promise.resolve(result))).toBe(true);
+    if (order === "before") patchState(app, { selectedSession: diagramSession, sessions: [diagramSession], messages });
+    await settle(app);
+
+    const formatted = app.shadowRoot?.querySelector("chat-view")?.shadowRoot?.querySelector("formatted-text");
+    if (!(formatted instanceof FormattedText)) throw new Error("Expected formatted chat text");
+    await settleDeferredContent(formatted);
+    if (order === "after") expect(formatted).toBe(initialFormatted);
+    const host = formatted.shadowRoot?.querySelector("pi-web-content-renderer");
+    if (!(host instanceof ContentRendererHost)) throw new Error("Expected diagram controls");
+    const renderButton = [...host.shadowRoot?.querySelectorAll("button") ?? []].find((button) => button.textContent.trim() === "Diagram");
+    expect(renderButton).toBeDefined();
+    expect(draw).not.toHaveBeenCalled();
+    renderButton?.click();
+    await settle(app);
+    await settleDeferredContent(host);
+    expect(host.shadowRoot?.querySelector("b")?.textContent).toBe("Rendered diagram");
+    expect(draw).toHaveBeenCalledOnce();
+    const input = draw.mock.calls[0]?.[0];
+    expect(input?.signal.aborted).toBe(false);
+    const markdownRender = vi.spyOn(formatted, "render");
+
+    const registry: unknown = Reflect.get(app, "plugins");
+    if (!(registry instanceof PluginRegistry)) throw new Error("Expected plugin registry");
+    await registry.register({ id: "unrelated", plugin: { apiVersion: 4, name: "Unrelated", activate: () => ({ contributions: {} }) } });
+    patchState(app, { error: "Unrelated shell update" });
+    await settle(app);
+    expect(markdownRender).not.toHaveBeenCalled();
+    expect(formatted.shadowRoot?.querySelector("pi-web-content-renderer")).toBe(host);
+    expect(draw).toHaveBeenCalledOnce();
+    expect(input?.signal.aborted).toBe(false);
   });
 
   it("refreshes guarded surfaces when built-in registration finishes asynchronously", async () => {
@@ -540,6 +620,47 @@ describe("application rendering boundaries", () => {
     expect(unhandled.defaultPrevented).toBe(false);
   });
 
+  it.each(["session-refresh", "workspace-sessions-refresh"] as const)("offers Retry for a persistent %s failure without a reconnect banner", async (recovery: BrowserErrorRecovery) => {
+    window.history.replaceState(null, "", `?${new URLSearchParams({ project: workspace.projectId, workspace: workspace.id, session: session.id })}`);
+    const scope = recovery === "session-refresh"
+      ? sessionBrowserErrorScope("local", session.id, { cwd: session.cwd, projectId: workspace.projectId, workspaceId: workspace.id })
+      : workspaceBrowserErrorScope("local", workspace.projectId, workspace.id);
+    const app = await mountApp({
+      selectedProject: { id: workspace.projectId, name: "Project", path: workspace.path, createdAt: "now" },
+      selectedWorkspace: workspace, selectedSession: session, mainView: "chat",
+      browserErrors: reportBrowserError({}, scope, "Updates could not be refreshed. Check your connection and retry.", recovery),
+    });
+    const sessions: unknown = Reflect.get(app, "sessions");
+    if (!(sessions instanceof SessionController)) throw new Error("Expected SessionController");
+    const refreshSelected = vi.spyOn(sessions, "refreshSelectedSession").mockResolvedValue();
+    const refreshWorkspace = vi.spyOn(sessions, "refreshCurrentWorkspaceSessions").mockResolvedValue();
+    await settle(app);
+    const retry = [...app.shadowRoot?.querySelectorAll<HTMLButtonElement>("main .error button") ?? []].find((button) => button.textContent.trim() === t("ui.errorBanner.retry", "Retry"));
+    if (retry === undefined) throw new Error("Expected a recovery Retry button");
+    retry.click();
+
+    if (recovery === "session-refresh") {
+      expect(refreshSelected).toHaveBeenCalledExactlyOnceWith(session.id, { recoverNetwork: true });
+      expect(refreshWorkspace).not.toHaveBeenCalled();
+    } else {
+      expect(refreshWorkspace).toHaveBeenCalledExactlyOnceWith("local", { recoverNetwork: true });
+      expect(refreshSelected).not.toHaveBeenCalled();
+    }
+    expect(app.shadowRoot?.textContent).not.toContain("Reconnecting");
+  });
+
+  it("does not offer automatic recovery for a failed user action", async () => {
+    window.history.replaceState(null, "", `?${new URLSearchParams({ session: session.id })}`);
+    const app = await mountApp({
+      selectedWorkspace: workspace, selectedSession: session, mainView: "chat",
+      browserErrors: reportBrowserError({}, sessionBrowserErrorScope("local", session.id), "Prompt delivery could not be confirmed"),
+    });
+    await settle(app);
+    expect(app.shadowRoot?.textContent).toContain("Prompt delivery could not be confirmed");
+    const retry = [...app.shadowRoot?.querySelectorAll<HTMLButtonElement>("main .error button") ?? []].find((button) => button.textContent.trim() === t("ui.errorBanner.retry", "Retry"));
+    expect(retry).toBeUndefined();
+  });
+
   it("updates the workspace empty state as project loading completes", async () => {
     const app = await mountApp({ isLoadingProjects: true });
     await settle(app);
@@ -548,6 +669,52 @@ describe("application rendering boundaries", () => {
     await settle(app);
     expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("还没有项目");
   });
+});
+
+function sessionStatus(sessionId: string, warnings: SessionWarning[] = []): SessionStatus {
+  return {
+    sessionId, isStreaming: false, isCompacting: false, isBashRunning: false,
+    recentlyActiveElsewhere: false,
+    pendingMessageCount: 0, queuedMessages: [],
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0,
+    warnings,
+  };
+}
+
+function promptEditor(app: PiWebApp): PromptEditor {
+  const editor = app.shadowRoot?.querySelector("prompt-editor");
+  if (!(editor instanceof PromptEditor)) throw new Error("Expected prompt editor");
+  return editor;
+}
+
+it.each([false, true])("hides only folder workspace UI and retains its workspace context (mobile=%s)", async (mobile) => {
+  const app = await mountApp({
+    selectedProject: { id: "project", name: "Project", path: "/repo/subdir", createdAt: "now" },
+    selectedWorkspace: { ...workspace, path: "/repo/subdir" }, workspaces: [workspace],
+    workspaceResolution: { projectId: "project", status: "folder", diagnostics: [], workspaces: [workspace] },
+    mainView: "navigation",
+  }, (context) => html`<p>${context.state.selectedWorkspace?.path}</p>`);
+  const shell: unknown = Reflect.get(app, "appShell");
+  if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
+  shell.isMobileNavigationLayout = mobile;
+  app.requestUpdate();
+  await settle(app);
+  const navigation = () => app.shadowRoot?.querySelector("app-navigation-panel");
+  const workspaceLabel = t("ui.appContextBar.workspaceOpenWorkspaceSelection", "Workspace: {workspaceLabel}. Open workspace selection.", {
+    workspaceLabel: `${workspace.label}${t("ui.appContextBar.mainWorkspace", " · Main workspace")} · /repo/subdir`,
+  });
+  const workspaceChip = () => [...app.shadowRoot?.querySelector("app-context-bar")?.shadowRoot?.querySelectorAll("button") ?? []]
+    .find((button) => button.getAttribute("aria-label") === workspaceLabel);
+  expect(navigation()?.shadowRoot?.querySelector("workspace-list")).toBeNull();
+  if (mobile) expect(workspaceChip()).toBeUndefined();
+  expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("/repo/subdir");
+
+  for (const status of ["provider", "degraded"] as const) {
+    patchState(app, { workspaceResolution: { projectId: "project", status, diagnostics: [], workspaces: [workspace] } });
+    await settle(app);
+    expect(navigation()?.shadowRoot?.querySelector("workspace-list")).toBeInstanceOf(WorkspaceList);
+    if (mobile) expect(workspaceChip()).toBeDefined();
+  }
 });
 
 async function mountApp(patch: Partial<AppState>, panelRender?: (context: WorkspacePanelContext) => ReturnType<typeof html>, label?: () => string): Promise<RenderOnlyApp> {

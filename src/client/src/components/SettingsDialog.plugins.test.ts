@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { configApi, pluginsApi, type PiWebConfigResponse, type PiWebPluginsResponse } from "../api";
+import { t } from "../i18n";
 import { SettingsDialog } from "./SettingsDialog";
 import { callDialogPromise, callDialogUpdated, configResponse, deferred, getDialogProperty, pluginInfo, pluginsResponse, remoteMachine, secondRemoteMachine, setDialogProperty, stubWindowTimers } from "./SettingsDialog.testSupport";
 
@@ -57,7 +58,7 @@ describe("settings-dialog plugin settings machine targeting", () => {
     expect(saveSpy).toHaveBeenCalledWith({ plugins: { info: { enabled: true } } }, "remote-a");
     expect(pluginsSpy).not.toHaveBeenCalled();
     expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBe(saved);
-    expect(getDialogProperty(dialog, "savedMessage")).toBe("配置已保存。");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.settingsDialog.pluginSettingsSaved", "Plugin settings saved for {machine}.", { machine: remoteMachine.name }));
     expect(getDialogProperty(dialog, "pluginError")).toContain("Lab Mac 不支持插件生命周期诊断");
   });
 
@@ -132,7 +133,7 @@ describe("settings-dialog plugin settings machine targeting", () => {
     expect(pluginsSpy.mock.calls).toEqual([["remote-a"]]);
     expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBe(savedConfig);
     expect(getDialogProperty(dialog, "selectedPluginsResponse")).toBe(refreshedPlugins);
-    expect(getDialogProperty(dialog, "savedMessage")).toBe("配置已保存。");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.settingsDialog.pluginSettingsSaved", "Plugin settings saved for {machine}.", { machine: remoteMachine.name }));
     expect(getDialogProperty(dialog, "saving")).toBe(false);
   });
 
@@ -152,7 +153,7 @@ describe("settings-dialog plugin settings machine targeting", () => {
 
     expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBe(savedConfig);
     expect(getDialogProperty(dialog, "selectedPluginsResponse")).toBeUndefined();
-    expect(getDialogProperty(dialog, "savedMessage")).toBe("配置已保存。");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.settingsDialog.pluginSettingsSaved", "Plugin settings saved for {machine}.", { machine: remoteMachine.name }));
     expect(getDialogProperty(dialog, "pluginError")).toContain("配置已保存，但从 Lab Mac（远程机器） 刷新 PI WEB 插件失败");
   });
 

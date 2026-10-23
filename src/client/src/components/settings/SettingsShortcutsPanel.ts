@@ -3,7 +3,7 @@ import { uiFormStyles } from "../ui/formStyles";
 import { uiButtonStyles } from "../ui/controlStyles";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { t } from "../../i18n";
-import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
+import { css, html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import type { AppAction } from "../../actions";
@@ -58,6 +58,7 @@ export class SettingsShortcutsPanel extends LitElement {
   @state() private localError = "";
   @state() private promptEnterPreference: PromptEnterPreference = readPromptEnterPreference();
   @state() private recording: RecordingState | undefined;
+  private pendingSaves = new Map<string, { action: AppAction; preference: string | null | undefined; draft: string | undefined }>();
   private recordingTimer: number | undefined;
   private recordingListenerActive = false;
 
@@ -84,17 +85,22 @@ export class SettingsShortcutsPanel extends LitElement {
 
     const tokens = [...recording.tokens, token];
     this.localError = "";
-    this.drafts = { [recording.actionId]: tokens.join(" ") };
+    this.drafts = { ...this.drafts, [recording.actionId]: tokens.join(" ") };
     this.recording = { actionId: recording.actionId, tokens };
     if (isComposerShortcut(recording.actionId)) this.stopRecording();
     else this.armRecordingTimer();
   };
 
   protected override willUpdate(changed: PropertyValues<this>): void {
+    if (this.configResponse === undefined || this.loading || this.saving) this.stopRecording();
     if (changed.has("configResponse") && this.configResponse !== undefined) {
-      this.drafts = {};
-      this.localError = "";
-      this.stopRecording();
+      for (const [actionId, pending] of this.pendingSaves) {
+        if (shortcutPreferenceForAction(pending.action, this.configResponse.config.shortcuts) !== pending.preference) continue;
+        if (this.drafts[actionId] === pending.draft) {
+          this.drafts = Object.fromEntries(Object.entries(this.drafts).filter(([id]) => id !== actionId));
+        }
+        this.pendingSaves.delete(actionId);
+      }
     }
   }
 
@@ -116,6 +122,7 @@ export class SettingsShortcutsPanel extends LitElement {
         .onAction=${this.onReload}
       >
         ${this.renderPromptEnterPreferenceCard()}
+        ${this.configResponse === undefined && !this.loading ? html`<p role="status">${t("ui.settingsShortcutsPanel.unavailable", "Shortcut settings are unavailable. Reload settings to try again.")}</p>` : nothing}
         ${this.configResponse === undefined && this.loading ? html`<div class="loading-card">${t("ui.settingsShortcutsPanel.loadingShortcuts", "Loading shortcuts…")}</div>` : html`
           <div class="config-path-card ui-settings-path">
             <span>${t("ui.settingsShortcutsPanel.configurationFile", "Configuration file")}</span>
@@ -205,8 +212,9 @@ export class SettingsShortcutsPanel extends LitElement {
     const displayState = hasDraft && inputText.trim() !== "" ? "custom" : state;
     const recordingHint = this.recordingHint(action.id);
     const conflictLabel = shortcutConflictLabel(resolution);
+    const controlsDisabled = this.loading || this.saving || this.configResponse === undefined;
     return html`
-      <article class=${shortcutRowClass(resolution)}>
+      <article class=${`ui-settings-row ${shortcutRowClass(resolution)}`}>
         <div class="shortcut-main">
           <strong>${action.title}</strong>
           ${action.description !== undefined && action.description !== "" ? html`<small>${action.description}</small>` : null}
@@ -222,23 +230,25 @@ export class SettingsShortcutsPanel extends LitElement {
           <label class="shortcut-input-label">
             <span>${t("ui.settingsShortcutsPanel.shortcut", "Shortcut")}</span>
             <input
-              class="shortcut-input"
+              class="shortcut-input ui-input"
               data-action-id=${action.id}
+              aria-label=${t("ui.settingsShortcutsPanel.shortcutFor", "Shortcut for {title}", { title: action.title })}
+              aria-describedby=${recordingHint !== "" ? `recording-${action.id}` : nothing}
               .value=${inputText}
               placeholder=${action.shortcut ?? "mod+k"}
               autocomplete="off"
               autocapitalize="off"
               spellcheck="false"
-              ?disabled=${this.saving}
+              ?disabled=${controlsDisabled}
               @input=${(event: Event) => { this.updateDraft(action.id, inputValue(event)); }}
             >
           </label>
-          ${recordingHint !== "" ? html`<small class="recording-hint">${recordingHint}</small>` : null}
+          ${recordingHint !== "" ? html`<small class="recording-hint" id=${`recording-${action.id}`} role="status">${recordingHint}</small>` : null}
           <div class="shortcut-actions ui-settings-actions">
-            <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${this.loading || this.saving || !hasDraft || inputText.trim() === ""} @click=${() => { void this.saveShortcut(action); }}>${t("ui.settingsShortcutsPanel.save", "Save")}</button>
-            <button ?disabled=${this.loading || this.saving} @click=${() => { void this.toggleRecording(action.id); }}>${this.recording?.actionId === action.id ? t("ui.settingsShortcutsPanel.cancelRecording", "Cancel recording") : t("ui.settingsShortcutsPanel.record", "Record")}</button>
-            <button ?disabled=${this.loading || this.saving || configured === null} @click=${() => { void this.setShortcutNone(action); }}>${t("ui.settingsShortcutsPanel.none", "None")}</button>
-            <button ?disabled=${this.loading || this.saving || !hasConfiguredShortcut} @click=${() => { void this.resetShortcut(action); }}>${t("ui.settingsShortcutsPanel.reset", "Reset")}</button>
+            <button class="primary ui-button ui-button--action ui-button--primary" aria-label=${t("ui.settingsShortcutsPanel.saveFor", "Save shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled || !hasDraft || inputText.trim() === ""} @click=${() => { void this.saveShortcut(action); }}>${t("ui.settingsShortcutsPanel.save", "Save")}</button>
+            <button aria-label=${this.recording?.actionId === action.id ? t("ui.settingsShortcutsPanel.cancelRecordingFor", "Cancel recording for {title}", { title: action.title }) : t("ui.settingsShortcutsPanel.recordFor", "Record shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled} @click=${() => { void this.toggleRecording(action.id); }}>${this.recording?.actionId === action.id ? t("ui.settingsShortcutsPanel.cancelRecording", "Cancel recording") : t("ui.settingsShortcutsPanel.record", "Record")}</button>
+            <button aria-label=${t("ui.settingsShortcutsPanel.disableFor", "Disable shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled || configured === null} @click=${() => { void this.setShortcutNone(action); }}>${t("ui.settingsShortcutsPanel.none", "None")}</button>
+            <button aria-label=${t("ui.settingsShortcutsPanel.restoreFor", "Restore default shortcut for {title}", { title: action.title })} ?disabled=${controlsDisabled || !hasConfiguredShortcut} @click=${() => { void this.resetShortcut(action); }}>${t("ui.settingsShortcutsPanel.reset", "Reset")}</button>
           </div>
         </div>
       </article>
@@ -261,7 +271,7 @@ export class SettingsShortcutsPanel extends LitElement {
   }
 
   private updateDraft(actionId: string, value: string): void {
-    this.drafts = { [actionId]: value };
+    this.drafts = { ...this.drafts, [actionId]: value };
     this.localError = "";
   }
 
@@ -294,7 +304,8 @@ export class SettingsShortcutsPanel extends LitElement {
   }
 
   private async saveShortcutPreference(action: AppAction, shortcut: string | null | undefined): Promise<void> {
-    const config: PiWebConfigValues = { ...(this.configResponse?.config ?? {}) };
+    if (this.configResponse === undefined || this.onSave === undefined) return;
+    const config: PiWebConfigValues = { ...this.configResponse.config };
     const currentShortcuts = config.shortcuts ?? {};
     const shortcuts = withoutShortcutPreferences(currentShortcuts, [action.id, ...action.shortcutAliases ?? []]);
     if (shortcut !== undefined) shortcuts[action.id] = shortcut;
@@ -303,7 +314,17 @@ export class SettingsShortcutsPanel extends LitElement {
     } else {
       config.shortcuts = shortcuts;
     }
-    await this.onSave?.(config);
+    const pending = { action, preference: shortcut, draft: this.drafts[action.id] };
+    this.pendingSaves.set(action.id, pending);
+    try {
+      // A resolved callback is not acknowledgement: the owner may catch save errors.
+      // Clear the draft only when the returned config contains this preference.
+      await this.onSave(config);
+      this.requestUpdate();
+    } catch (error) {
+      if (this.pendingSaves.get(action.id) === pending) this.pendingSaves.delete(action.id);
+      this.localError = t("ui.settingsShortcutsPanel.saveFailed", "Could not save shortcut. {error}", { error: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   private shortcutResolutions(): Map<string, ShortcutBindingResolution> {

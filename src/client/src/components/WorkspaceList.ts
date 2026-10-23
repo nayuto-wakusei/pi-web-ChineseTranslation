@@ -1,6 +1,7 @@
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { repeat } from "lit/directives/repeat.js";
+import { live } from "lit/directives/live.js";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { trustApi } from "../api";
 import { customElement, property, state } from "lit/decorators.js";
@@ -219,6 +220,8 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     const trust = this.trustByWorkspaceId[workspace.id];
     const busy = trust?.loading === true || trust?.saving === true;
     const inputId = `${workspaceMenuId(workspace.id)}-trusted`;
+    const helpId = `${inputId}-help`;
+    const errorId = `${inputId}-error`;
     if (this.managementMode) return html``;
     return html`
       <div class="workspace-menu-trust">
@@ -227,15 +230,16 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
             <input
               id=${inputId}
               type="checkbox"
-              .checked=${trust?.trusted === true}
+              aria-describedby=${trust?.error === undefined ? helpId : `${helpId} ${errorId}`}
+              .checked=${live(trust?.trusted === true)}
               ?disabled=${busy || trust?.trusted === undefined}
               @change=${(event: Event) => { if (event.target instanceof HTMLInputElement) void this.setTrust(workspace, event.target.checked); }}
             />
             <span>${t("ui.main.28dc9ba9fe2f", "Trusted")}${busy ? "…" : ""}</span>
           </label>
-          <a class="workspace-trust-link" href="https://pi.dev/docs/latest/security" target="_blank" rel="noreferrer">${t("ui.main.4a0d54a22e9b", "Learn about project trust")}</a>
+          <a class="workspace-trust-link" id=${helpId} href="https://pi.dev/docs/latest/security" target="_blank" rel="noreferrer">${t("ui.main.4a0d54a22e9b", "Learn about project trust")}</a>
         </div>
-        ${trust?.error === undefined ? null : html`<small class="workspace-trust-error">${trust.error}</small>`}
+        ${trust?.error === undefined ? null : html`<small class="workspace-trust-error" id=${errorId} role="alert">${trust.error}</small>`}
       </div>
     `;
   }

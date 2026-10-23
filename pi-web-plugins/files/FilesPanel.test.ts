@@ -114,10 +114,13 @@ describe("Files panel component boundary", () => {
     const panel = await mountPanel(context);
 
     await vi.waitFor(() => { expect(panel.shadowRoot?.textContent).toContain("README.md"); });
+    expect(buttonWithText(panel.shadowRoot, "src").getAttribute("aria-expanded")).toBe("false");
     buttonWithText(panel.shadowRoot, "src").click();
     await vi.waitFor(() => { expect(buttonWithText(panel.shadowRoot, "main.ts")).toBeDefined(); });
+    expect(buttonWithText(panel.shadowRoot, "src").getAttribute("aria-expanded")).toBe("true");
     buttonWithText(panel.shadowRoot, "README.md").click();
     await vi.waitFor(() => {
+      expect(buttonWithText(panel.shadowRoot, "README.md").getAttribute("aria-current")).toBe("page");
       const viewer = requiredElement(panel.shadowRoot?.querySelector<HTMLElement & { selectedPath?: string; file?: FileContentResponse }>("pi-web-files-viewer"), "Files viewer");
       expect(viewer.selectedPath).toBe("README.md");
       expect(viewer.file?.content).toBe("contents:README.md");

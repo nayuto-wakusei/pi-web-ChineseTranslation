@@ -14,6 +14,7 @@ export default defineConfig({
         overlays: fileURLToPath(new URL("overlays.html", import.meta.url)),
         chat: fileURLToPath(new URL("chat.html", import.meta.url)),
         composer: fileURLToPath(new URL("composer.html", import.meta.url)),
+        settings: fileURLToPath(new URL("settings.html", import.meta.url)),
       },
     },
   },

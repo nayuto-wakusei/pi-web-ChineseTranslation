@@ -4,6 +4,7 @@ installNativeDialogFake();
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MachineDialog, machineBaseUrlValidationMessage, suggestedMachineNameFromUrl } from "./MachineDialog";
+import { t } from "../i18n";
 import { deepActiveElement, pressKey, requiredElement, settleRenderedDialog } from "./modalSurfaceTestSupport";
 
 afterEach(() => {
@@ -16,6 +17,39 @@ describe("machine-dialog modal surface", () => {
     const dialog = await mountDialog();
 
     expect(deepActiveElement()).toBe(urlInput(dialog));
+  });
+
+  it("associates URL validation, field guidance, and submission errors with their controls", async () => {
+    const dialog = await mountDialog();
+    const url = urlInput(dialog);
+    expect(url.getAttribute("aria-invalid")).toBe("false");
+    expect(description(dialog, url)).toBe(t("ui.machineDialog.enterAnAccessibleBaseUrlIncludingHttpOr", "Enter an accessible base URL, including http:// or https://."));
+
+    url.value = "https://user@devbox.local";
+    url.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    await settleRenderedDialog(dialog);
+    expect(url.getAttribute("aria-invalid")).toBe("true");
+    expect(description(dialog, url)).toBe(t("ui.machineDialog.doNotIncludeCredentialsInTheMachineUrl", "Do not include credentials in the machine URL."));
+    expect(dialog.shadowRoot?.querySelector<HTMLButtonElement>("button[type='submit']")?.disabled).toBe(true);
+
+    url.value = "https://devbox.local";
+    url.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    await settleRenderedDialog(dialog);
+    expect(url.getAttribute("aria-invalid")).toBe("false");
+    expect(description(dialog, nameInput(dialog))).toBe(t("ui.machineDialog.suggestedFromTheUrlChangeItToA", "Suggested from the URL. Change it to a friendly sidebar name."));
+    const token = requiredElement(dialog.shadowRoot?.querySelector<HTMLInputElement>("input[name='token']"), "token input");
+    expect(description(dialog, token)).toBe(t("ui.machineDialog.tokenWithoutPrefix", "If the remote machine requires a token, paste it without the “Bearer” prefix."));
+
+    const name = nameInput(dialog);
+    name.value = " ";
+    name.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    dialog.error = "Could not connect. Check the URL and token.";
+    await settleRenderedDialog(dialog);
+    expect(name.getAttribute("aria-invalid")).toBe("true");
+    expect(description(dialog, name)).toBe(t("ui.machineDialog.enterMachineName", "Enter a machine name."));
+    const form = requiredElement(dialog.shadowRoot?.querySelector("form"), "machine form");
+    expect(description(dialog, form)).toContain("Could not connect");
+    expect(dialog.shadowRoot?.querySelector("header button")?.getAttribute("aria-label")).toBe(t("ui.machineDialog.closeAddMachine", "Close add machine"));
   });
 
   it("cancels on Escape", async () => {
@@ -47,6 +81,12 @@ async function mountDialog(props: { onCancel?: () => void } = {}): Promise<Machi
   document.body.append(dialog);
   await settleRenderedDialog(dialog);
   return dialog;
+}
+
+function description(dialog: MachineDialog, control: Element): string {
+  const id = control.getAttribute("aria-describedby");
+  if (id === null) throw new Error("Expected description id");
+  return requiredElement(dialog.shadowRoot?.getElementById(id), "field description").textContent;
 }
 
 function urlInput(dialog: MachineDialog): HTMLInputElement {

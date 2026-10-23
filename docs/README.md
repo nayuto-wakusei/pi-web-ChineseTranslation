@@ -11,6 +11,7 @@
 | 了解产品、安装和使用 | [网站首页](index.html)、[安装](install.html)、[常见问题](faq.html)、[社区插件](community-plugins.html) |
 | 开始维护代码 | [维护约定](maintenance.md)、[维护者上手](getting-started.md) |
 | 理解整体结构与状态归属 | [架构](development/architecture.md) |
+| 查找共享控件和插件样式入口 | [共享 UI 导航](ui-primitives.md)、[插件样式契约](plugins.md#styles-highlighting-and-display) |
 | 查找模块职责与边界 | [项目与工作区](modules/projects-workspaces.md)、[会话](modules/sessions.md)、[认证与模型](modules/auth-models.md)、[文件与终端](modules/files-terminals.md) |
 | 理解跨机器、插件与配置边界 | [机器/API](modules/machines-api.md)、[插件](modules/plugins.md)、[配置维护](modules/configuration.md) |
 | 管理集成与运行维护 | [管理与审计](admin/management-audit.md)、[运维](admin/operations.md) |

@@ -23,6 +23,7 @@ describe("PI WEB config persistence", () => {
     const requestedConfig = {
       host: "0.0.0.0",
       port: 9000,
+      defaultTheme: { themeId: "custom-theme:night", auto: false },
       allowedHosts: ["example.local"],
       shortcuts: { "core:view.chat": "mod+1", "core:session.stop": null },
       plugins: { "workspace-tasks": { enabled: false, settings: { configPath: ".pi-web/tasks.json" } } },

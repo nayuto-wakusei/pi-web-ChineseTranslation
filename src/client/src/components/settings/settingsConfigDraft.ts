@@ -19,6 +19,15 @@ export interface AgentProfileConfigDraft {
   dir: string;
 }
 
+/** Rebase untouched fields while retaining edits made since the baseline. */
+export function reconcileConfigDraft<T extends object>(draft: T, baseline: T, incoming: T): T {
+  const next = { ...draft };
+  for (const key in incoming) {
+    if (draft[key] === baseline[key]) next[key] = incoming[key];
+  }
+  return next;
+}
+
 export function emptyGatewayServerConfigDraft(): GatewayServerConfigDraft {
   return { host: "", port: "", allowedHostsMode: "list", allowedHostsText: "" };
 }

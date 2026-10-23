@@ -1,5 +1,5 @@
 import type { NavigationFreshness } from "./types";
-import { emptyPage } from "./sessionController.testSupport";
+import { emptyPage, transcriptSnapshotFixture } from "./sessionController.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpRequestError } from "../api/http";
 import { initialAppState } from "../appState";
@@ -20,9 +20,7 @@ describe("SessionController selected-session refresh", () => {
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
     const api: typeof defaultApi = {
       ...defaultApi,
-      messages: () => messages.promise,
-      status: () => selectedStatus.promise,
-      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      transcriptSnapshot: () => transcriptSnapshotFixture(messages.promise, selectedStatus.promise),
       thinkingLevels: () => Promise.resolve({ levels: [] }),
     };
     const controller = new SessionController(
@@ -412,9 +410,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
     const api: typeof defaultApi = {
       ...defaultApi,
-      messages: () => messages.promise,
-      status: () => selectedStatus.promise,
-      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      transcriptSnapshot: () => transcriptSnapshotFixture(messages.promise, selectedStatus.promise),
       thinkingLevels: () => Promise.resolve({ levels: [] }),
     };
     const controller = new SessionController(
@@ -449,9 +445,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession, replacementSession] };
     const api: typeof defaultApi = {
       ...defaultApi,
-      messages: () => messages.promise,
-      status: () => selectedStatus.promise,
-      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      transcriptSnapshot: () => transcriptSnapshotFixture(messages.promise, selectedStatus.promise),
       thinkingLevels: () => Promise.resolve({ levels: [] }),
     };
     const controller = new SessionController(
@@ -478,6 +472,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     expect(state.browserErrors[browserErrorScopeKey(scope)]?.message).toBe("origin selection unavailable");
     expect(state.selectedSession).toBe(replacementSession);
   });
+
 
   it("captures session workspace ownership before a machine switch", async () => {
     const machineA: NonNullable<AppState["selectedMachine"]> = {
@@ -507,9 +502,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     };
     const api: typeof defaultApi = {
       ...defaultApi,
-      messages: () => messages.promise,
-      status: () => Promise.resolve(status(oldSession.id)),
-      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      transcriptSnapshot: () => transcriptSnapshotFixture(messages.promise, status(oldSession.id)),
     };
     const controller = new SessionController(
       () => state,

@@ -7,7 +7,7 @@
 先运行与改动相关的最小测试：
 
 ```sh
-npm test -- src/server/plugins/serverPluginRuntime.test.ts
+npm test -- src/shared/themePreference.test.ts
 ```
 
 跨模块改动合并前运行：
@@ -17,6 +17,10 @@ npm run verify
 ```
 
 该命令包含类型检查、lint、未使用代码分析和普通测试。参考[测试指南](../.agents/skills/testing-guide/SKILL.md)，选择能够证明行为的最小边界。
+
+按 import 选择相关测试不能覆盖所有运行时读取的文件。文档、Docker 资产、包清单和生成产物改动还需显式选择所属检查；空测试集不是通过。本地提交钩子仍使用 `verify:staged`，不以仅 whitespace 检查代替。
+
+弹层、聊天滚动、命中区域和焦点组合需要[隔离浏览器用例](../test-fixtures/browser/)验证真实布局；DOM 单元测试负责事件和状态，不能证明浏览器几何。文档改动先核对链接、路径及相关静态资产，再检查差异；不把某个平台的跳过写成通过。
 
 Windows 上的真实 bash 工具测试可通过 `PI_WEB_TEST_BASH` 指定已安装的 Git Bash；该变量仅供测试 fixture 使用，不修改服务或用户配置。全量检查建议限制 worker，避免冷启动子进程及大目录扫描争抢资源：
 

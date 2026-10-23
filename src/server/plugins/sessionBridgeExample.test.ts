@@ -132,7 +132,10 @@ describe("review backend", () => {
       const record = await fixture.request("start");
       if (!isReview(record)) throw new Error("Missing review");
       const store = new ReviewStore(fixture.dataDirectory);
-      await vi.waitFor(async () => { expect(await store.read(reviewScope("project", "workspace"), record.id)).toMatchObject({ status: "failed" }); });
+      // The backend owns the task and its durable writes. Drain it rather than
+      // imposing a one-second polling deadline on real filesystem syncs.
+      await fixture.activation.dispose();
+      expect(await store.read(reviewScope("project", "workspace"), record.id)).toMatchObject({ status: "failed" });
     } finally { await fixture.stop(); }
   });
   it("reports stale running files as interrupted, and invalid operations cannot create sessions", async () => {

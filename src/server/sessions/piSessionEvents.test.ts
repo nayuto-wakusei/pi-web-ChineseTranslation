@@ -1,10 +1,50 @@
 import { createEventBus } from "../../piSdk.js";
 import { describe, expect, it, vi } from "vitest";
 import { PiSessionService, type PiAgentSession } from "./piSessionService.js";
+import { applyTranscriptEvent } from "../../client/src/chatTranscript.js";
+import { normalizeMessages } from "../../client/src/chatMessages.js";
+import type { ChatLine } from "../../client/src/components/shared.js";
 import { PiSessionEventConnections } from "./piSessionEventConnections.js";
-import { CapturingSessionEventHub, emptyArchiveStore, fakeRuntime, runtimeCreator, sessionGateway, testModelRuntime } from "./piSessionService.testSupport.js";
+import { CapturingSessionEventHub, emptyArchiveStore, fakeRuntime, runtimeCreator, sessionGateway, fakeSessionManager, sessionRecord, sessionRef, testModelRuntime } from "./piSessionService.testSupport.js";
 
 describe("hosted event connection replacement", () => {
+  it("keeps nested codemode calls on the parent transcript row before and after reconnect", async () => {
+    const entries: unknown[] = [];
+    const fake = fakeRuntime("session-1", {
+      sessionManager: fakeSessionManager("/workspace", { getBranch: () => entries }),
+    });
+    const hub = new CapturingSessionEventHub();
+    const service = new PiSessionService(hub, {
+      agentDir: "/tmp/pi-web-events-test", modelRuntime: testModelRuntime,
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("session-1")]), archiveStore: emptyArchiveStore(), heartbeatIntervalMs: 60_000,
+    });
+    try {
+      const ref = sessionRef("session-1");
+      await service.status(ref);
+      entries.push({ type: "message", id: "assistant-call", message: { role: "assistant",
+        content: [{ type: "toolCall", id: "parent", name: "codemode", arguments: { code: "read a file" } }] } });
+      fake.emit({ type: "tool_execution_start", toolCallId: "parent", toolName: "codemode", args: { code: "read a file" } });
+      const result = { content: [{ type: "text", text: "Script completed: marker" }] };
+      for (const type of ["tool_execution_start", "tool_execution_update", "tool_execution_end"]) {
+        fake.emit({ type, toolCallId: "parent/1", parentToolCallId: "parent", toolName: "read", args: { path: "marker.txt" },
+          result, partialResult: result, isError: false });
+      }
+      fake.emit({ type: "tool_execution_end", toolCallId: "parent", toolName: "codemode", result, isError: false });
+      const message = { role: "toolResult", toolCallId: "parent", toolName: "codemode", ...result, isError: false,
+        nestedCalls: { complete: true, calls: [{ id: "parent/1", name: "read", arguments: { path: "marker.txt" }, status: "ok", durationMs: 1 }] } };
+      entries.push({ type: "message", id: "result-entry", message });
+      fake.emit({ type: "message_end", message });
+      const live = hub.sessionEvents.reduce<ChatLine[]>((messages, { event }) => applyTranscriptEvent(messages, event) ?? messages, []);
+      const reconnected = normalizeMessages((await service.messages(ref)).messages);
+      const toolNames = (messages: ChatLine[]) => messages.flatMap((line) => line.parts.flatMap((part) => part.type === "toolExecution" ? [part.toolName] : []));
+      expect(toolNames(live)).toEqual(["codemode"]);
+      expect(toolNames(reconnected)).toEqual(["codemode"]);
+      expect((await service.messages(ref)).messages).toContainEqual(expect.objectContaining({ entryId: "result-entry", nestedCalls: message.nestedCalls }));
+    } finally {
+      await service.dispose();
+    }
+  });
   it("does not connect while the observed session is still initializing extensions", async () => {
     const fake = fakeRuntime("session-1");
     const registry = new PiSessionEventConnections();

@@ -49,7 +49,9 @@ export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest
   const declarations: PiWebPluginRegistrationDeclaration[] = [];
   const registrations: PiWebPluginRegistration[] = [];
   const failures: ExternalPluginLoadFailure[] = [];
-  const selected = manifest.plugins.filter((entry) => options.shouldLoadPlugin?.(entry) !== false);
+  // Discover bundled defaults first so installed plugins can override them.
+  const selected = manifest.plugins.filter((entry) => options.shouldLoadPlugin?.(entry) !== false)
+    .sort((left, right) => Number(right.scope === "bundled") - Number(left.scope === "bundled"));
   const loadModule = options.moduleLoader ?? importPluginModule;
   const imports = new Map<PluginManifestEntry, Promise<PiWebPlugin>>();
   const startImport = (entry: PluginManifestEntry): Promise<PiWebPlugin> => {
@@ -59,13 +61,13 @@ export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest
       const moduleUrl = resolvePluginModuleUrl(entry.module, resolvedManifestUrl);
       return parsePluginModule(await loadPluginModule(moduleUrl, loadModule), moduleUrl);
     })();
-    // Settled in manifest order below; this only prevents an early rejection being reported as unhandled.
+    // Settled in discovery order below; this only prevents an early rejection being reported as unhandled.
     moduleImport.catch(() => undefined);
     imports.set(entry, moduleImport);
     return moduleImport;
   };
   // Download modules in parallel so startup costs one round trip per module depth rather than per
-  // plugin, while still registering in manifest order. A required Terminal loads alone first so its
+  // plugin, while still registering in discovery order. A required Terminal loads alone first so its
   // failure stops before any ordinary plugin module is imported.
   const terminalFirst = manifest.terminalMode === "required" && selected[0]?.id === REQUIRED_TERMINAL_PLUGIN_ID;
   if (!terminalFirst) selected.forEach((entry) => { void startImport(entry); });

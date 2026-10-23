@@ -1,4 +1,5 @@
-import { open, type FileHandle } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, stat, type FileHandle } from "node:fs/promises";
 import { pipeline, Readable, Transform } from "node:stream";
 import type { FileContentMediaType, PiWebPathAccessConfig } from "../../shared/apiTypes.js";
 import { classifyWorkspaceFile, MAX_INLINE_PREVIEW_BYTES, MAX_INLINE_PREVIEW_LABEL, workspaceFileName } from "../../shared/workspaceFiles.js";
@@ -31,12 +32,13 @@ export async function readWorkspaceFilePreview(
 ): Promise<WorkspaceFilePreview> {
   if (path === undefined || path === "") throw new WorkspaceUserError("server.files.pathRequired", "path query parameter is required");
   const { target, displayPath } = await resolveWorkspacePathAccessTarget(rootPath, path, pathAccess);
+  if (!(await stat(target)).isFile()) throw new WorkspaceUserError("server.files.notFile", "Path is not a file");
 
   // Serve only from this descriptor. Path resolution is a snapshot: a rename,
   // symlink swap, or resize after validation must not be able to change which
   // bytes this response carries, how many of them it carries, or whether they
   // are still inside the workspace or an allowed root.
-  const handle = await open(target, "r");
+  const handle = await open(target, constants.O_RDONLY | constants.O_NONBLOCK);
   let streamOwnsHandle = false;
   try {
     const stats = await handle.stat();

@@ -46,7 +46,7 @@ export interface PiWebVersionReportOptions {
   configEnv?: NodeJS.ProcessEnv;
   /** A prior config-selection failure that makes a web/API probe untrustworthy. */
   webEndpointError?: string;
-  /** Injectable HTTP boundary for deterministic readiness tests. */
+  /** Injectable HTTP boundary for local probes and explicit npm release checks. */
   fetch?: typeof globalThis.fetch;
 }
 

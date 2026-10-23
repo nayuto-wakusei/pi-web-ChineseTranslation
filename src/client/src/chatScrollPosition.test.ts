@@ -114,14 +114,25 @@ describe("ChatScrollController", () => {
     expect(scroller.scrollTop).toBe(550);
   });
 
-  it("reports missing stored anchors instead of forcing bottom when requested", () => {
+  it("leaves the viewport unchanged when a stored anchor is missing", () => {
     const storage = new MemoryScrollStorage();
     const controller = new ChatScrollController(storage, new ManualScheduler());
     const position = { mode: "anchor", anchorId: "m:4", offset: 20 };
     storage.setItem(chatScrollStorageKey("s1"), JSON.stringify(position));
     const scroller = new FakeScroller(100, 900, 300, 0, 300);
 
-    expect(controller.restorePosition("s1", scroller, [new FakeArticle(10, 40, "m:9")], { fallbackToBottom: false })).toEqual({ status: "missing", position });
+    expect(controller.restorePosition("s1", scroller, [new FakeArticle(10, 40, "m:9")])).toEqual({ status: "missing", position });
+    expect(scroller.scrollTop).toBe(100);
+  });
+
+
+  it("does not save or restore an unidentified position", () => {
+    const storage = new MemoryScrollStorage();
+    const controller = new ChatScrollController(storage, new ManualScheduler());
+    const scroller = new FakeScroller(100, 900, 300, 0, 300);
+    expect(controller.savePosition("s1", scroller, [new FakeArticle(10, 40)])).toBe("skipped");
+    expect(controller.readPosition("s1")).toBeUndefined();
+    expect(controller.restorePosition("s1", scroller, [])).toEqual({ status: "skipped" });
     expect(scroller.scrollTop).toBe(100);
   });
 
@@ -156,7 +167,6 @@ describe("chat scroll helpers", () => {
 
     expect(findFirstVisibleArticle(scroller, [first, second])).toBe(second);
   });
-
   it("finds a visible article with logarithmic geometry reads", () => {
     let rectReads = 0;
     const articles: ChatScrollElement[] = Array.from({ length: 1024 }, (_, index) => ({
@@ -180,6 +190,8 @@ describe("chat scroll helpers", () => {
 
     expect(findVisibleScrollAnchor(scroller, [wrapper, firstChild, secondChild])).toBe(firstChild);
   });
+
+
 
   it("captures an anchor-relative scroll position", () => {
     expect(captureScrollPosition(new FakeScroller(0, 1000, 100, 100, 200), new FakeArticle(140, 180, "m:3"))).toEqual({ mode: "anchor", anchorId: "m:3", offset: 40 });

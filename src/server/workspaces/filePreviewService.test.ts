@@ -1,4 +1,5 @@
-import { appendFile, symlink, truncate, unlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { appendFile, mkdir, symlink, truncate, unlink, writeFile } from "node:fs/promises";
 import type { Readable } from "node:stream";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,6 +22,18 @@ async function previewText(body: Buffer | Readable): Promise<string> {
 }
 
 describe("readWorkspaceFilePreview", () => {
+  it("rejects a directory with an image extension before opening a preview", async () => {
+    const root = await createTempWorkspace();
+    await mkdir(join(root, "directory.png"));
+    await expect(readWorkspaceFilePreview(root, "directory.png")).rejects.toThrow("Path is not a file");
+  });
+
+  it.skipIf(process.platform === "win32")("rejects an authorized FIFO without blocking the preview", async () => {
+    const root = await createTempWorkspace();
+    execFileSync("mkfifo", [join(root, "pipe.png")]);
+    await expect(readWorkspaceFilePreview(root, "pipe.png")).rejects.toThrow("Path is not a file");
+  });
+
   it("previews only supported types within the preview size limit", async () => {
     const root = await createTempWorkspace();
     await writeFile(join(root, "diagram.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>");

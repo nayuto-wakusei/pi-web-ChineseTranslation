@@ -240,6 +240,8 @@ PI_WEB_MACHINES_FILE=/data/pi-web/machines-dev.json
 
 Omitted keys inherit the shared file (or the application's default when neither file sets them). Explicit Compose `environment:` values still win over either env file. These files use Docker Compose dotenv syntax, not shell scripts.
 
+Both images default to `LANG=C.UTF-8`, giving terminals and agent tools a UTF-8 locale. Set `LANG` or individual `LC_*` values in either container environment file to use another installed locale.
+
 Apply changes by recreating the affected containers. Recreating `sessiond` interrupts active sessions; schedule this when those sessions can be stopped:
 
 ```bash
@@ -404,7 +406,9 @@ Use this shared directory to switch between runtime and dev mode, not to run bot
 
 For sessions to appear under the same workspace in both modes, use the same project path in PI WEB. On Linux, prefer host-mounted paths such as `/home/core/<repo>`, `/srv/<project>`, or `/opt/<project>`. On Mac, prefer paths under `/Users/<you>/...`. The dev container also exposes this checkout as `/workspace` so the PI WEB dev server can run from it, but sessions started against `/workspace` are organized under that different working-directory path and will not line up with runtime sessions for the host-mounted path.
 
-Development startup keeps the persistent `node_modules` volume synchronized with the dependency tree built into the dev image. When `package.json`, `package-lock.json`, the Node image, or another dependency-build input changes, `start` or `update` rebuilds the image and `data-init` refreshes the volume before `sessiond` starts. Manual volume removal is not required.
+Development mode owns one persistent `node_modules` volume, mounted at both `/workspace/node_modules` and `<host-repository-path>/node_modules` inside the application containers. Those two container paths use the same dependency volume; native host npm installations remain separate. This mount layout is not host-write isolation: tools with explicit host access, including `hostexec`, can still modify host files.
+
+Development startup keeps that volume synchronized with the dependency tree built into the dev image. When `package.json`, `package-lock.json`, the Node image, or another dependency-build input changes, `start` or `update` rebuilds the image and `data-init` refreshes the volume before `sessiond` starts. Unchanged dependency-build inputs can reuse Docker's build cache; updates do not force an unnecessary reinstall. Manual volume removal is not required.
 
 If Compose is invoked directly without rebuilding after a manifest change, `data-init` stops with a mismatch message instead of starting against stale dependencies. Run `./docker/pi-web-docker --dev start` or `./docker/pi-web-docker --dev update` to rebuild and synchronize it.
 

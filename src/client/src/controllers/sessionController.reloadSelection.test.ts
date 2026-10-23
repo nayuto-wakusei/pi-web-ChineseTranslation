@@ -210,7 +210,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
       restore: () => restoreRequest.promise,
       messages: () => Promise.resolve(emptyPage),
       status: () => Promise.resolve(status(archivedSession.id)),
-      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+      transcriptSnapshot: () => Promise.resolve({ page: emptyPage, status: status(archivedSession.id), seq: 0, partial: null }),
       thinkingLevels: () => Promise.resolve({ levels: [] }),
     };
     const controller = new SessionController(
@@ -331,6 +331,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     expect(state.selectedSession).toBe(nextSession);
     expect(state.sessions).toEqual([nextSession]);
   });
+
 
   it("does not reload sessions from disk without a persisted server signal", async () => {
     const reloadCalls: string[] = [];

@@ -19,6 +19,22 @@ describe("canRemoveMachine", () => {
   });
 });
 
+it("shows native remote-machine actions and reconciles dismissal before reopening", async () => {
+  const list = await mountMachineList([machine("local", "local"), machine("remote-a", "remote")]);
+  list.onRemove = () => undefined; await list.updateComplete;
+  const trigger = rowFor(list, "remote-a").querySelector<HTMLButtonElement>(".action-menu-toggle");
+  if (!trigger) throw new Error("Missing remote actions trigger");
+  trigger.click(); await list.updateComplete;
+  const panel = list.shadowRoot?.querySelector<HTMLElement>("[popover]");
+  expect(panel?.getRootNode()).toBe(list.shadowRoot);
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  panel?.hidePopover(); await list.updateComplete;
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(list.shadowRoot?.querySelector("[popover]")).toBeNull();
+  trigger.click(); await list.updateComplete;
+  expect(list.shadowRoot?.querySelector("[popover]")).not.toBeNull();
+});
+
 describe("machine status indicator", () => {
   it("shows an unread dot only on machines whose snapshot reports unread, including offline ones", async () => {
     const list = await mountMachineList(

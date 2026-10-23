@@ -14,6 +14,26 @@ afterEach(() => {
 });
 
 describe("external plugin manifests", () => {
+  it("discovers bundled defaults before installed plugins regardless of import completion", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({
+      lifecycleVersion: 2, terminalMode: "recovery-disabled",
+      plugins: [
+        { id: "another-highlighter", module: "./another.js", scope: "local" },
+        { id: "pi-web.code-highlight", module: "./highlight.js", source: "bundled", scope: "bundled" },
+        { id: "mermaid", module: "./mermaid.js", scope: "local" },
+      ],
+    })))));
+    const completed: string[] = [];
+    const result = await loadExternalPlugins(undefined, { moduleLoader: async (url) => {
+      if (url.endsWith("highlight.js")) await Promise.resolve();
+      completed.push(url);
+      return { default: { apiVersion: 5, name: url, activate: () => ({ contributions: {} }) } };
+    } });
+    expect(completed[0]).toContain("another.js");
+    expect(result.declarations.map(({ id }) => id)).toEqual(["pi-web.code-highlight", "another-highlighter", "mermaid"]);
+    expect(result.registrations.map(({ id }) => id)).toEqual(["pi-web.code-highlight", "another-highlighter", "mermaid"]);
+  });
+
   it("treats a missing default manifest as an explicit required-load failure", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 404, statusText: "Not Found" })));
     vi.stubGlobal("fetch", fetchMock);
@@ -166,6 +186,81 @@ describe("external plugin manifests", () => {
     });
     expect(moduleLoader).toHaveBeenCalledOnce();
     expect(moduleLoader.mock.calls[0]?.[0]).toContain("/pi-web.terminal/");
+  });
+
+  it("starts ordinary plugin imports together after required Terminal and registers them in manifest order", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({
+      lifecycleVersion: 2,
+      terminalMode: "required",
+      plugins: [
+        {
+          id: "pi-web.terminal",
+          module: "./pi-web.terminal/pi-web-plugin.js",
+          backendRevision: "terminal-r1",
+          pairedRequestVersion: 1,
+          pairedChannelVersion: 1,
+          source: "bundled",
+          scope: "bundled",
+          machineSpecific: true,
+        },
+        { id: "first", module: "./first/pi-web-plugin.js", machineSpecific: false },
+        { id: "second", module: "./second/pi-web-plugin.js", machineSpecific: false },
+      ],
+    })))));
+    const resolvers = new Map<string, () => void>();
+    const moduleLoader = vi.fn((moduleUrl: string) => {
+      const id = ["pi-web.terminal", "first", "second"].find((candidate) => moduleUrl.includes(`/${candidate}/`)) ?? "unknown";
+      return new Promise((resolve) => {
+        resolvers.set(id, () => { resolve({ default: { apiVersion: 4, name: id, activate: () => ({ contributions: {} }) } }); });
+      });
+    });
+
+    const loading = loadExternalPlugins(undefined, { moduleLoader });
+    await vi.waitFor(() => { expect(moduleLoader).toHaveBeenCalledOnce(); });
+    resolvers.get("pi-web.terminal")?.();
+    await vi.waitFor(() => { expect(moduleLoader).toHaveBeenCalledTimes(3); });
+    resolvers.get("second")?.();
+    resolvers.get("first")?.();
+    const result = await loading;
+
+    expect(result.registrations.map(({ id }) => id)).toEqual(["pi-web.terminal", "first", "second"]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("retains an early ordinary import failure while an earlier import is pending", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({
+      lifecycleVersion: 2,
+      terminalMode: "recovery-disabled",
+      plugins: [
+        { id: "first", module: "./first/plugin.js" },
+        { id: "failed", module: "./failed/plugin.js" },
+        { id: "last", module: "./last/plugin.js" },
+      ],
+    })))));
+    let resolveFirst!: (module: unknown) => void;
+    const firstImport = new Promise<unknown>((resolve) => { resolveFirst = resolve; });
+    const failure = new Error("ordinary module unavailable");
+    const moduleLoader = vi.fn((moduleUrl: string) => {
+      if (moduleUrl.includes("/first/")) return firstImport;
+      if (moduleUrl.includes("/failed/")) return Promise.reject(failure);
+      return Promise.resolve({ default: { apiVersion: 4, name: "Last", activate: () => ({ contributions: {} }) } });
+    });
+
+    const loading = loadExternalPlugins(undefined, { moduleLoader });
+    try {
+      await vi.waitFor(() => { expect(moduleLoader).toHaveBeenCalledTimes(3); });
+      // Cross an event-loop turn while the first import is pending: Vitest must not
+      // observe an unhandled rejection from the later, already-failed import.
+      await new Promise<void>((resolve) => { setImmediate(resolve); });
+    } finally {
+      resolveFirst({ default: { apiVersion: 4, name: "First", activate: () => ({ contributions: {} }) } });
+      await loading;
+    }
+    const result = await loading;
+
+    expect(result.declarations.map(({ id }) => id)).toEqual(["first", "failed", "last"]);
+    expect(result.registrations.map(({ id }) => id)).toEqual(["first", "last"]);
+    expect(result.failures).toEqual([{ entry: { id: "failed", module: "./failed/plugin.js", machineSpecific: false }, error: failure }]);
   });
 
   it("attributes unsupported browser API versions to the plugin module", async () => {

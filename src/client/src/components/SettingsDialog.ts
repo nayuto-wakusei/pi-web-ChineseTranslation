@@ -3,6 +3,8 @@ import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { cache } from "lit/directives/cache.js";
+import { live } from "lit/directives/live.js";
 import "./ModalSurface";
 import type { ModalSurface } from "./ModalSurface";
 import type { AppAction } from "../actions";
@@ -11,6 +13,8 @@ import type { SettingsSection } from "../settingsRoute";
 import type { McpAuthContext, McpAuthHandler } from "./settings/SettingsMcpPanel";
 import "./settings/SettingsMcpPanel";
 import "./settings/SettingsGeneralPanel";
+import type { SettingsGeneralPanel } from "./settings/SettingsGeneralPanel";
+import type { MachineHealth } from "../api";
 import "./settings/SettingsThemePanel";
 import type { QualifiedThemeContribution } from "../plugins/types";
 import { DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../theme";
@@ -46,6 +50,12 @@ export class SettingsDialog extends LitElement {
   @property({ attribute: false, hasChanged: (next: AuthRequestTarget | undefined, previous: AuthRequestTarget | undefined) => next?.machineId !== previous?.machineId || next?.projectId !== previous?.projectId }) namingModelsTarget: AuthRequestTarget | undefined;
   @property({ attribute: false }) machine: Machine | undefined;
   @property({ attribute: false }) machineRuntime: MachineRuntime | undefined;
+  @property({ attribute: false }) machines: Machine[] = [];
+  @property({ attribute: false }) machineStatuses: Record<string, MachineHealth> = {};
+  @property({ attribute: false }) machineRuntimes: Record<string, MachineRuntime> = {};
+  @state() private settingsMachineId: string | undefined;
+  @state() private pendingMachineId: string | undefined;
+  private generalPanel: SettingsGeneralPanel | undefined;
   @property({ attribute: false }) onNavigate?: (section: SettingsSection) => void;
   @property({ attribute: false }) onClose?: () => void;
   @property({ attribute: false }) onConfigSaved?: (config: PiWebConfigValues) => void;
@@ -73,6 +83,7 @@ export class SettingsDialog extends LitElement {
   @state() private pluginError = "";
   @state() private packageError = "";
   @state() private savedMessage = "";
+  @state() private savedSection: SettingsSection | undefined;
   @state() private packageMessage = "";
   private savedMessageTimer: number | undefined;
   private loadRequestSeq = 0;
@@ -107,9 +118,18 @@ export class SettingsDialog extends LitElement {
         if (this.isConnected) this.renderRoot.querySelector(".settings-nav button.selected")?.scrollIntoView({ block: "nearest", inline: "nearest" });
       });
     }
+
+    if (this.isConnected) {
+      const generalPanel = this.renderRoot.querySelector<SettingsGeneralPanel>("settings-general-panel");
+      if (generalPanel !== null) this.generalPanel = generalPanel;
+    }
     const currentTarget = this.settingsTarget();
-    if (changed.has("machine")) {
-      const previousTarget = settingsMachineTarget(changed.get("machine"));
+    if (changed.has("machine") || changed.has("machines")) {
+      const previousTarget = settingsMachineTarget(this.selectedSettingsMachine(
+        changed.has("machines") ? changed.get("machines") ?? [] : this.machines,
+        changed.has("machine") ? changed.get("machine") : this.machine,
+        this.settingsMachineId,
+      ));
       if (previousTarget.id !== currentTarget.id) {
         this.resetAccessStateForTargetChange();
         if (this.isConnected) void this.loadAccessConfigForTarget(currentTarget);
@@ -123,10 +143,15 @@ export class SettingsDialog extends LitElement {
       }
     }
 
-    if (!changed.has("machineRuntime")) return;
-    const lifecycleChanged = selectedMachineSettingsSupportKey(pluginLifecycleSupport(currentTarget, changed.get("machineRuntime")))
-      !== selectedMachineSettingsSupportKey(pluginLifecycleSupport(currentTarget, this.machineRuntime));
-    if (this.selectedMachineSettingsSupportNeedsReload(changed.get("machineRuntime"), currentTarget)) {
+    if (!changed.has("machineRuntime") && !changed.has("machineRuntimes")) return;
+    const previousRuntime = this.settingsRuntime(
+      changed.has("machineRuntimes") ? changed.get("machineRuntimes") ?? {} : this.machineRuntimes,
+      changed.has("machineRuntime") ? changed.get("machineRuntime") : this.machineRuntime,
+      currentTarget,
+    );
+    const lifecycleChanged = selectedMachineSettingsSupportKey(pluginLifecycleSupport(currentTarget, previousRuntime))
+      !== selectedMachineSettingsSupportKey(pluginLifecycleSupport(currentTarget, this.settingsRuntime(this.machineRuntimes, this.machineRuntime, currentTarget)));
+    if (this.selectedMachineSettingsSupportNeedsReload(previousRuntime, currentTarget)) {
       this.resetAccessStateForTargetChange();
       if (this.isConnected) void this.loadAccessConfigForTarget(currentTarget);
       this.resetSessiondStateForTargetChange();
@@ -136,7 +161,7 @@ export class SettingsDialog extends LitElement {
       this.resetPluginStateForTargetChange();
       if (this.isConnected) void this.loadPluginsForTarget(currentTarget);
     }
-    if (!this.packageManagementSupportNeedsReload(changed.get("machineRuntime"), currentTarget)) return;
+    if (!this.packageManagementSupportNeedsReload(previousRuntime, currentTarget)) return;
     this.resetPackageStateForTargetChange();
     if (this.isConnected) void this.loadPackagesForTarget(currentTarget);
   }
@@ -144,12 +169,9 @@ export class SettingsDialog extends LitElement {
   override render(): TemplateResult {
     return html`
       <modal-surface .onClose=${() => this.onClose?.()} .busy=${this.saving} .label=${t("ui.settingsDialog.piWebSettings", "PI WEB settings")}>
-          <header class="settings-header">
-            <div>
-              <span class="eyebrow">${t("ui.settingsDialog.settings", "Settings")}</span>
-              <h1>PI WEB</h1>
-            </div>
-            <button class="close-button" title="${t("ui.settingsDialog.closeSettings", "Close settings")}" aria-label="${t("ui.settingsDialog.closeSettings", "Close settings")}" @click=${() => this.onClose?.()}>×</button>
+          <header class="settings-header ui-dialog-header">
+            <h1 class="ui-dialog-title">${t("ui.settingsDialog.settings", "Settings")}</h1>
+            <button type="button" class="close-button ui-button ui-button--icon" title="${t("ui.settingsDialog.closeSettings", "Close settings")}" aria-label="${t("ui.settingsDialog.closeSettings", "Close settings")}" @click=${() => this.onClose?.()}>×</button>
           </header>
           <div class="settings-body">
             <nav class="settings-nav" aria-label="${t("ui.settingsDialog.settingsSections", "Settings sections")}">
@@ -160,11 +182,84 @@ export class SettingsDialog extends LitElement {
               ${this.renderNavButton("mcp", "MCP", t("ui.mcp.selectedSession", "Selected session"))}
               ${this.renderNavButton("shortcuts", t("ui.settingsDialog.keyboard", "Keyboard"), t("ui.settingsDialog.gatewayShortcuts", "Gateway shortcuts"))}
             </nav>
-            <main class="settings-content">
-              ${this.renderActiveSection()}
+            <main class="settings-main">
+              ${this.renderMachineSelector()}
+              ${this.renderMachineSwitchConfirmation()}
+              <div class="settings-content">${cache(this.renderActiveSection())}</div>
             </main>
           </div>
       </modal-surface>
+    `;
+  }
+
+  private renderMachineSelector(): TemplateResult | null {
+    if (this.machines.length <= 1) return null;
+    const target = this.settingsTarget();
+    const health = this.machineStatuses[target.id];
+    const machine = this.machines.find((candidate) => candidate.id === target.id);
+    const runtime = this.settingsRuntime(this.machineRuntimes, this.machineRuntime, target);
+    const status = health?.status ?? (health === undefined ? machine?.status ?? (runtime === undefined ? "unknown" : runtime.ok ? "online" : "offline") : health.ok ? "online" : "offline");
+    const statusLabel = status === "online" ? t("ui.settingsDialog.machineConnected", "Connected") : status === "unknown" ? t("ui.settingsDialog.machineUnchecked", "Connection not checked") : t("ui.settingsDialog.machineUnavailable", "Unavailable");
+    const unavailable = status === "offline" || status === "error";
+    const statusMessage = unavailable ? health?.error ?? machine?.statusMessage ?? runtime?.error : undefined;
+    return html`
+      <div class="settings-machine">
+        <label for="settings-machine">${t("ui.settingsDialog.configureMachine", "Configure machine")}</label>
+        <select class="ui-select" id="settings-machine" aria-describedby=${unavailable ? "settings-machine-help settings-machine-status settings-machine-error" : "settings-machine-help settings-machine-status"} .value=${live(target.id)} ?disabled=${this.saving} @change=${(event: Event) => {
+          if (event.target instanceof HTMLSelectElement) this.requestMachineSwitch(event.target.value);
+        }}>
+          ${this.machines.map((candidate) => html`<option value=${candidate.id}>${candidate.name}${candidate.kind === "local" ? t("ui.settingsDialog.thisGateway", " (this gateway)") : ""}</option>`)}
+        </select>
+        <small id="settings-machine-status" class=${unavailable ? "machine-status unavailable" : "machine-status"} role="status">${statusLabel}</small>
+        <details class="machine-scope">
+          <summary>${t("ui.settingsDialog.machineScopeTitle", "What changes?")}</summary>
+          <p id="settings-machine-help">${t("ui.settingsDialog.machineScope", "Agent permissions, packages, plugins, file access, and upload settings apply to this machine. Gateway settings, the default theme, and keyboard shortcuts stay on this server. Your browser theme, workspace, and session stay unchanged.")}</p>
+        </details>
+        ${unavailable ? html`<p id="settings-machine-error" class="machine-connection-error" role="status">${statusMessage ?? t("ui.settingsDialog.machineUnavailableMessage", "This machine is unavailable.")}<br>${t("ui.settingsDialog.checkMachineConnection", "Check the machine connection, then refresh settings.")}</p>` : null}
+      </div>
+    `;
+  }
+
+  private requestMachineSwitch(machineId: string): void {
+    if (this.saving || !this.machines.some((machine) => machine.id === machineId)) return;
+    if (machineId === this.settingsTarget().id) {
+      this.pendingMachineId = undefined;
+    } else if (this.generalPanel?.hasUnsavedMachineChanges === true) {
+      this.pendingMachineId = machineId;
+    } else {
+      this.switchSettingsMachine(machineId);
+    }
+    // A pending confirmation keeps the native select on the current target.
+    this.requestUpdate();
+  }
+
+  private switchSettingsMachine(machineId: string): void {
+    this.settingsMachineId = machineId;
+    this.pendingMachineId = undefined;
+    this.reloadForTargetChange(this.settingsTarget());
+  }
+
+  private reloadForTargetChange(target: SettingsMachineTarget): void {
+    this.resetAccessStateForTargetChange();
+    this.resetSessiondStateForTargetChange();
+    this.resetPluginStateForTargetChange();
+    this.resetPackageStateForTargetChange();
+    if (!this.isConnected) return;
+    void this.loadAccessConfigForTarget(target);
+    void this.reloadSessiondState(target);
+    void this.loadPluginsForTarget(target);
+    void this.loadPackagesForTarget(target);
+  }
+
+  private renderMachineSwitchConfirmation(): TemplateResult | null {
+    const pending = this.machines.find((machine) => machine.id === this.pendingMachineId);
+    if (pending === undefined) return null;
+    return html`
+      <section class="machine-switch-confirmation" role="alert" aria-label=${t("ui.settingsDialog.unsavedMachineSettings", "Unsaved machine settings")}>
+        <p>${t("ui.settingsDialog.confirmMachineSwitch", "You have unsaved file access or upload settings for {current}. Discard them and configure {next}?", { current: this.settingsTarget().name, next: pending.name })}</p>
+        <button class="ui-button ui-button--action danger" ?disabled=${this.saving} @click=${() => { this.generalPanel?.discardMachineChanges(); this.switchSettingsMachine(pending.id); }}>${t("ui.settingsDialog.discardAndSwitch", "Discard edits and switch")}</button>
+        <button class="ui-button ui-button--action" @click=${() => { this.pendingMachineId = undefined; }}>${t("ui.settingsDialog.keepEditing", "Keep editing")}</button>
+      </section>
     `;
   }
 
@@ -193,9 +288,9 @@ export class SettingsDialog extends LitElement {
           .loading=${this.sessiondLoading}
           .saving=${this.saving}
           .error=${this.sessiondError}
-          .savedMessage=${this.savedMessage}
+          .savedMessage=${this.savedSection === "sessiond" ? this.savedMessage : ""}
           .targetLabel=${settingsMachineTargetLabel(this.settingsTarget())}
-          .activeAgentProfile=${this.machineRuntime?.components?.sessiond.activeAgentProfile}
+          .activeAgentProfile=${this.settingsRuntime(this.machineRuntimes, this.machineRuntime, this.settingsTarget())?.components?.sessiond.activeAgentProfile}
           .agentProfileSupport=${this.agentProfileSettingsSupport()}
           .onReload=${() => this.reloadSessiondState()}
           .onSave=${(config: PiWebConfigValues) => this.saveSessiondConfig(config, target)}
@@ -210,7 +305,7 @@ export class SettingsDialog extends LitElement {
           .loading=${this.loading}
           .saving=${this.saving}
           .error=${this.error}
-          .savedMessage=${this.savedMessage}
+          .savedMessage=${this.savedSection === "shortcuts" ? this.savedMessage : ""}
           .onReload=${() => this.loadConfig()}
           .onSave=${(config: PiWebConfigValues) => this.saveConfig(config)}
         ></settings-shortcuts-panel>
@@ -240,9 +335,9 @@ export class SettingsDialog extends LitElement {
           .pluginsResponse=${this.selectedPluginsResponse}
           .loading=${this.pluginLoading}
           .saving=${this.saving}
-          .recoveryCommandsSupported=${pluginLifecycleSupport(this.settingsTarget(), this.machineRuntime).state === "supported"}
+          .recoveryCommandsSupported=${pluginLifecycleSupport(this.settingsTarget(), this.settingsRuntime(this.machineRuntimes, this.machineRuntime, this.settingsTarget())).state === "supported"}
           .error=${this.pluginError}
-          .savedMessage=${this.savedMessage}
+          .savedMessage=${this.savedSection === "plugins" ? this.savedMessage : ""}
           .targetLabel=${settingsMachineTargetLabel(this.settingsTarget())}
           .onReload=${() => this.loadPluginsForTarget()}
           .onTogglePlugin=${(pluginId: string, enabled: boolean) => this.togglePlugin(pluginId, enabled)}
@@ -258,8 +353,9 @@ export class SettingsDialog extends LitElement {
         .saving=${this.saving}
         .error=${this.error}
         .machineError=${this.accessError}
-        .savedMessage=${this.savedMessage}
+        .savedMessage=${this.savedSection === "general" ? this.savedMessage : ""}
         .targetLabel=${settingsMachineTargetLabel(this.settingsTarget())}
+        .targetId=${this.settingsTarget().id}
         .onReload=${() => this.loadConfig()}
         .onReloadMachine=${() => this.loadAccessConfigForTarget()}
         .onSave=${(config: PiWebConfigValues) => this.saveConfig(config)}
@@ -285,7 +381,7 @@ export class SettingsDialog extends LitElement {
   private renderNavButton(section: SettingsSection, label: string, detail: string): TemplateResult {
     const selected = this.section === section;
     return html`
-      <button class=${selected ? "selected" : ""} aria-current=${selected ? "page" : "false"} @click=${() => { this.navigate(section); }}>
+      <button class=${`ui-button ui-selection-option${selected ? " selected" : ""}`} aria-current=${selected ? "page" : "false"} @click=${() => { this.navigate(section); }}>
         <strong>${label}</strong>
         <small>${detail}</small>
       </button>
@@ -411,7 +507,7 @@ export class SettingsDialog extends LitElement {
     this.pluginLoading = true;
     this.pluginError = "";
     try {
-      const lifecycleSupport = pluginLifecycleSupport(target, this.machineRuntime);
+      const lifecycleSupport = pluginLifecycleSupport(target, this.settingsRuntime(this.machineRuntimes, this.machineRuntime, target));
       if (isSelectedMachineSettingsUnsupported(lifecycleSupport)) {
         try {
           const config = await configApi.config(target.id);
@@ -482,7 +578,7 @@ export class SettingsDialog extends LitElement {
         this.configResponse = mergeSelectedMachinePluginConfig(this.configResponse, response);
         this.onConfigSaved?.(this.configResponse.effectiveConfig);
       }
-      const lifecycleSupport = pluginLifecycleSupport(target, this.machineRuntime);
+      const lifecycleSupport = pluginLifecycleSupport(target, this.settingsRuntime(this.machineRuntimes, this.machineRuntime, target));
       let pluginRefreshError: string | undefined;
       if (isSelectedMachineSettingsUnsupported(lifecycleSupport)) {
         this.selectedPluginsResponse = undefined;
@@ -492,7 +588,7 @@ export class SettingsDialog extends LitElement {
       }
       if (!this.isCurrentSettingsTarget(target)) return;
       if (pluginRefreshError !== undefined) this.pluginError = pluginRefreshError;
-      this.showSavedMessage();
+      this.showSavedMessage(t("ui.settingsDialog.pluginSettingsSaved", "Plugin settings saved for {machine}.", { machine: target.name }), "plugins");
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
         this.pluginError = t("ui.settingsDialog.failedToSavePiWebPluginConfigurationOn", "Failed to save PI WEB plugin configuration on {value1}: {value2}", { value1: settingsMachineTargetLabel(target), value2: friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target) });
@@ -504,6 +600,7 @@ export class SettingsDialog extends LitElement {
 
   private async saveConfig(config: PiWebConfigValues): Promise<void> {
     if (this.saving) return;
+    const section = this.section === "shortcuts" ? "shortcuts" : "general";
     this.saving = true;
     this.error = "";
     this.savedMessage = "";
@@ -511,7 +608,7 @@ export class SettingsDialog extends LitElement {
       const response = await configApi.saveConfig(config);
       this.configResponse = response;
       this.onConfigSaved?.(response.effectiveConfig);
-      this.showSavedMessage();
+      this.showSavedMessage(section === "shortcuts" ? t("ui.settingsDialog.keyboardSaved", "Keyboard settings saved.") : t("ui.settingsDialog.gatewaySaved", "Gateway settings saved. Restart the web service to apply address changes."), section);
     } catch (error) {
       this.error = t("ui.settingsDialog.failedToSaveConfiguration", "Failed to save configuration: {errorMessageerror}", { errorMessageerror: errorMessage(error) });
     } finally {
@@ -533,7 +630,7 @@ export class SettingsDialog extends LitElement {
       const response = await configApi.saveConfig({ ...current.config, defaultTheme: preference });
       this.configResponse = response;
       this.onConfigSaved?.(response.effectiveConfig);
-      this.showSavedMessage();
+      this.showSavedMessage(t("ui.settingsDialog.configurationSaved", "Configuration saved."), "general");
     } catch (error) {
       this.error = t("ui.settingsThemePanel.saveFailed", "Failed to save default theme: {message}", { message: errorMessage(error) });
     } finally {
@@ -560,7 +657,7 @@ export class SettingsDialog extends LitElement {
         this.configResponse = mergeSelectedMachineAccessConfig(this.configResponse, response);
         this.onConfigSaved?.(this.configResponse.effectiveConfig);
       }
-      this.showSavedMessage();
+      this.showSavedMessage(t("ui.settingsDialog.fileSettingsSaved", "File access and upload settings saved for {machine}.", { machine: target.name }), "general");
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
         this.accessError = t("ui.settingsDialog.failedToSaveFileAccessUploadConfigurationOn", "Failed to save file access/upload configuration on {value1}: {value2}", { value1: settingsMachineTargetLabel(target), value2: friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target) });
@@ -596,7 +693,7 @@ export class SettingsDialog extends LitElement {
       const namingOnly = Object.keys(config).length === 1 && config.sessionNaming !== undefined;
       this.showSavedMessage(namingOnly
         ? t("ui.sessionNaming.saved", "Session naming settings saved for {machine}. They apply to the next naming request without a restart. Existing names and in-progress naming requests are unchanged.", { machine: target.name })
-        : t("ui.sessionNaming.daemonSaved", "Session daemon settings saved for {machine}. Restart the session daemon to apply agent permission changes. Restarting interrupts active sessions.{naming}", { machine: target.name, naming: config.sessionNaming === undefined ? "" : t("ui.sessionNaming.nextRequest", " Naming changes apply to the next naming request without a restart.") }));
+        : t("ui.sessionNaming.daemonSaved", "Session daemon settings saved for {machine}. Restart the session daemon to apply agent permission changes. Restarting interrupts active sessions.{naming}", { machine: target.name, naming: config.sessionNaming === undefined ? "" : t("ui.sessionNaming.nextRequest", " Naming changes apply to the next naming request without a restart.") }), "sessiond");
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
         this.sessiondError = t("ui.settingsDialog.failedToSaveSessionDaemonConfigurationOn", "Failed to save session daemon configuration on {value1}: {value2}", { value1: settingsMachineTargetLabel(target), value2: friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target) });
@@ -674,8 +771,19 @@ export class SettingsDialog extends LitElement {
     }
   }
 
+  private selectedSettingsMachine(machines: Machine[], machine: Machine | undefined, selectedId: string | undefined): Machine | undefined {
+    if (machines.length === 0) return machine;
+    return machines.find((candidate) => candidate.id === (selectedId ?? machine?.id))
+      ?? machines.find((candidate) => candidate.kind === "local")
+      ?? machines[0];
+  }
+
   private settingsTarget(): SettingsMachineTarget {
-    return settingsMachineTarget(this.machine);
+    return settingsMachineTarget(this.selectedSettingsMachine(this.machines, this.machine, this.settingsMachineId));
+  }
+
+  private settingsRuntime(runtimes: Record<string, MachineRuntime>, runtime: MachineRuntime | undefined, target: SettingsMachineTarget): MachineRuntime | undefined {
+    return runtimes[target.id] ?? (runtime?.machineId === target.id ? runtime : undefined);
   }
 
   private packageTarget(): PiPackageTargetContext {
@@ -683,11 +791,11 @@ export class SettingsDialog extends LitElement {
   }
 
   private selectedMachineSettingsSupport(target = this.settingsTarget()): SelectedMachineSettingsSupport {
-    return selectedMachineSettingsSupport(target, this.machineRuntime);
+    return selectedMachineSettingsSupport(target, this.settingsRuntime(this.machineRuntimes, this.machineRuntime, target));
   }
 
   private agentProfileSettingsSupport(target = this.settingsTarget()): AgentProfileSettingsSupport {
-    return agentProfileSettingsSupport(target, this.machineRuntime);
+    return agentProfileSettingsSupport(target, this.settingsRuntime(this.machineRuntimes, this.machineRuntime, target));
   }
 
   private selectedMachineSettingsSupportNeedsReload(previousRuntime: MachineRuntime | undefined, target: SettingsMachineTarget): boolean {
@@ -697,7 +805,7 @@ export class SettingsDialog extends LitElement {
   }
 
   private packageManagementSupport(target = this.packageTarget()): PiPackageManagementSupport {
-    return piPackageManagementSupport(target, this.machineRuntime);
+    return piPackageManagementSupport(target, this.settingsRuntime(this.machineRuntimes, this.machineRuntime, target));
   }
 
   private packageManagementSupportNeedsReload(previousRuntime: MachineRuntime | undefined, target: PiPackageTargetContext): boolean {
@@ -780,8 +888,9 @@ export class SettingsDialog extends LitElement {
     if (hadPackageOperation) this.saving = false;
   }
 
-  private showSavedMessage(message = t("ui.settingsDialog.configurationSaved", "Configuration saved.")): void {
+  private showSavedMessage(message = t("ui.settingsDialog.configurationSaved", "Configuration saved."), section: SettingsSection = this.section): void {
     this.savedMessage = message;
+    this.savedSection = section;
     if (this.savedMessageTimer !== undefined) window.clearTimeout(this.savedMessageTimer);
     this.savedMessageTimer = window.setTimeout(() => {
       if (this.savedMessage === message) this.savedMessage = "";

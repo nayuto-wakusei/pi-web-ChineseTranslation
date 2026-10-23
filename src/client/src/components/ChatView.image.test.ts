@@ -8,18 +8,25 @@ import { ImageGalleryDialog } from "./ImageGalleryDialog";
 import { TranscriptImage } from "./TranscriptImage";
 import { imageButton, nativeImage, settleImage } from "./imagePresentation.testSupport";
 
-afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); });
+afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("ChatView image content derivation", () => {
-  // Content/attribute derivation (image src/alt, the tool-output header label,
-  // and the scroll-anchor key) lives in pure exported seams rather than being
-  // scraped from rendered `TemplateResult` markup, per the testing-guide rule
-  // that TemplateResult inspection is not for general content assertions.
-  it("derives the image data URL and alt text from an image part", () => {
+  it("derives the legacy image data URL and alt text", () => {
     expect(chatImagePartSource({ type: "image", mimeType: "image/png", data: "QUJD" })).toEqual({
       src: "data:image/png;base64,QUJD",
       alt: "附件图片",
     });
+  });
+
+  it("derives reference URLs from selected machine/session context, not a server-provided URL", () => {
+    vi.stubEnv("BASE_URL", "/nested/pi-web/");
+    const part = { type: "image" as const, mimeType: "image/png", mediaId: "a".repeat(64), byteSize: 3 };
+    expect(chatImagePartSource(part)).toBeUndefined();
+    const source = chatImagePartSource(part, { id: "session /?#%", cwd: "/repo /?#%" }, "remote /?#%");
+    if (source === undefined) throw new Error("Expected reference source");
+    const url = new URL(source.src);
+    expect(url.pathname).toBe(`/nested/pi-web/api/machines/remote%20%2F%3F%23%25/sessions/session%20%2F%3F%23%25/media/${part.mediaId}`);
+    expect(url.searchParams.get("cwd")).toBe("/repo /?#%");
   });
 
   it("labels tool image output by tool name and falls back to a generic label", () => {

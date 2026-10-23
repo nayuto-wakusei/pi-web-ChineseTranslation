@@ -271,6 +271,39 @@ describe("PiWebApp route restoration", () => {
     expect(appState(app).workspaceTool).toBe("pi-web.terminal:workspace.terminal");
     expect(appState(app).mainView).toBe("workspace");
   });
+
+  it.each([
+    { machineId: "remote-1", tool: "machine.remote-1.notes:workspace.notes", view: "workspace", panelId: "machine.remote-1.notes:workspace.notes", switchMachine: false },
+    { machineId: "local", tool: "terminal", view: "terminal", panelId: "pi-web.terminal:workspace.terminal", switchMachine: false },
+    { machineId: "remote-1", tool: "machine.remote-1.notes:workspace.notes", view: "workspace", panelId: "machine.remote-1.notes:workspace.notes", switchMachine: true },
+  ] as const)("finishes delayed panel resolution for a missing project without crossing machines ($machineId, $view, switched: $switchMachine)", async ({ machineId, tool, view, panelId, switchMachine }) => {
+    const app = createApp();
+    const machine: Machine = { id: machineId, name: "Target", kind: machineId === "local" ? "local" : "remote", createdAt: "now", updatedAt: "now" };
+    const local: Machine = { id: "local", name: "Local", kind: "local", createdAt: "now", updatedAt: "now" };
+    setState(app, { ...initialAppState(), machines: [machine], selectedMachine: machine, projects: [] });
+    const registry: unknown = Reflect.get(app, "plugins");
+    if (!(registry instanceof PluginRegistry)) throw new Error("Plugin registry was unavailable");
+    let loaded = false;
+    let finishLoading: () => void = () => { throw new Error("Plugin loader was not started"); };
+    const pluginsReady = new Promise<void>((resolve) => { finishLoading = resolve; });
+    vi.spyOn(registry, "resolveWorkspacePanelRouteId").mockImplementation((value) => loaded && (value === tool || value === panelId) ? panelId : undefined);
+    Reflect.set(app, "loadPluginsForSelectedMachine", async () => { await pluginsReady; loaded = true; });
+
+    const restore = privateRestoreRouteFor(app)({ machineId, projectId: "missing", workspaceId: undefined, sessionId: undefined, tool, view }, false);
+    // Hierarchy failure is observable even while the browser module is pending.
+    await vi.waitFor(() => { expect(appState(app).browserErrors[browserErrorScopeKey(machineBrowserErrorScope(machineId))]?.message).toContain("missing"); });
+    expect(loaded).toBe(false);
+    expect(appState(app).workspaceTool).toBeUndefined();
+    if (switchMachine) setState(app, { selectedMachine: local, mainView: "chat" });
+    finishLoading();
+    await restore;
+
+    expect(loaded).toBe(true);
+    expect(appState(app).workspaceTool).toBe(switchMachine ? undefined : panelId);
+    expect(appState(app).mainView).toBe(switchMachine ? "chat" : "workspace");
+    expect(appState(app).selectedMachine?.id).toBe(switchMachine ? "local" : machineId);
+    expect(appState(app).selectedSession).toBeUndefined();
+  });
 });
 
 describe("PiWebApp workspace removal browser error boundary", () => {

@@ -25,6 +25,27 @@ afterEach(() => {
 });
 
 describe("workspace-file-viewer", () => {
+  it.each(["automatic", "manual"] as const)("uses a plugin's title for its %s view button", async (renderMode) => {
+    const draw = vi.fn(() => html`<b>Named view</b>`);
+    const contentRendering = createContentRenderingCapability(() => [{ id: "highlighted", label: "Highlighted", renderer: {
+      id: "highlighted", title: "Highlighted", renderMode, render: draw,
+    } }]);
+    const viewer = await mountViewer(textFile("source.txt", "source"), { contentRendering });
+    const namedButton = buttonWithText(viewer, "Highlighted");
+    expect(namedButton.getAttribute("aria-pressed")).toBe("false");
+    expect(draw).not.toHaveBeenCalled();
+    expect(viewer.renderRoot.querySelector("select")).toBeNull();
+    namedButton.click();
+    await settleDeferredContent(viewer);
+    await settleDeferredContent(viewer);
+    expect(namedButton.getAttribute("aria-pressed")).toBe("true");
+    expect(draw).toHaveBeenCalledOnce();
+    modeButton(viewer, "源码").click();
+    await settleDeferredContent(viewer);
+    expect(namedButton.getAttribute("aria-pressed")).toBe("false");
+    expect(viewer.renderRoot.querySelector("pi-web-files-code-viewer")).not.toBeNull();
+  });
+
   it.each(["fresh", "saved", "url"] as const)("honors %s Markdown preview intent for manual fences while preserving block controls", async (preference) => {
     const alpha = vi.fn(() => html`<b>Alpha</b>`);
     const beta = vi.fn(() => html`<b>Beta</b>`);

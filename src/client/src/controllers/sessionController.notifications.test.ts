@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
 import type { SessionNotificationInboxEvent } from "../../../shared/apiTypes";
 import { SessionController, type SessionNotificationSessionBridge } from "./sessionController";
@@ -34,6 +34,7 @@ function inboxEvent(): SessionNotificationInboxEvent {
 }
 
 describe("SessionController notification event boundary", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
   it("refetches the bounded notification snapshot when the selected socket first opens", async () => {
     const socket = new EmitSocket();
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
@@ -56,9 +57,7 @@ describe("SessionController notification event boundary", () => {
         notifications: bridge,
         api: {
           ...defaultApi,
-          messages: vi.fn(() => Promise.resolve(emptyPage)),
-          status: vi.fn(() => Promise.resolve(status(oldSession.id))),
-          streamSnapshot: vi.fn(() => Promise.resolve({ seq: 0, partial: null })),
+          transcriptSnapshot: vi.fn(() => Promise.resolve({ page: emptyPage, status: status(oldSession.id), seq: 0, partial: null })),
         },
       },
     );
@@ -85,9 +84,7 @@ describe("SessionController notification event boundary", () => {
     };
     const api: typeof defaultApi = {
       ...defaultApi,
-      messages: vi.fn(() => Promise.resolve(emptyPage)),
-      status: vi.fn(() => Promise.resolve(status(oldSession.id))),
-      streamSnapshot: vi.fn(() => Promise.resolve({ seq: 100, partial: null })),
+      transcriptSnapshot: vi.fn(() => Promise.resolve({ page: emptyPage, status: status(oldSession.id), seq: 100, partial: null })),
     };
     const controller = new SessionController(
       () => state,

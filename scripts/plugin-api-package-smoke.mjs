@@ -156,6 +156,7 @@ async function assertExampleCompatibilityFloor(packageRoot) {
 async function assertServerRuntimeApi(consumerRoot) {
   const fixturePath = join(consumerRoot, "server-runtime.mjs");
   await writeFile(fixturePath, `
+    export { createCompanionBackend } from "@chainingintention/pi-web-cn/server-plugin-api";
     import {
       PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
       PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,

@@ -1,0 +1,9 @@
+# 共享 UI 导航
+
+共享控件的表现与生命周期由基础 UI 和浏览器宿主持有；页面与插件保留领域状态、事件、语义、键盘交互及焦点职责。优先沿用已有原生控件与共享模式，不为单个页面复制另一套样式或交互。
+
+- 架构与状态归属见[架构](development/architecture.md)，聊天滚动与未读见[会话](modules/sessions.md#聊天布局不变量)。
+- 插件通过公开 `stylesheet-integration` 能力注册 shadow root，并按需选择 `{ sharedUi: true }`；公共契约见[插件指南](plugins.md#styles-highlighting-and-display)，不深导入私有客户端样式。
+- 基础布局与表现从[基础主题](../src/client/src/theme/base/)查找；原生控件、表单与弹层入口在[共享 UI 目录](../src/client/src/components/ui/)，具体行为以相邻消费者为准。
+
+样式类、内部选择器和视觉布局不是冻结的公共 API；共享能力版本描述集成方法，不保证外观不变。样式调整不能改变原有授权、发送、焦点或滚动语义，真实几何与命中区域应由浏览器验证。

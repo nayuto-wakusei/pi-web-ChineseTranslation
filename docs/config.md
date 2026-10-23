@@ -13,6 +13,13 @@
 
 Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 → Pi 包** 管理；PI WEB 的 `plugins` 只控制已发现的纯浏览器、纯服务端与双入口插件的期望状态，不安装、移除或更新包。
 
+<a id="settings-target-and-drafts"></a>
+### 设置目标与草稿
+
+普通模式的设置对话框独立持有“配置机器”选择，只改变机器级设置的目标，不切换正在使用的项目、工作区或会话。网关配置、默认主题和快捷键仍属网关，浏览器主题覆盖仍属设备。存在未保存的文件访问或上传草稿时，切换设置机器前需确认放弃或继续编辑；管理模式不开放这套普通跨机器选择器。
+
+通用设置分别持有网关与目标机器草稿：配置刷新只更新未编辑字段，不用其他机器的值重设当前草稿；保存返回的配置确认已提交值后，才结清对应提交，保存期间的新编辑仍保留。快捷键按操作行确认保存值，只清该行已提交且未再改动的草稿；回调结束本身不是保存确认，也不清其他行草稿。
+
 <a id="chinese-language-plugin"></a>
 ### 中文语言插件
 
@@ -52,6 +59,8 @@ Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 �
 
 `defaultTheme` 是网关配置，形如 `{ "themeId": "plugin-id:theme-id", "auto": true }`：`themeId` 必须为限定贡献 ID，`auto` 必须为布尔值。`auto: true` 在该主题有明暗配对时跟随系统明暗，否则使用所选主题。浏览器设备已保存的主题覆盖优先；主题暂不可用时使用回退，不删除原选择。主题属于整个应用，不保存到当前远端机器；保存/刷新配置后生效，无需重启 daemon。
 
+在 **设置 → 通用 → 主题** 中，“在此设备使用”保存浏览器覆盖，“设为默认”保存网关默认且不覆盖已有设备选择，“使用默认值”清除此浏览器覆盖。Auto 只在主题有明暗配对时跟随设备。
+
 网关 `defaultStreamingBehavior` 为 `"steer"`（默认）或 `"followUp"`，决定流式工作期间编辑器的默认发送方式，不改变已在 daemon 中排队的消息。浏览器分区尺寸、编辑器偏好与普通导航顺序不是新的项目配置文件；导航顺序是按机器管理的托管状态，管理模式不共用普通存储。
 
 <a id="session-naming-and-archives"></a>
@@ -68,12 +77,16 @@ Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 �
 
 模型不可用、超时或命名失败时使用首条消息的回退名称；标题语言跟随用户请求。命名设置不把项目凭据切换为全局凭据。
 
+<a id="session-archive-directory"></a>
+
 `sessionArchive.directory` 选择新归档内容目的地，非空环境变量 `PI_WEB_SESSION_ARCHIVE_DIR` 优先；默认 `$PI_WEB_DATA_DIR/archived-sessions`。配置路径或环境路径相对进程 cwd 解析为绝对路径，daemon 启动后固定，修改需重启 daemon。归档索引仍是 `$PI_WEB_DATA_DIR/archived-sessions.json`，已有记录继续指向原归档文件，不自动迁移。备份时覆盖索引、旧目录与新目的地，不只复制默认目录。
 
 <a id="mcp-settings-and-authentication"></a>
 ## MCP 设置与认证
 
 **设置 → MCP** 管理所选机器当前非归档会话中已启用、支持 OAuth 的 MCP 服务器认证；先选择可写、空闲且可信的会话。服务器配置由 Pi 的全局/项目设置和信任规则决定，这里不新增 `pi-web` MCP 服务器配置键，也不替代管理模式的 Workbench 受控 MCP 集成。
+
+也可从操作面板选择 MCP 登录/注销，再选择服务器；设置页直接针对所选服务器。两者使用同一独立认证流程，不切到聊天；禁用、header 认证或 stdio 服务器不列为 OAuth 候选，同机器同时只能进行一项 MCP 认证操作。
 
 专用认证仅支持所选 **Pi 1.3.0** 同一 SDK 的内部凭据适配，未知版本不保证兼容。普通项目与管理使用独立私有 MCP 凭据，不回退共享 agent 的 MCP OAuth 存储；完整特权仍是管理身份，受限管理不提供该流程。认证固定原机器、会话、cwd、项目和 scope，切换选择不会转移流程。注销删除对应保存凭据，影响使用该凭据的其他会话，但不禁用服务器或撤销提供方授权。详见[认证与模型](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/modules/auth-models.md#mcp-认证)。
 
@@ -112,6 +125,9 @@ PI WEB 不需要专门的 URL 前缀配置。同一发布产物可用于 `/`、`
   "uploads": { "defaultFolder": ".pi-web/uploads" },
   "attachments": { "defaultFolder": ".pi-web/attachments" },
   "maxUploadBytes": 67108864,
+  "sessionArchive": {
+    "directory": "/srv/pi-web/archives"
+  },
   "spawnSessions": true,
   "subsessions": true,
   "askUser": true,
@@ -137,6 +153,20 @@ PI WEB 不需要专门的 URL 前缀配置。同一发布产物可用于 `/`、`
 ```
 
 路径根必须是宿主绝对路径或 `~` 前缀，不支持相对根。项目上传/附件目录通过工作区有效配置返回，联邦访问使用目标项目的值；不依赖旧远端可选字段回退。插件可拥有独立文件，如 `.pi-web/tasks.json`。
+
+<a id="project-plugin-settings"></a>
+### 项目插件设置
+
+支持项目设置的服务端插件可读取注册项目根目录的 `.pi-web/config.json` 中 `plugins.<id>.settings`，不是各 worktree 独立配置。项目顶层设置键覆盖机器值，嵌套对象整体替换而非深合并；`enabled` 仍只属于机器配置，项目声明会被拒绝。修改服务端插件的全局或项目设置后，手动重启目标 daemon。
+
+<a id="git-worktree-discovery-hooks"></a>
+### Git 工作树发现通知
+
+Git 插件的 `plugins.git.settings.workspaceDiscoveryHooks` 为布尔值，默认 `true`，项目值覆盖机器值。支持命名 hooks 的 Git（2.54+）可安装自身命名通知，保留已有 hooks 且不修改 `core.hooksPath`；不支持时仍可按需刷新列表。通知仅提示宿主重新查询当前提供器，不直接注册工作区。修改后重启 daemon，浏览器刷新不能更新 hook 状态。
+
+<a id="git-instance-namespace"></a>
+
+多实例可用 daemon 环境变量 `PI_WEB_INSTANCE_NAMESPACE` 区分通知身份：1–32 个字母、数字、下划线或连字符，首字符为字母或数字；生产默认留空，开发实例使用 `dev`。名称应保持稳定；退役旧名称时先在旧名称下禁用发现 hooks 并重启完成清理，再切换名称。不自动接管或迁移其他实例/旧名称的 hook。
 
 <a id="worktree-pre-remove-hook"></a>
 ## 工作区删除前钩子
@@ -192,6 +222,9 @@ worktree_path="$1"
 | 扩展对话框超时 | `extensionDialogsTimeoutMs` | — | daemon | 重启 daemon |
 | 环境事实 | `environmentFacts` | `PI_WEB_ENVIRONMENT_FACTS` | daemon | 重启 daemon |
 | 插件期望状态 | `plugins.<id>.enabled/settings` | — | 机器 | 浏览器刷新；服务端重启后刷新 |
+| 项目插件设置 | `plugins.<id>.settings` | — | 机器 + 项目 | 支持的服务端插件顶层覆盖；重启 daemon |
+| Git 发现通知 | `plugins.git.settings.workspaceDiscoveryHooks` | — | 机器 + 项目 | 默认 `true`；重启 daemon |
+| Git 通知 namespace | — | `PI_WEB_INSTANCE_NAMESPACE` | daemon | 默认空；开发为 `dev`；重启 daemon |
 | 插件恢复 | `serverPlugins.safeStart` | — | 机器离线恢复 | 下次 daemon 启动前应用 |
 | 快捷键 | `shortcuts.<actionId>` | — | 网关 | 保存/刷新配置 |
 | 默认主题 | `defaultTheme.themeId/auto` | — | 网关 | 浏览器覆盖优先；保存/刷新配置 |

@@ -15,7 +15,10 @@ function developmentPlan(kind: "systemd" | "launchd"): NativeServicePlan {
       source: "detected",
       detectedExecutable: "/bin/zsh",
     },
-    environment: { PI_WEB_CONFIG: "/home/user/config with \"quote\".json" },
+    environment: {
+      PI_WEB_CONFIG: "/home/user/config with \"quote\".json",
+      PI_WEB_PI_PACKAGE_DIR: "/existing/Pi installation",
+    },
     workingDirectory: "/checkout with space",
     packageJsonPath: "/checkout with space/package.json",
   });
@@ -38,6 +41,7 @@ describe("native service rendering", () => {
     expect(unit).toContain("WorkingDirectory=/checkout\\x20with\\x20space");
     expect(unit).toContain('Environment="PI_WEB_CONFIG=/home/user/config with \\"quote\\".json"');
     expect(unit).toContain('ExecStart=/usr/bin/env "/bin/zsh" -lc "exec /usr/bin/env bash -c \'trap \\"kill 0\\" EXIT;');
+    expect(unit).toContain('Environment="PI_WEB_PI_PACKAGE_DIR=/existing/Pi installation"');
     expect(unit).toContain("Restart=no");
   });
 
@@ -73,6 +77,7 @@ describe("native service rendering", () => {
     expect(plist).toContain("<key>PI_WEB_CONFIG</key>\n    <string>/home/user/config with &quot;quote&quot;.json</string>");
     expect(plist.match(/<string>\/logs\/sessiond\.log<\/string>/gu)).toHaveLength(2);
     expect(plist).not.toContain("<string>\\logs\\sessiond.log</string>");
+    expect(plist).toContain("<key>PI_WEB_PI_PACKAGE_DIR</key>\n    <string>/existing/Pi installation</string>");
     expect(plist).not.toContain("<key>KeepAlive</key>");
   });
 

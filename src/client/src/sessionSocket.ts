@@ -88,6 +88,11 @@ export class SessionSocket {
   private async handleMessage(data: MessageEvent["data"], socket: WebSocket, session: SessionRef): Promise<void> {
     const event = parseSessionSocketEvent(await parseSocketEvent(data));
     if (this.socket !== socket || event === undefined) return;
+    if (event.type === "session.diagnostic") {
+      // Diagnostics are live-only, outside transcript snapshot reconciliation.
+      console.error("[PI WEB] Session diagnostic", { machineId: this.machineId, sessionId: session.id, cwd: session.cwd, message: event.message });
+      return;
+    }
     if (event.type === "notifications.inbox" && (session.id !== event.summary.sessionId || session.cwd !== event.summary.cwd)) return;
     this.onEvent?.(event);
   }

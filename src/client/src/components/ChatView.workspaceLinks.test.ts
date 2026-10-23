@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 import { ChatView } from "./ChatView";
+import { installDeferredContent, settleDeferredContent, useDeferredContent } from "../formatting/deferredContent.testSupport";
+
+useDeferredContent();
 import type { FormattedText } from "./FormattedText";
-import { installDeferredContent, settleDeferredContent } from "../formatting/deferredContent.testSupport";
 
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 

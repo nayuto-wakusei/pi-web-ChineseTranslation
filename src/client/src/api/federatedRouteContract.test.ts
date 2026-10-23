@@ -10,7 +10,7 @@ import { PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS, WORKSPACE_FILE_FEDERATION_TIMEOUT
 import { PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH } from "../../../shared/pluginBackendProtocol";
 import { machineStatusApi, noticesApi } from "./clients";
 import { requestPairedPluginBackend } from "./pluginBackends";
-import { workspaceFilePreviewUrl } from "./urls";
+import { sessionMediaUrl, workspaceFilePreviewUrl } from "./urls";
 
 const machineId = "remote-a";
 const workspace: Workspace = {
@@ -260,7 +260,9 @@ describe("federated route contract", () => {
       ignoreParseFailure(sessionsApi.messages(session, { limit: 20, before: 10 }, machineId)),
       ignoreParseFailure(sessionsApi.status(session, machineId)),
       ignoreParseFailure(sessionsApi.streamSnapshot(session, machineId)),
+      ignoreParseFailure(sessionsApi.transcriptSnapshot(session, { limit: 20 }, machineId)),
       ignoreParseFailure(sessionsApi.clearQueue(session, machineId)),
+      ignoreParseFailure(sessionsApi.mutateQueuedMessage(session, { action: "remove", index: 0, expectedQueue: [{ kind: "steer", text: "adjust" }] }, machineId)),
       ignoreParseFailure(sessionsApi.dismissWarning(session, "anthropicExtraUsage", machineId)),
       ignoreParseFailure(sessionsApi.submitAsk(session, "ask 1", { answers: [{ id: "q1", values: ["pg"] }] }, machineId)),
       ignoreParseFailure(sessionsApi.cancelAsk(session, "ask 1", machineId)),
@@ -317,6 +319,7 @@ describe("federated route contract", () => {
       routeFromMachineUrl("GET", workspaceImagePreviewUrl("p 1", "w 1", "diagram.svg", { machineId, modifiedAt: "2026-05-25T00:00:00.000Z" }), machineId),
       routeFromMachineUrl("GET", workspaceFileDownloadUrl("p 1", "w 1", "README.md", { machineId }), machineId),
       routeFromMachineUrl("GET", workspaceFilePreviewUrl("p 1", "w 1", "diagram.svg", { machineId, modifiedAt: "2026-05-25T00:00:00.000Z" }), machineId),
+      routeFromMachineUrl("GET", sessionMediaUrl(session, "a".repeat(64), machineId), machineId),
     ]);
     const unmatched = observedRoutes.filter((route) => !matchesHttpRoute(route, FEDERATED_HTTP_ROUTES));
 

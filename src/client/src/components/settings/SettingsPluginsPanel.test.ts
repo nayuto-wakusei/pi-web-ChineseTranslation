@@ -205,7 +205,7 @@ describe("settings-plugins-panel layout", () => {
     expect(renderedWithoutLifecycle).toContain("仅有配置");
     const configuredOnly = rows.find(({ id }) => id === "configured-only");
     if (configuredOnly === undefined) throw new Error("Expected configured-only settings row");
-    expect(templateValues(renderPluginTemplate(panel, configuredOnly)).filter(isBoolean)).toEqual([true, false]);
+    expect(configuredOnly.editable).toBe(true);
   });
 
   it("renders required Terminal enabled and non-editable despite ordinary disable config", () => {
@@ -221,7 +221,7 @@ describe("settings-plugins-panel layout", () => {
     const rendered = flattenTemplateContent(panel.render());
     expect(rendered).toContain("必需插件 · 普通配置无法禁用");
     expect(rendered).not.toContain("离线禁用：");
-    expect(templateValues(renderPluginTemplate(panel, row)).filter(isBoolean)).toEqual([true, true]);
+    expect(templateValues(renderPluginTemplate(panel, row)).filter(isBoolean)).toEqual([true]);
   });
 
   it("keeps loaded plugins visible but disabled when selected-machine config is unavailable", () => {
@@ -237,7 +237,7 @@ describe("settings-plugins-panel layout", () => {
       "remote-disabled",
     ]);
     expect(countOccurrences(rendered, "配置不可用。更改插件启用状态前请重新加载。")).toBe(1);
-    expect(templateValues(renderPluginTemplate(panel, pluginInfo("remote-disabled", false))).filter(isBoolean)).toEqual([false, true]);
+    expect(templateValues(renderPluginTemplate(panel, pluginInfo("remote-disabled", false))).filter(isBoolean)).toEqual([true]);
   });
 
   it("maps plugin source, scope, and machine-specific metadata for display", () => {
@@ -324,6 +324,7 @@ function isBoolean(value: unknown): value is boolean {
 function isSettingsNotice(value: unknown): value is SettingsNotice {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
 }
+
 
 function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
   return {

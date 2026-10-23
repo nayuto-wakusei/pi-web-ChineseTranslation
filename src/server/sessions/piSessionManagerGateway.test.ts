@@ -204,6 +204,28 @@ describe("Pi session manager gateway", () => {
     await expect(gateway.readBranch(path)).resolves.toHaveLength(2);
   });
 
+  it("reads all branches for media from the same memoized, append-aware, read-only snapshot", async () => {
+    const store = join(tempDir, "all-entries");
+    const path = await writeNamedSessionFile(store, "media.jsonl", { id: "media-session", cwd });
+    const entry = (id: string, parentId: string | null) => ({ type: "message", id, parentId, message: { role: "user", content: id } });
+    await appendFile(path, [entry("root", null), entry("abandoned", "root"), entry("selected", "root")].map((value) => JSON.stringify(value)).join("\n") + "\n");
+    const before = await readFile(path);
+    const gateway = createPiSessionManagerGateway(piProfileOptions({ PI_CODING_AGENT_SESSION_DIR: store }));
+    if (gateway.readEntries === undefined || gateway.readBranch === undefined) throw new Error("Expected transcript readers");
+    const entries = await gateway.readEntries(path);
+    expect(entries).toHaveLength(3);
+    const branch = await gateway.readBranch(path);
+    expect(branch).toEqual([entries?.[0], entries?.[2]]);
+    expect(branch?.[0]).toBe(entries?.[0]);
+    expect(await gateway.readEntries(path)).toBe(entries);
+    await expect(readFile(path)).resolves.toEqual(before);
+    await appendFile(path, JSON.stringify(entry("external", "abandoned")) + "\n");
+    const appended = await gateway.readEntries(path);
+    expect(appended).toHaveLength(4);
+    expect(appended?.[0]).toBe(entries?.[0]);
+    expect(await gateway.readBranch(path)).toEqual([appended?.[0], appended?.[1], appended?.[3]]);
+  });
+
   it("serves repeated snapshots of an unchanged file from the memo", async () => {
     const sharedSessionDir = join(tempDir, "memoized-snapshots");
     const path = await writeNamedSessionFile(sharedSessionDir, "memoized.jsonl", { id: "memoized-session", cwd });

@@ -14,6 +14,7 @@ export type BrowserErrorRecovery = "session-refresh" | "workspace-sessions-refre
 export interface BrowserError {
   scope: BrowserErrorScope;
   message: string;
+
   recovery?: BrowserErrorRecovery;
 }
 

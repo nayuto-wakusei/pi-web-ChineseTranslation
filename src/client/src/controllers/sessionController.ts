@@ -401,8 +401,12 @@ export class SessionController {
         ? pending.session
         : undefined;
     }
-    const candidates = targetSessionId === undefined || targetSessionId === "" ? this.automaticSessionCandidates(sessions) : sessions;
-    return selectPreferredSession(candidates, { targetSessionId, latestSessionId: this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd)) });
+    const latestSessionId = this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd));
+    if ((targetSessionId !== undefined && targetSessionId !== "")
+      || (latestSessionId !== undefined && latestSessionId !== "" && sessions.some((session) => session.id === latestSessionId))) {
+      return selectPreferredSession(sessions, { targetSessionId, latestSessionId });
+    }
+    return selectPreferredSession(this.automaticSessionCandidates(sessions));
   }
 
   /** Reusing a selected row must not abandon a join retired by a newer URL. */
@@ -1299,6 +1303,7 @@ export class SessionController {
         if (candidate.id !== session.id || candidate.cwd !== session.cwd) return candidate;
         const detached = { ...candidate };
         delete detached.parentSessionPath;
+        delete detached.agentSubsession;
         return detached;
       };
       this.setState({
@@ -2200,7 +2205,7 @@ export class SessionController {
       moveStagedAttachments(machineSessionKey(machineId, session.id), machineSessionKey(machineId, replacement.id));
       forgetCachedNewSession(session.id, machineId);
       const cachedReplacement = markCachedNewSessionInfo(replacement, machineId);
-      this.setState({ sessions: [cachedReplacement, ...this.getState().sessions.filter((candidate) => candidate.id !== session.id)], error: "" });
+      this.setState({ sessions: [cachedReplacement, ...this.getState().sessions.filter((candidate) => candidate.id !== session.id && candidate.id !== replacement.id)], error: "" });
       if (this.navigateToSession !== undefined) {
         const latest = this.navigationSelection();
         const accepted = await this.navigateToSession(cachedReplacement, { ...(options?.updateUrl === false ? { replace: true } : {}), expected: { ...expected, tool: latest.tool, view: latest.view } });

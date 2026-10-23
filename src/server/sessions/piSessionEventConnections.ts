@@ -1,4 +1,4 @@
-import type { createEventBus } from "@earendil-works/pi-coding-agent";
+import type { createEventBus } from "../../piSdk.js";
 import type { PiWebHostPiSessionConnection } from "../../server-plugin-api.js";
 
 type EventBus = ReturnType<typeof createEventBus>;

@@ -1,9 +1,11 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { SessionDaemonClient } from "./sessionDaemonClient.js";
 
 const activeAgentProfile = {
   schemaVersion: 2,
-  dir: "/opt/pi/state",
+  dir: join(tmpdir(), "pi", "state"),
 };
 
 describe("SessionDaemonClient active agent profile protocol", () => {

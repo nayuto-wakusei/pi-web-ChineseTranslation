@@ -54,6 +54,23 @@ describe("buildApp workspace file routes", () => {
     expect(tooLargeResponse.json()).toEqual({ error: "文件过大，无法预览（上限 10 MB）" });
   });
 
+  it("does not let showImage bypass configured roots for previews or downloads", async () => {
+    const added = await appTestContext.app.inject({ method: "POST", url: "/api/projects", payload: { name: "Images", path: appTestContext.projectDir, create: true } });
+    const project = added.json<Project>();
+    const listed = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+    const workspace = listed.json<WorkspaceProviderResolution>().workspaces[0];
+    if (workspace === undefined) throw new Error("Expected workspace");
+    const target = join(appTestContext.tempDir, "outside.svg");
+    await writeFile(target, "<svg></svg>");
+    for (const prefix of ["/api", "/api/machines/local"]) {
+      const url = `${prefix}/projects/${project.id}/workspaces/${workspace.id}/file/preview?path=${encodeURIComponent(target)}`;
+      for (const suffix of ["", "&showImage=1", "&showImage=true", "&download=1", "&showImage=1&download=1"]) {
+        const denied = await appTestContext.app.inject({ method: "GET", url: url + suffix });
+        expect(denied.statusCode).toBe(400);
+      }
+    }
+  });
+
   it("hardens failed local previews with the same error policy the remote proxy enforces", async () => {
     const addResponse = await appTestContext.app.inject({
       method: "POST",

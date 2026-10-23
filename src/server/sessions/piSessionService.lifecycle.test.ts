@@ -613,13 +613,10 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
   });
 
   /**
-   * Charter-level invariant: an id-prefix ref must never act on a different,
-   * prefix-extended session. This runs through the real gateway so the whole
-   * open path is covered — the service wiring and the resolver's
-   * exact-before-prefix precedence — rather than a fake that could agree with
-   * a broken rule. The exact session's file is the *older* one on purpose:
-   * every ambiguity tie-break the resolver has (creation-time order) points at
-   * the extended session, so only the exact-id rule can produce this outcome.
+   * A full id must never act on a different, prefix-extended session. This
+   * runs through the real gateway so service wiring and header equality are
+   * covered together. The exact session's file is the older one on purpose:
+   * only the exact-id rule can select it over the newer extended session.
    */
   it("opens the exact session for a full id even when a newer prefix-extended session exists", async () => {
     const sessionId = "abc123";

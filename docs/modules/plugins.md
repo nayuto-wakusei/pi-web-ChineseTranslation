@@ -27,6 +27,8 @@ Pi 包/本地插件目录
 
 纯浏览器插件不一定经过后端；双入口必须匹配实际 daemon 快照。发现不能等同执行插件。浏览器激活保持轻量声明式，连接在对应生命周期打开/清理。
 
+浏览器发现先装配 bundled 默认贡献，再装配 installed 覆盖，各组内部保留原发现顺序，模块下载完成先后不改变优先级。必需 Terminal 的失败边界和机器作用域不变；该顺序不允许用网关后端替代远端配对后端。
+
 Pi SDK 开发基线为 `1.3.0`，安装兼容范围以根 `package.json` 的 peer 声明为准。伴随扩展处理 `before_agent_start` 时须先判断事件是否包含 `prompt`；自定义消息触发的启动不能冒充当前请求的用户提示。
 
 SDK/AI 运行时值统一从 `src/piSdk.ts`、`src/piAi.ts` 导入，复用所选 Pi 安装；类型可继续使用公开包。Pi 扩展入口是例外，由 Pi 宿主解析公开 SDK，并通过 `PI_WEB_PI_PACKAGE_DIR` 把宿主安装传给 CLI/服务。不要让项目认证、管理策略或文件变更队列重新加载另一份 SDK。Pi 1.3.0 的 MCP、codemode、tool-search 工厂接入普通与完整特权管理资源；受限管理不加载这些 builtin。旧版 0.86.1/0.87.0 保持无 builtin 的行为；专用 MCP 认证的版本与凭据边界见[认证与模型](auth-models.md#mcp-认证)。
@@ -53,7 +55,7 @@ v5 catalog 固定到创建时的机器，只提供脱离内部引用的公开项
 
 公开上下文与贡献契约见 [plugin-api.ts](../../src/plugin-api.ts)；装配与生命周期见[浏览器插件宿主目录](../../src/client/src/plugins/)，发送归属见[会话控制器](../../src/client/src/controllers/sessionController.ts)。
 
-主题/CSS 与语法高亮是浏览器贡献，样式注册和清理由宿主持有，异步高亮应遵守来源、可见性与生命周期。Markdown transformers 仅对完成后的文本派生浏览器 `displayText`，不修改 canonical 消息、store、模型输入或审计，也不变更实际 `thinkingLevel`。部分流式文本在完成前不应用变换；用户/模型正文不是中文翻译目标。
+主题/CSS 与语法高亮是浏览器贡献，样式注册和清理由宿主持有，异步高亮应遵守来源、可见性与生命周期。Markdown transformers 在 daemon 的浏览器投影阶段为完成及历史文本派生 `displayText`，不修改 canonical 消息、store、模型输入或审计，也不变更实际 `thinkingLevel`。浏览器继续净化并显示，部分流式文本在完成前不应用变换；用户/模型正文不是中文翻译目标。
 
 Workflows 同时包含 Pi 提示词资源和浏览器/服务端插件。profile 默认安装保留用户的移除记忆，禁用浏览器集成不等于移除提示词；派发使用当前机器的项目/工作区 authority 与能力，不通过私有路由绕过。详见[公开指南](../plugins.md#workflows)。
 

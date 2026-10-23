@@ -212,6 +212,7 @@ export function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession>
     setScopedModels: (models) => { session.scopedModels = models; },
     extensionRunner: {
       getRegisteredCommands: () => [],
+      getMarkdownTransformers: () => [],
       getUIContext: () => extensionUiContext,
       setUIContext: (uiContext) => { extensionUiContext = uiContext ?? testExtensionUiContext; },
     },
@@ -344,7 +345,6 @@ export interface LocalReadonlySessionManager {
 
 /** Local type for AgentToolCallOutcome — not re-exported from pi-coding-agent index. */
 interface LocalAgentToolCallOutcome { id: string; result: unknown; isError: boolean }
-
 /**
  * Minimal readonly session manager stub for test contexts in pi 0.99+.
  * Satisfies the full `ReadonlySessionManager` Pick<SessionManager, ...> contract.

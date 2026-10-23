@@ -6,9 +6,11 @@ import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo } from "../api";
 import { initialAppState, type AppState } from "../appState";
+import { AppShellController } from "../appShell/appShellController";
 import { AuthDialog } from "./AuthDialog";
 import { ChatView } from "./ChatView";
 import { ModalSurface } from "./ModalSurface";
+import { registerTransientPopup } from "./popupScope";
 import { PiWebApp } from "./PiWebApp";
 import { PromptEditor } from "./PromptEditor";
 import { ImageGalleryDialog } from "./ImageGalleryDialog";
@@ -38,6 +40,21 @@ describe("PiWebApp global shortcut modality boundary", () => {
     expect(actionPaletteIsOpen(app)).toBe(true);
     expect(event.defaultPrevented).toBe(true);
     expect(targetKeyDown).not.toHaveBeenCalled();
+  });
+
+  it("defers Escape to a popup even when an app action uses that shortcut", async () => {
+    const app = new PiWebApp();
+    await waitForBuiltInPlugins(app);
+    Reflect.set(app, "shortcutConfig", { "core:actions.show": "escape" });
+    const target = appendKeyTarget();
+    const unregister = registerTransientPopup(target, vi.fn());
+    try {
+      const event = dispatchShortcutThroughApp(app, target, { key: "Escape" });
+      expect(actionPaletteIsOpen(app)).toBe(false);
+      expect(event.defaultPrevented).toBe(false);
+    } finally { unregister(); }
+    dispatchShortcutThroughApp(app, target, { key: "Escape" });
+    expect(actionPaletteIsOpen(app)).toBe(true);
   });
 
   it("lets a composer send binding override an app shortcut only inside the editor", async () => {
@@ -115,6 +132,47 @@ describe("PiWebApp global shortcut modality boundary", () => {
     expect(appShouldAutoFocusPrompt(app)).toBe(false);
   });
 
+  it("does not turn focus restoration into navigation when Chat is hidden", async () => {
+    const app = new PiWebApp();
+    const shell: unknown = Reflect.get(app, "appShell");
+    if (!(shell instanceof AppShellController)) throw new Error("Expected app shell");
+    shell.isMobileNavigationLayout = true;
+    shell.isDesktopSideBySideLayout = false;
+    window.history.replaceState(null, "", "/app?view=navigation");
+    setAppState(app, { mainView: "navigation" });
+    const before = window.location.href;
+    const focusInput = vi.fn();
+    Object.defineProperty(app, "promptEditor", { configurable: true, value: { focusInput } });
+    Object.defineProperty(app, "updateComplete", { configurable: true, value: Promise.resolve(true) });
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+
+    await focusChatComposer(app);
+
+    expect(window.location.href).toBe(before);
+    expect(Reflect.get(app, "state")).toMatchObject({ mainView: "navigation" });
+    expect(focusInput).not.toHaveBeenCalled();
+  });
+
+  it("does not focus an editor that became hidden while restoration was pending", async () => {
+    const app = new PiWebApp();
+    const shell: unknown = Reflect.get(app, "appShell");
+    if (!(shell instanceof AppShellController)) throw new Error("Expected app shell");
+    shell.isMobileNavigationLayout = true;
+    shell.isDesktopSideBySideLayout = false;
+    setAppState(app, { mainView: "chat" });
+    const focusInput = vi.fn();
+    Object.defineProperty(app, "promptEditor", { configurable: true, value: { focusInput } });
+    Object.defineProperty(app, "updateComplete", { configurable: true, value: Promise.resolve(true) });
+    let frameCallback: FrameRequestCallback | undefined;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frameCallback = callback; return 1; });
+    const focusing = focusChatComposer(app);
+    await vi.waitFor(() => { expect(frameCallback).toBeDefined(); });
+    setAppState(app, { mainView: "navigation" });
+    frameCallback?.(0);
+    await focusing;
+    expect(focusInput).not.toHaveBeenCalled();
+  });
+
   it("rechecks rendered modality before a delayed prompt focus takes effect", async () => {
     const app = new PiWebApp();
     setAppState(app, { mainView: "chat" });
@@ -159,13 +217,12 @@ async function waitForBuiltInPlugins(app: PiWebApp): Promise<void> {
   await ready;
 }
 
-function dispatchShortcutThroughApp(app: PiWebApp, target: HTMLElement): KeyboardEvent {
+function dispatchShortcutThroughApp(app: PiWebApp, target: HTMLElement, init: KeyboardEventInit = { key: "k", ctrlKey: true }): KeyboardEvent {
   const handler: unknown = Reflect.get(app, "onKeyDown");
   if (!isAppKeyDownHandler(handler)) throw new Error("PiWebApp shortcut handler was unavailable");
   window.addEventListener("keydown", handler, { capture: true });
   const event = new KeyboardEvent("keydown", {
-    key: "k",
-    ctrlKey: true,
+    ...init,
     bubbles: true,
     cancelable: true,
     composed: true,

@@ -66,6 +66,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
         class=${`action-row machine-row ${this.selected?.id === machine.id ? "selected" : ""} ${hasRemoveAction ? "" : "no-actions"}`}
         tabindex="0"
         title=${machine.baseUrl ?? machine.name}
+        data-machine-id=${machine.id}
         @click=${(event: MouseEvent) => { activateSelectableRow(event, () => this.onSelect?.(machine)); }}
         @keydown=${(event: KeyboardEvent) => { this.handleMachineKeydown(event, machine); }}
       >

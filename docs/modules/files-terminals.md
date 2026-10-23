@@ -31,6 +31,8 @@
 
 预览不是通用桌面文件查看器，不保证所有格式可用。截断文件不得从展示片段推断完整内容或直接覆盖原件。下载与内联预览是不同路径，不能把 10 MiB 预览上限当作下载上限。
 
+预览先遵守既有工作区与 `pathAccess` 路径授权，再仅接受普通文件，拒绝 FIFO 等非 regular 文件，不能因读取特殊文件挂住请求。Markdown 图片的“显示图片”（`showImage`）确认不扩大允许根，也不能绕过路径授权读取任意宿主文件。入口见 [filePreviewService.ts](../../src/server/workspaces/filePreviewService.ts)。
+
 ## 会话媒体
 
 会话媒体读取与普通工作区文件预览是不同接口。媒体引用绑定所属机器、精确会话及 cwd；消息页、快照和 WebSocket 仅在请求 `media=reference` 时投影引用，默认仍为 inline。引用读取不通过打开 SDK runtime 来补全历史，索引由 daemon 持有且有界。入口见 [sessionMedia.ts](../../src/shared/sessionMedia.ts) 与 [sessionMediaIndex.ts](../../src/server/sessions/sessionMediaIndex.ts)。
