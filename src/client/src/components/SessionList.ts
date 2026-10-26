@@ -78,6 +78,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ type: String }) cleanupUnavailableMessage = t("ui.sessionCleanupDialog.updateAndRestartPiWebOnThisMachine", "Update and restart Pi-Web on this machine before cleaning up sessions.");
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
+  /** Use viewport intersections when an ancestor owns the scroll boundary. */
+  @property({ type: Boolean, attribute: "external-scroll" }) externalScroll = false;
   @property({ attribute: false }) onSelect?: (session: SessionInfo) => void;
   @property({ attribute: false }) onSearch?: () => void;
   @property({ attribute: false }) onTogglePin?: (session: SessionInfo) => void;
@@ -375,7 +377,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const tree = this.sessionTree();
     const { currentSelectableSessions } = tree;
     const { currentRows, archivedRows, currentAgentOffsets, archivedAgentOffsets, pinnedRowCount } = this.visibleSessionTree();
-    const needsAgentAttention = !this.collapsed && currentRows.some(({ session }) =>
+    const needsAgentAttention = !this.collapsed && tree.currentAgentGroups.countByParentId.size > 0 && currentRows.some(({ session }) =>
       tree.currentAgentGroups.countByParentId.has(session.id) && !this.expandedAgentParents.has(session.id));
     const agentAttention = needsAgentAttention ? this.agentGroupAttention(tree.currentRows, tree.currentAgentGroups) : undefined;
     if (!this.collapsed) tree.descendantCounts ??= unarchivedDescendantCounts(this.sessions);
@@ -581,22 +583,22 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
               ${this.renderPinMoveActions(row)}
               ${session.archived === true
                 ? html`
-                  ${canPin ? html`<button title=${pinned ? t("ui.sessionList.unpinSession", "Unpin session") : t("ui.sessionList.pinSession", "Pin session")} @click=${() => { this.openMenuSessionId = undefined; this.onTogglePin?.(session); }}>${pinned ? t("ui.sessionList.unpin", "Unpin") : t("ui.sessionList.pin", "Pin")}</button>` : null}
-                  <button title="${t("ui.sessionList.restoreSession", "Restore session")}" @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>${t("ui.sessionList.restore", "Restore")}</button>
+                  ${canPin ? html`<button class="ui-button ui-menu-item" title=${pinned ? t("ui.sessionList.unpinSession", "Unpin session") : t("ui.sessionList.pinSession", "Pin session")} @click=${() => { this.openMenuSessionId = undefined; this.onTogglePin?.(session); }}>${pinned ? t("ui.sessionList.unpin", "Unpin") : t("ui.sessionList.pin", "Pin")}</button>` : null}
+                  <button class="ui-button ui-menu-item" title="${t("ui.sessionList.restoreSession", "Restore session")}" @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>${t("ui.sessionList.restore", "Restore")}</button>
                   <button class="ui-button ui-menu-item danger" title=${this.canDeleteArchived ? t("ui.sessionList.permanentlyDeleteArchivedSession", "Permanently delete archived session") : this.archivedDeleteUnavailableMessage} ?disabled=${!this.canDeleteArchived} @click=${() => { this.openMenuSessionId = undefined; this.confirmDeleteArchived(session); }}>${t("ui.sessionList.deleteArchivedSession", "Delete archived session")}</button>
                 `
                 : canDeleteTransient
-                  ? html`<button title="${t("ui.sessionList.deleteTemporaryNewSession", "Delete temporary new session")}" @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>${t("ui.sessionList.delete", "Delete")}</button>`
+                  ? html`<button class="ui-button ui-menu-item" title="${t("ui.sessionList.deleteTemporaryNewSession", "Delete temporary new session")}" @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>${t("ui.sessionList.delete", "Delete")}</button>`
                   : html`
-                    ${canPin ? html`<button title=${pinned ? t("ui.sessionList.unpinSession", "Unpin session") : t("ui.sessionList.pinSession", "Pin session")} @click=${() => { this.openMenuSessionId = undefined; this.onTogglePin?.(session); }}>${pinned ? t("ui.sessionList.unpin", "Unpin") : t("ui.sessionList.pin", "Pin")}</button>` : null}
-                    ${canRename ? html`<button title="${t("ui.sessionList.renameSession", "Rename session")}" @click=${() => { this.renameSession(session); }}>${t("ui.sessionList.rename", "Rename")}</button>` : null}
-                    ${this.unreadSessionIds.has(session.id) ? html`<button title="${t("ui.sessionList.markSessionAsRead", "Mark session as read")}" @click=${() => { this.openMenuSessionId = undefined; this.onMarkRead?.(session); }}>${t("ui.sessionList.markAsRead", "Mark as read")}</button>` : null}
+                    ${canPin ? html`<button class="ui-button ui-menu-item" title=${pinned ? t("ui.sessionList.unpinSession", "Unpin session") : t("ui.sessionList.pinSession", "Pin session")} @click=${() => { this.openMenuSessionId = undefined; this.onTogglePin?.(session); }}>${pinned ? t("ui.sessionList.unpin", "Unpin") : t("ui.sessionList.pin", "Pin")}</button>` : null}
+                    ${canRename ? html`<button class="ui-button ui-menu-item" title="${t("ui.sessionList.renameSession", "Rename session")}" @click=${() => { this.renameSession(session); }}>${t("ui.sessionList.rename", "Rename")}</button>` : null}
+                    ${this.unreadSessionIds.has(session.id) ? html`<button class="ui-button ui-menu-item" title="${t("ui.sessionList.markSessionAsRead", "Mark session as read")}" @click=${() => { this.openMenuSessionId = undefined; this.onMarkRead?.(session); }}>${t("ui.sessionList.markAsRead", "Mark as read")}</button>` : null}
                     ${canArchive ? html`
-                      <button title="${t("client.actions.archive.session.0a3885", "Archive session")}" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>${t("ui.sessionCleanupDialog.archive", "Archive")}</button>
-                      ${descendantCount > 0 ? html`<button title="${t("ui.sessionList.archiveThisSessionAndItsDescendants", "Archive this session and its descendants")}" @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>${t("ui.main.6844d936c280", "Archive with descendants (")}${descendantCount}）</button>` : null}
+                      <button class="ui-button ui-menu-item" title="${t("client.actions.archive.session.0a3885", "Archive session")}" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>${t("ui.sessionCleanupDialog.archive", "Archive")}</button>
+                      ${descendantCount > 0 ? html`<button class="ui-button ui-menu-item" title="${t("ui.sessionList.archiveThisSessionAndItsDescendants", "Archive this session and its descendants")}" @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>${t("ui.main.6844d936c280", "Archive with descendants (")}${descendantCount}）</button>` : null}
                     ` : null}
-                    ${session.parentSessionPath !== undefined ? html`<button title="${t("ui.sessionList.detachFromParent", "Detach from parent")}" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>${t("ui.sessionList.detachFromParent", "Detach from parent")}</button>` : null}
-                    ${canReloadSession ? html`<button title=${isWorking ? t("ui.sessionList.stopCurrentSessionActivityBeforeReloadingFromDisk", "Stop current session activity before reloading from disk") : t("ui.sessionList.reloadTheSessionFromDiskWithoutRefreshingPi", "Reload the session from disk without refreshing Pi runtime resources")} ?disabled=${isWorking} @click=${() => { this.openMenuSessionId = undefined; this.onReload?.(session); }}>${t("ui.sessionList.reloadFromDisk", "Reload from disk")}</button>` : null}
+                    ${session.parentSessionPath !== undefined ? html`<button class="ui-button ui-menu-item" title="${t("ui.sessionList.detachFromParent", "Detach from parent")}" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>${t("ui.sessionList.detachFromParent", "Detach from parent")}</button>` : null}
+                    ${canReloadSession ? html`<button class="ui-button ui-menu-item" title=${isWorking ? t("ui.sessionList.stopCurrentSessionActivityBeforeReloadingFromDisk", "Stop current session activity before reloading from disk") : t("ui.sessionList.reloadTheSessionFromDiskWithoutRefreshingPi", "Reload the session from disk without refreshing Pi runtime resources")} ?disabled=${isWorking} @click=${() => { this.openMenuSessionId = undefined; this.onReload?.(session); }}>${t("ui.sessionList.reloadFromDisk", "Reload from disk")}</button>` : null}
                   `}
             </div>
           ` : null}
@@ -764,7 +766,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const remaining = totalCount - visibleCount;
     return html`
       <div class="session-load-more-sentinel">
-        <button data-load-scope=${scope} @click=${() => { this.loadMore(scope); }}>${t("ui.sessionList.loadMoreCount", "Load more ({count} remaining)", { count: remaining })}</button>
+        <button class="ui-button" data-load-scope=${scope} @click=${() => { this.loadMore(scope); }}>${t("ui.sessionList.loadMoreCount", "Load more ({count} remaining)", { count: remaining })}</button>
       </div>
     `;
   }
@@ -779,13 +781,14 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     this.loadMoreObserver = undefined;
     if (typeof IntersectionObserver === "undefined" || this.listBody === undefined) return;
     const observer = new IntersectionObserver((entries) => {
+      if (this.loadMoreObserver !== observer || !this.isConnected) return;
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
         const scope = entry.target.getAttribute("data-load-scope");
         if (scope === "current") this.loadMore("current");
         else if (scope === "archived" && !this.hasMoreCurrentRows()) this.loadMore("archived");
       }
-    }, { root: this.listBody, rootMargin: "0px 0px 160px" });
+    }, { root: this.externalScroll ? null : this.listBody, rootMargin: "0px 0px 160px" });
     for (const sentinel of this.renderRoot.querySelectorAll<HTMLElement>("[data-load-scope]")) observer.observe(sentinel);
     this.loadMoreObserver = observer;
   }
@@ -838,20 +841,20 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   static override styles = [listStyles, sidebarListStyles, css`
     @layer pi-web-base {
     :host { container-type: inline-size; }
-    .session-heading { flex-wrap: wrap; align-items: center; padding: 4px 8px; gap: 4px; }
+    .list-body { isolation: isolate; }
+    .action-main { padding: 10px; padding-inline-start: calc(19px + var(--depth, 0) * 16px); text-align: start; }
+    .tree-marker { margin: 0; margin-inline-end: 5px; }
+    .subheading.ui-toolbar { margin-top: 0; }
+    .session-heading { flex-wrap: wrap; align-items: center; }
     .session-heading > .section-toggle { width: auto; min-width: 64px; }
-    .plain-heading { flex: 1 1 auto; padding: 8px; }
-    .session-heading-actions { gap: 4px; margin-inline-start: auto; }
-    @container (max-width: 420px) {
-      .session-heading > .session-heading-actions { flex-basis: 100%; justify-content: flex-end; padding-top: 4px; border-inline-start: 0; border-top: 1px solid var(--pi-border-muted); }
-    }
-    h2 { min-height: 30px; }
+    .plain-heading { flex: 1 1 auto; align-self: center; padding: 6px 10px; }
+    .session-heading-actions { margin-inline-start: auto; }
     h2 > .section-count { flex: 0 0 auto; align-self: center; padding-inline: 6px; display: inline; color: var(--pi-muted); font-size: inherit; }
     h2 > .section-unread-count { flex: 0 0 auto; align-self: center; padding-inline: 6px; display: inline; color: var(--pi-accent); font-size: inherit; text-transform: none; }
     .bulk-select-entry, .start-session-button, .cleanup-entry { flex: 0 0 auto; text-transform: none; }
-    .bulk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
-    .bulk-row button { padding: 5px 7px; font-size: 12px; white-space: nowrap; }
-    .bulk-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; margin-left: auto; }
+    .bulk-row { flex-wrap: wrap; }
+    .bulk-row button { white-space: nowrap; }
+    .bulk-actions { margin-inline-start: auto; }
     .bulk-row small { display: inline; min-width: 0; color: var(--pi-muted); }
     .action-name, .section-selected { text-align: start; unicode-bidi: plaintext; }
     .action-name { display: block; max-height: none; line-height: normal; white-space: nowrap; text-overflow: ellipsis; }
@@ -862,7 +865,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .session-load-more-sentinel button { padding: 5px 9px; color: var(--pi-muted); font-size: 12px; }
      .plain-heading { min-width: 0; }
     .session-search { flex: 0 0 auto; font-size: 19px; text-transform: none; }
-     .pin-indicator { margin-right: 5px; color: var(--pi-accent); font-size: 11px; }
+     .pin-indicator { margin-inline-end: 5px; color: var(--pi-accent); font-size: 11px; }
     .session-secondary { display: flex; align-items: baseline; gap: 5px; min-width: 0; margin-top: 3px; }
     .session-meta, .session-label-separator { flex: 0 0 auto; }
     .session-labels { min-width: 0; display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%; overflow: hidden; white-space: nowrap; }
@@ -874,31 +877,31 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     .action-name-line .action-name { flex: 1 1 auto; min-width: 0; }
     /* Badges must not sit inside the line-clamped title, or a long name hides them entirely. */
     .row-badges { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 4px; }
-    .row-badges .badge { margin-left: 0; white-space: nowrap; }
+    .row-badges .badge { margin: 0; white-space: nowrap; }
     /* Same glyph as a normal child marker, dimmed: the row is a child whose parent is not displayed here. */
     .orphan-marker { color: var(--pi-dim); opacity: .65; }
     .bulk-row .capability-hint { flex: 1 0 100%; color: var(--pi-warning); }
-    .selection-toolbar { position: sticky; top: 0; z-index: 4; }
-    .selection-toolbar::before { content: ""; position: absolute; top: 0; right: 0; left: 0; z-index: 0; height: 8px; background: var(--pi-bg); pointer-events: none; }
-    .selection-toolbar .bulk-row.selecting { position: relative; z-index: 1; margin-bottom: 0; padding: 6px; border: 1px solid var(--pi-border-muted); border-radius: 8px; background: var(--pi-surface); box-shadow: ${scrollBoundaryShadow}; }
-    .agent-subsession-toggle { position: relative; display: flex; align-items: center; gap: 6px; box-sizing: border-box; width: 100%; min-height: 24px; margin: 0; padding: 2px 16px 2px calc(35px + var(--agent-offset, 0px) + var(--depth, 0) * 16px); border: 0; border-radius: 0; background: transparent; font: 12px/20px var(--pi-font, system-ui, sans-serif); text-align: left; color: var(--pi-muted); overflow: hidden; }
+    .selection-toolbar { position: sticky; top: 0; z-index: 4; background: var(--pi-bg); border-bottom: 1px solid var(--pi-border-muted); box-shadow: ${scrollBoundaryShadow}; }
+    .action-row.has-agent-subsessions { margin-bottom: 0; border-bottom: 0; }
+    .action-row.has-agent-subsessions .action-main { padding-bottom: 6px; }
+    .agent-subsession-toggle { position: relative; display: flex; align-items: center; gap: 6px; box-sizing: border-box; width: 100%; min-height: 24px; margin: 0; padding-block: 2px; padding-inline: calc(35px + var(--agent-offset, 0px) + var(--depth, 0) * 16px) 16px; border: 0; border-radius: 0; background: transparent; font: 12px/20px var(--pi-font, system-ui, sans-serif); text-align: start; color: var(--pi-muted); overflow: hidden; }
     .agent-subsession-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .agent-subsession-toggle::before { content: ""; position: absolute; top: 0; bottom: 50%; left: calc(19px + var(--agent-offset, 0px) + var(--depth, 0) * 16px); width: 10px; border-left: 1px solid var(--pi-border-muted); border-bottom: 1px solid var(--pi-border-muted); pointer-events: none; }
+    .agent-subsession-toggle::before { content: ""; position: absolute; top: 0; bottom: 50%; inset-inline-start: calc(19px + var(--agent-offset, 0px) + var(--depth, 0) * 16px); width: 10px; border-inline-start: 1px solid var(--pi-border-muted); border-bottom: 1px solid var(--pi-border-muted); pointer-events: none; }
     .agent-subsession-toggle .action-activity { pointer-events: none; }
     /* The disclosure closes a collapsed group; an expanded group's final row owns its separator. */
     .agent-subsession-toggle[aria-expanded="false"]:not(:last-child) { box-shadow: inset 0 -1px var(--pi-border-muted); }
-    .action-row.linked-agent-child .action-main { padding-left: calc(19px + var(--agent-offset) + var(--depth, 0) * 16px); }
+    .action-row.linked-agent-child .action-main { padding-inline-start: calc(19px + var(--agent-offset) + var(--depth, 0) * 16px); }
     .agent-subsession-toggle:hover, .agent-subsession-toggle:focus-visible { color: var(--pi-text); background: var(--pi-surface-hover); }
     .agent-subsession-toggle:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
     button.danger, .action-menu-panel button.danger { color: var(--pi-danger); }
     button.danger:hover, .action-menu-panel button.danger:hover { background: color-mix(in srgb, var(--pi-danger) 14%, transparent); }
-    .action-row.bulk-selected .action-main { border-color: var(--pi-accent); box-shadow: inset 3px 0 0 var(--pi-accent); }
-    .pending-session-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); margin: 6px 0; cursor: default; }
-    .pending-session-row.starting-session .action-main { border-radius: 8px; border-style: dashed; color: var(--pi-muted); }
+    .action-row.bulk-selected { box-shadow: inset 3px 0 0 var(--pi-accent); }
+    .pending-session-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 3px 10px; cursor: default; }
+    .pending-session-row.starting-session .action-main { border-radius: 0; border-style: dashed; border-color: var(--pi-border); color: var(--pi-muted); }
     .pending-session-row.starting-session .action-name { display: flex; align-items: center; gap: 6px; max-height: none; -webkit-line-clamp: 1; }
     .pending-session-row.starting-session .activity-indicator { flex: 0 0 auto; margin: 0; }
-    .action-main.selecting { padding-left: calc(32px + var(--depth, 0) * 16px); }
-    .session-checkbox { position: absolute; top: 9px; left: calc(8px + var(--depth, 0) * 16px); z-index: 2; margin: 0; }
+    .action-main.selecting, .action-row.linked-agent-child .action-main.selecting { padding-inline-start: calc(48px + var(--depth, 0) * 16px + var(--agent-offset, 0px)); }
+    .session-checkbox { position: absolute; top: 9px; inset-inline-start: calc(24px + var(--depth, 0) * 16px + var(--agent-offset, 0px)); z-index: 2; margin: 0; }
 
     }
   `];
@@ -908,6 +911,7 @@ export function unreadSessionCount(
   sessions: readonly SessionInfo[],
   unreadSessionIds: ReadonlySet<string>,
 ): number {
+  if (unreadSessionIds.size === 0) return 0;
   return sessions.filter((session) => sessionRowUnread(session, unreadSessionIds)).length;
 }
 

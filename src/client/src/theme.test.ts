@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, effectiveThemePreference, findThemePairForTheme, resolveThemePreference } from "./theme";
+import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, effectiveThemePreference, findAvailableTheme, findThemePairForTheme, resolveThemePreference } from "./theme";
 import type { QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, ThemeColorScheme } from "./plugins/types";
 
 const themes = [
@@ -31,9 +31,24 @@ describe("effectiveThemePreference", () => {
     const local = { themeId: "themes:classic", auto: true };
     expect(effectiveThemePreference(local, configured)).toBe(local);
   });
+  it("uses the available plugin default only without explicit preferences", () => {
+    const available: QualifiedThemeContribution[] = [...themes, { ...theme("graphite", "Graphite", "dark"), id: "pi-web.custom-ui-codex:graphite", pluginId: "pi-web.custom-ui-codex" }];
+    expect(effectiveThemePreference(undefined, undefined, available)).toEqual({ themeId: "pi-web.custom-ui-codex:graphite", auto: true });
+    expect(effectiveThemePreference(undefined, undefined, themes)).toBe(DEFAULT_THEME_PREFERENCE);
+    expect(effectiveThemePreference(undefined, configured, available)).toBe(configured);
+    const local = { themeId: "custom:temporarily-missing", auto: false };
+    expect(effectiveThemePreference(local, configured, available)).toBe(local);
+  });
 });
 
 describe("resolveThemePreference", () => {
+  it.each(["paper", "graphite"])("resolves legacy %s choices only while the custom UI palette is available", (name) => {
+    const preference = { themeId: `themes:${name}`, auto: false };
+    const palette: QualifiedThemeContribution = { ...theme("classic", name, "dark"), id: `pi-web.custom-ui-codex:${name}`, pluginId: "pi-web.custom-ui-codex", localId: name };
+    expect(resolveThemePreference({ themes: [...themes, palette], themePairs, preference, prefersLight: false }).activeTheme?.id).toBe(palette.id);
+    expect(resolveThemePreference({ themes, themePairs, preference, prefersLight: false }).activeTheme?.id).toBe(CLASSIC_THEME_ID);
+    expect(preference.themeId).toBe(`themes:${name}`);
+  });
   it("resolves the default auto preference to the dark member when the system is dark", () => {
     expect(resolveThemePreference({ themes, themePairs, preference: DEFAULT_THEME_PREFERENCE, prefersLight: false }).activeTheme?.id)
       .toBe("themes:pi-web-dark");
@@ -100,6 +115,20 @@ describe("resolveThemePreference", () => {
   it("can look up a pair from either member theme", () => {
     expect(findThemePairForTheme(themePairs, "themes:pi-web-light")?.id).toBe("themes:pi-web");
     expect(findThemePairForTheme(themePairs, "themes:pi-web-dark")?.id).toBe("themes:pi-web");
+  });
+});
+
+describe("findAvailableTheme", () => {
+  it("prefers an exact available theme over the migrated alias", () => {
+    const original = theme("paper", "Original paper", "light");
+    const migrated: QualifiedThemeContribution = { ...original, id: "pi-web.custom-ui-codex:paper", pluginId: "pi-web.custom-ui-codex" };
+    expect(findAvailableTheme([...themes, migrated, original], original.id)).toBe(original);
+  });
+
+  it("does not report a fallback as the requested theme", () => {
+    expect(findAvailableTheme(themes, "themes:paper")).toBeUndefined();
+    expect(findAvailableTheme(themes, "custom:missing")).toBeUndefined();
+    expect(findAvailableTheme(themes, DEFAULT_THEME_PREFERENCE.themeId)).toBe(themes[0]);
   });
 });
 

@@ -21,25 +21,15 @@ describe("built-in CSS themes", () => {
       { id: "themes:pi-web-dark", colorScheme: "dark" },
       { id: "themes:pi-web-light", colorScheme: "light" },
       { id: "themes:classic", colorScheme: "dark" },
-      { id: "themes:paper", colorScheme: "light" },
-      { id: "themes:graphite", colorScheme: "dark" },
     ]);
     expect(themePairs.map((pair) => ({ id: pair.id, light: pair.light, dark: pair.dark }))).toEqual([
       { id: "themes:pi-web", light: "themes:pi-web-light", dark: "themes:pi-web-dark" },
-      { id: "themes:paper-graphite", light: "themes:paper", dark: "themes:graphite" },
     ]);
     for (const prefersLight of [false, true]) {
       const { activeTheme } = resolveThemePreference({ themes, themePairs, preference: DEFAULT_THEME_PREFERENCE, prefersLight });
       expect(activeTheme?.stylesheets).toHaveLength(1);
       expect(activeTheme?.stylesheets?.[0]?.id).toBe(`themes:pi-web-${prefersLight ? "light" : "dark"}:palette`);
       expect(activeTheme?.stylesheets?.[0]?.url).toMatch(/^http:\/\/.*\/pi-web-(light|dark)\.css\?no-inline$/);
-    }
-    for (const prefersLight of [false, true]) {
-      const { activeTheme } = resolveThemePreference({
-        themes, themePairs, preference: { themeId: "themes:paper", auto: true }, prefersLight,
-      });
-      expect(activeTheme?.id).toBe(`themes:${prefersLight ? "paper" : "graphite"}`);
-      expect(activeTheme?.stylesheets?.[0]?.url).toMatch(/\/(paper|graphite)\.css\?no-inline$/);
     }
     const light = themes.find((theme) => theme.colorScheme === "light");
     if (light === undefined) throw new Error("Missing built-in Light theme");
@@ -55,8 +45,6 @@ describe("built-in CSS themes", () => {
       "pi-web-dark": ["#070912", "#f7f4ff"],
       "pi-web-light": ["#f7f1e6", "#15131b"],
       classic: ["#0d1117", "#e6edf3"],
-      paper: ["#ffffff", "#202020"],
-      graphite: ["#181818", "#e8e8e8"],
     };
     let properties: string[] | undefined;
     for (const [id, colors] of Object.entries(expectedColors)) {

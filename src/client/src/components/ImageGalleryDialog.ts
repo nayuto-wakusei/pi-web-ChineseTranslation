@@ -160,10 +160,10 @@ export class ImageGalleryDialog extends LitElement {
     dialog.image-zoom[open] { display: flex; flex-direction: column; }
     dialog.image-zoom::backdrop { background: var(--pi-overlay); }
     .image-gallery-header { border-bottom: 1px solid var(--pi-border); }
-    .image-gallery-position { padding-inline: 12px; }
+    .image-gallery-position { padding-inline: 12px; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
     .image-gallery-stage { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--pi-surface); touch-action: pan-y pinch-zoom; }
     .image-zoom-full { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; }
     .image-gallery-navigation { border-top: 1px solid var(--pi-border); }
-    .image-gallery-navigation .ui-button { flex: 1 1 0; }
+    .image-gallery-navigation .ui-button { flex: 1 1 0; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
   `];
 }

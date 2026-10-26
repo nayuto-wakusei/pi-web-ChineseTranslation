@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { ChatView } from "../../src/client/src/components/ChatView";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/chat.html");
@@ -35,6 +36,47 @@ test("long records reach the end and live content does not displace a middle rea
   await page.evaluate(() => window.chatFixture.append());
   await expect.poll(() => readingPosition(page)).toBeCloseTo(before, 0);
   await page.screenshot({ path: testInfo.outputPath("chat-middle-streaming.png"), fullPage: true });
+});
+
+test("Markdown advances during continuous output without waiting for the answer to finish", async ({ page }, testInfo) => {
+  await page.getByRole("button", { name: "Jump to end", exact: true }).click();
+  const result = await page.evaluate(async () => {
+    const view = document.querySelector<ChatView>("chat-view");
+    if (view === null) throw new Error("Missing chat view");
+    const prefix = view.messages.slice(0, -1);
+    let text = "# Live Markdown\n\n**Formatting during output**\n\n";
+    const timerDelays: number[] = [];
+    const frameDurations: number[] = [];
+    const longTasks: number[] = [];
+    const longTaskSupported = PerformanceObserver.supportedEntryTypes.includes("longtask");
+    const observer = longTaskSupported ? new PerformanceObserver((list) => { longTasks.push(...list.getEntries().map((entry) => entry.duration)); }) : undefined;
+    observer?.observe({ type: "longtask" });
+    let renderedDuringOutput = 0;
+    for (let turn = 0; turn < 40; turn++) {
+      const start = performance.now();
+      const probe = new Promise<void>((resolve) => { setTimeout(() => { timerDelays.push(performance.now() - start); resolve(); }, 0); });
+      for (let chunk = 0; chunk < 10; chunk++) {
+        text += `\n- **Item ${String(turn * 10 + chunk)}**: a streamed list entry with inline \`code\`.`;
+        view.messages = [...prefix, { role: "assistant", streamId: "fixture-stream", transcriptIndex: 159, parts: [{ type: "text", text }] }];
+        await view.updateComplete;
+      }
+      await new Promise<void>((resolve) => { requestAnimationFrame(() => { setTimeout(resolve, 0); }); });
+      await probe;
+      const formatted = view.renderRoot.querySelector('article[data-index="159"] formatted-text');
+      if (turn < 39 && formatted?.shadowRoot?.querySelectorAll("li").length !== 0 && formatted?.shadowRoot?.querySelector("h1")?.textContent === "Live Markdown") renderedDuringOutput++;
+      frameDurations.push(performance.now() - start);
+    }
+    longTasks.push(...observer?.takeRecords().map((entry) => entry.duration) ?? []);
+    observer?.disconnect();
+    return { renderedDuringOutput, timerDelays, frameDurations, longTaskSupported, longTasks, characters: text.length };
+  });
+  expect(result.renderedDuringOutput).toBeGreaterThan(2);
+  const last = page.locator('chat-view article[data-index="159"]');
+  await expect(last.locator("h1")).toHaveText("Live Markdown");
+  await expect(last.locator("li")).toHaveCount(400);
+  await expect(last.locator("li").last()).toContainText("Item 399");
+  await testInfo.attach("streaming-markdown-metrics", { body: JSON.stringify({ ...result, note: "Component fixture; timer probes are not real-user INP. Frame durations include the intentional animation-frame wait." }, null, 2), contentType: "application/json" });
+  await page.screenshot({ path: testInfo.outputPath("live-markdown.png") });
 });
 
 test("history prepend retains the durable message and its viewport offset", async ({ page }, testInfo) => {

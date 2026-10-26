@@ -37,8 +37,11 @@ describe("machineContextDetail", () => {
 });
 
 describe("machine crumb", () => {
-  it("hides a single machine in browser mode", async () => {
-    expect(machineChip(await mountBar([machine("local")]))).toBeUndefined();
+  it("retains the upstream static machine identity in browser mode", async () => {
+    const chip = machineChip(await mountBar([machine("local")]));
+    expect(chip?.tagName).toBe("SPAN");
+    expect(chip?.textContent).toContain("本地");
+    expect(chip?.querySelector("img")).toBeNull();
   });
 
   it.each(["本地", "Local"])("shows a static gateway identity instead of %s in single-machine PWA mode", async (name) => {

@@ -69,6 +69,8 @@ Session-list 组件只处理菜单交互，重命名修改交给 `SessionControl
 
 聊天 transcript 的滚动容器拥有可见位置与耐久锚点，外层布局提供有界可用高度。长记录必须能滚到末尾；向前分页、加载提示增减、活动变化、图片加载和内容增强不能破坏正在阅读的位置。用户位于底部时继续跟随，主动离开底部后不因新输出强拉回末尾。dock、图片查看器和导航不是 transcript 滚动的修正器。布局与滚动入口见 [ChatView.ts](../../src/client/src/components/ChatView.ts) 和 [chatScrollPosition.ts](../../src/client/src/chatScrollPosition.ts)。
 
+聊天 Markdown 是浏览器显示增强：可见消息首次先展示安全原文，再展示 Markdown 与可选预览；流式更新合并最新文本，按绘制机会推进解析，新片段不取消已排队的格式化，不必等输出暂停才刷新已有格式化内容。追加输出时保留稳定代码块与已完成预览；离屏、折叠区域关闭或组件断开连接时，仍延迟或取消增强。入口见 [FormattedText.ts](../../src/client/src/components/FormattedText.ts)。这不改变 daemon 的 [Markdown transformer 契约](../plugins.md#styles-highlighting-and-display)，后者仍只处理完成及历史文本。
+
 未读确认同时需要正确机器/分支、可见与聚焦状态，以及已加载且已渲染范围覆盖目标未读区间。首屏就绪或请求完成本身不足以确认整段已读；分页尚未覆盖未读区间时不能提前清除。
 
 ## 搜索、置顶与清理

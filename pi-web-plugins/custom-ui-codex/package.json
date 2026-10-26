@@ -1,0 +1,10 @@
+{
+  "name": "pi-web-custom-ui-codex",
+  "private": true,
+  "type": "module",
+  "piWeb": {
+    "plugins": [
+      { "id": "pi-web.custom-ui-codex", "browserRoot": ".", "module": "pi-web-plugin.js", "defaultEnabled": true }
+    ]
+  }
+}

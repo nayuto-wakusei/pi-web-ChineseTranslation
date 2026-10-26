@@ -13,6 +13,33 @@ afterEach(() => {
 });
 
 describe("project status indicator", () => {
+  it("closes stale popup anchors when switching presentation layout", async () => {
+    const list = await mountProjectList([project("project-a")], undefined);
+    list.managementMode = true;
+    list.treeLayout = true;
+    await list.updateComplete;
+    list.shadowRoot?.querySelector<HTMLButtonElement>(".action-menu-toggle")?.click();
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector(".action-menu-panel")).not.toBeNull();
+    list.treeLayout = false;
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector(".action-menu-panel")).toBeNull();
+    list.shadowRoot?.querySelector<HTMLButtonElement>(".action-menu-toggle")?.click();
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector(".action-menu-panel")).not.toBeNull();
+  });
+
+  it("uses the upstream menu control for the close action", async () => {
+    const list = await mountProjectList([project("project-a")], undefined);
+    list.managementMode = true;
+    await list.updateComplete;
+    list.shadowRoot?.querySelector<HTMLButtonElement>(".action-menu-toggle")?.click();
+    await list.updateComplete;
+    const close = list.shadowRoot?.querySelector<HTMLButtonElement>(".action-menu-panel button");
+    expect(close?.classList.contains("ui-button")).toBe(true);
+    expect(close?.classList.contains("ui-menu-item")).toBe(true);
+  });
+
   it("shows an unread dot only on projects the snapshot reports as unread", async () => {
     const list = await mountProjectList(
       [project("project-a"), project("project-b")],

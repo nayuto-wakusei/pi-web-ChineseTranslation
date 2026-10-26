@@ -4,6 +4,7 @@ import { LitElement } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, configApi, piPackagesApi, pluginsApi, type PiWebConfigValues } from "../api";
 import { THEME_STORAGE_KEY } from "../theme";
+import { PluginRegistry } from "../plugins/registry";
 import { PiWebApp } from "./PiWebApp";
 import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
 import { SettingsDialog } from "./SettingsDialog";
@@ -57,6 +58,36 @@ afterEach(() => {
 });
 
 describe("app theme defaults and device overrides", () => {
+  it.each([false, true])("shows the implicit plugin default before and after clearing a device override (override=%s)", async (hasOverride) => {
+    config = {};
+    if (hasOverride) localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ themeId: "themes:classic", auto: false }));
+    const app = await mountApp(true);
+    const panel = themePanel(app);
+    const expectedDefault = { themeId: "pi-web.custom-ui-codex:graphite", auto: true };
+    expect(panel.defaultPreference).toEqual(expectedDefault);
+    expect(panel.shadowRoot?.querySelector(".current-theme")?.textContent).toContain("默认：Graphite");
+    expect(document.documentElement.dataset["piWebTheme"]).toBe(hasOverride ? "themes:classic" : expectedDefault.themeId);
+    if (hasOverride) {
+      button(panel, "使用默认主题").click();
+      await app.updateComplete;
+      await settings(app).updateComplete;
+      await panel.updateComplete;
+    }
+    expect(panel.preference).toEqual(expectedDefault);
+    expect(panel.defaultPreference).toEqual(panel.preference);
+    expect(document.documentElement.dataset["piWebTheme"]).toBe(expectedDefault.themeId);
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    expect(config).toEqual({});
+    expect(configApi.saveConfig).not.toHaveBeenCalled();
+  });
+
+  it("keeps the upstream implicit default when the custom UI themes are unavailable", async () => {
+    config = {};
+    const app = await mountApp();
+    expect(themePanel(app).defaultPreference).toEqual(themePanel(app).preference);
+    expect(document.documentElement.dataset["piWebTheme"]).toBe("themes:pi-web-dark");
+  });
+
   it("uses config without saving it locally, then supports device override and following the default", async () => {
     const app = await mountApp();
     expect(document.documentElement.dataset["piWebTheme"]).toBe("themes:pi-web-light");
@@ -103,8 +134,28 @@ describe("app theme defaults and device overrides", () => {
   });
 });
 
-async function mountApp(): Promise<ThemeSettingsApp> {
+async function mountApp(withCustomUiThemes = false): Promise<ThemeSettingsApp> {
   const app = new ThemeSettingsApp();
+  if (withCustomUiThemes) {
+    const registry: unknown = Reflect.get(app, "plugins");
+    if (!(registry instanceof PluginRegistry)) throw new Error("Expected plugin registry");
+    const modes: unknown = Reflect.get(app, "verifiedPluginModeByMachine");
+    if (!(modes instanceof Map)) throw new Error("Expected verified plugin modes");
+    modes.set("local", "recovery-disabled");
+    await registry.register({
+      id: "pi-web.custom-ui-codex",
+      plugin: { apiVersion: 5, name: "Custom UI themes fixture", activate: () => ({ contributions: {
+        themes: [
+          { id: "paper", name: "Paper", colorScheme: "light" },
+          { id: "graphite", name: "Graphite", colorScheme: "dark" },
+        ],
+        themePairs: [{ id: "paper-graphite", name: "Paper / Graphite", light: "paper", dark: "graphite" }],
+      } }) },
+    });
+  }
+  const appearance = window.matchMedia("(prefers-color-scheme: light)");
+  vi.spyOn(appearance, "matches", "get").mockReturnValue(false);
+  Reflect.set(app, "systemLightThemeMedia", appearance);
   Reflect.set(app, "normalAuthStatus", { configured: true, authenticated: true });
   document.body.append(app);
   await app.updateComplete;

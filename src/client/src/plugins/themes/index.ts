@@ -31,22 +31,6 @@ export const themePackPlugin: PiWebPlugin = {
           colorScheme: "dark",
           stylesheets: [{ id: "palette", url: new URL("./classic.css?no-inline", import.meta.url).href }],
         },
-        {
-          id: "paper",
-          name: "Paper",
-          description: t("client.themes.paper.description", "White and neutral grays with restrained status colors."),
-          order: 40,
-          colorScheme: "light",
-          stylesheets: [{ id: "palette", url: new URL("./paper.css?no-inline", import.meta.url).href }],
-        },
-        {
-          id: "graphite",
-          name: "Graphite",
-          description: t("client.themes.graphite.description", "Charcoal and neutral grays with restrained status colors."),
-          order: 50,
-          colorScheme: "dark",
-          stylesheets: [{ id: "palette", url: new URL("./graphite.css?no-inline", import.meta.url).href }],
-        },
       ],
       themePairs: [
         {
@@ -56,14 +40,6 @@ export const themePackPlugin: PiWebPlugin = {
           order: 10,
           light: "pi-web-light",
           dark: "pi-web-dark",
-        },
-        {
-          id: "paper-graphite",
-          name: "Paper / Graphite",
-          description: t("client.themes.neutralPair.description", "Follow the system light/dark preference with neutral gray themes."),
-          order: 20,
-          light: "paper",
-          dark: "graphite",
         },
       ],
     },

@@ -2,7 +2,7 @@ import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { repeat } from "lit/directives/repeat.js";
 import { live } from "lit/directives/live.js";
-import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
+import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { trustApi } from "../api";
 import { customElement, property, state } from "lit/decorators.js";
 import type { Workspace, WorkspaceActivity } from "../api";
@@ -41,6 +41,8 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @property({ attribute: false }) workspaces: Workspace[] = [];
   @property() machineId = "local";
   @property({ type: Boolean }) managementMode = false;
+  @property({ type: Boolean, reflect: true, attribute: "tree-layout" }) treeLayout = false;
+  @property({ attribute: false }) selectedChildren: TemplateResult | undefined;
   @property({ attribute: false }) selected?: Workspace;
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
@@ -61,6 +63,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @state() private copiedDetailKey: string | undefined;
   @state() private trustByWorkspaceId: Record<string, WorkspaceTrustState> = {};
   private trustGeneration = 0;
+  @state() private branchCollapsed = false;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -77,6 +80,8 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
 
   protected override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has("workspaces")) this.focusAfterReorder = this.focusedControl;
+    if (changed.has("treeLayout")) this.openMenuWorkspaceId = undefined;
+    if (changed.has("machineId") || changed.has("selected") && (changed.get("selected")?.id !== this.selected?.id || changed.get("selected")?.projectId !== this.selected?.projectId || changed.get("selected")?.path !== this.selected?.path)) this.branchCollapsed = false;
   }
 
   protected override updated(changed: PropertyValues<this>): void {
@@ -117,6 +122,13 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     return focusSelectedOrFirstSelectableRow(this.renderRoot, { fallbackSelector: ".section-toggle" });
   }
 
+  async revealSelectedBranch(): Promise<void> {
+    await this.updateComplete;
+    if (!this.treeLayout || this.selected === undefined) return;
+    this.branchCollapsed = false;
+    await this.updateComplete;
+  }
+
   override render() {
     return html`
       <section>
@@ -126,22 +138,24 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
             ${repeat(this.workspaces, (workspace) => workspace.id, (workspace) => {
               const label = workspacePrimaryLabel(workspace);
               const items = this.workspaceLabelItems(workspace);
-              return html`
+              const row = html`
                 <div
                   class=${`action-row workspace-row ${this.selected?.id === workspace.id ? "selected" : ""}`}
                   tabindex="0"
                 @focusin=${(event: FocusEvent) => { this.focusedControl = event.target instanceof HTMLElement ? event.target : undefined; }}
                 @focusout=${() => { this.focusedControl = undefined; }}
                   title=${label}
-                  @click=${(event: MouseEvent) => { activateSelectableRow(event, () => this.onSelect?.(workspace)); }}
+                  @click=${(event: MouseEvent) => { activateSelectableRow(event, () => { this.selectWorkspace(workspace); }); }}
                   @keydown=${(event: KeyboardEvent) => { this.handleWorkspaceKeydown(event, workspace); }}
                 >
                   <div class="action-main">
+                    ${this.treeLayout ? html`<button type="button" class="ui-button ui-button--icon tree-disclosure" aria-label=${label} aria-expanded=${String(this.isExpanded(workspace))} @click=${(event: MouseEvent) => { event.stopPropagation(); this.selectWorkspace(workspace); }}><span aria-hidden="true">${this.isExpanded(workspace) ? "▾" : "▸"}</span></button>` : nothing}
                     ${this.renderWorkspaceMain(label, items, workspace)}
                   </div>
                   ${this.renderWorkspaceMenu(label, items, workspace)}
                 </div>
               `;
+              return this.treeLayout ? html`<div class="workspace-branch">${row}${this.isExpanded(workspace) ? html`<div class="tree-children">${this.selectedChildren}</div>` : nothing}</div>` : row;
             })}
           </div>
         `}
@@ -351,6 +365,17 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   }
 
   private handleWorkspaceKeydown(event: KeyboardEvent, workspace: Workspace): void {
+    if (this.treeLayout && event.target === event.currentTarget && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "ArrowLeft") {
+        if (this.isExpanded(workspace)) this.branchCollapsed = true;
+        else void this.onFocusPreviousSection?.();
+      } else if (this.isExpanded(workspace)) void this.onFocusNextSection?.();
+      else if (this.selected?.id === workspace.id) this.branchCollapsed = false;
+      else this.onSelect?.(workspace);
+      return;
+    }
     if (event.key === "Escape" && this.openMenuWorkspaceId === workspace.id) {
       event.preventDefault();
       event.stopPropagation();
@@ -358,11 +383,20 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
       return;
     }
     handleSelectableRowKeyboard(event, {
-      activate: () => this.onSelect?.(workspace),
+      activate: () => { this.selectWorkspace(workspace); },
       previousSection: this.onFocusPreviousSection === undefined ? undefined : () => { void this.onFocusPreviousSection?.(); },
       nextSection: this.onFocusNextSection === undefined ? undefined : () => { void this.onFocusNextSection?.(); },
       cancel: this.onCancelKeyboardNavigation === undefined ? undefined : () => { void this.onCancelKeyboardNavigation?.(); },
     });
+  }
+
+  private selectWorkspace(workspace: Workspace): void {
+    if (this.treeLayout && this.selected?.id === workspace.id) this.branchCollapsed = !this.branchCollapsed;
+    else this.onSelect?.(workspace);
+  }
+
+  private isExpanded(workspace: Workspace): boolean {
+    return this.treeLayout && this.selected?.id === workspace.id && !this.branchCollapsed;
   }
 
   private scrollSelectedIntoView(): void {

@@ -1,11 +1,15 @@
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
+import "../../plugins/uiPresentation";
+import type { UiPresentationRuntime } from "../../plugins/uiPresentationRuntime";
+import type { UiPresentationActionV1, UiPresentationContextV1 } from "../../../../plugin-api";
 import { t } from "../../i18n.js";
 import { uiButtonStyles } from "../ui/controlStyles";
-import { LitElement, css, html } from "lit";
+import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { styleMap } from "lit/directives/style-map.js";
 import { NavigationSectionResizeController, type ResizableNavigationSection } from "../../appShell/navigationSectionResizeController";
 import type { NavigationSectionMeasurement } from "./NavigationSectionResizeHandle";
 import "./NavigationSectionResizeHandle";
+import { renderPanelToggleButton } from "./panelToggleButton";
 import type { SessionList } from "../SessionList";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace, WorkspaceActivity } from "../../api";
@@ -18,6 +22,8 @@ import { EMPTY_UNREAD_PRESENCE, type UnreadPresence } from "../../unreadPresence
 import type { KeyboardNavigableSection } from "../navigationFocus";
 import "../MachineList";
 import "../MachineSwitcher";
+import type { ProjectList } from "../ProjectList";
+import type { WorkspaceList } from "../WorkspaceList";
 import "../ProjectList";
 import "../WorkspaceList";
 import "../SessionList";
@@ -32,6 +38,8 @@ export class AppNavigationPanel extends LitElement {
   }
 
   @property({ attribute: false }) machines: Machine[] = [];
+  @property({ attribute: false }) presentationRuntime: UiPresentationRuntime | undefined;
+  @property({ attribute: false }) presentationContext: UiPresentationContextV1 = { mode: "normal" };
   @property({ attribute: false }) selectedMachine?: Machine;
   /** PWA display mode: surfaces the single-machine identity in the header. */
   @property({ type: Boolean }) locationIndicator = false;
@@ -79,6 +87,8 @@ export class AppNavigationPanel extends LitElement {
   @property({ type: String }) archivedDeleteUnavailableMessage = t("ui.appNavigationPanel.updateAndRestartPiWebOnThisMachine2", "Update and restart Pi-Web on this machine before deleting archived sessions.");
   @property({ type: String }) cleanupUnavailableMessage = t("ui.appNavigationPanel.updateAndRestartPiWebOnThisMachine", "Update and restart Pi-Web on this machine before cleaning up sessions.");
   @property({ attribute: false }) onShowActions?: () => void;
+  @property({ attribute: false }) onAddProject?: () => void;
+  @property({ attribute: false }) onShowSettings?: () => void;
   @property({ attribute: false }) onToggleMachines?: () => void;
   @property({ attribute: false }) onToggleProjects?: () => void;
   @property({ attribute: false }) onToggleWorkspaces?: () => void;
@@ -120,9 +130,11 @@ export class AppNavigationPanel extends LitElement {
   private layoutObserver: ResizeObserver | undefined;
 
   private observedLayoutElements: Element[] = [];
+  private unsubscribePresentation: (() => void) | undefined;
 
   override connectedCallback(): void {
     super.connectedCallback();
+    this.subscribePresentation();
     if (typeof ResizeObserver !== "undefined") {
       this.layoutObserver = new ResizeObserver(() => { this.refreshSectionMeasurements(); });
       this.requestUpdate();
@@ -130,10 +142,46 @@ export class AppNavigationPanel extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.unsubscribePresentation?.();
+    this.unsubscribePresentation = undefined;
     this.layoutObserver?.disconnect();
     this.layoutObserver = undefined;
     this.observedLayoutElements = [];
+    this.clearTreeCache();
     super.disconnectedCallback();
+  }
+
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("presentationRuntime")) this.subscribePresentation();
+    const layout = this.presentationRuntime?.navigationLayout();
+    if (layout === undefined) {
+      this.removeAttribute("data-navigation-layout");
+      this.clearTreeCache();
+    }
+    else this.setAttribute("data-navigation-layout", layout);
+  }
+
+  private subscribePresentation(): void {
+    this.unsubscribePresentation?.();
+    this.unsubscribePresentation = this.isConnected ? this.presentationRuntime?.subscribe(() => { this.requestUpdate(); }) : undefined;
+  }
+
+  private presentationActionKey = "";
+  private presentationActionSource: UiPresentationContextV1 | undefined;
+  private presentationActionContext: UiPresentationContextV1 = { mode: "normal" };
+
+  private navigationPresentationContext(): UiPresentationContextV1 {
+    const key = JSON.stringify([this.canStartSession, this.onStartSession !== undefined, this.onSearchSessions !== undefined, this.managementMode, this.onAddProject !== undefined, this.onShowSettings !== undefined]);
+    if (key === this.presentationActionKey && this.presentationActionSource === this.presentationContext) return this.presentationActionContext;
+    const actions: UiPresentationActionV1[] = [];
+    if (this.onStartSession !== undefined) actions.push({ id: "new-task", label: t("client.sessionController.new.session.c57c30", "New session"), disabled: !this.canStartSession, run: () => this.onStartSession?.() });
+    if (this.onSearchSessions !== undefined) actions.push({ id: "search", label: t("ui.sessionSearchDialog.searchSessions", "Search sessions"), run: () => { this.onSearchSessions?.(); } });
+    if (!this.managementMode && this.onAddProject !== undefined) actions.push({ id: "add-project", label: t("client.actions.add.project.8964f5", "Add project"), run: () => { this.onAddProject?.(); } });
+    if (this.onShowSettings !== undefined) actions.push({ id: "settings", label: t("ui.settingsDialog.settings", "Settings"), run: () => { this.onShowSettings?.(); } });
+    this.presentationActionKey = key;
+    this.presentationActionSource = this.presentationContext;
+    this.presentationActionContext = Object.freeze({ ...this.presentationContext, actions: Object.freeze(actions) });
+    return this.presentationActionContext;
   }
 
   protected override updated(): void {
@@ -161,6 +209,7 @@ export class AppNavigationPanel extends LitElement {
   private renderSectionResizeHandle(section: ResizableNavigationSection) {
     if (this.compact) return null;
     return html`<navigation-section-resize-handle
+      slot=${section === "projects" ? "project-resize" : "workspace-resize"}
       .sectionLabel=${section === "projects" ? t("ui.projectList.projects", "Projects") : t("ui.workspaceList.workspaces", "Workspaces")}
       .controls=${`navigation-${section}`}
       .measurement=${this.sectionMeasurements[section]}
@@ -179,17 +228,31 @@ export class AppNavigationPanel extends LitElement {
 
   @query("machine-list") private machineList?: KeyboardNavigableSection;
   @query("machine-switcher") private machineSwitcher?: KeyboardNavigableSection;
-  @query("project-list") private projectList?: KeyboardNavigableSection;
-  @query("workspace-list") private workspaceList?: KeyboardNavigableSection;
-  @query("session-list") private sessionList?: SessionList;
+  @query("project-list") private projectList?: ProjectList;
+  private get workspaceList(): WorkspaceList | undefined {
+    return this.renderRoot.querySelector<WorkspaceList>("workspace-list")
+      ?? this.renderRoot.querySelector<ProjectList>("project-list")?.shadowRoot?.querySelector<WorkspaceList>("workspace-list") ?? undefined;
+  }
+
+  private get sessionList(): SessionList | undefined {
+    return this.renderRoot.querySelector<SessionList>("session-list")
+      ?? this.workspaceList?.shadowRoot?.querySelector<SessionList>("session-list")
+      ?? this.renderRoot.querySelector<ProjectList>("project-list")?.shadowRoot?.querySelector<SessionList>("session-list") ?? undefined;
+  }
 
   automaticSessionCandidates(sessions: SessionInfo[]): SessionInfo[] {
-    if (this.sessionsCollapsed) return [];
+    if (this.presentationRuntime?.navigationLayout() !== "tree" && this.sessionsCollapsed) return [];
     return this.sessionList?.automaticSessionCandidates(sessions) ?? [];
   }
 
   async focusSection(section: NavigationSection): Promise<boolean> {
     await this.updateComplete;
+    await this.projectList?.updateComplete;
+    if (this.presentationRuntime?.navigationLayout() === "tree" && (section === "workspaces" || section === "sessions")) {
+      await this.projectList?.revealSelectedBranch();
+      if (section === "sessions") await this.workspaceList?.revealSelectedBranch();
+    }
+    if (section === "sessions") await this.workspaceList?.updateComplete;
     switch (section) {
       case "machines": return await this.focusNavigableSection(this.compact ? this.machineList : this.machineSwitcher);
       case "projects": return await this.focusNavigableSection(this.projectList);
@@ -238,14 +301,15 @@ export class AppNavigationPanel extends LitElement {
   };
 
   override render() {
+    const treeLayout = this.presentationRuntime?.navigationLayout() === "tree";
     const showMachines = shouldShowMachinesSection(this.machines);
     const showMachineSwitcher = !this.managementMode || showMachines || this.locationIndicator;
     const showHeaderActions = this.refreshControl !== undefined || this.onShowActions !== undefined;
     const showHeader = this.showBrand || showMachineSwitcher || showHeaderActions || this.onTogglePanel !== undefined;
     return html`
-      ${showHeader ? html`<header>
-        ${this.onTogglePanel === undefined ? null : html`<button type="button" class="ui-button ui-button--icon panel-toggle" title=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} aria-label=${t("ui.navigation.collapsePanel", "Collapse navigation panel")} aria-controls="navigation-panel" aria-expanded="true" @click=${() => { this.onTogglePanel?.(); }}>‹</button>`}
-        ${this.showBrand ? html`<strong>PI WEB</strong>` : null}
+      <pi-web-ui-presentation region="navigation" .runtime=${this.presentationRuntime} .context=${this.navigationPresentationContext()}>
+      ${showHeader ? html`<header slot="header">
+        ${renderPanelToggleButton("navigation", false, this.onTogglePanel)}
         ${showMachineSwitcher ? html`
           <machine-switcher
             .machines=${this.machines}
@@ -264,13 +328,16 @@ export class AppNavigationPanel extends LitElement {
         ${showHeaderActions ? html`<div class="header-actions">
           ${this.refreshControl}
           ${this.onShowActions === undefined ? null : html`
-            <button class="ui-button" title="${t("client.actions.show.actions.a514ad", "Show actions")}" aria-label="${t("client.actions.show.actions.a514ad", "Show actions")}" @click=${() => { this.onShowActions?.(); }}>${t("ui.appNavigationPanel.actions", "Actions")}</button>
+            <button type="button" class="ui-button actions-button" title="${t("client.actions.show.actions.a514ad", "Show actions")}" aria-label="${t("client.actions.show.actions.a514ad", "Show actions")}" @click=${() => { this.onShowActions?.(); }}>
+              <svg class="actions-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M13 2 4 14h7l-1 8 10-13h-7V2Z"></path></svg>
+              <span class="actions-label">${t("ui.appNavigationPanel.actions", "Actions")}</span>
+            </button>
           `}
         </div>` : null}
       </header>` : null}
-      <div class="navigation-sections">
       ${this.compact && showMachines ? html`
         <machine-list
+          slot="machines"
           .machines=${this.machines}
           .selected=${this.selectedMachine}
           .statuses=${this.machineStatuses}
@@ -286,7 +353,19 @@ export class AppNavigationPanel extends LitElement {
           .onCancelKeyboardNavigation=${() => { this.cancelKeyboardNavigation(); }}
         ></machine-list>
       ` : null}
-      <project-list
+      ${this.renderProjectList(treeLayout)}
+      ${treeLayout ? nothing : html`
+        ${this.projectsCollapsed ? null : this.renderSectionResizeHandle("projects")}
+        ${this.workspaceSelectionVisible ? html`${this.renderWorkspaceList(false)}${this.workspacesCollapsed ? null : this.renderSectionResizeHandle("workspaces")}` : null}
+        ${this.renderSessionList(false)}
+      `}
+      </pi-web-ui-presentation>
+    `;
+  }
+
+  private renderProjectList(treeLayout: boolean) {
+    return html`<project-list
+        slot="projects"
         .machineId=${this.selectedMachine?.id ?? "local"}
         id="navigation-projects"
         style=${styleMap(this.sectionSizeStyle("projects"))}
@@ -297,9 +376,11 @@ export class AppNavigationPanel extends LitElement {
         .workspacesByProjectId=${this.workspacesByProjectId}
         .unreadProjectIds=${this.unreadPresence.projects}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
-        .collapsible=${this.collapsible}
-        .collapsed=${this.projectsCollapsed}
+        .collapsible=${!treeLayout && this.collapsible}
+        .collapsed=${!treeLayout && this.projectsCollapsed}
         .managementMode=${this.managementMode}
+        .treeLayout=${treeLayout}
+        .selectedChildren=${treeLayout ? this.treeChildren() : undefined}
         .onToggleCollapsed=${this.childCallbacks.toggleProjects}
         .onSelect=${this.childCallbacks.selectProject}
         .onClose=${this.childCallbacks.closeProject}
@@ -307,22 +388,83 @@ export class AppNavigationPanel extends LitElement {
         .onFocusPreviousSection=${this.childCallbacks.previousFromProjects}
         .onFocusNextSection=${this.childCallbacks.nextFromProjects}
         .onCancelKeyboardNavigation=${this.childCallbacks.cancelKeyboardNavigation}
-      ></project-list>
-      ${this.projectsCollapsed ? null : this.renderSectionResizeHandle("projects")}
-      ${this.workspaceSelectionVisible ? html`<workspace-list
+      ></project-list>`;
+  }
+
+  private treeChildInputs: readonly unknown[] = [];
+  private treeChildContent: TemplateResult | undefined;
+
+  private clearTreeCache(): void {
+    if (this.treeChildContent === undefined) return;
+    this.treeChildInputs = [];
+    this.treeChildContent = undefined;
+    this.filteredWorkspaceSource = undefined;
+    this.filteredWorkspaces = [];
+    this.filteredSessionSource = undefined;
+    this.filteredSessions = [];
+  }
+
+  private treeChildren(): TemplateResult {
+    const inputs = [this.selectedMachine?.id, this.selectedProject?.id, this.selectedWorkspace, this.workspaceSelectionVisible,
+      this.workspaces, this.workspaceActivities, this.deletingWorkspaceIds, this.unreadPresence.workspaces,
+      this.selectedMachineStatusSnapshot(), this.collapsible, this.workspacesCollapsed, this.workspaceLabelItems, this.managementMode,
+      this.onMoveWorkspace === undefined, this.sessions, this.pinnedSessionIds, this.pinnedRootIds, this.onMoveSessionPin === undefined,
+      this.sessionStatuses, this.sessionActivities, this.sendingPrompts, this.unreadSessionIds, this.selectedSession, this.sessionLabelItems,
+      this.startingSessionCount, this.canStartSession, this.canDeleteArchivedSessions, this.canReloadSessions, this.canCleanupSessions,
+      this.authoritativeSessionPersistence, this.archivedDeleteUnavailableMessage, this.cleanupUnavailableMessage, this.sessionsCollapsed];
+    if (this.treeChildContent !== undefined && inputs.every((value, index) => value === this.treeChildInputs[index])) return this.treeChildContent;
+    this.treeChildInputs = inputs;
+    this.treeChildContent = this.selectedProject === undefined ? html``
+      : this.workspaceSelectionVisible ? this.renderWorkspaceList(true)
+      : this.selectedWorkspace?.projectId === this.selectedProject.id ? this.renderSessionList(true) : html``;
+    return this.treeChildContent;
+  }
+
+  private filteredWorkspaces: Workspace[] = [];
+  private filteredWorkspaceSource: Workspace[] | undefined;
+  private filteredWorkspaceProject: string | undefined;
+
+  private treeWorkspaces(): Workspace[] {
+    if (this.filteredWorkspaceSource !== this.workspaces || this.filteredWorkspaceProject !== this.selectedProject?.id) {
+      this.filteredWorkspaceSource = this.workspaces;
+      this.filteredWorkspaceProject = this.selectedProject?.id;
+      this.filteredWorkspaces = this.workspaces.filter((workspace) => workspace.projectId === this.selectedProject?.id);
+    }
+    return this.filteredWorkspaces;
+  }
+
+  private filteredSessions: SessionInfo[] = [];
+  private filteredSessionSource: SessionInfo[] | undefined;
+  private filteredSessionWorkspace: string | undefined;
+
+  private treeSessions(): SessionInfo[] {
+    const path = this.selectedWorkspace?.projectId === this.selectedProject?.id ? this.selectedWorkspace?.path : undefined;
+    if (this.filteredSessionSource !== this.sessions || this.filteredSessionWorkspace !== path) {
+      this.filteredSessionSource = this.sessions;
+      this.filteredSessionWorkspace = path;
+      this.filteredSessions = path === undefined ? [] : this.sessions.filter((session) => session.cwd === path);
+    }
+    return this.filteredSessions;
+  }
+
+  private renderWorkspaceList(treeLayout: boolean) {
+    return html`<workspace-list
+        slot="workspaces"
         id="navigation-workspaces"
         style=${styleMap(this.sectionSizeStyle("workspaces"))}
         ?data-manual-size=${!this.compact && this.sectionSizes.height("workspaces") !== undefined}
         .machineId=${this.selectedMachine?.id ?? "local"}
         .managementMode=${this.managementMode}
-        .workspaces=${this.workspaces}
-        .selected=${this.selectedWorkspace}
+        .workspaces=${treeLayout ? this.treeWorkspaces() : this.workspaces}
+        .selected=${treeLayout && this.selectedWorkspace?.projectId !== this.selectedProject?.id ? undefined : this.selectedWorkspace}
+        .treeLayout=${treeLayout}
+        .selectedChildren=${treeLayout ? this.renderSessionList(true) : undefined}
         .activities=${this.workspaceActivities}
         .deletingWorkspaceIds=${this.deletingWorkspaceIds}
         .unreadWorkspaceIds=${this.unreadPresence.workspaces}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
-        .collapsible=${this.collapsible}
-        .collapsed=${this.workspacesCollapsed}
+        .collapsible=${!treeLayout && this.collapsible}
+        .collapsed=${!treeLayout && this.workspacesCollapsed}
         .workspaceLabelItems=${this.workspaceLabelItems}
         .onToggleCollapsed=${this.childCallbacks.toggleWorkspaces}
         .onSelect=${this.childCallbacks.selectWorkspace}
@@ -331,11 +473,15 @@ export class AppNavigationPanel extends LitElement {
         .onFocusPreviousSection=${this.childCallbacks.previousFromWorkspaces}
         .onFocusNextSection=${this.childCallbacks.nextFromWorkspaces}
         .onCancelKeyboardNavigation=${this.childCallbacks.cancelKeyboardNavigation}
-      ></workspace-list>
-      ${this.workspacesCollapsed ? null : this.renderSectionResizeHandle("workspaces")}` : null}
-      <session-list
+      ></workspace-list>`;
+  }
+
+  private renderSessionList(treeLayout: boolean) {
+    return html`<session-list
+        slot="sessions"
+        .externalScroll=${treeLayout}
         .scopeKey=${sessionListScopeKey(this.selectedMachine?.id, this.selectedWorkspace?.id)}
-        .sessions=${this.sessions}
+        .sessions=${treeLayout ? this.treeSessions() : this.sessions}
         .pinnedSessionIds=${this.pinnedSessionIds}
         .pinnedRootIds=${this.pinnedRootIds}
         .onMovePin=${this.managementMode || this.onMoveSessionPin === undefined ? undefined : this.childCallbacks.moveSessionPin}
@@ -344,7 +490,7 @@ export class AppNavigationPanel extends LitElement {
         .sessionFlags=${this.selectedMachineStatusSnapshot()?.sessions}
         .sending=${this.sendingPrompts}
         .unreadSessionIds=${this.unreadSessionIds}
-        .selected=${this.selectedSession}
+        .selected=${treeLayout && this.selectedSession?.cwd !== this.selectedWorkspace?.path ? undefined : this.selectedSession}
         .sessionLabelItems=${this.sessionLabelItems}
         .startingCount=${this.startingSessionCount}
         .canStart=${this.canStartSession}
@@ -354,8 +500,8 @@ export class AppNavigationPanel extends LitElement {
         .authoritativeSessionPersistence=${this.authoritativeSessionPersistence}
         .archivedDeleteUnavailableMessage=${this.archivedDeleteUnavailableMessage}
         .cleanupUnavailableMessage=${this.cleanupUnavailableMessage}
-        .collapsible=${this.collapsible}
-        .collapsed=${this.sessionsCollapsed}
+        .collapsible=${!treeLayout && this.collapsible}
+        .collapsed=${!treeLayout && this.sessionsCollapsed}
         .onToggleCollapsed=${this.childCallbacks.toggleSessions}
         .onArchivedCollapsed=${this.childCallbacks.archivedCollapsed}
         .onStart=${this.childCallbacks.startSession}
@@ -378,9 +524,7 @@ export class AppNavigationPanel extends LitElement {
         .onFocusPreviousSection=${this.childCallbacks.previousFromSessions}
         .onFocusNextSection=${this.childCallbacks.nextFromSessions}
         .onCancelKeyboardNavigation=${this.childCallbacks.cancelKeyboardNavigation}
-      ></session-list>
-      </div>
-    `;
+      ></session-list>`;
   }
 
   private selectedMachineStatusSnapshot(): MachineStatusSnapshot | undefined {
@@ -405,17 +549,20 @@ export class AppNavigationPanel extends LitElement {
     void this.onCancelKeyboardNavigation?.();
   }
 
-  static override styles = css`
-    ${uiButtonStyles}
-    @layer pi-web-base {
-    :host { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  static override styles = [uiButtonStyles, css`
+    :host { display: flex; flex-direction: column; min-height: 0; overflow: hidden; container: navigation-panel / inline-size; }
     :host([compact]) { flex: 1 1 auto; }
     header { flex: 0 0 auto; display: flex; align-items: stretch; min-height: 44px; gap: 0; padding: 0; border-bottom: 1px solid var(--pi-border); }
-    header strong { flex: 0 0 auto; display: flex; align-items: center; padding-inline: 12px; }
-    machine-switcher { flex: 1 1 auto; min-width: 0; border-inline-start: 1px solid var(--pi-border-muted); }
+    machine-switcher { flex: 1 1 auto; min-width: 0; }
     :host([compact]) header { display: none; }
     .header-actions { flex: 0 0 auto; display: flex; align-items: stretch; gap: 0; border-inline-start: 1px solid var(--pi-border-muted); }
-    .navigation-sections { display: flex; flex-direction: column; flex: 1 1 0px; min-height: 0; }
+    .header-actions > * + * { border-inline-start: 1px solid var(--pi-border-muted); }
+    .panel-toggle { border-inline-end: 1px solid var(--pi-border-muted); }
+    .actions-icon { flex: 0 0 auto; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    @container navigation-panel (max-width: 400px) {
+      .actions-label { display: none; }
+      .actions-button { min-width: 44px; padding-inline: 0; }
+    }
     /* Projects and workspaces default to content height capped at a third of
        the area below the header, matching sessions when both lists are long.
        Explicit heights survive content/navigation changes; flex shrink only
@@ -431,9 +578,7 @@ export class AppNavigationPanel extends LitElement {
     project-list[collapsed],
     workspace-list[collapsed],
     session-list[collapsed] { flex: 0 0 auto; min-height: auto; overflow: hidden; border-bottom: 0; }
-
-    }
-  `;
+  `];
 }
 
 function sessionListScopeKey(machineId: string | undefined, workspaceId: string | undefined): string {

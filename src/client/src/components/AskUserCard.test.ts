@@ -30,10 +30,11 @@ describe("ask-user-card live form", () => {
     expect(fieldsets[0]?.getAttribute("aria-describedby")).toBe("ask-user-question-detail-0");
     expect(root.querySelector("#ask-user-question-detail-0")?.textContent).toBe("Used for examples.\n  Keep the indentation.");
     // happy-dom does not compute styles inside cascade layers.
-    expect(AskUserCard.styles.cssText).toMatch(/\.question-detail\s*\{[^}]*white-space:\s*pre-wrap/);
+    const styles = AskUserCard.elementStyles.map((style) => "cssText" in style ? style.cssText : "").join("\n");
+    expect(styles).toMatch(/\.question-detail\s*\{[^}]*white-space:\s*pre-wrap/);
     const optionDetail = requiredElement(root.querySelector(".option-detail"), "option detail");
     expect(optionDetail.textContent).toBe("Fast\n  and familiar.");
-    expect(AskUserCard.styles.cssText).toMatch(/\.option-detail\s*\{[^}]*white-space:\s*pre-wrap/);
+    expect(styles).toMatch(/\.option-detail\s*\{[^}]*white-space:\s*pre-wrap/);
     expect(vim.type).toBe("radio");
     expect(code.name).toBe(vim.name);
     expect(web.type).toBe("checkbox");
@@ -87,7 +88,9 @@ describe("ask-user-card live form", () => {
     const textarea = requiredElement(root.querySelector("textarea"), "custom textarea");
     const label = requiredElement(textarea.closest("label"), "custom label");
     expect(label.textContent).toContain("自定义回答");
-    expect(getComputedStyle(textarea).fontSize).toBe("16px");
+    expect(textarea.classList.contains("ui-input")).toBe(true);
+    const sharedStyles = AskUserCard.elementStyles.map((style) => "cssText" in style ? style.cssText : "").join("\n");
+    expect(sharedStyles).toMatch(/\.ui-input\s*\{[^}]*font:\s*var\(--pi-control-font-size,\s*16px\)/);
     expect(root.activeElement).toBe(textarea);
 
     textarea.value = "Svelte";

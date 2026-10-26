@@ -509,7 +509,12 @@ export class SessionTreeNavigator extends LitElement {
 
   static override styles = css`
     @layer pi-web-base {
-    :host { position: fixed; inset: 0; z-index: 40; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
+    :host { position: fixed; inset: 0; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
+    header, footer, .confirmation-card { overflow-wrap: anywhere; }
+    .kind, .badge { max-width: 100%; overflow-wrap: anywhere; }
+    .badges { min-width: 0; flex-wrap: wrap; }
+    :host(:dir(rtl)) .disclosure { transform: scaleX(-1); }
+    :host(:dir(rtl)) .tree-row.selected, :host(:dir(rtl)) .tree-row.active-leaf { box-shadow: inset -3px 0 var(--pi-accent); }
     * { box-sizing: border-box; }
     modal-surface { --modal-surface-width: 100%; --modal-surface-height: 100dvh; --modal-surface-max-height: 100dvh; --modal-surface-border: 0; --modal-surface-radius: 0; --modal-surface-shadow: none; }
     header, footer { display: flex; align-items: center; gap: 12px; padding: max(14px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 14px max(18px, env(safe-area-inset-left)); border-bottom: 1px solid var(--pi-border); }
@@ -530,7 +535,7 @@ export class SessionTreeNavigator extends LitElement {
     .active-path-marker { background: var(--pi-accent); }
     .active-leaf-marker { box-shadow: 0 0 0 2px var(--pi-accent); background: var(--pi-bg); }
     .tree { min-height: 0; overflow: auto; border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); overscroll-behavior: contain; }
-    .tree-row { min-height: 48px; display: grid; grid-template-columns: 20px minmax(82px, auto) minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 10px 7px calc(10px + var(--tree-indent)); border-bottom: 1px solid var(--pi-border-muted); cursor: pointer; outline: none; content-visibility: auto; contain-intrinsic-block-size: 48px; }
+    .tree-row { min-height: 48px; display: grid; grid-template-columns: 20px minmax(0, auto) minmax(0, 1fr) minmax(0, auto); align-items: center; gap: 8px; padding-block: 7px; padding-inline: calc(10px + var(--tree-indent)) 10px; border-bottom: 1px solid var(--pi-border-muted); cursor: pointer; outline: none; content-visibility: auto; contain-intrinsic-block-size: 48px; }
     .tree-row:last-child { border-bottom: 0; }
     .tree-row:hover { background: var(--pi-surface-hover); }
     .tree-row.selected { background: var(--pi-selection-bg); box-shadow: inset 3px 0 var(--pi-accent); }
@@ -546,7 +551,7 @@ export class SessionTreeNavigator extends LitElement {
     .tree-row > .metadata > .kind { grid-column: 2; grid-row: 1; }
     .tree-row > .entry { grid-column: 3; grid-row: 1; }
     .tree-row > .metadata > .badges { grid-column: 4; grid-row: 1; }
-    .kind { --kind-border: var(--pi-border); --kind-background: var(--pi-surface); display: inline-flex; align-items: center; width: fit-content; border: 1px solid var(--kind-border); border-radius: 999px; padding: 2px 7px; color: var(--pi-text); background: var(--kind-background); font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .kind { --kind-border: var(--pi-border); --kind-background: var(--pi-surface); display: inline-flex; align-items: center; width: fit-content; border: 1px solid var(--kind-border); border-radius: 999px; padding: 2px 7px; color: var(--pi-text); background: var(--kind-background); font-size: 11px; font-weight: 700; white-space: normal; }
     .kind-tone-user { --kind-border: var(--pi-accent-border); --kind-background: var(--pi-selection-bg); }
     .kind-tone-assistant { --kind-border: var(--pi-border); --kind-background: var(--pi-surface); }
     .kind-tone-tool { --kind-border: var(--pi-warning-border); --kind-background: var(--pi-warning-surface); }
@@ -559,7 +564,7 @@ export class SessionTreeNavigator extends LitElement {
     .label { max-width: 180px; overflow: hidden; text-overflow: ellipsis; border-radius: 4px; padding: 1px 5px; background: var(--pi-bg-overlay); color: var(--pi-muted); font-size: 11px; white-space: nowrap; }
     time { color: var(--pi-muted); font-size: 11px; white-space: nowrap; }
     .badges { display: flex; align-items: center; justify-content: end; gap: 5px; }
-    .badge { border-radius: 999px; padding: 2px 7px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .badge { border-radius: 999px; padding: 2px 7px; font-size: 11px; font-weight: 700; white-space: normal; }
     .badge.path { background: color-mix(in srgb, var(--pi-accent) 14%, transparent); color: var(--pi-text); }
     .badge.leaf { border: 1px solid var(--pi-accent); color: var(--pi-text); }
     .confirmation-step { padding: 24px max(18px, env(safe-area-inset-right)) 24px max(18px, env(safe-area-inset-left)); }
@@ -574,7 +579,7 @@ export class SessionTreeNavigator extends LitElement {
     .choice-option input { margin-top: 3px; accent-color: var(--pi-accent); }
     .choice-option span { display: grid; gap: 3px; }
     .choice-option small { color: var(--pi-muted); }
-    .custom-focus { display: grid; gap: 6px; margin: 2px 0 0 30px; font-weight: 600; }
+    .custom-focus { display: grid; gap: 6px; margin-block: 2px 0; margin-inline: 30px 0; font-weight: 600; }
     textarea { width: 100%; resize: vertical; min-height: 94px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 9px 10px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, var(--pi-font, system-ui, sans-serif)); }
     textarea:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
     .character-count { justify-self: end; color: var(--pi-muted); font-size: 11px; font-weight: 400; }

@@ -67,8 +67,8 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
 
   override render() {
     const selected = this.selectedMachine();
+    if (this.machines.length <= 1) return this.renderMachineInfo(selected ?? { id: "local", name: "PI-WEB", kind: "local", createdAt: "", updatedAt: "" });
     if (selected === undefined) return null;
-    if (this.machines.length <= 1) return this.locationIndicator ? this.renderMachineInfo(selected) : null;
     const status = machineStatus(selected, this.statuses);
     const label = selected.name;
     return html`
@@ -142,10 +142,13 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
   private renderMachineInfo(machine: Machine): TemplateResult {
     const status = machineStatus(machine, this.statuses);
     return html`
-      <div class=${`machine-info ${status === "offline" || status === "error" ? "disconnected" : ""}`} title=${`${machineSubtitle(machine)} · ${machineStatusLabel(status)}`}>
+      <div class=${`machine-info ${status === "offline" || status === "error" ? "disconnected" : ""}`} title=${`${machine.name} · ${machineSubtitle(machine)} · ${machineStatusLabel(status)}`}>
         ${this.renderMachineIcon(machine)}
         ${this.renderActivity(machine)}
-        <span class="machine-info-url">${machineSubtitle(machine)}</span>
+        <span class="machine-switcher-text">
+          <span class="machine-switcher-label"><bdi>${machine.name}</bdi></span>
+          ${this.locationIndicator ? html`<span class="machine-info-url"><bdi dir="ltr">${machineSubtitle(machine)}</bdi></span>` : null}
+        </span>
       </div>
     `;
   }

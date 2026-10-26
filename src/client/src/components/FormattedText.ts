@@ -42,8 +42,7 @@ export class FormattedText extends LitElement {
   protected override willUpdate(changes: PropertyValues<this>): void {
     const inputs = ["text", "intentKey", "imagesEnabled", "codeBlocks", "contentRendering", "contentRendererVersion", "machineId", "workspaceContext"] as const;
     if (!inputs.some((key) => changes.has(key))) return;
-    this.enhancement.cancel();
-    this.scheduled = false;
+    // Queued work reads the latest inputs; restarting it on each chunk can starve streaming Markdown.
     this.phase = "markdown";
     this.markup = undefined;
     // Retain stable source controls and completed previews while prose streams.
@@ -115,6 +114,7 @@ export class FormattedText extends LitElement {
       if (this.codeBlocks.previews && this.contentRendering !== undefined) {
         this.phase = "preview";
         if (this.content === undefined) this.showMarkdown();
+        else this.enhanceMarkdown();
       } else {
         this.showMarkdown();
         this.phase = "done";

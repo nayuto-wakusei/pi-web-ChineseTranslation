@@ -1,4 +1,6 @@
 :root {
+  --codex-sidebar-bg: #eef7f5;
+  --codex-sidebar-hover: #dfe8e5;
   --pi-font: system-ui, sans-serif;
   --pi-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --pi-thinking: var(--pi-muted);
@@ -21,16 +23,16 @@
   --pi-surface-hover: #eaeaea;
   --pi-terminal-bg: #ffffff;
   --pi-terminal-text: #202020;
-  --pi-border: #b5b5b5;
-  --pi-border-muted: #dedede;
-  --pi-text: #202020;
-  --pi-text-secondary: #505050;
+  --pi-border: #cbd0ce;
+  --pi-border-muted: #e3e8e6;
+  --pi-text: #272b2a;
+  --pi-text-secondary: #4e5253;
   --pi-text-bright: #101010;
   --pi-muted: #626262;
   --pi-dim: #707070;
   --pi-accent: #303030;
   --pi-accent-border: #626262;
-  --pi-selection-bg: #eaeaea;
+  --pi-selection-bg: #e2eeea;
   --pi-success: #287044;
   --pi-success-border: #287044;
   --pi-success-bg: #f1f6f2;

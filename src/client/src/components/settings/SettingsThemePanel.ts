@@ -3,7 +3,7 @@ import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { QualifiedThemeContribution } from "../../plugins/types";
-import { DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../../theme";
+import { DEFAULT_THEME_PREFERENCE, findAvailableTheme, type ThemePreference } from "../../theme";
 import { uiButtonStyles } from "../ui/controlStyles";
 import { uiFormStyles } from "../ui/formStyles";
 import { uiSettingsStyles } from "../ui/settingsStyles";
@@ -34,11 +34,13 @@ export class SettingsThemePanel extends LitElement {
   protected override updated(): void {
     // Select values must be applied after their options have been rendered.
     const select = this.renderRoot.querySelector("select");
-    if (select !== null) select.value = this.draft.themeId;
+    if (select !== null) select.value = findAvailableTheme(this.themes, this.draft.themeId)?.id ?? this.draft.themeId;
   }
 
   override render(): TemplateResult {
-    const selectedAvailable = this.themes.some((theme) => theme.id === this.draft.themeId);
+    const selectedTheme = findAvailableTheme(this.themes, this.draft.themeId);
+    const selectedAvailable = selectedTheme !== undefined;
+    const preference = { ...this.draft, themeId: selectedTheme?.id ?? this.draft.themeId };
     const busy = this.loading || this.saving;
     return html`
       <section class="theme-card ui-settings-section" aria-labelledby="theme-heading">
@@ -68,8 +70,8 @@ export class SettingsThemePanel extends LitElement {
           <span>${t("ui.settingsThemePanel.auto", "Follow system appearance")} <small>${t("ui.settingsThemePanel.autoHelp", "Switch between light and dark versions when this theme supports both.")}</small></span>
         </label>
         <div class="theme-actions ui-settings-actions">
-          <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${busy || !selectedAvailable} @click=${() => this.onUseLocal?.({ ...this.draft })}>${t("ui.settingsThemePanel.useLocal", "Use in this browser")}</button>
-          <button class="ui-button ui-button--action" ?disabled=${busy || !selectedAvailable} @click=${() => { void this.onSetDefault?.({ ...this.draft }); }}>${t("ui.settingsThemePanel.setDefault", "Set gateway default")}</button>
+          <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${busy || !selectedAvailable} @click=${() => this.onUseLocal?.({ ...preference })}>${t("ui.settingsThemePanel.useLocal", "Use in this browser")}</button>
+          <button class="ui-button ui-button--action" ?disabled=${busy || !selectedAvailable} @click=${() => { void this.onSetDefault?.({ ...preference }); }}>${t("ui.settingsThemePanel.setDefault", "Set gateway default")}</button>
           <button class="ui-button ui-button--action" ?disabled=${busy || !this.hasLocalOverride} @click=${() => this.onUseDefault?.()}>${t("ui.settingsThemePanel.useDefault", "Use the default")}</button>
         </div>
         <p class="hint" id="theme-scope-help">${t("ui.settingsThemePanel.scopeHelp", "Setting a default leaves saved browser choices unchanged. Use the default to remove this browser's override.")}</p>
@@ -78,7 +80,7 @@ export class SettingsThemePanel extends LitElement {
   }
 
   private themeName(id: string): string {
-    return this.themes.find((theme) => theme.id === id)?.name ?? t("ui.settingsThemePanel.unavailable", "{theme} (unavailable)", { theme: id });
+    return findAvailableTheme(this.themes, id)?.name ?? t("ui.settingsThemePanel.unavailable", "{theme} (unavailable)", { theme: id });
   }
 
   static override styles = [uiButtonStyles, uiFormStyles, uiSettingsStyles, css`

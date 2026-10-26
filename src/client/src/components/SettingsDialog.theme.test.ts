@@ -21,6 +21,27 @@ afterEach(() => {
 });
 
 describe("saving a theme default", () => {
+  it("keeps a legacy gateway default unchanged until explicitly saving its available plugin theme", async () => {
+    const defaultTheme = { themeId: "themes:graphite", auto: true };
+    const config = { host: "127.0.0.1", defaultTheme };
+    vi.mocked(configApi.config).mockResolvedValue(configResponse(config));
+    const save = vi.spyOn(configApi, "saveConfig").mockResolvedValue(configResponse(config));
+    const dialog = await mountDialog();
+    dialog.themePreference = defaultTheme;
+    dialog.themes = [...dialog.themes, {
+      id: "pi-web.custom-ui-codex:graphite", pluginId: "pi-web.custom-ui-codex", localId: "graphite", name: "Graphite", colorScheme: "dark",
+    }];
+    await dialog.updateComplete;
+    const panel = themePanel(dialog);
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.textContent).toContain("默认：Graphite");
+    expect(button(panel, "设为网关默认主题").disabled).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    expect(defaultTheme).toEqual({ themeId: "themes:graphite", auto: true });
+    button(panel, "设为网关默认主题").click();
+    await vi.waitFor(() => { expect(save).toHaveBeenCalledWith({ ...config, defaultTheme: { themeId: "pi-web.custom-ui-codex:graphite", auto: true } }); });
+  });
+
   it("uses fresh gateway config even with a remote machine selected, preserving other keys", async () => {
     const dialog = await mountDialog();
     const onSaved = vi.fn();

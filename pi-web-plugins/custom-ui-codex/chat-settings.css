@@ -1,0 +1,251 @@
+/* Presentation only: the host still owns scrolling, drafts and every operation. */
+:host(pi-web-ui-presentation) .codex-chat-shell {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--pi-bg);
+}
+:host(pi-web-ui-presentation) .codex-transcript {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+:host(pi-web-ui-presentation) .codex-composer {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 816px;
+  padding: 12px 28px 28px;
+  margin-inline: auto;
+}
+:host(chat-view) .chat-wrap { border: 0; background: var(--pi-bg); }
+:host(chat-view) .chat { padding: 24px max(24px, calc((100% - 760px) / 2)) 56px; }
+:host(chat-view) .msg.conversation-message {
+  margin-block: 0 28px;
+  padding: 0;
+  border: 0;
+  --ui-transcript-bg: var(--pi-bg);
+}
+:host(chat-view) .msg.user {
+  width: fit-content;
+  max-width: min(85%, 660px);
+  margin-inline-start: auto;
+  border-radius: 8px;
+  --ui-transcript-bg: color-mix(in srgb, var(--pi-text) 5%, var(--pi-bg));
+}
+:host(chat-view) .conversation-body { padding: 12px 16px; }
+:host(chat-view) .msg.assistant .conversation-body { padding-inline: 0; }
+:host(chat-view) .msg-actions-strip { border-radius: 6px; box-shadow: none; }
+:host(chat-view) .msg.event-group { margin-block: 12px 20px; }
+:host(chat-view) .msg.event-group > summary { border-radius: 6px; }
+:host(conversation-layout) .activity-region { inset-inline: 16px; }
+:host(conversation-layout) .activity-dock { border-radius: 6px; }
+
+:host(prompt-editor) footer {
+  position: relative;
+  border: 1px solid var(--pi-border-muted);
+  border-radius: 8px;
+  background: var(--pi-bg);
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--pi-text) 5%, transparent);
+}
+:host(prompt-editor) footer:focus-within { border-color: var(--pi-border); }
+:host(prompt-editor) footer.shell-mode { border-color: var(--pi-success); background: var(--pi-success-bg); }
+:host(prompt-editor) .editor-wrap, :host(prompt-editor) .editor-input { position: static; }
+:host(prompt-editor) .markdown-editor { border-radius: 8px 8px 0 0; }
+:host(prompt-editor) .markdown-editor:focus-within { outline: none; }
+:host(prompt-editor) .markdown-editor .cm-editor { min-height: 66px; border-radius: 8px 8px 0 0; padding-block: 14px; background: transparent; }
+:host(prompt-editor) .markdown-editor .cm-content { padding-inline: 14px 64px; }
+:host(prompt-editor) .actions {
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 4px 6px 6px 52px;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+}
+:host(prompt-editor) .compact-status { align-items: center; justify-content: flex-end; }
+:host(prompt-editor) .actions .ui-button { min-height: 36px; border: 0; border-radius: 6px; padding-inline: 8px; background: transparent; }
+:host(prompt-editor) .actions .ui-button:hover:not(:disabled) { background: var(--pi-surface-hover); }
+:host(prompt-editor) .actions .ui-button--icon { width: 36px; min-width: 36px; padding: 0; }
+:host(prompt-editor) .select-model { font-size: 12px; color: var(--pi-text-secondary); }
+:host(prompt-editor) .editor-input .editor-attach {
+  position: absolute;
+  inset-inline-start: 6px;
+  inset-inline-end: auto;
+  bottom: 6px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--pi-surface);
+}
+:host(prompt-editor) .editor-input .editor-attach .prompt-action-icon { width: 18px; height: 18px; }
+:host(prompt-editor) .actions .default-send-action:not(:disabled) { border-radius: 50%; background: var(--pi-text); color: var(--pi-bg); }
+:host(prompt-editor) .actions .default-send-action:hover:not(:disabled) { background: var(--pi-text-secondary); }
+:host(prompt-editor) .editor-chat-navigation { inset-inline-end: 10px; top: 8px; border: 0; border-radius: 6px; }
+:host(prompt-editor) .editor-chat-navigation .chat-jumps button + button { border: 0; }
+:host(prompt-editor) .attachments, :host(prompt-editor) .prompt-chips { margin: 8px 14px; }
+:host(prompt-editor) .attachment-remove { min-width: 32px; }
+:host(prompt-editor) .attach-source-panel { --ui-popup-placement: above-start; padding: 4px; border-radius: 8px; }
+:host(prompt-editor) .mode-hint { bottom: 54px; right: 14px; }
+:host(autocomplete-menu) .menu { padding: 4px; border-radius: 8px; }
+:host(autocomplete-menu) button { border: 0; border-radius: 6px; }
+
+:host(app-context-bar) .context-bar { min-height: 48px; border: 0; padding-inline: 8px; }
+:host(app-context-bar) .context-item + .context-item { border: 0; }
+:host(app-context-bar) .context-item + .context-item::before { content: "/"; align-self: center; color: var(--pi-dim); }
+:host(app-context-bar) .context-chip { min-height: 40px; padding-inline: 8px; border-radius: 6px; font-size: 13px; }
+:host(app-context-bar) .context-chip:hover { background: var(--pi-surface-hover); }
+:host(app-context-bar) .context-actions, :host(app-context-bar) .context-actions > * + * { border: 0; }
+:host(app-context-bar) .context-action-button { border-radius: 6px; }
+
+:host(settings-dialog) { --codex-settings-rail-width: 240px; }
+:host(settings-dialog) modal-surface {
+  --modal-surface-backdrop-padding: 0;
+  --modal-surface-place-items: stretch;
+  --modal-surface-width: 100%;
+  --modal-surface-max-width: none;
+  --modal-surface-height: 100%;
+  --modal-surface-min-height: 0;
+  --modal-surface-max-height: none;
+  --modal-surface-border: 0;
+  --modal-surface-radius: 0;
+  --modal-surface-shadow: none;
+}
+:host(settings-dialog) .settings-header {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  width: var(--codex-settings-rail-width);
+  height: 60px;
+  padding: 12px 8px;
+  border: 0;
+  background: var(--codex-sidebar-bg, var(--pi-surface));
+}
+:host(settings-dialog) .settings-header h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+:host(settings-dialog) .settings-header .close-button {
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--pi-text-secondary);
+  font-size: 14px;
+}
+:host(settings-dialog) .settings-back-icon { font-size: 0; }
+:host(settings-dialog) .settings-back-icon::before { content: "\2190"; font-size: 18px; }
+:host(settings-dialog) .settings-back-label { display: inline; font-size: 14px; }
+:host(settings-dialog) .settings-body {
+  flex: 1 1 0;
+  height: 100%;
+  grid-template-columns: var(--codex-settings-rail-width) minmax(0, 1fr);
+}
+:host(settings-dialog) pi-web-ui-presentation[region="settings-navigation"] {
+  min-height: 0;
+  padding-block-start: 60px;
+  border-inline-end: 1px solid var(--pi-border-muted);
+  background: var(--codex-sidebar-bg, var(--pi-surface));
+}
+:host(pi-web-ui-presentation) .codex-settings-navigation { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; padding: 8px; }
+:host(settings-dialog) .settings-nav { display: flex; flex-direction: column; gap: 3px; padding: 0; border: 0; background: transparent; }
+:host(settings-dialog) .settings-nav button {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  text-align: start;
+  box-shadow: none;
+  font-weight: 400;
+}
+:host(settings-dialog) .settings-nav button.selected { background: var(--pi-selection-bg); }
+:host(settings-dialog) .settings-nav button:hover:not(:disabled) { background: var(--pi-surface-hover); }
+:host(settings-dialog) .settings-nav small { font-size: 11px; line-height: 16px; }
+:host(settings-dialog) .settings-nav strong { font-weight: 400; }
+:host(settings-dialog) .settings-main { overflow: hidden; background: var(--pi-bg); }
+:host(settings-dialog) .settings-content { box-sizing: border-box; padding: 48px max(32px, calc((100% - 800px) / 2)) 48px; }
+:host(settings-dialog) .settings-machine { margin-inline: 32px; padding: 16px 0; border-color: var(--pi-border-muted); }
+:host(settings-panel-frame) .section-heading { padding: 0 0 28px; gap: 16px; border: 0; background: transparent; }
+:host(settings-panel-frame) .heading-copy { gap: 10px; }
+:host(settings-panel-frame) h2 { font-size: 24px; line-height: 32px; font-weight: 600; }
+:host(settings-panel-frame) .description { font-size: 13px; line-height: 20px; }
+:host(settings-panel-frame) .content { gap: 28px; }
+:host(settings-panel-frame) .notice-stack { gap: 8px; margin-block-end: 20px; }
+:host(settings-general-panel) .settings-sections { gap: 36px; }
+:host(settings-general-panel) .ui-settings-section, :host(settings-theme-panel) .theme-card {
+  padding: 0;
+  gap: 16px;
+  border: 0;
+  background: transparent;
+}
+:host(settings-general-panel) .ui-settings-heading h3, :host(settings-theme-panel) .ui-settings-heading h3 { font-size: 14px; font-weight: 600; }
+:host(settings-general-panel) .ui-settings-heading p, :host(settings-theme-panel) .ui-settings-heading p { font-size: 12px; line-height: 18px; }
+:host(settings-general-panel) .config-form {
+  gap: 0;
+  border: 1px solid var(--pi-border-muted);
+  border-radius: 8px;
+  padding: 0 16px;
+  background: color-mix(in srgb, var(--pi-text) 2%, var(--pi-bg));
+}
+:host(settings-general-panel) .config-form > .field {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 280px);
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 6px;
+  padding-block: 14px;
+}
+:host(settings-general-panel) .config-form > .field + .field { border-block-start: 1px solid var(--pi-border-muted); }
+:host(settings-general-panel) .field > :is(input, select, textarea) { grid-column: 2; max-width: 100%; }
+:host(settings-general-panel) .field > small { grid-column: 1 / -1; }
+:host(settings-general-panel) .ui-settings-path, :host(settings-general-panel) .ui-settings-summary { border-radius: 6px; padding: 12px; background: var(--pi-surface); }
+:host(settings-general-panel) .form-actions { padding-block: 14px; }
+:host(settings-theme-panel) .current-theme { border: 1px solid var(--pi-border-muted); border-radius: 8px; background: color-mix(in srgb, var(--pi-text) 2%, var(--pi-bg)); }
+:host(settings-theme-panel) .field { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 280px); align-items: center; gap: 16px; }
+:host(settings-theme-panel) .theme-actions { justify-content: flex-start; }
+
+@media (max-width: 760px) {
+  :host(settings-dialog) { --codex-settings-rail-width: 100%; }
+  :host(settings-dialog) .settings-header { position: relative; flex: 0 0 auto; height: auto; padding-top: max(8px, env(safe-area-inset-top)); }
+  :host(settings-dialog) .settings-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  :host(settings-dialog) pi-web-ui-presentation[region="settings-navigation"] { min-height: 56px; padding: 0; border: 0; border-bottom: 1px solid var(--pi-border-muted); }
+  :host(pi-web-ui-presentation) .codex-settings-navigation { flex: 0 0 auto; min-height: 44px; padding: 4px 8px 8px; }
+  :host(settings-dialog) .settings-nav { flex: 0 0 auto; min-height: 44px; flex-direction: row; gap: 4px; overflow-x: auto; overflow-y: hidden; }
+  :host(settings-dialog) .settings-nav button { width: auto; min-height: 40px; padding: 8px 12px; }
+  :host(settings-dialog) .settings-nav small { display: none; }
+  :host(settings-dialog) .settings-content { padding: 24px 20px max(24px, env(safe-area-inset-bottom)); }
+  :host(settings-dialog) .settings-machine { margin-inline: 20px; }
+  :host(settings-panel-frame) .section-heading { display: flex; padding-block-end: 24px; }
+  :host(settings-panel-frame) h2 { font-size: 22px; line-height: 30px; }
+  :host(settings-general-panel) .config-form > .field, :host(settings-theme-panel) .field { grid-template-columns: minmax(0, 1fr); }
+  :host(settings-general-panel) .field > :is(input, select, textarea) { grid-column: 1; }
+}
+@media (max-width: 600px) {
+  :host(pi-web-ui-presentation) .codex-composer { padding: 8px 12px max(12px, env(safe-area-inset-bottom)); }
+  :host(chat-view) .chat { padding: 20px 16px 36px; }
+  :host(chat-view) .msg.user { max-width: 92%; }
+  :host(prompt-editor) .select-model { padding-inline: 4px; }
+  :host(prompt-editor) .actions { padding-inline-end: 4px; }
+  :host(app-context-bar) .context-bar { padding-inline: 4px; }
+}

@@ -9,6 +9,19 @@ export interface ActivePluginStylesheet {
 }
 
 export type PluginStylesheetLoader = (url: string, signal: AbortSignal) => Promise<CSSStyleSheet>;
+
+/** Structured attribution survives aggregate load errors without parsing display messages. */
+export class PluginStylesheetLoadError extends Error {
+  override name = "PluginStylesheetLoadError";
+  readonly contributionId: string;
+  readonly url: string;
+
+  constructor(contribution: ActivePluginStylesheet, cause: unknown) {
+    super(`Failed to load stylesheet ${contribution.id} (${contribution.url})`, { cause });
+    this.contributionId = contribution.id;
+    this.url = contribution.url;
+  }
+}
 type StyleRoot = Document | ShadowRoot;
 
 interface LoadedFile {
@@ -122,7 +135,7 @@ export class PluginStyleRegistry {
         return sheet;
       } catch (cause) {
         if (this.files.get(contribution.url) === requestedFile) this.files.delete(contribution.url);
-        throw new Error(`Failed to load stylesheet ${contribution.id} (${contribution.url})`, { cause });
+        throw new PluginStylesheetLoadError(contribution, cause);
       }
     }));
     if (revision !== this.revision) return;

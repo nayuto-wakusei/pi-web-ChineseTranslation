@@ -1,0 +1,77 @@
+:host(pi-web-ui-presentation[region="navigation"]) { background: var(--codex-sidebar-bg, var(--pi-surface)); }
+:host(pi-web-ui-presentation) .codex-navigation { display: flex; flex: 1 1 0; min-height: 0; min-width: 0; flex-direction: column; font: 14px/20px var(--pi-font, system-ui, sans-serif); color: var(--pi-text-secondary); }
+:host(pi-web-ui-presentation) .codex-header { flex: 0 0 auto; }
+:host(pi-web-ui-presentation) .codex-commands { display: grid; gap: 2px; padding: 12px 8px 16px; }
+:host(pi-web-ui-presentation) .codex-command { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; justify-content: flex-start; border: 0; padding: 6px 8px; text-align: start; border-radius: 6px; font-size: 14px; font-weight: 400; background: transparent; }
+:host(pi-web-ui-presentation) .codex-command svg { flex: 0 0 auto; width: 16px; height: 16px; }
+:host(pi-web-ui-presentation) .codex-command:hover:not(:disabled) { background: var(--codex-sidebar-hover, var(--pi-surface-hover)); }
+:host(pi-web-ui-presentation) .codex-machines { flex: 0 0 auto; }
+:host(pi-web-ui-presentation) .codex-project-tree { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; padding: 0 8px 16px; }
+:host(pi-web-ui-presentation) ::slotted(project-list), :host(pi-web-ui-presentation) ::slotted(workspace-list), :host(pi-web-ui-presentation) ::slotted(session-list) { flex: 0 0 auto; max-height: none; min-height: 0; border: 0; overflow: visible; }
+:host(pi-web-ui-presentation) .codex-footer { flex: 0 0 auto; padding: 8px; border-top: 1px solid var(--pi-border-muted); }
+:host(pi-web-ui-presentation) .codex-footer:empty { display: none; }
+:host(app-navigation-panel) header { min-height: 48px; padding: 4px 6px; border: 0; align-items: center; }
+:host(app-navigation-panel) .header-actions, :host(app-navigation-panel) .header-actions > * + *, :host(app-navigation-panel) .panel-toggle { border: 0; }
+:host(app-navigation-panel) header .ui-button { border-radius: 6px; min-height: 36px; min-width: 32px; }
+:host(app-navigation-panel) header .actions-button { display: inline-flex; align-items: center; justify-content: center; min-width: 56px; padding: 6px 12px; background: transparent; color: var(--pi-text-secondary); font-size: 14px; font-weight: 400; }
+:host(app-navigation-panel) .actions-button .actions-icon { display: none; }
+:host(app-navigation-panel) .actions-button .actions-label { display: inline; }
+:host(app-navigation-panel) header .actions-button:hover:not(:disabled) { background: var(--codex-sidebar-hover, var(--pi-surface-hover)); }
+:host(app-navigation-panel) navigation-section-resize-handle { display: none; }
+:host(app-navigation-panel[data-navigation-layout="tree"]) project-list { flex: 0 0 auto; max-height: none; min-height: 0; border: 0; overflow: visible; }
+:host(pi-web-app) .shell { --navigation-panel-size: 260px; }
+:host(app-navigation-panel[compact]) header { display: flex; }
+:host(machine-switcher) .machine-trigger, :host(machine-switcher) .machine-identity { min-height: 36px; border: 0; background: transparent; }
+:host(project-list) section, :host(workspace-list) section, :host(session-list) section { border: 0; padding: 0; background: transparent; }
+:host(project-list) .list-body, :host(workspace-list) .list-body, :host(session-list) .list-body { overflow: visible; padding: 0; }
+:host(project-list) h2, :host(workspace-list) h2, :host(session-list) h2 { min-height: 36px; margin: 0; padding: 6px 2px; border: 0; font-size: 12px; font-weight: 400; color: var(--pi-muted); text-transform: none; }
+:host(project-list) section > h2.ui-toolbar, :host(workspace-list) section > h2.ui-toolbar, :host(session-list) section > h2.ui-toolbar { background: transparent; box-shadow: none; }
+:host(project-list) .ui-toolbar-title, :host(workspace-list) .ui-toolbar-title, :host(session-list) .ui-toolbar-title { min-height: 28px; padding: 0; font-size: 12px; font-weight: 400; }
+:host(project-list) .section-name, :host(workspace-list) .section-name, :host(session-list) .section-name { font-size: 12px; font-weight: 400; }
+:host(project-list) .action-row, :host(workspace-list) .action-row, :host(session-list) .action-row { min-height: 34px; margin: 1px 0; border-radius: 6px; }
+:host(project-list) .action-row, :host(workspace-list) .action-row, :host(session-list) .action-row { border-bottom: 0; box-shadow: none; }
+:host(project-list) .action-main, :host(workspace-list) .action-main, :host(session-list) .action-main { min-height: 34px; box-sizing: border-box; border: 0; border-radius: 6px 0 0 6px; background: transparent; padding: 6px 8px; font-size: 13px; line-height: 20px; }
+:host(project-list) .action-menu-toggle, :host(workspace-list) .action-menu-toggle, :host(session-list) .action-menu-toggle { min-height: 34px; min-width: 28px; width: 28px; border: 0; border-radius: 0 6px 6px 0; background: transparent; }
+:host(project-list) .action-main > small { display: none; }
+:host(project-list) .workspace-primary-label, :host(workspace-list) .workspace-primary-label { font-weight: 500; }
+:host(project-list) .action-row.selected .action-main, :host(project-list) .action-row.selected .action-menu-toggle,
+:host(workspace-list) .action-row.selected .action-main, :host(workspace-list) .action-row.selected .action-menu-toggle,
+:host(session-list) .action-row.selected .action-main, :host(session-list) .action-row.selected .action-menu-toggle { border-color: transparent; background: var(--pi-selection-bg); }
+:host(project-list) .action-row:hover .action-main, :host(project-list) .action-row:hover .action-menu-toggle,
+:host(workspace-list) .action-row:hover .action-main, :host(workspace-list) .action-row:hover .action-menu-toggle,
+:host(session-list) .action-row:hover .action-main, :host(session-list) .action-row:hover .action-menu-toggle { background: var(--codex-sidebar-hover, var(--pi-surface-hover)); }
+:host(project-list) .tree-children, :host(workspace-list) .tree-children { margin-inline-start: 10px; padding-inline-start: 8px; border-inline-start: 1px solid var(--pi-border-muted); }
+:host(project-list[tree-layout]), :host(workspace-list[tree-layout]), :host(session-list) { display: block; min-height: 0; overflow: visible; }
+:host(project-list[tree-layout]) section, :host(workspace-list[tree-layout]) section { height: auto; overflow: visible; }
+:host(project-list) .tree-disclosure, :host(workspace-list) .tree-disclosure { color: var(--pi-muted); }
+:host(project-list[tree-layout]) .action-main, :host(workspace-list[tree-layout]) .action-main { display: flex; align-items: center; gap: 5px; padding-inline-start: 2px; }
+:host(project-list[tree-layout]) .workspace-primary, :host(workspace-list[tree-layout]) .workspace-primary { flex: 1 1 auto; }
+:host(project-list[tree-layout]) .tree-disclosure, :host(workspace-list[tree-layout]) .tree-disclosure { flex: 0 0 24px; min-width: 24px; width: 24px; height: 24px; min-height: 24px; padding: 0; border: 0; background: transparent; border-radius: 4px; }
+:host(project-list[tree-layout]) .tree-disclosure:hover, :host(workspace-list[tree-layout]) .tree-disclosure:hover { background: var(--codex-sidebar-hover, var(--pi-surface-hover)); }
+:host(session-list) .action-main { padding-inline-start: calc(8px + var(--depth, 0) * 16px + var(--agent-offset, 0px)); padding-inline-end: 20px; }
+:host(session-list) .action-main.selecting { padding-inline-start: calc(38px + var(--depth, 0) * 16px + var(--agent-offset, 0px)); }
+:host(session-list) .session-checkbox { inset-inline-start: calc(10px + var(--depth, 0) * 16px + var(--agent-offset, 0px)); }
+:host(session-list) .session-secondary { font-size: 11px; line-height: 16px; margin-top: 2px; color: var(--pi-muted); }
+:host(session-list) .action-row { contain-intrinsic-size: auto 52px; }
+:host(project-list) .action-activity, :host(workspace-list) .action-activity, :host(session-list) .action-activity { inset-inline-start: auto; inset-inline-end: 4px; }
+:host(session-list) .plain-heading { padding: 0 4px; }
+:host(session-list) h2 .ui-button { min-height: 28px; padding: 4px; border: 0; border-radius: 4px; background: transparent; }
+:host(session-list) h2 .ui-button--icon { min-width: 24px; width: 24px; }
+:host(session-list) .session-heading-actions { border: 0; }
+:host(session-list) h2 > .section-unread-count { padding-inline: 3px; font-size: 11px; }
+:host(session-list) .subheading { min-height: 28px; padding-block: 4px; }
+:host(session-list) .cleanup-entry { font-size: 11px; }
+:host(project-list) .empty-list, :host(workspace-list) .empty-list { display: grid; gap: 6px; padding: 12px 8px; font-size: 12px; line-height: 20px; }
+:host(project-list) .empty-list strong, :host(workspace-list) .empty-list strong { font-size: 13px; font-weight: 500; }
+:host(project-list) .empty-list small, :host(workspace-list) .empty-list small { white-space: normal; }
+:host(pi-web-ui-presentation) .codex-context-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+:host(pi-web-ui-presentation) .codex-context-content { flex: 1 1 0; min-width: 0; }
+:host(pi-web-ui-presentation) .codex-context-actions { flex: 0 0 auto; }
+:host(action-palette) { --ui-dialog-width: 640px; }
+:host(action-palette) .ui-dialog-header { padding: 8px; }
+:host(action-palette) .ui-selection-option { padding: 12px 16px; }
+@media (max-width: 600px) {
+  :host(pi-web-ui-presentation) .codex-command { min-height: 44px; }
+  :host(project-list) .action-main, :host(workspace-list) .action-main, :host(session-list) .action-main,
+  :host(project-list) .action-menu-toggle, :host(workspace-list) .action-menu-toggle, :host(session-list) .action-menu-toggle { min-height: 44px; }
+}

@@ -32,6 +32,18 @@ async function mount() {
 }
 
 describe("anchored transient popup", () => {
+  it("accepts presentation placement without overriding explicit host options", () => {
+    const anchor = document.createElement("button");
+    const panel = document.createElement("div");
+    document.body.append(panel);
+    vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(new DOMRect(12, 300, 36, 36));
+    panel.style.setProperty("--ui-popup-placement", "above-start");
+    expect(anchoredPopupStyle(anchor, { minWidth: 210 }, panel)).toMatchObject({ left: "12px", "min-width": "210px" });
+    expect(anchoredPopupStyle(anchor, { minWidth: 210, placement: "below-end" }, panel)).toMatchObject({ left: "auto", "min-width": "48px" });
+    panel.style.setProperty("--ui-popup-placement", "unsupported");
+    expect(anchoredPopupStyle(anchor, { minWidth: 210 }, panel)).toMatchObject({ left: "auto", "min-width": "48px" });
+  });
+
   it("keeps the native panel in its themed root and reconciles native dismissal once", async () => {
     const { host, panel } = await mount();
     expect(panel.getRootNode()).toBe(host.shadowRoot);

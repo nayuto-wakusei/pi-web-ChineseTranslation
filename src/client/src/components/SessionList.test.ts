@@ -10,6 +10,29 @@ import { SessionList, sessionRowActivityKind, sessionRowsForCurrentTree, session
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 
+describe("upstream menu controls", () => {
+  it.each([false, true])("uses the same menu control for every action (archived=%s)", async (archived) => {
+    const current = session("s", { persisted: true, archived });
+    const list = sessionList([current], new Set(["s"]));
+    list.pinnedSessionIds = ["s"];
+    list.pinnedRootIds = ["s"];
+    list.onMovePin = vi.fn();
+    list.canReload = true;
+    list.selected = current;
+    document.body.append(list);
+    await list.updateComplete;
+    await list.updateComplete;
+    list.shadowRoot?.querySelector<HTMLButtonElement>(".action-menu-toggle")?.click();
+    await list.updateComplete;
+    const buttons = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-panel button") ?? [])];
+    expect(buttons.length).toBeGreaterThanOrEqual(3);
+    for (const button of buttons) {
+      expect(button.classList.contains("ui-button")).toBe(true);
+      expect(button.classList.contains("ui-menu-item")).toBe(true);
+    }
+  });
+});
+
 describe("sessionRowActivityKind", () => {
   const idle = sessionStatus("s");
 

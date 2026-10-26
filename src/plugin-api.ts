@@ -84,6 +84,7 @@ export type MessageActionContextV5 = MessageActionContext & PluginDiscoveryConte
 export type DisplayedMessageActionContextV5 = DisplayedMessageActionContext & PluginDiscoveryContext;
 
 export interface PluginContributionsV5 extends Omit<PluginContributions, "actions" | "applicationPanels" | "workspacePanels" | "workspaceLabels" | "sessionLabels" | "messageActions" | "contentRenderers" | "themes"> {
+  uiPresentations?: UiPresentationContributionV1[];
   stylesheets?: StylesheetContribution[];
   syntaxHighlighters?: SyntaxHighlighterContribution[];
   contentRenderers?: ContentRendererContributionV5[];
@@ -94,6 +95,47 @@ export interface PluginContributionsV5 extends Omit<PluginContributions, "action
   workspaceLabels?: WorkspaceLabelContributionV5[];
   sessionLabels?: SessionLabelContributionV5[];
   messageActions?: MessageActionContributionV5[];
+}
+
+export type UiPresentationRegion = "navigation" | "context-bar" | "chat-chrome" | "settings-navigation";
+
+/** Host-supplied actions remain bound to the selection and permissions that created them. */
+export interface UiPresentationActionV1 {
+  readonly id: string;
+  readonly label: string;
+  readonly disabled?: boolean;
+  readonly run: () => void | Promise<void>;
+}
+
+/** Display-only selection; no credentials, transcript, internal paths, or session connection. */
+export interface UiPresentationContextV1 {
+  readonly mode: "normal" | "management";
+  readonly compact?: boolean;
+  readonly machine?: Readonly<{ id: string; name: string }>;
+  readonly project?: Readonly<{ id: string; name: string }>;
+  readonly workspace?: Readonly<{ id: string; label: string }>;
+  readonly session?: Readonly<{ id: string; label: string }>;
+  readonly actions?: readonly UiPresentationActionV1[];
+}
+
+export interface UiPresentationRenderContextV1 extends UiPresentationContextV1 {
+  readonly region: UiPresentationRegion;
+  /** Named slots for host-owned controls. Render slots, never inspect or move host DOM. */
+  readonly slots: readonly string[];
+}
+
+/** One gateway-owned renderer per region. Editor/transcript stay mounted; navigation may recompose. */
+export interface UiPresentationContributionV1 {
+  readonly id: LocalContributionId;
+  readonly region: UiPresentationRegion;
+  /** Navigation only: compose the host-owned lists as a selected-branch tree. */
+  readonly navigationLayout?: "tree";
+  render(context: UiPresentationRenderContextV1): TemplateResult;
+}
+
+export interface UiPresentationCapabilityV1 {
+  readonly version: 1;
+  readonly regions: readonly UiPresentationRegion[];
 }
 
 export type PluginActionV5 = Omit<PluginAction, "enabled" | "disabledReason" | "run"> & {

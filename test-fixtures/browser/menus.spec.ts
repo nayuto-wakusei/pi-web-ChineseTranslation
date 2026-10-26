@@ -1,5 +1,31 @@
 import { expect, test, type Locator } from "@playwright/test";
 
+test("all session menu actions use the upstream menu geometry", async ({ page }, testInfo) => {
+  await page.goto("/navigation.html?menu-alignment");
+  const sessions = page.locator("session-list");
+  await sessions.locator(".action-menu-toggle").click();
+  const menu = sessions.locator(".action-menu-panel");
+  await expectInsideViewport(menu);
+  const actions = menu.getByRole("button");
+  expect(await actions.count()).toBeGreaterThanOrEqual(7);
+  const geometry = await actions.evaluateAll((buttons) => buttons.map((button) => {
+    const style = getComputedStyle(button);
+    const rect = button.getBoundingClientRect();
+    return {
+      styled: button.classList.contains("ui-button") && button.classList.contains("ui-menu-item"),
+      height: rect.height, x: rect.x, width: rect.width, border: style.borderTopWidth,
+      textAlign: style.textAlign, fontSize: style.fontSize, borderRadius: style.borderRadius,
+    };
+  }));
+  expect(geometry.every((item) => item.styled)).toBe(true);
+  expect(new Set(geometry.map((item) => JSON.stringify(item))).size).toBe(1);
+  expect(geometry[0]?.border).toBe("0px");
+  await menu.getByRole("button", { name: "归档", exact: true }).hover();
+  await page.screenshot({ path: testInfo.outputPath("session-menu-upstream.png") });
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+});
+
 async function expectInsideViewport(element: Locator): Promise<void> {
   await expect(element).toBeVisible();
   expect(await element.evaluate((node) => {

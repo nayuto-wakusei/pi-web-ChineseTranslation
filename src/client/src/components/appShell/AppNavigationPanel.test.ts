@@ -3,6 +3,10 @@ import { installPopoverFake } from "../anchoredPopup.testSupport";
 installPopoverFake();
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { html } from "lit";
+import { UiPresentationRuntime } from "../../plugins/uiPresentationRuntime";
+import type { UiPresentationSurface } from "../../plugins/uiPresentation";
+import type { UiPresentationRenderContextV1 } from "../../../../plugin-api";
 import type { Machine, Project, SessionInfo, Workspace } from "../../api";
 import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
 import { machineStatusSnapshot } from "../../machineStatus.testSupport";
@@ -14,6 +18,7 @@ import { MachineSwitcher } from "../MachineSwitcher";
 import { ProjectList } from "../ProjectList";
 import { WorkspaceList } from "../WorkspaceList";
 import { AppNavigationPanel, shouldShowMachinesSection } from "./AppNavigationPanel";
+import { NavigationSectionsController } from "../../appShell/navigationState";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -33,22 +38,25 @@ describe("shouldShowMachinesSection", () => {
 });
 
 describe("brand visibility", () => {
-  it("shows the PI WEB brand before machines load", async () => {
+  it("leaves single-machine identity to the upstream switcher before machines load", async () => {
     const panel = new AppNavigationPanel();
     document.body.append(panel);
     await panel.updateComplete;
 
-    expect(panel.shadowRoot?.querySelector("header strong")?.textContent).toBe("PI WEB");
+    expect(panel.shadowRoot?.querySelector("header strong")).toBeNull();
+    const switcher = section(panel, "machine-switcher", MachineSwitcher);
+    await switcher.updateComplete;
+    expect(switcher.shadowRoot?.querySelector(".machine-switcher-label")?.textContent).toBe("PI-WEB");
   });
 
-  it.each([false, true])("shows the plain brand and single-machine identity (locationIndicator=%s)", async (locationIndicator) => {
+  it.each([false, true])("does not duplicate the single-machine identity (locationIndicator=%s)", async (locationIndicator) => {
     const panel = new AppNavigationPanel();
     panel.machines = [machine("local")];
     panel.locationIndicator = locationIndicator;
     document.body.append(panel);
     await panel.updateComplete;
 
-    expect(panel.shadowRoot?.querySelector("header strong")?.textContent).toBe("PI WEB");
+    expect(panel.shadowRoot?.querySelector("header strong")).toBeNull();
     expect(panel.shadowRoot?.querySelector(".brand-icon")).toBeNull();
     expect(panel.shadowRoot?.querySelector(".brand-domain")).toBeNull();
     expect(section(panel, "machine-switcher", MachineSwitcher).locationIndicator).toBe(locationIndicator);
@@ -94,7 +102,7 @@ describe("brand visibility", () => {
 
 describe("section sizing", () => {
   it("caps desktop sections, shares compact height equally, and keeps collapsed headings intrinsic", () => {
-    const styles = AppNavigationPanel.styles.cssText;
+    const styles = AppNavigationPanel.elementStyles.map((style) => "cssText" in style ? style.cssText : "").join("\n");
 
     expect(styles).toMatch(/machine-list, project-list, workspace-list, session-list \{[^}]*flex: 1 1 0px;/u);
     expect(styles).toContain("project-list:not([collapsed]), workspace-list:not([collapsed]) { flex: 0 1 auto; max-height: calc(100% / 3); min-height: 44px;");
@@ -291,6 +299,235 @@ describe("stable list inputs", () => {
     expect(workspaces.shadowRoot?.textContent).toContain("Label for latest-workspace");
   });
 });
+
+describe("host-owned navigation tree", () => {
+  it.each([false, true])("keeps nested lists visible with the real mobile accordion flags (workspaces=%s)", async (workspaceSelectionVisible) => {
+    const panel = await mountTreePanel(workspaceSelectionVisible);
+    panel.compact = true;
+    panel.collapsible = true;
+    const sections = new NavigationSectionsController(panel, () => ({
+      selectedProject: panel.selectedProject,
+      selectedWorkspace: panel.selectedWorkspace,
+      workspaceSelectionVisible,
+    }), () => true);
+    const applyCollapsed = () => {
+      panel.projectsCollapsed = sections.isCollapsed("projects");
+      panel.workspacesCollapsed = sections.isCollapsed("workspaces");
+      panel.sessionsCollapsed = sections.isCollapsed("sessions");
+    };
+    applyCollapsed();
+    expect(panel.projectsCollapsed).toBe(true);
+    await settleTree(panel);
+    const projects = section(panel, "project-list", ProjectList);
+    expect(projects.collapsed).toBe(false);
+    expect(projects.collapsible).toBe(false);
+    const workspaces = projects.shadowRoot?.querySelector<WorkspaceList>("workspace-list");
+    const sessions = workspaceSelectionVisible ? workspaces?.shadowRoot?.querySelector<SessionList>("session-list") : projects.shadowRoot?.querySelector<SessionList>("session-list");
+    if (!(sessions instanceof SessionList)) throw new Error("Missing mobile nested sessions");
+    await sessions.updateComplete;
+    expect(sessions.collapsed).toBe(false);
+    expect(sessions.shadowRoot?.querySelectorAll(".action-row")).toHaveLength(1);
+    sections.expand("projects");
+    applyCollapsed();
+    expect(panel.sessionsCollapsed).toBe(true);
+    await settleTree(panel);
+    await sessions.updateComplete;
+    expect(sessions.collapsed).toBe(false);
+    expect(panel.automaticSessionCandidates(panel.sessions).map(({ id }) => id)).toContain("session-1");
+    panel.presentationRuntime = undefined;
+    await panel.updateComplete;
+    await section(panel, "project-list", ProjectList).updateComplete;
+    if (workspaceSelectionVisible) await section(panel, "workspace-list", WorkspaceList).updateComplete;
+    await section(panel, "session-list", SessionList).updateComplete;
+    expect(section(panel, "project-list", ProjectList).collapsed).toBe(panel.projectsCollapsed);
+    if (workspaceSelectionVisible) expect(section(panel, "workspace-list", WorkspaceList).collapsed).toBe(panel.workspacesCollapsed);
+    expect(section(panel, "session-list", SessionList).collapsed).toBe(panel.sessionsCollapsed);
+  });
+
+  it.each([false, true])("reveals folded ancestors before focusing nested sessions (workspaces=%s)", async (workspaceSelectionVisible) => {
+    const panel = await mountTreePanel(workspaceSelectionVisible);
+    const projects = section(panel, "project-list", ProjectList);
+    const workspaces = projects.shadowRoot?.querySelector<WorkspaceList>("workspace-list");
+    if (workspaces !== null && workspaces !== undefined) {
+      control(workspaces, ".tree-disclosure").click();
+      await workspaces.updateComplete;
+    }
+    control(projects, ".tree-disclosure").click();
+    await projects.updateComplete;
+    expect(projects.shadowRoot?.querySelector("session-list, workspace-list")).toBeNull();
+    const projectSelect = vi.fn();
+    const workspaceSelect = vi.fn();
+    panel.onSelectProject = projectSelect;
+    panel.onSelectWorkspace = workspaceSelect;
+    if (workspaceSelectionVisible) expect(await panel.focusSection("workspaces")).toBe(true);
+    expect(await panel.focusSection("sessions")).toBe(true);
+    expect(projects.shadowRoot?.querySelector(".tree-disclosure")?.getAttribute("aria-expanded")).toBe("true");
+    const revealedWorkspaces = projects.shadowRoot?.querySelector<WorkspaceList>("workspace-list");
+    if (revealedWorkspaces !== null && revealedWorkspaces !== undefined) expect(revealedWorkspaces.shadowRoot?.querySelector(".tree-disclosure")?.getAttribute("aria-expanded")).toBe("true");
+    const sessions = workspaceSelectionVisible ? revealedWorkspaces?.shadowRoot?.querySelector<SessionList>("session-list") : projects.shadowRoot?.querySelector<SessionList>("session-list");
+    if (!(sessions instanceof SessionList)) throw new Error("Missing revealed session list");
+    expect(sessions.shadowRoot?.activeElement).toBe(sessions.shadowRoot?.querySelector(".action-row.selected") ?? sessions.shadowRoot?.querySelector(".action-row"));
+    expect(projectSelect).not.toHaveBeenCalled();
+    expect(workspaceSelect).not.toHaveBeenCalled();
+  });
+
+  it("reveals a folded workspace without recreating its project branch", async () => {
+    const panel = await mountTreePanel(true);
+    const projects = section(panel, "project-list", ProjectList);
+    const workspaces = projects.shadowRoot?.querySelector<WorkspaceList>("workspace-list");
+    if (!(workspaces instanceof WorkspaceList)) throw new Error("Missing selected workspace branch");
+    control(workspaces, ".tree-disclosure").click();
+    await workspaces.updateComplete;
+    expect(workspaces.shadowRoot?.querySelector("session-list")).toBeNull();
+    expect(await panel.focusSection("sessions")).toBe(true);
+    expect(projects.shadowRoot?.querySelector("workspace-list")).toBe(workspaces);
+    expect(workspaces.shadowRoot?.querySelector(".tree-disclosure")?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it.each([false, true])("nests the selected branch using the existing controls (workspaces=%s)", async (workspaceSelectionVisible) => {
+    const panel = await mountTreePanel(workspaceSelectionVisible);
+    const projects = section(panel, "project-list", ProjectList);
+    const branch = projects.shadowRoot?.querySelector(".project-branch:has(.action-row.selected)");
+    if (branch === undefined || branch === null) throw new Error("Missing selected project branch");
+    const workspaces = branch.querySelector("workspace-list");
+    expect(workspaces instanceof WorkspaceList).toBe(workspaceSelectionVisible);
+    if (workspaces instanceof WorkspaceList) await workspaces.updateComplete;
+    const sessions = workspaceSelectionVisible ? workspaces?.shadowRoot?.querySelector("session-list") : branch.querySelector("session-list");
+    if (!(sessions instanceof SessionList)) throw new Error("Missing nested sessions");
+    await sessions.updateComplete;
+    expect(sessions.sessions.map(({ id }) => id)).toEqual(["session-1"]);
+    expect(panel.shadowRoot?.querySelector("session-list")).toBeNull();
+    expect(panel.shadowRoot?.querySelector("navigation-section-resize-handle")).toBeNull();
+    expect(panel.getAttribute("data-navigation-layout")).toBe("tree");
+    const selectSession = vi.fn();
+    const selectProject = vi.fn();
+    const selectWorkspace = vi.fn();
+    panel.onSelectSession = selectSession;
+    panel.onSelectProject = selectProject;
+    panel.onSelectWorkspace = selectWorkspace;
+    control(sessions, ".action-row").click();
+    expect(selectSession).toHaveBeenCalledWith(panel.sessions[0]);
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(selectWorkspace).not.toHaveBeenCalled();
+    expect(await panel.focusSection("sessions")).toBe(true);
+  });
+
+  it("collapses branches without changing selection and selects another project through the controller", async () => {
+    const panel = await mountTreePanel(false);
+    const projects = section(panel, "project-list", ProjectList);
+    const selectedRow = control(projects, ".action-row.selected");
+    const selectProject = vi.fn();
+    panel.onSelectProject = selectProject;
+    selectedRow.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    await projects.updateComplete;
+    expect(projects.shadowRoot?.querySelector("session-list")).toBeNull();
+    expect(projects.shadowRoot?.querySelector(".tree-disclosure")?.getAttribute("aria-expanded")).toBe("false");
+    expect(selectProject).not.toHaveBeenCalled();
+    selectedRow.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await projects.updateComplete;
+    expect(projects.shadowRoot?.querySelector("session-list")).toBeInstanceOf(SessionList);
+    projects.shadowRoot?.querySelectorAll<HTMLElement>(".action-row")[1]?.click();
+    expect(selectProject).toHaveBeenCalledWith(panel.projects[1]);
+    panel.selectedProject = project("project-2");
+    await settleTree(panel);
+    expect(projects.shadowRoot?.querySelector("session-list")).toBeNull();
+  });
+
+  it("returns to separate upstream lists when the presentation fails or is disabled", async () => {
+    const panel = await mountTreePanel(true);
+    panel.presentationRuntime?.fail("navigation", new Error("Intentional presentation failure"));
+    await panel.updateComplete;
+    expect(panel.hasAttribute("data-navigation-layout")).toBe(false);
+    expect(section(panel, "project-list", ProjectList).treeLayout).toBe(false);
+    expect(section(panel, "workspace-list", WorkspaceList).treeLayout).toBe(false);
+    expect(section(panel, "session-list", SessionList).sessions).toBe(panel.sessions);
+    panel.presentationRuntime = undefined;
+    await panel.updateComplete;
+    expect(section(panel, "session-list", SessionList).sessions).toBe(panel.sessions);
+  });
+
+  it("retains tree data and skips unchanged lists during unrelated header updates", async () => {
+    const panel = await mountTreePanel(true);
+    const projects = section(panel, "project-list", ProjectList);
+    const workspaces = projects.shadowRoot?.querySelector("workspace-list");
+    const sessions = workspaces?.shadowRoot?.querySelector("session-list");
+    if (!(workspaces instanceof WorkspaceList) || !(sessions instanceof SessionList)) throw new Error("Missing nested branch");
+    await sessions.updateComplete;
+    const visibleWorkspaces = workspaces.workspaces;
+    const visibleSessions = sessions.sessions;
+    const renders = [vi.spyOn(projects, "render"), vi.spyOn(workspaces, "render"), vi.spyOn(sessions, "render")];
+    panel.locationIndicator = true;
+    await settleTree(panel);
+    for (const render of renders) expect(render).not.toHaveBeenCalled();
+    panel.sessionStatuses = {};
+    await settleTree(panel);
+    await sessions.updateComplete;
+    expect(workspaces.workspaces).toBe(visibleWorkspaces);
+    expect(sessions.sessions).toBe(visibleSessions);
+  });
+
+  it("exposes only available host actions, invalidates old identity callbacks, and preserves snapshot identity", async () => {
+    const contexts: UiPresentationRenderContextV1[] = [];
+    const runtime = new UiPresentationRuntime();
+    runtime.register([{ id: "test", pluginId: "test", region: "navigation", navigationLayout: "tree", active: () => true, render: (context) => {
+      contexts.push(context);
+      return html`<slot name="projects"></slot>`;
+    } }]);
+    const panel = await mountTreePanel(false);
+    const start = vi.fn();
+    const add = vi.fn();
+    panel.presentationRuntime = runtime;
+    panel.canStartSession = true;
+    panel.onStartSession = start;
+    panel.onAddProject = add;
+    panel.onSearchSessions = vi.fn();
+    panel.onShowSettings = vi.fn();
+    panel.presentationContext = { mode: "normal", machine: { id: "local", name: "Local" } };
+    await settleTree(panel);
+    const context = contexts.at(-1);
+    expect(context?.actions?.map(({ id }) => id)).toEqual(["new-task", "search", "add-project", "settings"]);
+    const oldStart = context?.actions?.find(({ id }) => id === "new-task");
+    await oldStart?.run();
+    expect(start).toHaveBeenCalledOnce();
+    const source = panel.shadowRoot?.querySelector("pi-web-ui-presentation");
+    const sourceContext = source !== null && source !== undefined && "context" in source ? source.context : undefined;
+    panel.locationIndicator = !panel.locationIndicator;
+    await settleTree(panel);
+    expect(source !== null && source !== undefined && "context" in source ? source.context : undefined).toBe(sourceContext);
+    panel.managementMode = true;
+    panel.presentationContext = { mode: "management", machine: { id: "remote", name: "Remote" } };
+    await settleTree(panel);
+    await oldStart?.run();
+    expect(start).toHaveBeenCalledOnce();
+    expect(contexts.at(-1)?.actions?.map(({ id }) => id)).not.toContain("add-project");
+  });
+});
+
+async function mountTreePanel(workspaceSelectionVisible: boolean): Promise<AppNavigationPanel> {
+  const runtime = new UiPresentationRuntime(() => undefined);
+  runtime.register([{ id: "tree", pluginId: "test", region: "navigation", navigationLayout: "tree", active: () => true, render: () => html`<slot name="projects"></slot>` }]);
+  const panel = new AppNavigationPanel();
+  const selectedProject = project("project-1");
+  const selectedWorkspace = workspace("ws-1", "project-1");
+  panel.presentationRuntime = runtime;
+  panel.projects = [selectedProject, project("project-2")];
+  panel.selectedProject = selectedProject;
+  panel.workspaces = [selectedWorkspace, workspace("ws-2", "project-1")];
+  panel.selectedWorkspace = selectedWorkspace;
+  panel.workspaceSelectionVisible = workspaceSelectionVisible;
+  panel.sessions = [{ ...session("session-1"), cwd: selectedWorkspace.path }, session("other-workspace")];
+  document.body.append(panel);
+  await settleTree(panel);
+  return panel;
+}
+
+async function settleTree(panel: AppNavigationPanel): Promise<void> {
+  await panel.updateComplete;
+  await panel.shadowRoot?.querySelector<ProjectList>("project-list")?.updateComplete;
+  const projects = panel.shadowRoot?.querySelector<ProjectList>("project-list");
+  await projects?.shadowRoot?.querySelector<WorkspaceList>("workspace-list")?.updateComplete;
+  await panel.shadowRoot?.querySelector<UiPresentationSurface>("pi-web-ui-presentation")?.updateComplete;
+}
 
 function control(list: ProjectList | WorkspaceList | SessionList, selector: string): HTMLElement {
   const element = list.shadowRoot?.querySelector(selector);

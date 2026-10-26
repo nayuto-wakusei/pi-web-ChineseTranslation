@@ -1,3 +1,7 @@
+import { uiButtonStyles } from "./ui/controlStyles";
+import { uiFormStyles } from "./ui/formStyles";
+import { uiTranscriptStyles } from "./ui/transcriptStyles";
+import { uiTranscriptCardStyles } from "./ui/transcriptCardStyles";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n.js";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
@@ -78,10 +82,10 @@ export class AskUserCard extends LitElement {
     const count = answeredCount(ask.questions, this.answers);
     const unanswered = unansweredQuestions(ask.questions, this.answers);
     return html`
-      <article class="card open-card" aria-labelledby="ask-user-heading">
-        <header class="card-header">
+      <article class="ui-transcript-surface card open-card" aria-labelledby="ask-user-heading">
+        <header class="ui-transcript-card-header card-header">
           <h2 id="ask-user-heading">${t("ui.askUserCard.questions", "Questions")}</h2>
-          <span class="header-status" role="status" aria-live="polite" aria-atomic="true">
+          <span class="ui-transcript-card-status header-status" role="status" aria-live="polite" aria-atomic="true">
             ${t("ui.extensionDialogCard.answered", "Answered")} ${count}/${ask.questions.length}
           </span>
         </header>
@@ -90,12 +94,12 @@ export class AskUserCard extends LitElement {
             ${ask.questions.map((question, index) => this.renderQuestion(ask, question, index))}
           </div>
           <footer class="form-footer">
-            <button class="secondary-action skip-questions" type="button" ?disabled=${this.submitting}
+            <button class="ui-button ui-button--compact secondary-action skip-questions" type="button" ?disabled=${this.submitting}
               @click=${() => { this.submitAnswers(ask, { answers: [] }); }}>${t("ui.askUserCard.skipQuestions", "Skip questions")}</button>
             ${this.confirmingPartialSubmit && unanswered.length > 0
               ? this.renderPartialSubmitConfirmation(ask, unanswered)
               : html`
-                  <button class="primary-action" type="submit" ?disabled=${this.submitting}>
+                  <button class="ui-button ui-button--primary primary-action" type="submit" ?disabled=${this.submitting}>
                     ${this.submitting ? t("ui.askUserCard.sending", "Sending…") : t("ui.askUserCard.sendAnswers", "Send answers")}
                   </button>
                 `}
@@ -155,7 +159,7 @@ export class AskUserCard extends LitElement {
           ${customSelected ? html`
             <label class="other-answer" for=${this.otherInputId(index)}>
               <span>${t("ui.askUserCard.customAnswer", "Custom answer")}</span>
-              <textarea
+              <textarea class="ui-input"
                 id=${this.otherInputId(index)}
                 rows="3"
                 maxlength=${String(ASK_USER_OTHER_TEXT_MAX_LENGTH)}
@@ -181,8 +185,8 @@ export class AskUserCard extends LitElement {
           >${question.question}</button>`)}?
         </p>
         <div class="confirmation-actions">
-          <button class="secondary-action" type="button" @click=${() => { this.keepEditing(ask, unanswered); }}>${t("ui.askUserCard.keepEditing", "Keep editing")}</button>
-          <button class="primary-action send-anyway" type="button" ?disabled=${this.submitting} @click=${() => { this.submitAnswers(ask); }}>
+          <button class="ui-button ui-button--compact secondary-action" type="button" @click=${() => { this.keepEditing(ask, unanswered); }}>${t("ui.askUserCard.keepEditing", "Keep editing")}</button>
+          <button class="ui-button ui-button--primary primary-action send-anyway" type="button" ?disabled=${this.submitting} @click=${() => { this.submitAnswers(ask); }}>
             ${this.submitting ? t("ui.askUserCard.sending", "Sending…") : t("ui.askUserCard.sendAnyway", "Send anyway")}
           </button>
         </div>
@@ -192,8 +196,8 @@ export class AskUserCard extends LitElement {
 
   private renderClosedAsk(ask: AskUserRequest): TemplateResult {
     return html`
-      <details class="card closed-card">
-        <summary class="card-header"><h2><span class="disclosure-indicator" aria-hidden="true">▸</span> ${t("ui.askUserCard.questions", "Questions")}</h2><span class="header-status">${t("ui.askUserCard.closedQuestions", "Closed · {count} questions", { count: ask.questions.length })}</span></summary>
+      <details class="ui-transcript-surface card closed-card">
+        <summary class="ui-transcript-card-header card-header"><h2><span class="disclosure-indicator" aria-hidden="true">▸</span> ${t("ui.askUserCard.questions", "Questions")}</h2><span class="ui-transcript-card-status header-status">${t("ui.askUserCard.closedQuestions", "Closed · {count} questions", { count: ask.questions.length })}</span></summary>
         ${this.outcomes.map((outcome) => html`<p class="record-summary">${outcome.summary}</p>`)}
         <div class="record-questions">
           ${ask.questions.map((question, index) => html`
@@ -228,10 +232,10 @@ export class AskUserCard extends LitElement {
         ? t("ui.askUserCard.superseded", "Superseded")
         : t("client.shellMessages.cancelled.a37778", "Cancelled");
     return html`
-      <article class="card record-card" aria-labelledby="ask-user-record-heading">
-        <header class="card-header">
+      <article class="ui-transcript-surface card record-card" aria-labelledby="ask-user-record-heading">
+        <header class="ui-transcript-card-header card-header">
           <h2 id="ask-user-record-heading">${this.compact ? t("ui.askUserCard.answers", "Answers") : t("ui.askUserCard.questions", "Questions")}</h2>
-          <span class=${`header-status ${outcome.reason}`}>${recordLabel}</span>
+          <span class=${`ui-transcript-card-status header-status ${outcome.reason}`}>${recordLabel}</span>
         </header>
         <p class="record-summary">
           ${outcome.reason === "superseded"
@@ -440,8 +444,7 @@ export class AskUserCard extends LitElement {
     return `ask-user-record-question-${String(index)}`;
   }
 
-  static override styles = css`
-    @layer pi-web-base {
+  static override styles = [uiButtonStyles, uiFormStyles, uiTranscriptStyles, uiTranscriptCardStyles, css`
     :host {
       display: block;
       box-sizing: border-box;
@@ -454,25 +457,8 @@ export class AskUserCard extends LitElement {
     .card {
       --question-number-column: 25px;
       --question-copy-gap: 5px;
-      border: 1px solid var(--pi-border);
-      border-radius: 10px;
-      background: var(--pi-surface);
     }
-    .card-header {
-      position: sticky;
-      top: var(--pi-chat-sticky-top, 0px);
-      z-index: 6;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      min-height: 22px;
-      padding: 7px 10px 6px;
-      border-bottom: 1px solid color-mix(in srgb, var(--pi-border-muted) 35%, transparent);
-      border-radius: 9px 9px 0 0;
-      background: var(--pi-surface);
-      box-shadow: 0 8px 18px var(--pi-shadow-soft);
-    }
+    .card { --ui-transcript-card-header-padding: 7px 10px 6px; }
     h2, h3, p { margin-top: 0; }
     h2 {
       margin-bottom: 0;
@@ -481,9 +467,6 @@ export class AskUserCard extends LitElement {
       line-height: 1.3;
       text-transform: uppercase;
     }
-    .header-status { flex: 0 1 auto; color: var(--pi-muted); font-size: 11px; text-align: end; }
-    .header-status.submitted { color: var(--pi-success); }
-    .header-status.superseded { color: var(--pi-warning); }
     .questions { display: grid; padding-top: 8px; }
     fieldset.question {
       min-width: 0;
@@ -517,40 +500,35 @@ export class AskUserCard extends LitElement {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
-    fieldset.question > .question-detail, .record-question > .question-detail { padding-inline-start: calc(var(--question-number-column) + var(--question-copy-gap)); }
-    .options { display: grid; gap: 7px; }
+    fieldset.question > .question-detail, .record-question > .question-detail {
+      padding-inline-start: calc(var(--question-number-column) + var(--question-copy-gap));
+    }
+    .options { display: grid; gap: 0; }
     legend + .options { margin-top: 10px; }
     .option {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
       align-items: start;
       gap: 8px;
-      border: 1px solid transparent;
-      border-radius: 8px;
-      padding: 7px 8px;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 8px;
       cursor: pointer;
     }
-    .option:hover { border-color: var(--pi-border-muted); background: var(--pi-surface-hover); }
-    .option:has(input:checked) { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+    .option:hover { background: var(--pi-surface-hover); }
+    .option:has(input:checked) { background: var(--pi-selection-bg); }
+    .option:has(input:focus-visible) { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
     input { margin: 2px 0 0; accent-color: var(--pi-accent); }
-    input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
+    input:focus-visible, .question-jump:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
     .option-copy { min-width: 0; display: grid; gap: 2px; }
     .option-label { line-height: 1.35; }
     .option-detail { color: var(--pi-muted); font-size: 12px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .other-answer { display: grid; gap: 5px; color: var(--pi-muted); font-size: 12px; padding: 4px 8px 4px 32px; }
-    .other-answer:only-child { padding-left: 0; padding-right: 0; }
-    textarea {
-      box-sizing: border-box;
-      width: 100%;
-      min-height: 68px;
-      resize: vertical;
-      border: 1px solid var(--pi-border);
-      border-radius: 8px;
-      background: var(--pi-bg);
-      color: var(--pi-text);
-      padding: 8px;
-      font: var(--pi-control-font-size, 16px)/1.4 var(--pi-control-font-family, system-ui, sans-serif);
-    }
+    .add-comment { justify-self: start; margin-inline-start: 26px; }
+    .other-answer { display: grid; gap: 5px; color: var(--pi-muted); font-size: 12px; padding-block: 4px; padding-inline: 32px 8px; }
+    .other-answer:only-child { padding-inline: 0; }
+    .other-answer-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    textarea { min-height: 52px; resize: vertical; }
     .form-footer {
       display: flex;
       align-items: center;
@@ -559,21 +537,11 @@ export class AskUserCard extends LitElement {
       border-top: 1px solid var(--pi-border-muted);
       padding: 12px 16px;
     }
-    button {
-      border: 1px solid var(--pi-border);
-      border-radius: 8px;
-      background: var(--pi-surface);
-      color: var(--pi-text);
-      padding: 7px 10px;
-      font: inherit;
-      cursor: pointer;
-    }
-    button:hover:not(:disabled) { background: var(--pi-surface-hover); }
-    button:disabled { cursor: wait; opacity: .65; }
-    .primary-action { border-color: var(--pi-accent); background: var(--pi-accent); color: var(--pi-accent-contrast, white); font-weight: 650; }
-    .primary-action:hover:not(:disabled) { background: color-mix(in srgb, var(--pi-accent) 86%, white); }
     .partial-confirmation { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
-    .partial-confirmation p { min-width: 0; margin: 0; color: var(--pi-warning); font-size: 12px; line-height: 1.4; }
+    .partial-prompt { min-width: 0; color: var(--pi-warning); font-size: 12px; line-height: 1.4; }
+    .partial-prompt p { margin: 0; }
+    .partial-prompt ul { margin: 4px 0 0; padding-inline-start: 18px; }
+    .partial-prompt li { overflow-wrap: anywhere; }
     .question-jump {
       display: inline;
       border: 0;
@@ -581,21 +549,28 @@ export class AskUserCard extends LitElement {
       background: transparent;
       color: inherit;
       padding: 0;
+      font: inherit;
+      cursor: pointer;
       text-decoration: underline;
       text-underline-offset: 2px;
     }
-    .confirmation-actions { flex: 0 0 auto; display: flex; gap: 7px; }
-    .closed-card > summary { cursor: pointer; position: static; }
+    .confirmation-actions { display: flex; flex-wrap: wrap; align-items: stretch; justify-content: flex-end; gap: 0; }
+    .card-header { flex-wrap: wrap; }
+    .card-header h2, .header-status { overflow-wrap: anywhere; min-width: 0; }
+    legend > span:last-child, .option-label, .record-question h3 > span:last-child { overflow-wrap: anywhere; }
     .disclosure-indicator { display: inline-block; }
     .closed-card[open] .disclosure-indicator { transform: rotate(90deg); }
-    .offered-options { display: grid; gap: 5px; margin: 0 0 12px; padding-left: 22px; color: var(--pi-muted); }
+    .partial-confirmation p { margin: 0; color: var(--pi-warning); font-size: 12px; }
+    .closed-card > summary { cursor: pointer; position: static; }
+    .offered-options { display: grid; gap: 5px; margin: 0 0 12px; padding-inline-start: 22px; color: var(--pi-muted); }
     .offered-options .option-detail { margin: 2px 0 0; }
     .record-summary { margin: 0; color: var(--pi-muted); padding: 12px 16px; font-size: 12px; }
     .record-questions { display: grid; }
     .record-question { min-width: 0; padding: 14px 16px; }
     .record-question + .record-question { border-top: 1px solid var(--pi-border-muted); }
     .record-question h3 { display: grid; grid-template-columns: var(--question-number-column) minmax(0, 1fr); align-items: start; gap: var(--question-copy-gap); margin-bottom: 8px; font-size: 14px; line-height: 1.35; }
-    .record-answers { display: grid; gap: 4px; margin: 0; padding-left: 22px; line-height: 1.4; }
+    .record-answers { display: grid; gap: 4px; margin: 0; padding-inline-start: 22px; line-height: 1.4; }
+    .record-answers li, .offered-options li { overflow-wrap: anywhere; }
     .other-record-text { white-space: pre-wrap; overflow-wrap: anywhere; }
     .unanswered-record { margin: 0; color: var(--pi-muted); font-style: italic; }
     .draft-note { margin: 7px 0 0; color: var(--pi-warning); font-size: 11px; }
@@ -606,12 +581,8 @@ export class AskUserCard extends LitElement {
       .form-footer { align-items: stretch; flex-direction: column; padding: 12px; }
       .partial-confirmation { align-items: stretch; flex-direction: column; }
       .confirmation-actions { justify-content: flex-end; }
-      .primary-action { min-height: 42px; }
     }
-
-    }
-  `;
-}
+  `];}
 
 function askOutcomeSummary(outcome: AskUserOutcome): string {
   const total = outcome.questions.length;

@@ -36,6 +36,13 @@ navigation.sessions = [{
   created: "2026-10-23T00:00:00Z", modified: "2026-10-23T00:00:00Z",
   messageCount: 12, firstMessage: "中文会话",
 }];
+if (new URLSearchParams(location.search).has("menu-alignment")) {
+  navigation.sessions = navigation.sessions.map((session) => ({ ...session, persisted: true }));
+  navigation.pinnedSessionIds = ["session"];
+  navigation.pinnedRootIds = ["session"];
+  navigation.canReloadSessions = true;
+  navigation.onMoveSessionPin = () => undefined;
+}
 navigation.onShowActions = () => {
   const palette = new ActionPalette();
   palette.actions = [

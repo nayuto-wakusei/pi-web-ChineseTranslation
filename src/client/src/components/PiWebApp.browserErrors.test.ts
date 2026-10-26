@@ -1,5 +1,6 @@
 import "./nodeThemePlugin.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { html } from "lit";
 import { initialAppState, type AppState } from "../appState";
 import type { AppAction } from "../actions";
 import { browserErrorScopeKey, machineBrowserErrorScope, workspaceBrowserErrorScope } from "../browserErrors";
@@ -36,6 +37,22 @@ function createApp(): PiWebApp {
   });
   return new PiWebApp();
 }
+
+it("reports a gateway presentation failure visibly on the currently selected remote machine", async () => {
+  const app = createApp();
+  const remote: Machine = { id: "remote-1", name: "Remote", kind: "remote", createdAt: "now", updatedAt: "now" };
+  setState(app, { selectedMachine: remote });
+  Reflect.set(app, "applyPreferredTheme", () => undefined);
+  const registry: unknown = Reflect.get(app, "plugins");
+  if (!(registry instanceof PluginRegistry)) throw new Error("Missing plugin registry");
+  const ready: unknown = Reflect.get(app, "builtInPluginsReady");
+  if (!(ready instanceof Promise)) throw new Error("Missing core plugin initialization");
+  await ready;
+  registry.uiPresentation.register([{ id: "custom:nav", pluginId: "custom", region: "navigation", active: () => true, render: () => html`` }]);
+  expect(registry.uiPresentation.fail("navigation", new Error("Renderer unavailable"))).toBe(true);
+  expect(appState(app).browserErrors[browserErrorScopeKey(machineBrowserErrorScope(remote.id))]?.message).toBe("custom: Renderer unavailable");
+  await registry.dispose();
+});
 
 function appState(app: PiWebApp): AppState {
   const value: unknown = Reflect.get(app, "state");

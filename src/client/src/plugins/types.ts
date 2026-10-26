@@ -80,6 +80,7 @@ export interface PluginActivationResult {
 }
 
 export interface PluginContributions {
+  uiPresentations?: import("../../../plugin-api").UiPresentationContributionV1[];
   stylesheets?: StylesheetContribution[];
   localizations?: LocalizationContribution[];
   contentRenderers?: import("../../../plugin-api").ContentRendererContributionV5[];

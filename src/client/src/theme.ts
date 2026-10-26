@@ -88,8 +88,10 @@ export function clearStoredThemePreference(): void {
   }
 }
 
-export function effectiveThemePreference(local: ThemePreference | undefined, configuredDefault: ThemePreference | undefined): ThemePreference {
-  return local ?? configuredDefault ?? DEFAULT_THEME_PREFERENCE;
+export function effectiveThemePreference(local: ThemePreference | undefined, configuredDefault: ThemePreference | undefined, themes: readonly QualifiedThemeContribution[] = []): ThemePreference {
+  return local ?? configuredDefault ?? (themes.some((theme) => theme.id === "pi-web.custom-ui-codex:graphite")
+    ? { themeId: "pi-web.custom-ui-codex:graphite", auto: true }
+    : DEFAULT_THEME_PREFERENCE);
 }
 
 export function applyPiWebTheme(theme: QualifiedThemeContribution): void {
@@ -105,7 +107,7 @@ export function applyPiWebTheme(theme: QualifiedThemeContribution): void {
 
 export function resolveThemePreference(options: ResolveThemePreferenceOptions): ThemePreferenceResolution {
   const fallbackTheme = findFallbackTheme(options.themes, options.fallbackThemeId ?? CLASSIC_THEME_ID);
-  const selectedTheme = options.themes.find((candidate) => candidate.id === options.preference.themeId) ?? fallbackTheme;
+  const selectedTheme = findAvailableTheme(options.themes, options.preference.themeId) ?? fallbackTheme;
   if (selectedTheme === undefined) {
     return { selectedTheme: undefined, activeTheme: undefined, selectedThemePair: undefined, fallbackTheme };
   }
@@ -116,6 +118,15 @@ export function resolveThemePreference(options: ResolveThemePreferenceOptions): 
   const activeThemeId = options.prefersLight ? selectedThemePair.light : selectedThemePair.dark;
   const activeTheme = options.themes.find((candidate) => candidate.id === activeThemeId) ?? selectedTheme;
   return { selectedTheme, activeTheme, selectedThemePair, fallbackTheme };
+}
+
+/** Resolve an available selection without turning a missing preference into its fallback. */
+export function findAvailableTheme(themes: readonly QualifiedThemeContribution[], themeId: string): QualifiedThemeContribution | undefined {
+  // Preserve existing device/config choices after the local palettes move out of core.
+  const migratedId = themeId === "themes:paper" ? "pi-web.custom-ui-codex:paper"
+    : themeId === "themes:graphite" ? "pi-web.custom-ui-codex:graphite" : themeId;
+  return themes.find((candidate) => candidate.id === themeId)
+    ?? themes.find((candidate) => candidate.id === migratedId);
 }
 
 export function findFallbackTheme(themes: readonly QualifiedThemeContribution[], fallbackThemeId: QualifiedContributionId = CLASSIC_THEME_ID): QualifiedThemeContribution | undefined {

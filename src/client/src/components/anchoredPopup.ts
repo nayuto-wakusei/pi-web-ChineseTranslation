@@ -2,6 +2,7 @@ import type { ReactiveController, ReactiveControllerHost } from "lit";
 import { canOpenTransientPopup, registerTransientPopup } from "./popupScope";
 
 export interface AnchoredPopupOptions {
+  /** Defaults to the panel's --ui-popup-placement token, then below-end. */
   placement?: "below-end" | "below-start" | "above-start" | "left-end";
   gap?: number;
   padding?: number;
@@ -151,8 +152,9 @@ export function anchoredPopupStyle(anchor: HTMLElement, options: AnchoredPopupOp
   const anchorBottom = clamp(trigger.bottom, top, bottom);
   const anchorRight = clamp(trigger.right, left, right);
   const anchorLeft = clamp(trigger.left, left, right);
+  const placement = options.placement ?? (panel === undefined ? undefined : window.getComputedStyle(panel).getPropertyValue("--ui-popup-placement").trim());
   const style: Record<string, string> = { top: "auto", bottom: "auto", left: "auto", right: "auto", width: "max-content" };
-  if (options.placement === "left-end") {
+  if (placement === "left-end") {
     const maxWidth = Math.max(0, anchorLeft - left - gap);
     style["max-width"] = px(maxWidth);
     style["min-width"] = px(Math.min(options.minWidth ?? 0, maxWidth));
@@ -163,13 +165,13 @@ export function anchoredPopupStyle(anchor: HTMLElement, options: AnchoredPopupOp
   }
   const below = Math.max(0, bottom - anchorBottom - gap);
   const above = Math.max(0, anchorTop - top - gap);
-  const preferAbove = options.placement === "above-start";
+  const preferAbove = placement === "above-start";
   const contentHeight = panel?.scrollHeight ?? 0;
   const needed = Math.min(options.maxHeight ?? 120, contentHeight > 0 ? contentHeight : 120);
   const useAbove = preferAbove ? !(above < needed && below > above) : below < needed && above > below;
   style[useAbove ? "bottom" : "top"] = px(useAbove ? window.innerHeight - anchorTop + gap : anchorBottom + gap);
   style["max-height"] = px(Math.min(options.maxHeight ?? Infinity, useAbove ? above : below));
-  const start = options.placement === "below-start" || preferAbove;
+  const start = placement === "below-start" || preferAbove;
   const width = options.width === "anchor" ? trigger.width : options.width;
   if (start) {
     const x = clamp(anchorLeft, left, width === undefined ? right : Math.max(left, right - width));

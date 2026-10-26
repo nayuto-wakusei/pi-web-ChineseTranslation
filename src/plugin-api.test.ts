@@ -48,6 +48,9 @@ import type {
   WorkspaceRemovalPresentation,
   WriteWorkspaceFileOptions,
   WriteWorkspaceFileResponse,
+  PluginContributionsV5,
+  UiPresentationContributionV1,
+  UiPresentationContextV1,
 } from "@chainingintention/pi-web-cn/plugin-api";
 import type {
   ApplicationPanelContext as InternalApplicationPanelContext,
@@ -68,6 +71,14 @@ type ReadonlyKeys<Value> = {
     Key
   >;
 }[keyof Value];
+
+it("exposes versioned display-only UI presentations without mutable selection", () => {
+  expectTypeOf<PluginContributionsV5["uiPresentations"]>().toEqualTypeOf<UiPresentationContributionV1[] | undefined>();
+  expectTypeOf<ReadonlyKeys<UiPresentationContextV1>>().toEqualTypeOf<keyof UiPresentationContextV1>();
+  expectTypeOf<UiPresentationContextV1>().not.toHaveProperty("state");
+  expectTypeOf<UiPresentationContextV1>().not.toHaveProperty("backend");
+  expectTypeOf<UiPresentationContextV1>().not.toHaveProperty("catalog");
+});
 
 type WritableKeys<Value> = Exclude<keyof Value, ReadonlyKeys<Value>>;
 type IsOptional<Value, Key extends keyof Value> = Pick<Value, Key> extends Required<Pick<Value, Key>> ? false : true;

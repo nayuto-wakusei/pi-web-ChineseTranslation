@@ -1,4 +1,6 @@
 :root {
+  --codex-sidebar-bg: #1d2120;
+  --codex-sidebar-hover: #303432;
   --pi-font: system-ui, sans-serif;
   --pi-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --pi-thinking: var(--pi-muted);
@@ -16,13 +18,13 @@
   --pi-chat-system-bg: var(--pi-surface);
   --pi-chat-activity-bg: var(--pi-surface);
   --pi-chat-compacting-bg: var(--pi-surface);
-  --pi-bg: #181818;
+  --pi-bg: #191b1a;
   --pi-surface: #222222;
   --pi-surface-hover: #303030;
   --pi-terminal-bg: #181818;
   --pi-terminal-text: #e8e8e8;
   --pi-border: #555555;
-  --pi-border-muted: #383838;
+  --pi-border-muted: #343936;
   --pi-text: #e8e8e8;
   --pi-text-secondary: #bcbcbc;
   --pi-text-bright: #ffffff;

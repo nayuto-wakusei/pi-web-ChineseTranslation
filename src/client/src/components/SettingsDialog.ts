@@ -1,5 +1,8 @@
 import { uiDialogStyles, uiSelectionStyles } from "./ui/dialogStyles";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
+import "../plugins/uiPresentation";
+import type { UiPresentationRuntime } from "../plugins/uiPresentationRuntime";
+import type { UiPresentationContextV1 } from "../../../plugin-api";
 import { t } from "../i18n";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -17,7 +20,7 @@ import type { SettingsGeneralPanel } from "./settings/SettingsGeneralPanel";
 import type { MachineHealth } from "../api";
 import "./settings/SettingsThemePanel";
 import type { QualifiedThemeContribution } from "../plugins/types";
-import { DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../theme";
+import { DEFAULT_THEME_PREFERENCE, effectiveThemePreference, type ThemePreference } from "../theme";
 import "./settings/SettingsSessiondPanel";
 import "./settings/SettingsPackagesPanel";
 import "./settings/SettingsPluginsPanel";
@@ -38,6 +41,8 @@ export class SettingsDialog extends LitElement {
   }
 
   @property({ attribute: false }) section: SettingsSection = "general";
+  @property({ attribute: false }) presentationRuntime: UiPresentationRuntime | undefined;
+  @property({ attribute: false }) presentationContext: UiPresentationContextV1 = { mode: "normal" };
   @property({ attribute: false }) actions: AppAction[] = [];
   @property({ attribute: false }) themes: readonly QualifiedThemeContribution[] = [];
   @property({ attribute: false }) themePreference: ThemePreference = DEFAULT_THEME_PREFERENCE;
@@ -171,10 +176,11 @@ export class SettingsDialog extends LitElement {
       <modal-surface .onClose=${() => this.onClose?.()} .busy=${this.saving} .label=${t("ui.settingsDialog.piWebSettings", "PI WEB settings")}>
           <header class="settings-header ui-dialog-header">
             <h1 class="ui-dialog-title">${t("ui.settingsDialog.settings", "Settings")}</h1>
-            <button type="button" class="close-button ui-button ui-button--icon" title="${t("ui.settingsDialog.closeSettings", "Close settings")}" aria-label="${t("ui.settingsDialog.closeSettings", "Close settings")}" @click=${() => this.onClose?.()}>×</button>
+            <button type="button" class="close-button ui-button ui-button--icon" title="${t("ui.settingsDialog.closeSettings", "Close settings")}" aria-label="${t("ui.settingsDialog.closeSettings", "Close settings")}" @click=${() => this.onClose?.()}><span class="settings-back-icon" aria-hidden="true">×</span><span class="settings-back-label">${t("ui.settingsDialog.backToApp", "Back to app")}</span></button>
           </header>
           <div class="settings-body">
-            <nav class="settings-nav" aria-label="${t("ui.settingsDialog.settingsSections", "Settings sections")}">
+            <pi-web-ui-presentation region="settings-navigation" .runtime=${this.presentationRuntime} .context=${this.presentationContext}>
+            <nav slot="navigation" class="settings-nav" aria-label="${t("ui.settingsDialog.settingsSections", "Settings sections")}">
               ${this.renderNavButton("general", t("client.actions.general.835b70", "General"), t("ui.settingsDialog.gatewayAndSelectedMachine", "Gateway and selected machine"))}
               ${this.renderNavButton("sessiond", t("bundled.updates.session.daemon.757666", "Session daemon"), t("ui.settingsDialog.selectedMachine", "Selected machine"))}
               ${this.renderNavButton("packages", t("bundled.updates.pi.package.feed18", "Pi package"), t("ui.settingsDialog.selectedMachine", "Selected machine"))}
@@ -182,6 +188,7 @@ export class SettingsDialog extends LitElement {
               ${this.renderNavButton("mcp", "MCP", t("ui.mcp.selectedSession", "Selected session"))}
               ${this.renderNavButton("shortcuts", t("ui.settingsDialog.keyboard", "Keyboard"), t("ui.settingsDialog.gatewayShortcuts", "Gateway shortcuts"))}
             </nav>
+            </pi-web-ui-presentation>
             <main class="settings-main">
               ${this.renderMachineSelector()}
               ${this.renderMachineSwitchConfirmation()}
@@ -365,7 +372,7 @@ export class SettingsDialog extends LitElement {
           slot="appearance"
           .themes=${this.themes}
           .preference=${this.themePreference}
-          .defaultPreference=${this.configResponse?.effectiveConfig.defaultTheme ?? DEFAULT_THEME_PREFERENCE}
+          .defaultPreference=${effectiveThemePreference(undefined, this.configResponse?.effectiveConfig.defaultTheme, this.themes)}
           .activeThemeId=${this.activeThemeId}
           .hasLocalOverride=${this.hasLocalThemeOverride}
           .loading=${this.loading || this.configResponse === undefined}
@@ -917,11 +924,13 @@ export class SettingsDialog extends LitElement {
     .machine-switch-confirmation p { margin: 0 0 8px; }
     .machine-switch-confirmation button + button { margin-inline-start: 8px; }
     .settings-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
-    .settings-nav { min-height: 0; border-right: 1px solid var(--pi-border); background: var(--pi-surface); overflow: auto; }
+    .settings-nav { min-height: 0; flex: 1 1 auto; border-inline-end: 1px solid var(--pi-border); background: var(--pi-surface); overflow: auto; }
     .settings-nav button { display: grid; justify-content: stretch; gap: 2px; }
+    .settings-nav span, .settings-nav small { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
     .settings-nav small { color: var(--pi-muted); }
     .settings-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
     .settings-content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; padding: 0; }
+    .settings-back-label { display: none; }
 
     @media (max-width: 760px) {
       modal-surface { --modal-surface-backdrop-padding: 0; --modal-surface-place-items: stretch; --modal-surface-width: 100%; --modal-surface-max-height: none; --modal-surface-min-height: 0; --modal-surface-border: 0; --modal-surface-radius: 0; }
@@ -931,7 +940,7 @@ export class SettingsDialog extends LitElement {
       .settings-machine select { max-width: none; }
       .machine-scope { flex-basis: 100%; }
       .settings-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-      .settings-nav { display: flex; gap: 0; padding: 0; border-right: 0; border-bottom: 1px solid var(--pi-border); overflow-x: auto; overflow-y: hidden; }
+      .settings-nav { display: flex; gap: 0; padding: 0; border-inline-end: 0; border-bottom: 1px solid var(--pi-border); overflow-x: auto; overflow-y: hidden; }
       .settings-nav button { flex: 0 0 auto; width: auto; white-space: nowrap; border-inline-end: 1px solid var(--pi-border-muted); }
       .settings-nav small { display: none; }
       .settings-content { padding-bottom: env(safe-area-inset-bottom); }

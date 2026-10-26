@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LitElement, html } from "lit";
-import { PluginStyleRegistry, PluginStylesController, type PluginStylesheetLoader } from "./styleRegistry";
+import { PluginStyleRegistry, PluginStylesController, PluginStylesheetLoadError, type PluginStylesheetLoader } from "./styleRegistry";
 
 const a = { id: "test:a", url: "https://example.test/a.css" };
 const b = { id: "test:b", url: "https://example.test/b.css" };
@@ -20,6 +20,18 @@ function shadowRoot(mode: ShadowRootMode = "open") {
 afterEach(() => { document.body.replaceChildren(); });
 
 describe("PluginStyleRegistry", () => {
+  it("attributes failed files by structured contribution identity and URL", async () => {
+    const cause = new Error("offline");
+    const registry = new PluginStyleRegistry(() => Promise.reject(cause));
+    try {
+      await registry.setContributions([a]);
+      throw new Error("Expected stylesheet load failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(PluginStylesheetLoadError);
+      expect(error).toMatchObject({ contributionId: a.id, url: a.url, cause });
+    }
+    registry.clear();
+  });
   it("shares one loaded sheet per file across the document, existing and later closed roots", async () => {
     const sheet = new CSSStyleSheet();
     const load = vi.fn<PluginStylesheetLoader>().mockResolvedValue(sheet);

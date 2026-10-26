@@ -322,7 +322,7 @@ describe("application rendering boundaries", () => {
     await settle(app);
     expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).toBeNull();
     const context = app.shadowRoot?.querySelector("app-context-bar");
-    expect(context?.shadowRoot?.querySelectorAll(".context-item")).toHaveLength(3);
+    expect(context?.shadowRoot?.querySelectorAll(".context-item")).toHaveLength(4);
     const controls = [...context?.shadowRoot?.querySelectorAll<HTMLButtonElement>(".context-actions button") ?? []];
     expect(controls.map((button) => button.getAttribute("aria-label") ?? button.textContent.trim())).toEqual(["打开导航", "显示操作"]);
     expect(controls[0]?.classList.contains("selected")).toBe(true);

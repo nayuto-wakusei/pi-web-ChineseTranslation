@@ -35,7 +35,7 @@ import { ChatDisclosureController } from "../chatDisclosure";
 import type { DisplayedMessageActionAvailabilityContext, MessageActionAvailabilityContext, MessageActionResult } from "../../../plugin-api";
 import type { RegisteredMessageAction } from "../plugins/messageActions";
 import { machineSessionKey } from "../machineKeys";
-import { canonicalEntryActionHeaders, groupChatMessages, groupConsecutiveImageOutputs, type ChatDisplayGroup, type ChatGroup } from "../chatGroups";
+import { canonicalEntryActionHeaders, ChatMessageGrouper, groupConsecutiveImageOutputs, type ChatDisplayGroup, type ChatGroup } from "../chatGroups";
 import { openTranscriptQuestion, transcriptQuestionOutcomes } from "../chatQuestions";
 import { ChatScrollFlows } from "../ChatScrollFlows";
 import { ChatRenderKeys } from "../chatRenderKeys";
@@ -362,6 +362,8 @@ export class ChatView extends LitElement {
 
   private groupedMessagesCache: ChatGroup[] = [];
 
+  private readonly messageGrouper = new ChatMessageGrouper();
+
   private readonly messageMetaCache = new WeakMap<ChatLine, string>();
 
   private imageSession: SessionRef | undefined;
@@ -527,6 +529,7 @@ export class ChatView extends LitElement {
     const sourceGroups = this.groupedMessages();
     const entryActionHeaders = canonicalEntryActionHeaders(sourceGroups);
     const groups = groupConsecutiveImageOutputs(sourceGroups);
+    const context = this.transcriptRenderContext();
     // Keep incremental updates within one transcript, but dispose the whole
     // repeat part when the transcript changes. Besides preventing cross-session
     // DOM reuse, clearing the part reclaims the end markers that the current Lit
@@ -561,9 +564,9 @@ export class ChatView extends LitElement {
             groups,
             (_group, index) => keys[index],
             (group, index) => {
-              if (group.kind === "group") return this.renderMessageGroup(group, this.isLiveTailGroup(groups, index), entryActionHeaders);
-              if (group.kind === "tool-images") return this.renderToolImageOutputs(group, entryActionHeaders);
-              return this.renderMessage(group.message, group.index, entryActionHeaders);
+              if (group.kind === "group") return this.renderMessageGroup(context, group, this.isLiveTailGroup(groups, index), entryActionHeaders);
+              if (group.kind === "tool-images") return transcript.renderToolImageOutputs(context, group, entryActionHeaders);
+              return transcript.renderMessage(context, group.message, group.index, entryActionHeaders);
             },
           ))}
           ${this.renderQueuedMessages()}
@@ -648,7 +651,7 @@ export class ChatView extends LitElement {
     if (this.groupedMessagesInput === this.messages && this.groupedMessagesStart === this.messageStart) return this.groupedMessagesCache;
     this.groupedMessagesInput = this.messages;
     this.groupedMessagesStart = this.messageStart;
-    this.groupedMessagesCache = groupChatMessages(this.messages, this.messageStart);
+    this.groupedMessagesCache = this.messageGrouper.group(this.messages, this.messageStart);
     return this.groupedMessagesCache;
   }
 
@@ -795,18 +798,10 @@ export class ChatView extends LitElement {
     };
   }
 
-  private renderMessage(message: ChatLine, index: number, entryActionHeaders: ReadonlySet<ChatLine>) {
-    return transcript.renderMessage(this.transcriptRenderContext(), message, index, entryActionHeaders);
-  }
-
-  private renderToolImageOutputs(group: Extract<ChatDisplayGroup, { kind: "tool-images" }>, entryActionHeaders: ReadonlySet<ChatLine>) {
-    return transcript.renderToolImageOutputs(this.transcriptRenderContext(), group, entryActionHeaders);
-  }
-
-  private renderMessageGroup(group: Extract<ChatGroup, { kind: "group" }>, defaultOpen: boolean, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
+  private renderMessageGroup(context: TranscriptRenderContext, group: Extract<ChatGroup, { kind: "group" }>, defaultOpen: boolean, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
     const disclosureKey = this.groupDisclosureKey(group, defaultOpen);
     const open = this.isDisclosureOpen(disclosureKey, defaultOpen);
-    return transcript.renderMessageGroup(this.transcriptRenderContext(), group, defaultOpen, entryActionHeaders, {
+    return transcript.renderMessageGroup(context, group, defaultOpen, entryActionHeaders, {
       open,
       anchor: this.groupAnchorKey(group, defaultOpen),
       toggle: (event) => { this.onDisclosureToggle(disclosureKey, event, defaultOpen); },

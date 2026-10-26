@@ -291,7 +291,7 @@ export class AuthDialog extends LitElement {
     .form a { color: var(--pi-accent); overflow-wrap: anywhere; }
     .form code { border: 1px solid var(--pi-border); border-radius: 4px; background: var(--pi-surface); padding: 1px 4px; }
     .warning { color: var(--pi-warning); }
-    .progress { margin: 0; padding-left: 18px; color: var(--pi-muted); }
+    .progress { margin: 0; padding-inline-start: 18px; color: var(--pi-muted); }
     .info-links { display: flex; flex-wrap: wrap; gap: 8px 12px; }
     em { color: var(--pi-success); font-style: normal; font-size: 12px; }
 

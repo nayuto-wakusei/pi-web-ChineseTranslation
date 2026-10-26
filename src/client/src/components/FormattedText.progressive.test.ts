@@ -83,6 +83,47 @@ it.each([false, true])("keeps formatted content without a raw tail between strea
   expect(view.renderRoot.querySelector<HTMLElement>(".pending-source")?.hidden).toBe(true);
 });
 
+it.each([false, true])("coalesces continuous chunks without postponing live Markdown (previews: %s)", async (previews) => {
+  const view = new FormattedText();
+  if (previews) view.contentRendering = createContentRenderingService(() => []);
+  view.text = "**Live**";
+  document.body.append(view);
+  await settleDeferredContent(view);
+  const format = vi.spyOn(markdown, "toSafeMarkdownHtml");
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextFrame = 0;
+  vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+    const id = ++nextFrame;
+    frames.set(id, callback);
+    return id;
+  });
+  vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation((id) => { frames.delete(id); });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    for (let turn = 0; turn < 3; turn++) {
+      view.text += "\n\n- first";
+      await view.updateComplete;
+      const callbacks = [...frames.values()];
+      frames.clear();
+      for (const callback of callbacks) callback(performance.now());
+      // Chunks keep arriving after the paint opportunity, before its queued work.
+      for (let chunk = 0; chunk < 100; chunk++) {
+        view.text += " token";
+        await view.updateComplete;
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      await view.updateComplete;
+      expect(format).toHaveBeenCalledTimes(turn + 1);
+      expect(format.mock.calls.at(-1)?.[0]).toBe(view.text);
+      expect(view.renderRoot.querySelectorAll("li")).toHaveLength(turn + 1);
+      expect(view.renderRoot.querySelector("li:last-child")?.textContent.trim()).toBe("first" + " token".repeat(100));
+      expect(view.renderRoot.querySelector<HTMLElement>(".pending-source")?.hidden).toBe(true);
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("shows replacement source immediately instead of stale formatted content", async () => {
   const view = new FormattedText();
   view.text = "**Original**";

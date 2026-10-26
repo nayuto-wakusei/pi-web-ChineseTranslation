@@ -1,9 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { groupChatMessages, summarizeChatGroup } from "./chatGroups";
+import { ChatMessageGrouper, groupChatMessages, summarizeChatGroup } from "./chatGroups";
 import type { ChatLine } from "./components/shared";
 import type { ChatLine as HistoryChatLine } from "./components/shared";
 
 const text = (role: ChatLine["role"], value: string): ChatLine => ({ role, parts: [{ type: "text", text: value }] });
+
+describe("ChatMessageGrouper", () => {
+  it("retains unchanged source slices when only the live tail is replaced", () => {
+    const grouper = new ChatMessageGrouper();
+    const user = text("user", "question");
+    const first = grouper.group([user, text("assistant", "partial")]);
+    const next = grouper.group([user, text("assistant", "complete")]);
+    expect(next).toEqual(groupChatMessages([user, text("assistant", "complete")]));
+    if (first[0]?.kind !== "message" || next[0]?.kind !== "message") throw new Error("Missing user slices");
+    expect(next[0].message).toBe(first[0].message);
+    if (first[1]?.kind !== "message" || next[1]?.kind !== "message") throw new Error("Missing assistant slices");
+    expect(next[1].message).not.toBe(first[1].message);
+  });
+
+  it("reindexes retained mixed slices after a prepend without sharing grouping arrays", () => {
+    const grouper = new ChatMessageGrouper();
+    const mixed: ChatLine = { role: "assistant", entryId: "answer", parts: [{ type: "thinking", text: "plan" }, { type: "text", text: "answer" }] };
+    const first = grouper.group([mixed], 10);
+    const next = grouper.group([text("user", "earlier"), mixed], 9);
+    expect(next).toEqual(groupChatMessages([text("user", "earlier"), mixed], 9));
+    if (first[0]?.kind !== "group" || next[1]?.kind !== "group") throw new Error("Missing technical groups");
+    expect(next[1].messages).not.toBe(first[0].messages);
+    expect(next[1].messages[0]?.message).toBe(first[0].messages[0]?.message);
+    expect(next[1].messages[0]?.index).toBe(10);
+  });
+});
 
 describe("groupChatMessages", () => {
   it("preserves durable entry IDs in readable and technical groups", () => {

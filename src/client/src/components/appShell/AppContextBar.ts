@@ -1,4 +1,7 @@
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
+import "../../plugins/uiPresentation";
+import type { UiPresentationRuntime } from "../../plugins/uiPresentationRuntime";
+import type { UiPresentationContextV1 } from "../../../../plugin-api";
 import { t } from "../../i18n";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -16,6 +19,8 @@ export class AppContextBar extends LitElement {
   }
 
   @property({ attribute: false }) machines: Machine[] = [];
+  @property({ attribute: false }) presentationRuntime: UiPresentationRuntime | undefined;
+  @property({ attribute: false }) presentationContext: UiPresentationContextV1 = { mode: "normal" };
   @property({ attribute: false }) machine?: Machine;
   /** PWA display mode: surfaces the machine location identity in the breadcrumb. */
   @property({ type: Boolean }) locationIndicator = false;
@@ -56,16 +61,15 @@ export class AppContextBar extends LitElement {
     const machineChoice = this.machines.length > 1;
     // The chip is a machine picker whenever a choice exists; the location
     // identity it carries is a PWA-only affordance (the browser shows the URL).
-    const showMachineChip = machineChoice || this.locationIndicator;
     const machineChipClass = machine === undefined ? "context-chip machine-chip empty" : "context-chip machine-chip";
     const projectLabel = projectContextLabel(this.project);
     const workspaceLabel = workspaceContextLabel(this.workspace);
     const sessionLabel = sessionContextLabel(this.session);
     return html`
-      <nav class=${this.contextBarClass()} aria-label="${t("ui.appContextBar.currentLocation", "Current location")}">
+      <pi-web-ui-presentation region="context-bar" .runtime=${this.presentationRuntime} .context=${this.presentationContext}>
+      <nav slot="content" class=${this.contextBarClass()} aria-label="${t("ui.appContextBar.currentLocation", "Current location")}">
         <span class="context-bar-label">${t("ui.appContextBar.location", "Location")}</span>
         <ol class="context-items" @scroll=${this.onContextScroll}>
-          ${showMachineChip ? html`
             <li class="context-item">
               ${machineChoice ? html`
                 <button type="button" class=${machineChipClass} title=${machineContextTitle(machine)} aria-label=${t("ui.appContextBar.machineOpenMachineSelection", "Machine: {machineLabel}. Open machine selection.", { machineLabel: machineContextLabel(machine) })} @click=${() => { this.onOpenSection?.("machines"); }}>
@@ -74,11 +78,10 @@ export class AppContextBar extends LitElement {
               ` : html`
                 <!-- No machine choice: the chip is the instance identity, not a control. -->
                 <span class="${machineChipClass} static" title=${machineContextTitle(machine)}>
-                  ${this.renderMachineChipContent(machine, true)}
+                  ${this.renderMachineChipContent(machine, this.locationIndicator)}
                 </span>
               `}
             </li>
-          ` : null}
           <li class="context-item">
             <button type="button" class=${this.project === undefined ? "context-chip empty" : "context-chip"} title=${projectContextTitle(this.project)} aria-label=${t("ui.appContextBar.projectOpenProjectSelection", "Project: {projectLabel}. Open project selection.", { projectLabel: projectLabel })} @click=${() => { this.onOpenSection?.("projects"); }}>
               <span class="context-kind">${t("client.actions.project.79f326", "Project")}</span>
@@ -100,6 +103,7 @@ export class AppContextBar extends LitElement {
         </ol>
         ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} title="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-label="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.renderActionsButton()}${this.refreshControl}</div>` : null}
       </nav>
+      </pi-web-ui-presentation>
     `;
   }
 

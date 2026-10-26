@@ -104,8 +104,8 @@ describe("SessionList incremental rendering", () => {
     let callback: IntersectionObserverCallback | undefined;
     const observe = vi.fn();
     vi.stubGlobal("IntersectionObserver", class extends TestIntersectionObserver {
-      constructor(next: IntersectionObserverCallback) {
-        super(next, observe);
+      constructor(next: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        super(next, observe, options);
         callback = next;
         TestIntersectionObserver.latest = this;
       }
@@ -116,14 +116,67 @@ describe("SessionList incremental rendering", () => {
     expect(observe).toHaveBeenCalledWith(sentinel);
     const observer = TestIntersectionObserver.latest;
     if (callback === undefined || observer === undefined) throw new Error("Intersection observer was not created");
+    expect(observer.root).toBe(list.shadowRoot?.querySelector(".list-body"));
     callback([new TestIntersectionObserverEntry(sentinel)], observer);
     await list.updateComplete;
 
     expect(rows(list)).toHaveLength(100);
   });
+
+  it("uses viewport clipping for an external scroller and replaces obsolete observers when ownership changes", async () => {
+    vi.stubGlobal("IntersectionObserver", class extends TestIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        super(callback, vi.fn(), options);
+        TestIntersectionObserver.latest = this;
+      }
+    });
+    const list = await renderList(sessions(1000));
+    const ownObserver = TestIntersectionObserver.latest;
+    if (ownObserver === undefined) throw new Error("Missing list observer");
+    expect(ownObserver.root).toBe(list.shadowRoot?.querySelector(".list-body"));
+    list.externalScroll = true;
+    await list.updateComplete;
+    const externalObserver = TestIntersectionObserver.latest;
+    if (externalObserver === undefined) throw new Error("Missing external observer");
+    expect(externalObserver).not.toBe(ownObserver);
+    expect(ownObserver.disconnect).toHaveBeenCalledOnce();
+    expect(externalObserver.root).toBeNull();
+    const sentinel = loadButton(list, "current");
+    ownObserver.callback([new TestIntersectionObserverEntry(sentinel)], ownObserver);
+    externalObserver.callback([new TestIntersectionObserverEntry(sentinel, false)], externalObserver);
+    await list.updateComplete;
+    expect(rows(list)).toHaveLength(SESSION_LIST_BATCH_SIZE);
+    externalObserver.callback([new TestIntersectionObserverEntry(sentinel)], externalObserver);
+    await list.updateComplete;
+    expect(rows(list)).toHaveLength(100);
+    list.externalScroll = false;
+    await list.updateComplete;
+    expect(TestIntersectionObserver.latest?.root).toBe(list.shadowRoot?.querySelector(".list-body"));
+    const restoredObserver = TestIntersectionObserver.latest;
+    if (restoredObserver === undefined) throw new Error("Missing restored list observer");
+    list.remove();
+    expect(restoredObserver.disconnect).toHaveBeenCalledOnce();
+    restoredObserver.callback([new TestIntersectionObserverEntry(sentinel)], restoredObserver);
+    await list.updateComplete;
+    expect(rows(list)).toHaveLength(100);
+  });
 });
 
 describe("SessionList render suppression", () => {
+  it("does not inspect offscreen rows without unread or agent state during a visible sending update", async () => {
+    const all = sessions(5000);
+    const list = await renderList(all);
+    const offscreen = all[4000];
+    if (offscreen === undefined) throw new Error("Missing offscreen session");
+    const id = offscreen.id;
+    const readId = vi.fn(() => id);
+    Object.defineProperty(offscreen, "id", { configurable: true, get: readId });
+    list.sending = { [all[0]?.id ?? ""]: true };
+    await list.updateComplete;
+    expect(readId).not.toHaveBeenCalled();
+    expect(rows(list)).toHaveLength(SESSION_LIST_BATCH_SIZE);
+  });
+
   it("skips token-only status, callback identity, and equivalent polling updates", async () => {
     const all = sessions(5);
     const list = await renderList(all);
@@ -217,7 +270,7 @@ function activity(sessionId: string, phase: SessionActivity["phase"]): SessionAc
 
 class TestIntersectionObserver implements IntersectionObserver {
   static latest: TestIntersectionObserver | undefined;
-  readonly root: Element | Document | null = null;
+  readonly root: Element | Document | null;
   readonly rootMargin = "0px";
   readonly scrollMargin = "0px";
   readonly thresholds = [0];
@@ -227,7 +280,8 @@ class TestIntersectionObserver implements IntersectionObserver {
   constructor(
     readonly callback: IntersectionObserverCallback,
     readonly observe: (target: Element) => void,
-  ) {}
+    options?: IntersectionObserverInit,
+  ) { this.root = options?.root ?? null; }
 
   takeRecords(): IntersectionObserverEntry[] {
     return [];
@@ -238,11 +292,10 @@ class TestIntersectionObserverEntry implements IntersectionObserverEntry {
   readonly boundingClientRect = new DOMRectReadOnly();
   readonly intersectionRatio = 1;
   readonly intersectionRect = new DOMRectReadOnly();
-  readonly isIntersecting = true;
   readonly rootBounds = null;
   readonly time = 0;
 
-  constructor(readonly target: Element) {}
+  constructor(readonly target: Element, readonly isIntersecting = true) {}
 }
 
 describe("upstream hierarchy and stable row contracts", () => {

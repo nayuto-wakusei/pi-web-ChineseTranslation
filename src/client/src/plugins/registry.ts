@@ -1,4 +1,6 @@
 import { stylesheetIntegrationCapability, stylesheetIntegrationCapabilityToken } from "./styles";
+import { UiPresentationRuntime, uiPresentationCapability, uiPresentationCapabilityToken, uiPresentationRegions, type RegisteredUiPresentation } from "./uiPresentationRuntime";
+import { PluginStylesheetLoadError } from "./styleRegistry";
 import type { QualifiedStylesheetContribution, StylesheetContribution } from "./types";
 import { html, svg } from "lit";
 import { t } from "../i18n";
@@ -31,6 +33,8 @@ const workspaceLabelScopes = new WeakMap<WorkspaceLabelContext, (binding: Worksp
 const sessionLabelScopes = new WeakMap<SessionLabelContext, (binding: WorkspacePluginBinding) => SessionLabelContext>();
 
 export interface PluginRegistryOptions {
+  /** Refresh the host stylesheet selection after a presentation has failed closed. */
+  onUiPresentationError?: (pluginId: string, error: unknown) => void;
   /** Request a composer refresh after browser-memory chip staging changes. */
   onPromptChipsChanged?: () => void;
   /** Live public selection projection; standalone registries default to no selection. */
@@ -87,6 +91,7 @@ interface NormalizedPluginDeclaration {
 }
 
 interface PreparedPluginContributions {
+  readonly uiPresentations: readonly RegisteredUiPresentation[];
   readonly stylesheets: readonly QualifiedStylesheetContribution[];
   readonly contentRenderers: readonly RegisteredContentRenderer[];
   readonly syntaxHighlighters: readonly RegisteredSyntaxHighlighter[];
@@ -134,6 +139,7 @@ const DEFAULT_LIFECYCLE_TIMEOUT_MS = 10_000;
 
 export class PluginRegistry {
   readonly promptChips: PromptChipStore;
+  readonly uiPresentation: UiPresentationRuntime;
 
   /** Plugin identity is host supplied; retained methods never follow later selection. */
   promptChipMethods(pluginId: string, target: PromptChipTarget | undefined): Pick<PluginPromptEditor, "setChip" | "removeChip"> {
@@ -249,6 +255,7 @@ export class PluginRegistry {
   private readonly warnedLegacyPluginIds = new Set<string>();
   private readonly gatewayPluginIds = new Set<string>();
   private readonly gatewayMachineSpecificPluginIds = new Set<string>();
+  private readonly gatewayPresentationPluginIds = new Set<string>();
   private readonly remoteMachineSpecificPluginIds = new Map<string, Set<string>>();
   private readonly contributionIds = new Set<QualifiedContributionId>();
   private readonly declarationsById = new Map<string, NormalizedPluginDeclaration>();
@@ -265,10 +272,14 @@ export class PluginRegistry {
   private disposePromise: Promise<void> | undefined;
 
   constructor(private readonly options: PluginRegistryOptions = {}) {
+    this.uiPresentation = new UiPresentationRuntime((pluginId, error) => {
+      if (options.onUiPresentationError !== undefined) options.onUiPresentationError(pluginId, error);
+      else console.warn(`UI presentation failed for ${pluginId}`, error);
+    });
     this.promptChips = new PromptChipStore(options.onPromptChipsChanged);
     this.selection = new PluginSelectionHost(options.getSelection ?? (() => ({})));
     this.lifecycleTimeoutMs = positiveInteger(options.lifecycleTimeoutMs, DEFAULT_LIFECYCLE_TIMEOUT_MS, "lifecycleTimeoutMs");
-    for (const provision of snapshotCapabilityProvisions([{ capability: contentRenderingCapabilityToken, value: this.contentRendering }, { capability: syntaxHighlightingCapabilityToken, value: this.syntaxHighlighting }, { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability }, ...(options.hostCapabilities ?? [])], undefined, "Browser host capability provisions")) {
+    for (const provision of snapshotCapabilityProvisions([{ capability: contentRenderingCapabilityToken, value: this.contentRendering }, { capability: syntaxHighlightingCapabilityToken, value: this.syntaxHighlighting }, { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability }, { capability: uiPresentationCapabilityToken, value: uiPresentationCapability }, ...(options.hostCapabilities ?? [])], undefined, "Browser host capability provisions")) {
       const internal = internalCapabilityProvision(provision);
       if (this.hostCapabilitiesByKey.has(internal.key)) {
         throw new BrowserPluginIncompatibleError(`Browser capability ${formatCapability(internal.capability)} is provided more than once by the host`);
@@ -280,6 +291,17 @@ export class PluginRegistry {
   /** Publish host selection changes independently of contribution rendering. */
   notifySelectionChanged(): void {
     this.selection.notifyChanged();
+  }
+
+  /** Only attributed assets owned by a presentation plugin can disable its presentation. */
+  failUiPresentationStylesheetError(error: unknown): boolean {
+    let failed = false;
+    for (const failure of stylesheetLoadFailures(error)) {
+      const stylesheet = this.stylesheets.find((style) => style.id === failure.contributionId && style.url === failure.url);
+      const pluginId = stylesheet?.pluginId ?? this.themes.find((theme) => theme.stylesheets?.some((style) => style.id === failure.contributionId && style.url === failure.url) === true)?.pluginId;
+      if (pluginId !== undefined && this.gatewayPresentationPluginIds.has(pluginId)) failed = this.uiPresentation.failPlugin(pluginId, failure) || failed;
+    }
+    return failed;
   }
 
   /** Registers one plugin as a serialized single-entry batch and throws its attributed failure. */
@@ -345,6 +367,8 @@ export class PluginRegistry {
     this.workspaceLabels.splice(0);
     this.sessionLabels.splice(0);
     this.stylesheets.splice(0);
+    this.uiPresentation.clear();
+    this.gatewayPresentationPluginIds.clear();
     this.themes.splice(0);
     this.themePairs.splice(0);
     this.contributionIds.clear();
@@ -504,6 +528,9 @@ export class PluginRegistry {
       const activation = parseBrowserActivation(activationValue, registration.id, declaration.sourcePluginId);
       const provisions = (activation.provides ?? []).map(internalCapabilityProvision);
       const versionedContributions = contributionsForVersion(activation.contributions, plugin.apiVersion);
+      if ((versionedContributions.uiPresentations?.length ?? 0) > 0 && !plugin.requires.some((requirement) => requirement.pluginId === "pi-web" && requirement.id === "ui-presentation" && requirement.version === 1)) {
+        throw new BrowserPluginIncompatibleError("UI presentations require ui-presentation capability v1");
+      }
       const contributions = this.prepareContributions(
         registration,
         plugin.apiVersion === 5
@@ -535,6 +562,20 @@ export class PluginRegistry {
   ): PreparedPluginContributions {
     const runtimePluginId = registration.id;
     const contributionIds = new Set<QualifiedContributionId>();
+    const uiRegions = new Set<string>();
+    const uiPresentations = (contributions.uiPresentations ?? []).map((presentation): RegisteredUiPresentation => {
+      if (registration.machineId !== undefined || registration.machineSpecific === true) throw new Error("UI presentations are gateway-owned and cannot be machine-specific");
+      if (!isRecord(presentation) || !uiPresentationRegions.includes(presentation.region) || typeof presentation.render !== "function") throw new Error("Invalid UI presentation contribution");
+      const navigationLayout: unknown = Reflect.get(presentation, "navigationLayout");
+      if (navigationLayout !== undefined && (presentation.region !== "navigation" || navigationLayout !== "tree")) throw new Error("Invalid UI presentation navigation layout");
+      if (uiRegions.has(presentation.region) || this.uiPresentation.hasRegion(presentation.region)
+        || this.stagedPlugins.some((plugin) => plugin.contributions.uiPresentations.some((entry) => entry.region === presentation.region))) throw new Error(`UI presentation region ${presentation.region} already has an owner`);
+      uiRegions.add(presentation.region);
+      const render = presentation.render.bind(presentation);
+      return Object.freeze({ id: this.qualify(runtimePluginId, presentation.id, contributionIds), pluginId: runtimePluginId, region: presentation.region, render,
+        ...(navigationLayout === undefined ? {} : { navigationLayout }),
+        active: () => !lifetimeSignal.aborted && this.isContributionEnabled(runtimePluginId, undefined) });
+    });
     const contentRenderers = (contributions.contentRenderers ?? []).map((renderer): RegisteredContentRenderer => {
       const snapshot = snapshotContentRenderer(renderer);
       const supports = snapshot.supports?.bind(snapshot);
@@ -588,7 +629,7 @@ export class PluginRegistry {
     const themePairs = registration.machineId === undefined
       ? (contributions.themePairs ?? []).map((pair) => this.qualifyThemePair(runtimePluginId, pair, contributionIds))
       : [];
-    return Object.freeze({ ids: contributionIds, contentRenderers, syntaxHighlighters, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, themePairs });
+    return Object.freeze({ ids: contributionIds, uiPresentations, contentRenderers, syntaxHighlighters, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, themePairs });
   }
 
   private dependencyFailure(
@@ -702,6 +743,8 @@ export class PluginRegistry {
     this.workspaceLabels.push(...staged.contributions.workspaceLabels);
     this.sessionLabels.push(...staged.contributions.sessionLabels);
     this.stylesheets.push(...staged.contributions.stylesheets);
+    if (staged.contributions.uiPresentations.length > 0) this.gatewayPresentationPluginIds.add(staged.registration.id);
+    this.uiPresentation.register(staged.contributions.uiPresentations);
     this.themes.push(...staged.contributions.themes);
     this.themePairs.push(...staged.contributions.themePairs);
     this.activeCapabilitiesByRegistration.set(staged.registration.id, new Map(staged.provisions.map((provision) => [provision.key, provision])));
@@ -1154,7 +1197,7 @@ export class PluginRegistry {
   }
 
   private isContributionEnabled(pluginId: string, machineId: string | undefined): boolean {
-    return !this.shuttingDown && (this.options.isContributionEnabled?.(pluginId, machineId) ?? true);
+    return !this.shuttingDown && !this.uiPresentation.isFailed(pluginId) && (this.options.isContributionEnabled?.(pluginId, machineId) ?? true);
   }
 
   private isRemoteDuplicateHiddenByGateway(sourcePluginId: string | undefined, machineId: string | undefined, machineSpecific: boolean): boolean {
@@ -1249,7 +1292,9 @@ export class PluginRegistry {
   }
 
   getStylesheets(selectedMachineId: string): QualifiedStylesheetContribution[] {
-    return this.stylesheets.filter((style) => this.isContributionActive(style.pluginId, style.machineId, selectedMachineId, style.sourcePluginId));
+    return this.stylesheets.filter((style) => this.gatewayPresentationPluginIds.has(style.pluginId)
+      ? this.isContributionEnabled(style.pluginId, undefined)
+      : this.isContributionActive(style.pluginId, style.machineId, selectedMachineId, style.sourcePluginId));
   }
 
   private qualifyStylesheet(pluginId: string, style: StylesheetContribution, contributionIds: Set<QualifiedContributionId>): QualifiedStylesheetContribution {
@@ -1717,7 +1762,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "themePairs", "contentRenderers", "syntaxHighlighters", "messageActions"];
+function stylesheetLoadFailures(error: unknown): PluginStylesheetLoadError[] {
+  if (error instanceof PluginStylesheetLoadError) return [error];
+  if (error instanceof AggregateError) return error.errors.flatMap((item: unknown) => stylesheetLoadFailures(item));
+  return [];
+}
+
+const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "themePairs", "contentRenderers", "syntaxHighlighters", "messageActions", "uiPresentations"];
 
 function isPluginContributions(value: unknown): value is PluginContributions {
   if (!isRecord(value)) return false;
@@ -1737,7 +1788,7 @@ function contributionsForVersion(contributions: PluginContributions, apiVersion:
     return contributions;
   }
   if (contributions.themes?.some((theme) => !isRecord(theme.tokens) || Object.values(theme.tokens).some((value) => typeof value !== "string")) === true) throw new BrowserPluginIncompatibleError("Browser API v4 themes require string palette tokens");
-  if (Reflect.get(contributions, "stylesheets") !== undefined || Reflect.get(contributions, "syntaxHighlighters") !== undefined
+  if (Reflect.get(contributions, "uiPresentations") !== undefined || Reflect.get(contributions, "stylesheets") !== undefined || Reflect.get(contributions, "syntaxHighlighters") !== undefined
     || contributions.contentRenderers?.some((renderer) => Reflect.get(renderer, "title") !== undefined || Reflect.get(renderer, "supports") !== undefined) === true
     || contributions.themes?.some((theme) => Reflect.get(theme, "stylesheets") !== undefined) === true) {
     throw new BrowserPluginIncompatibleError("Stylesheet, syntax-highlighter and extended renderer contributions require browser API v5");

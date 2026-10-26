@@ -11,6 +11,28 @@ export type ChatToolImageOutput = Extract<ChatGroup, { kind: "tool-image" }>;
 export type ChatDisplayGroup = Exclude<ChatGroup, ChatToolImageOutput>
   | { kind: "tool-images"; outputs: [ChatToolImageOutput, ...ChatToolImageOutput[]] };
 
+interface MessageSlices {
+  readable: ChatLine | undefined;
+  technical: ChatLine | undefined;
+  toolName: string | undefined;
+}
+
+/** Reuse immutable source-message slices without retaining discarded transcripts. */
+export class ChatMessageGrouper {
+  private readonly slices = new WeakMap<ChatLine, MessageSlices>();
+
+  group(messages: ChatLine[], indexOffset = 0): ChatGroup[] {
+    return groupMessages(messages, indexOffset, (message) => {
+      let slices = this.slices.get(message);
+      if (slices === undefined) {
+        slices = splitMessage(message);
+        this.slices.set(message, slices);
+      }
+      return slices;
+    });
+  }
+}
+
 /** Combine only adjoining image outputs; conversation and activity remain boundaries. */
 export function groupConsecutiveImageOutputs(groups: readonly ChatGroup[]): ChatDisplayGroup[] {
   const result: ChatDisplayGroup[] = [];
@@ -24,6 +46,10 @@ export function groupConsecutiveImageOutputs(groups: readonly ChatGroup[]): Chat
 }
 
 export function groupChatMessages(messages: ChatLine[], indexOffset = 0): ChatGroup[] {
+  return groupMessages(messages, indexOffset, splitMessage);
+}
+
+function groupMessages(messages: ChatLine[], indexOffset: number, slicesFor: (message: ChatLine) => MessageSlices): ChatGroup[] {
   const groups: ChatGroup[] = [];
   let eventMessages: Extract<ChatGroup, { kind: "group" }>["messages"] = [];
 
@@ -39,31 +65,35 @@ export function groupChatMessages(messages: ChatLine[], indexOffset = 0): ChatGr
   };
 
   messages.forEach((message, index) => {
-    const visibleParts = message.parts.filter((part) => part.type !== "toolResultBoundary" && part.type !== "empty");
-    // Ordering markers affect the conversation tail, not visual grouping.
-    if (visibleParts.length === 0) return;
-    const readableParts = visibleParts.filter((part) => isReadablePart(message, part));
-    const technicalParts = visibleParts.filter((part) => !isReadablePart(message, part));
-
+    const { readable, technical, toolName } = slicesFor(message);
     const absoluteIndex = indexOffset + index;
-    const metadata = { ...(message.streamId === undefined ? {} : { streamId: message.streamId }), ...(message.entryId === undefined ? {} : { entryId: message.entryId }), ...(message.transcriptIndex === undefined ? {} : { transcriptIndex: message.transcriptIndex }), ...(message.source === undefined ? {} : { source: message.source }), ...(message.meta === undefined ? {} : { meta: message.meta }) };
-    if (technicalParts.length) {
-      const role = technicalParts.every((part) => part.type === "skillRead") ? "skill" : message.role;
-      pushEvent({ role, parts: technicalParts, ...metadata }, absoluteIndex);
-    }
-    if (readableParts.length) {
+    if (technical !== undefined) pushEvent(technical, absoluteIndex);
+    if (readable !== undefined) {
       flushEvents();
-      const readableMessage = { role: message.role, parts: readableParts, ...metadata };
-      if (isToolImageMessage(readableMessage)) {
-        const toolName = toolNameFromParts(technicalParts);
-        groups.push({ kind: "tool-image", message: readableMessage, index: absoluteIndex, ...(toolName === undefined ? {} : { toolName }) });
+      if (isToolImageMessage(readable)) {
+        groups.push({ kind: "tool-image", message: readable, index: absoluteIndex, ...(toolName === undefined ? {} : { toolName }) });
       } else {
-        groups.push({ kind: "message", message: readableMessage, index: absoluteIndex });
+        groups.push({ kind: "message", message: readable, index: absoluteIndex });
       }
     }
   });
   flushEvents();
   return groups;
+}
+
+function splitMessage(message: ChatLine): MessageSlices {
+  const readableParts: ChatPart[] = [];
+  const technicalParts: ChatPart[] = [];
+  for (const part of message.parts) {
+    if (part.type === "toolResultBoundary" || part.type === "empty") continue;
+    (isReadablePart(message, part) ? readableParts : technicalParts).push(part);
+  }
+  const metadata = { ...(message.streamId === undefined ? {} : { streamId: message.streamId }), ...(message.entryId === undefined ? {} : { entryId: message.entryId }), ...(message.transcriptIndex === undefined ? {} : { transcriptIndex: message.transcriptIndex }), ...(message.source === undefined ? {} : { source: message.source }), ...(message.meta === undefined ? {} : { meta: message.meta }) };
+  return {
+    readable: readableParts.length === 0 ? undefined : { role: message.role, parts: readableParts, ...metadata },
+    technical: technicalParts.length === 0 ? undefined : { role: technicalParts.every((part) => part.type === "skillRead") ? "skill" : message.role, parts: technicalParts, ...metadata },
+    toolName: toolNameFromParts(technicalParts),
+  };
 }
 
 /** Whether this slice renders a message header rather than a headerless shell. */

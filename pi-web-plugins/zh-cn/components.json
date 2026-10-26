@@ -1229,6 +1229,9 @@
   "ui.navigation.agentSubsessionsActive": "代理子会话正在运行",
   "ui.navigation.unreadSubsessionActivity": "子会话有未读活动",
   "ui.navigation.collapsePanel": "折叠导航面板",
+  "ui.navigation.expandPanel": "展开导航面板",
+  "ui.workspacePanel.expandPanel": "展开工作区面板",
+  "ui.workspacePanel.collapsePanel": "折叠工作区面板",
   "ui.navigation.resizeSection": "调整{section}高度",
   "ui.navigation.resizeSectionReset": "调整{section}高度。双击或轻点两次以重置。",
   "ui.navigation.otherMachinesTerminalActive": "其他机器上的终端正在运行",
@@ -1248,5 +1251,7 @@
   "ui.projectDialog.remoteFolders": "远端机器 {machineId} 上的文件夹。",
   "ui.projectDialog.machinePaths": "路径属于此机器，而非浏览器所在设备。",
   "ui.projectDialog.folderLookupFailed": "无法读取此机器上的文件夹。请检查连接后重试，或直接输入文件夹路径。",
-  "ui.projectDialog.retryFolderLookup": "重新查找文件夹"
+  "ui.projectDialog.retryFolderLookup": "重新查找文件夹",
+  "ui.settingsDialog.backToApp": "返回应用",
+  "ui.sessionSearchDialog.searchSessions": "搜索会话"
 }
