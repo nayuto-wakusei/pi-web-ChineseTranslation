@@ -1,9 +1,14 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, setApiScope, type Project, type Workspace } from "../api";
+import { api, setApiScope, type Project, type SessionInfo, type Workspace } from "../api";
+import { loadCachedNewSessions, rememberCachedNewSession } from "../cachedNewSessions";
 import { SessionController } from "../controllers/sessionController";
+import { SessionStorageSessionSelectionMemory } from "../controllers/sessionSelection";
 import { PANEL_COLLAPSE_STORAGE_KEY, PanelCollapseController } from "../appShell/panelCollapseController";
+import { machineSessionKey } from "../machineKeys";
+import { loadDraft, saveDraft } from "../promptDraftStorage";
+import { clearStagedAttachments, loadStagedAttachments, saveStagedAttachments } from "../promptAttachmentStaging";
 import { readRoute } from "../route";
 import { PiWebApp } from "./PiWebApp";
 
@@ -11,6 +16,7 @@ const project: Project = { id: "managed", name: "Managed", path: "/managed", cre
 const workspace: Workspace = { id: "main", projectId: project.id, path: project.path, label: "Main", isMain: true, effectiveConfig: {} };
 
 afterEach(() => {
+  clearStagedAttachments(machineSessionKey("local", "browser-only"));
   document.body.replaceChildren();
   localStorage.clear();
   sessionStorage.clear();
@@ -20,6 +26,32 @@ afterEach(() => {
 });
 
 describe("management entry hierarchy integration", () => {
+  it.each(["persisted", "active", "empty"] as const)("does not automatically restore a browser-only session over an authorized %s list", async (listing) => {
+    const empty = listing === "empty";
+    const app = createApp();
+    vi.spyOn(api, "projects").mockResolvedValue([project]);
+    const stale: SessionInfo = {
+      id: "browser-only", path: "/sessions/browser-only.jsonl", cwd: workspace.path,
+      created: "2026-10-20", modified: "2026-10-20", messageCount: 0, firstMessage: "",
+    };
+    const available: SessionInfo = { ...stale, id: "authorized", path: "/sessions/authorized.jsonl", persisted: listing === "persisted", messageCount: listing === "persisted" ? 2 : 0 };
+    rememberCachedNewSession(stale);
+    new SessionStorageSessionSelectionMemory().rememberSession({ ...stale, cwd: `local:${workspace.path}` });
+    saveDraft(machineSessionKey("local", stale.id), "unsent draft");
+    saveStagedAttachments(machineSessionKey("local", stale.id), [{ id: "staged", kind: "file", name: "notes.txt", mimeType: "text/plain", data: "aGk=", size: 2 }]);
+    vi.mocked(api.sessions).mockResolvedValue(empty ? [] : [available]);
+    const start = vi.spyOn(api, "startSession");
+
+    await invoke(app, "loadProjectsAndRestoreRoute");
+
+    expect(state(app)).toMatchObject({ selectedSession: empty ? undefined : available });
+    expect(readRoute().sessionId).toBe(empty ? undefined : available.id);
+    expect(start).not.toHaveBeenCalled();
+    expect(loadCachedNewSessions().map((session) => session.id)).toContain(stale.id);
+    expect(loadDraft(machineSessionKey("local", stale.id))).toBe("unsent draft");
+    expect(loadStagedAttachments(machineSessionKey("local", stale.id)).map((attachment) => attachment.id)).toEqual(["staged"]);
+  });
+
   it.each([false, true])("loads the sole authorized project's workspace without an entry project ID when navigation collapsed is %s", async (collapsed) => {
     localStorage.setItem(PANEL_COLLAPSE_STORAGE_KEY, JSON.stringify({ version: 1, navigationPanelCollapsed: collapsed, workspacePanelCollapsed: false }));
     const app = createApp();

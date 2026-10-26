@@ -3258,7 +3258,10 @@ export class PiWebApp extends LitElement {
     const machineId = selectedMachineId(this.state);
     const project = this.state.selectedProject;
     const scope = workspaceDeletionScopeKey(this.state);
-    if (project === undefined || scope === undefined || (this.apiScope === "normal" && !this.terminalAvailableForMachine(machineId))) {
+    if (project === undefined || scope === undefined || (this.apiScope === "normal" && !this.terminalAvailableForMachine(machineId))
+      || (this.apiScope === "management"
+        && !this.state.workspaces.some((workspace) => workspace.projectId === project.id && canDeleteWorkspace(workspace))
+        && !Object.values(this.state.workspaceDeletionRuns).some((run) => run.projectId === project.id))) {
       this.cancelWorkspaceDeletionRefresh();
       this.setState({ workspaceDeletionRuns: {} });
       return;

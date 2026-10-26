@@ -401,12 +401,16 @@ export class SessionController {
         ? pending.session
         : undefined;
     }
-    const latestSessionId = this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd));
-    if ((targetSessionId !== undefined && targetSessionId !== "")
-      || (latestSessionId !== undefined && latestSessionId !== "" && sessions.some((session) => session.id === latestSessionId))) {
-      return selectPreferredSession(sessions, { targetSessionId, latestSessionId });
+    if (targetSessionId !== undefined && targetSessionId !== "") {
+      return selectPreferredSession(sessions, { targetSessionId });
     }
-    return selectPreferredSession(this.automaticSessionCandidates(sessions));
+    // A browser-only row does not establish visibility under the current management grant.
+    const restorable = isManagementEmbedMode() ? sessions.filter((session) => !isCachedNewSessionInfo(session)) : sessions;
+    const latestSessionId = this.sessionSelection.latestSessionId(this.workspaceSelectionKey(cwd));
+    if (latestSessionId !== undefined && latestSessionId !== "" && restorable.some((session) => session.id === latestSessionId)) {
+      return selectPreferredSession(restorable, { latestSessionId });
+    }
+    return selectPreferredSession(this.automaticSessionCandidates(restorable));
   }
 
   /** Reusing a selected row must not abandon a join retired by a newer URL. */

@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 const project: Project = { id: "project", name: "Project", path: "/project", createdAt: "2026-10-10" };
-const workspace: Workspace = { id: "workspace", projectId: project.id, path: "/project/worktree", label: "worktree", effectiveConfig: {}, isMain: false, isGitRepo: true, isGitWorktree: true };
+const workspace: Workspace = { id: "workspace", projectId: project.id, path: "/project/worktree", label: "worktree", effectiveConfig: {}, isMain: false, isGitRepo: true, isGitWorktree: true, removal: { actionLabel: "Remove", confirmation: "Remove workspace?", precondition: "removal-v1" } };
 const appStates = new WeakMap<PiWebApp, AppState>();
 
 describe("PiWebApp workspace deletion polling ownership", () => {
@@ -154,6 +154,37 @@ describe("PiWebApp workspace deletion polling ownership", () => {
     expect(list.mock.calls[0]?.[0]).toMatchObject({ projectId: project.id, workspaceId: workspace.id });
     expect(list.mock.calls[0]?.[1]).toBe("local");
     expect(list.mock.calls[0]?.[2]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("does not query deletion command runs for a management folder with no removable workspaces", async () => {
+    const app = createApp(vi.fn());
+    Reflect.set(app, "apiScope", "management");
+    Reflect.set(app, "requiredTerminalByMachine", new Map());
+    const folder = { ...workspace, isMain: true };
+    const current = { ...state(app), workspaces: [folder] };
+    appStates.set(app, current);
+    Reflect.set(app, "state", current);
+    const list = vi.spyOn(terminalsApi, "listCommandRuns").mockRejectedValue(new Error("Forbidden"));
+
+    await call(app, "refreshWorkspaceDeletionRuns");
+
+    expect(list).not.toHaveBeenCalled();
+    expect(Reflect.get(app, "workspaceDeletionPollTimer")).toBeUndefined();
+  });
+
+  it("continues tracking an existing management deletion after removable workspaces disappear", async () => {
+    const pending = run("running");
+    const app = createApp(vi.fn(), [pending]);
+    Reflect.set(app, "apiScope", "management");
+    const current = { ...state(app), workspaces: [] };
+    appStates.set(app, current);
+    Reflect.set(app, "state", current);
+    const list = vi.spyOn(terminalsApi, "listCommandRuns").mockResolvedValue([pending]);
+
+    await call(app, "refreshWorkspaceDeletionRuns");
+
+    expect(list).toHaveBeenCalledOnce();
+    expect(state(app).workspaceDeletionRuns["target"]).toEqual(pending);
   });
 
   it("rejects recording a deletion from another selected project", () => {

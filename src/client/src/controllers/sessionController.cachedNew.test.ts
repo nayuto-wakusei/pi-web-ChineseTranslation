@@ -1,5 +1,5 @@
 import { clearStagedAttachments, loadStagedAttachments, saveStagedAttachments, type PendingAttachment } from "../promptAttachmentStaging";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
 import { isCachedNewSessionInfo, loadCachedNewSessions, markCachedNewSessionInfo, rememberCachedNewSession } from "../cachedNewSessions";
 import { loadDraft, saveDraft } from "../promptDraftStorage";
@@ -79,7 +79,13 @@ describe("SessionController cached-new sessions", () => {
     expect(state.selectedSession?.id).toBe(nextSession.id);
   });
 
-  it.each(["Session not found", "未找到会话"])("recreates missing browser-cached new sessions and moves their draft (%s)", async (notFoundMessage) => {
+  it.each([
+    { scope: "normal", notFoundMessage: "Session not found" },
+    { scope: "normal", notFoundMessage: "未找到会话" },
+    { scope: "management", notFoundMessage: "Session not found" },
+    { scope: "management", notFoundMessage: "未找到会话" },
+  ])("recreates explicitly selected browser-cached new sessions and moves their draft ($scope: $notFoundMessage)", async ({ scope, notFoundMessage }) => {
+    vi.stubGlobal("window", { location: { search: scope === "management" ? "?embed=management" : "" } });
     const storage = new MemoryStorage();
     Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
     rememberCachedNewSession(oldSession);
