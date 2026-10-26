@@ -1,9 +1,13 @@
 // @vitest-environment happy-dom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { workspacesApi } from "../api";
 import { ProjectList } from "./ProjectList";
 import { installPopoverFake } from "./anchoredPopup.testSupport";
 
 installPopoverFake();
+beforeEach(() => {
+  vi.spyOn(workspacesApi, "workspaceResolution").mockImplementation((projectId) => Promise.resolve({ projectId, status: "provider", workspaces: [], diagnostics: [] }));
+});
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); });
 
 it("reconciles native dismissal with a list's selected action row", async () => {

@@ -12,6 +12,7 @@ import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
 import { sidebarListStyles } from "./sidebarListStyles";
+import "./FolderProjectTrust";
 
 @customElement("project-list")
 export class ProjectList extends LitElement implements KeyboardNavigableSection {
@@ -21,6 +22,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   }
 
   @property({ attribute: false }) projects: Project[] = [];
+  @property() machineId = "local";
   @property({ attribute: false }) selected?: Project;
   @property({ attribute: false }) activities: Record<string, WorkspaceActivity> = {};
   @property({ attribute: false }) workspacesByProjectId: Record<string, Workspace[]> = {};
@@ -91,11 +93,12 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                 <div class="action-menu">
                   <button class="ui-button ui-button--icon action-menu-toggle" title="${t("ui.projectList.projectActions", "Project actions")}" aria-label=${t("ui.projectList.actionsFor", "Actions for {name}", { name: project.name })} @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(project.id, event.currentTarget); }}>⋯</button>
                   ${this.menu.isOpen(project.id) ? html`
-                    <div popover="auto" class="ui-menu action-menu-panel" style=${this.menu.menuStyle}>
+                    <div popover="auto" class="ui-menu action-menu-panel" style=${this.menu.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
                       ${this.onMove === undefined || this.managementMode ? null : html`
                         <button class="ui-button ui-menu-item" data-move ?disabled=${index === 0} @click=${() => { this.onMove?.(project, -1); }}>${t("ui.navigation.moveUp", "Move up")}</button>
                         <button class="ui-button ui-menu-item" data-move ?disabled=${index === this.projects.length - 1} @click=${() => { this.onMove?.(project, 1); }}>${t("ui.navigation.moveDown", "Move down")}</button>
                       `}
+                      ${this.managementMode ? null : html`<folder-project-trust .machineId=${this.machineId} .project=${project}></folder-project-trust>`}
                       <button title="${t("ui.projectList.closeProject", "Close project")}" @click=${() => { this.close(project); }}>${t("ui.common.close", "Close")}</button>
                     </div>
                   ` : null}

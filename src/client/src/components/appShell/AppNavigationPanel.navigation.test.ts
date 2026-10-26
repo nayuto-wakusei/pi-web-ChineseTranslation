@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setClientTranslations } from "../../i18n";
-import { trustApi, type Machine, type Project, type SessionInfo, type Workspace } from "../../api";
+import { trustApi, workspacesApi, type Machine, type Project, type SessionInfo, type Workspace } from "../../api";
 import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
 import { installPopoverFake } from "../anchoredPopup.testSupport";
 import { ProjectList } from "../ProjectList";
@@ -12,8 +12,20 @@ import type { NavigationSectionResizeHandle } from "./NavigationSectionResizeHan
 import { NAVIGATION_SECTION_SIZE_STORAGE_KEY } from "../../appShell/navigationSectionResizeController";
 installPopoverFake();
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-beforeEach(() => { setClientTranslations("en", {}); });
+beforeEach(() => {
+  setClientTranslations("en", {});
+  vi.spyOn(workspacesApi, "workspaceResolution").mockImplementation((projectId) => Promise.resolve({ projectId, status: "provider", workspaces: [], diagnostics: [] }));
+});
 describe("folder workspace navigation", () => {
+  it("passes the selected machine to project menus even when workspace controls are hidden", async () => {
+    const panel = await mountPanel({}, machine("remote-a"));
+    panel.workspaceSelectionVisible = false;
+    await panel.updateComplete;
+    const projects = section(panel, "project-list", ProjectList);
+    expect(projects.machineId).toBe("remote-a");
+    expect(panel.shadowRoot?.querySelector("workspace-list")).toBeNull();
+  });
+
   it.each([false, true])("skips hidden workspace controls in both keyboard directions (compact=%s)", async (compact) => {
     const panel = await mountPanel({}, machine("local"));
     panel.compact = compact;

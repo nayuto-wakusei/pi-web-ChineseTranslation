@@ -287,6 +287,7 @@ export class AppNavigationPanel extends LitElement {
         ></machine-list>
       ` : null}
       <project-list
+        .machineId=${this.selectedMachine?.id ?? "local"}
         id="navigation-projects"
         style=${styleMap(this.sectionSizeStyle("projects"))}
         ?data-manual-size=${!this.compact && this.sectionSizes.height("projects") !== undefined}

@@ -1,13 +1,16 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setClientTranslations } from "../i18n";
-import type { Project } from "../api";
+import { workspacesApi, type Project } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { installPopoverFake } from "./anchoredPopup.testSupport";
 import { ProjectList } from "./ProjectList";
 installPopoverFake();
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-beforeEach(() => { setClientTranslations("en", {}); });
+beforeEach(() => {
+  setClientTranslations("en", {});
+  vi.spyOn(workspacesApi, "workspaceResolution").mockImplementation((projectId) => Promise.resolve({ projectId, status: "provider", workspaces: [], diagnostics: [] }));
+});
 describe("project move actions", () => {
   it("does not offer order writes in management mode even with a callback", async () => {
     const list = await mountProjectList([project("a"), project("b")], undefined);

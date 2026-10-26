@@ -22,6 +22,12 @@ style.textContent = `
 `;
 document.head.append(style);
 const navigation = new AppNavigationPanel();
+if (new URLSearchParams(location.search).has("folder-trust")) {
+  const project = { id: "folder", name: "普通文件夹项目", path: "/fixture/plain", createdAt: "2026-10-26T00:00:00Z" };
+  navigation.projects = [project];
+  navigation.selectedProject = project;
+  navigation.workspaceSelectionVisible = false;
+}
 navigation.collapsible = true;
 navigation.unreadSessionIds = new Set(["session"]);
 navigation.onTogglePanel = () => undefined;
