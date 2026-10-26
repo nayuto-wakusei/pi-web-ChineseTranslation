@@ -188,7 +188,7 @@ export class PromptEditor extends LitElement {
     const busy = this.busy;
     const sourceMenu = createAttachSourceMenuMedia()?.matches === true;
     return html`
-      <footer class=${shellMode ? "shell-mode" : ""} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
+      <footer class=${shellMode ? "shell-mode" : ""} ?data-active-work=${this.canStop} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
         <div class="editor-wrap">
           <div class="editor-input">
             <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label=${t("ui.promptEditor.messagePi", "Message pi")} aria-disabled=${this.disabled ? "true" : "false"}></div>

@@ -52,7 +52,7 @@ it("always scopes builtins by registered project across worktrees, mode and full
     expect(JSON.stringify(managed)).not.toContain("different-account");
     await expect(service.start(required(worktrees[0]), { managementContext: testManagementContext() })).rejects.toThrow("capture MCP scoped runtime");
     expect(captureScope).toHaveBeenCalledTimes(6);
-    expect(captureServices.mock.calls.at(-1)?.[0].resourceLoaderOptions?.extensionFactories).toEqual([]);
+    expect(captureServices.mock.calls.at(-1)?.[0].resourceLoaderOptions?.extensionFactories).toEqual([expect.any(Function)]);
   } finally {
     await service.dispose();
     await rm(root, { recursive: true, force: true });

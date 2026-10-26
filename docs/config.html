@@ -676,7 +676,9 @@
 <p>受限管理会话默认可使用工作区内的 Bubblewrap <code>bash</code>，仅挂载工作区及必要只读运行库，默认断网；沙盒不可用时拒绝执行。非空 <code>tools.allow</code> 须包含 bash，显式 <code>tools.deny</code> 仍有效。单项签名特权仅在 <code>managementEmbed.allowPrivileged</code> 为 true 时生效：bash 授权可增加宿主路径只读可见性；网络授权不扩大文件可见性。</p>
 <p>机器允许特权且签名同时授予 <code>privileged.bash</code> 与 <code>privileged.network</code> 时，代理按普通模式加载工具与资源，不应用管理 allow/deny、沙箱或工作台只读能力指令，不强制同步管理 Skills。管理嵌入会话直接通过项目信任，无需普通页面预先批准，也不改写普通模式的信任决定。平台注入及与签名上下文明确匹配的旧 AGENTS 指令不加入系统提示，但不删除文件或用户自编指令；操作者的普通权限配置保留。这不授予操作系统管理员权限。</p>
 <p>daemon 所有权标记更新使用短时互斥目录 <code>sessiond-owner.json.lock</code>，不会按年龄自动抢占。更新期间进程崩溃后，须确认没有 daemon 正在启动或停止，才可删除该残留空目录并重试。升级此保护机制时，先完整停止旧 daemon，再启动新版本。</p>
-<p>管理身份、独立认证与偏好、审计和子会话管理上下文保留，浏览器交互终端仍有独立授权。修改机器特权开关需让 Web/API 与 daemon 使用同一配置并重启两者。详见 <a href="config.md#workbench-and-mcp-integration">Workbench 集成</a>。</p></section>
+<p>管理身份、独立认证与偏好、审计和子会话管理上下文保留，浏览器交互终端仍有独立授权。修改机器特权开关需让 Web/API 与 daemon 使用同一配置并重启两者。详见 <a href="config.md#workbench-and-mcp-integration">Workbench 集成</a>。</p>
+<p>签名 <code>projects[].agentsInstructions</code> 仅在项目 <code>AGENTS.md</code> 不存在时独占创建，<code>replace-managed</code> 策略为首次创建的文件保留托管标记；已有文件不因初始化自动覆盖。管理嵌入可在当前工作区的<a href="plugins#managed-agents-review">指令确认菜单</a>中选择覆盖并备份或保留，无此字段仍兼容，普通项目不受影响。</p>
+<p>可选签名字段 <code>projects[].agentsInstructionsUpdatedAt</code> 由平台提供模板的实际更新时间，使用带时区的 ISO 时间，如 <code>2026-10-26T10:00:00Z</code>。PI WEB 用它与当前工作区 <code>AGENTS.md</code> 修改时间比较，不从模板修订号或请求时间伪造更新时间；缺少此字段时界面显示“未提供”，不自动闪烁，仍可手动选择覆盖或保留。平台须提供此字段才能按时间提醒模板更新。时间判定、用户确认与备份规则见<a href="plugins#managed-agents-review">管理工作区指令</a>。</p></section>
 <section id="providers"><h2>提供器、目录与项目信任</h2>
 <div class="table-scroll" role="region" aria-label="提供器与信任配置" tabindex="0">
 <table class="reference-table ">

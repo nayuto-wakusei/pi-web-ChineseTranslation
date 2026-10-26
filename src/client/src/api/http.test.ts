@@ -18,6 +18,14 @@ afterEach(() => {
 });
 
 describe("optional reads and scoped transport", () => {
+  it("forwards cancellation on optional management reads without dropping embed scope", async () => {
+    setApiScope("management");
+    vi.stubGlobal("location", { href: "https://pi.example.test/?embed=management" });
+    const controller = new AbortController();
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    await expect(requestOptional("api/read", (body) => body, { signal: controller.signal })).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith("https://pi.example.test/api/read?embed=management", { signal: controller.signal });
+  });
   it.each(transportStages)("classifies optional %s transport failures without retrying", async (stage) => {
     const failure = new TypeError("Offline");
     rejectTransport(stage, failure);

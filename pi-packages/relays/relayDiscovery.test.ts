@@ -21,6 +21,20 @@ import {
 const RELAY_PATH = `${RELAYS_ROOT}/my-relay`;
 
 describe("listWorkspaceRelays", () => {
+  it("recognizes missing paths independently of the translated HTTP diagnostic", async () => {
+    const error = Object.assign(new Error("路径不存在"), { status: 404 });
+    await expect(listWorkspaceRelays(filesWith({ listFiles: () => Promise.reject(error) }))).resolves.toEqual({ kind: "missing" });
+    const forbidden = Object.assign(new Error("Forbidden"), { status: 403 });
+    await expect(listWorkspaceRelays(filesWith({ listFiles: () => Promise.reject(forbidden) }))).resolves.toEqual({ kind: "unavailable", detail: "Forbidden" });
+  });
+
+  it("uses optional document reads for missing documents", async () => {
+    const readFile = vi.fn<RelayDiscoveryFiles["readFile"]>();
+    const readOptionalFile = vi.fn<NonNullable<RelayDiscoveryFiles["readOptionalFile"]>>().mockResolvedValue(undefined);
+    await expect(readRelayDocument({ ...filesWith({ readFile }), readOptionalFile }, "packet/status.md")).resolves.toEqual({ kind: "missing" });
+    expect(readOptionalFile).toHaveBeenCalledWith("packet/status.md");
+    expect(readFile).not.toHaveBeenCalled();
+  });
   it("lists relay directories through the workspace files helper, most recently modified first", async () => {
     const listFiles = vi.fn<RelayDiscoveryFiles["listFiles"]>(() => Promise.resolve(listing(RELAYS_ROOT, [
       directoryEntry("older", "2026-01-01T00:00:00.000Z"),

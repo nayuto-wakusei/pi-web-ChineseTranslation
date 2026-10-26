@@ -272,7 +272,7 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
 <p><a id="included-tools-and-optional-packages"></a><span id="built-in-plugins"></span></p>
 <h2>内置工具与可选包</h2>
 <ul>
-<li><strong>Custom UI Codex</strong> 随包提供且默认启用，提供 Codex 风格导航、聊天外围布局、设置导航及明暗主题。它只改变展示，中文语言插件与功能权限保持独立。可在网关的插件设置中禁用并刷新页面，恢复宿主默认界面；浏览器插件变更不要求重启 daemon。</li>
+<li><strong>Custom UI Codex</strong> 随包提供且默认启用，提供 Codex 风格导航、聊天外围布局、设置导航及明暗主题。它将宿主的上下文用量与会话费用状态条紧邻输入框下方对齐显示，不复制数据计算或警告行为；发送按钮左侧不显示分隔线，主操作位空闲发送、运行中常显停止，保留独立引导和键盘排队。它只改变展示，中文语言插件与功能权限保持独立。可在网关的插件设置中禁用并刷新页面，恢复宿主默认界面；浏览器插件变更不要求重启 daemon。</li>
 <li><strong>终端</strong>提供终端和命令运行，是普通启动的必需插件，仅紧急安全启动可跳过。</li>
 <li><strong>文件</strong>提供文件浏览、预览、上传；禁用面板不移除其他插件的文件帮助方法。</li>
 <li><strong>Git</strong>发现工作区并显示状态/差异；禁用后保留项目目录工作区，除非其他提供器认领。</li>
@@ -281,6 +281,12 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
 <li><strong>更新</strong>在需要时显示更新/重启建议，并提供手动检查。</li>
 <li><strong>工作区任务</strong>将项目命令显示为可运行操作。</li>
 </ul>
+<h3 id="managed-agents-review">管理工作区指令</h3>
+<p>管理嵌入的文件工具栏提供 <code>AGENTS.md</code> 二级菜单。存在待确认更新时，入口持续闪烁提示；减少动态效果的设备使用静态强调。“覆盖并备份”先将当前工作区的原文件保存到 <code>.pi-web/agents-backups/</code>，再写入授权项目提供的模板；“不覆盖”保留文件并停止当前版本的提示。只关闭菜单或按 Escape 不提交决定，提示仍保留。</p>
+<p>平台可通过签名的 <code>projects[].agentsInstructionsUpdatedAt</code> 提供带时区的 ISO 模板更新时间。有此时间时，仅在模板晚于本地文件修改时间、正文不同且当前快照尚未确认时提示；本地文件更新或与模板同时间，不会仅因本地变化闪烁，仍可打开菜单手动覆盖。未提供模板时间时，界面显示“未提供”且不自动闪烁，仍可手动选择覆盖或保留；PI WEB 不推测平台更新时间。“覆盖并备份”和“不覆盖”都会持久确认当前快照；后续符合条件的模板更新可再次提示。</p>
+<p>确认针对当前机器、项目和工作区，切换工作区不会将旧请求结果应用到新位置。网关重新验证管理身份与工作区授权；浏览器不能指定模板正文、任意路径或备份位置。确认期间文件或模板已变化时，返回冲突而不覆盖，需重新查看后决定。缺少文件时的首次创建仍沿用项目初始化规则；已有文件不因项目解析或会话初始化自动替换。</p>
+<p>指令确认只处理不超过 <strong>1 MiB</strong> 的普通文件，拒绝文件或相关托管目录的符号链接。备份保留原有 <code>AGENTS.&lt;timestamp&gt;.&lt;fingerprint&gt;[suffix].md</code> 命名，不覆盖历史备份。POSIX 平台确认覆盖时保留原文件访问权限，目标缺失时以 <code>0600</code> 创建；备份也以 <code>0600</code> 创建，仅文件所有者（服务账号）可读写。Windows 访问控制仍由系统 ACL 决定，不以 POSIX 权限位承诺隔离。</p>
+<p>公开工作区文件能力的可选 <code>files.managedAgents</code> 提供 <code>status(options?)</code> 与 <code>decide({ action: "overwrite" | "keep", revision })</code>。<code>status</code> 返回不可用状态 <code>{ available: false }</code>，或带 <code>available: true</code>、<code>pending</code>、不透明 <code>revision</code>、文件修改时间 <code>modifiedAt</code>、平台模板更新时间 <code>templateModifiedAt</code> 和 <code>templateRevision</code> 的快照；两个时间字段可为 <code>null</code>。<code>decide</code> 必须提交所查看快照的 <code>revision</code>，返回决定后的状态。普通模式及旧宿主可省略此能力，插件应按能力是否存在展示入口，而不是自行拼接私有请求。</p>
 <h3 id="workspace-tasks">工作区任务</h3>
 <p>在项目创建 <code>.pi-web/tasks.json</code>：</p>
 <div class="code-card"><div class="copy-row"><strong>示例</strong><button class="copy-button" data-copy="#plugin-example-4">复制</button></div><pre id="plugin-example-4"><code class="language-json">{
@@ -290,10 +296,11 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
     { "id": "db.reset", "title": "重置数据库", "command": "npm run db:reset", "confirm": true }
   ]
 }</code></pre></div>
-<p>从“任务”标签运行工作区终端命令。任务可带 <code>description</code>；尤其共享仓库中，运行前检查命令。禁用插件只隐藏标签，不修改项目文件。</p>
-<h3 id="relays">中继</h3>
-<p>随包分发的 Relay 提供跨会话工作提示词和技能，并在只读“中继”标签展示 <code>.pi-web/relays/</code> 计划与进度，不从标签启动或编辑中继。</p>
-<p>普通模式在当前 agent 配置未安装时自动安装 Relay；从 <strong>设置 → Pi 包</strong> 移除会被记忆，不静默重装，可从“可用包”恢复。单独禁用中继插件只隐藏标签，不移除代理资源。管理嵌入的 <code>relay</code> 与 <code>relay-runner</code> 模板同步继续限定在授权工作区，不改变普通启动的技能文件。</p>
+<p>从“任务”标签运行工作区终端命令，面板显示最终成功或失败，并在可用时显示退出码。管理嵌入通过受控 <code>terminal-command-runs</code> 执行已授权的任务，交互终端仍禁用，任务面板不提供命令输出。任务可带 <code>description</code>；尤其共享仓库中，运行前检查命令。缺少 <code>.pi-web/tasks.json</code> 表示尚未配置任务，不是加载故障。禁用插件只隐藏标签，不修改项目文件。</p>
+<h3 id="relays">接力</h3>
+<p>随包分发的接力（Relay）提供跨会话工作提示词和技能，并在只读“接力”标签展示 <code>.pi-web/relays/</code> 计划与进度，不从标签启动或编辑接力。缺少该目录表示当前工作区没有接力包，不是加载故障。协议标识与文件路径中的 <code>relay</code> 保持不变。</p>
+<p>普通模式在当前 agent 配置未安装时自动安装接力包；从 <strong>设置 → Pi 包</strong> 移除会被记忆，不静默重装，可从“可用包”恢复。单独禁用接力插件只隐藏标签，不移除代理资源。管理嵌入的 <code>relay</code> 与 <code>relay-runner</code> 模板同步继续限定在授权工作区，不改变普通启动的技能文件。</p>
+<p>安装并启用接力包、且会话允许委派时，受限管理模式可通过 <code>dispatch_relay</code> 派发独立的后继会话；派发桥接继承发起者管理 context，并沿用同一项目的工作区授权。显式拒绝 <code>dispatch_relay</code> 或关闭委派仍会阻止派发；不以通用 <code>spawn</code> 替代，也不开放普通插件对管理会话的访问。</p>
 <p><a id="workflows"></a></p>
 <h3>工作流（Workflows）</h3>
 <p>Workflows 随包提供 Pi 工作流提示词和工作树操作。普通 profile 缺少默认包时自动安装，用户移除会被记忆，可从“可用包”恢复；禁用浏览器插件不移除已安装的 Pi 提示词资源。</p>

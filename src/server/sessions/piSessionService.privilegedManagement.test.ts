@@ -16,6 +16,38 @@ import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, testManagementContext } from "./piSessionService.testSupport.js";
 
 describe("privileged management session permissions", () => {
+  it.each([false, true])("exposes scoped Relay dispatch in restricted management (denied=%s)", async (denied) => {
+    const h = await fixture(false, {});
+    try {
+      h.context.tools = { allow: ["read"], deny: denied ? ["dispatch_relay"] : [] };
+      const relayExtension = fileURLToPath(new URL("../../../pi-packages/relays/extensions/index.ts", import.meta.url)).replaceAll("\\", "/");
+      await writeFile(join(h.cwd, ".pi", "extensions", "relay.ts"), `export { default } from ${JSON.stringify(relayExtension)};\n`);
+      const packet = join(h.cwd, ".pi-web", "relays", "managed");
+      await mkdir(packet, { recursive: true });
+      await Promise.all(["charter.md", "status.md", "log.md"].map((name) => writeFile(join(packet, name), "Saved packet")));
+      const spawn = vi.spyOn(h.service, "spawnSession").mockResolvedValue({ sessionId: "next-leg", cwd: h.cwd });
+      const session = await h.start();
+      const runtime = h.runtime();
+      expect(runtime.session.getActiveToolNames().includes("dispatch_relay")).toBe(!denied);
+      expect(runtime.session.getActiveToolNames()).toEqual(expect.arrayContaining([
+        "spawn_session", "spawn_subsession", "list_subsessions", "check_subsession", "read_subsession", "yield_to_subsessions",
+      ]));
+      if (!denied) {
+        const tool = runtime.session.agent.state.tools.find((entry) => entry.name === "dispatch_relay");
+        if (tool === undefined) throw new Error("Expected managed Relay dispatch tool");
+        await tool.execute("relay-dispatch", { packet: ".pi-web/relays/managed", leg: "1" }, new AbortController().signal);
+        expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
+          spawningSessionId: session.id, managementContext: h.context, cwd: h.cwd,
+          name: "Leg 1 – Relay managed",
+        }));
+        await h.service.runCommand({ id: session.id, cwd: h.cwd }, "/reload", h.context);
+        expect(runtime.session.getActiveToolNames()).toContain("dispatch_relay");
+      }
+      expect(runtime.session.getActiveToolNames()).not.toContain("mcp");
+    } finally {
+      await h.dispose();
+    }
+  });
   it("removes only original managed Relay copies for full privileges and restores them after privileges are removed", async () => {
     const h = await fixture(true, { bash: true, network: true });
     const skillRoot = join(h.cwd, ".pi", "skills");

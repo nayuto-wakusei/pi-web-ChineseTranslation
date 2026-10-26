@@ -1,3 +1,17 @@
+export type ManagedAgentsStatus = {
+    available: false;
+} | {
+    available: true;
+    pending: boolean;
+    revision: string;
+    modifiedAt: string | null;
+    templateModifiedAt: string | null;
+    templateRevision: string;
+};
+export interface ManagedAgentsDecision {
+    action: "overwrite" | "keep";
+    revision: string;
+}
 export type TranslationParameters = Readonly<Record<string, string | number>>;
 export type TranslationMessages = Readonly<Record<string, string>>;
 export type Translator = (key: string, fallback: string, parameters?: TranslationParameters) => string;

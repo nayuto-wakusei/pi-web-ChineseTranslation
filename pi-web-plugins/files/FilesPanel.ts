@@ -16,6 +16,8 @@ import {
 import type { WorkspaceFilePreviewUrlBuilder } from "./FilesViewer";
 import { createWorkspaceFileViewModeStore, type WorkspaceFileViewModeStore } from "./workspaceFileViewMode";
 import { renderDeleteIcon, renderDownloadIcon, renderNewFileIcon, renderNewFolderIcon, renderRefreshIcon, renderRenameIcon, renderUploadIcon } from "./fileIcons";
+import type { ManagedAgentsMenu } from "./ManagedAgentsMenu";
+import "./ManagedAgentsMenu";
 
 interface PendingWorkspaceUploadReview {
   files: File[];
@@ -164,7 +166,8 @@ export class WorkspaceFilesPanel extends LitElement {
             <button class="ui-button" title="${t("ui.workspaceFilesPanel.deleteFileOrFolder", "Delete file or folder")}" aria-label="${t("ui.workspaceFilesPanel.deleteFileOrFolder", "Delete file or folder")}" ?disabled=${busy || !hasSelection || (directory && files.deleteDirectory === undefined)} @click=${() => {
               if (window.confirm(t("ui.workspaceFilesPanel.deleteThisCannotBeUndone", "Delete {kind} {current}? This cannot be undone.", { kind: directory ? t("ui.workspaceFilesPanel.emptyFolder", "empty folder") : t("ui.toolExecutionView.file", "File"), current: selectedPath ?? "" }))) void runtime.deleteSelectedPath(context);
             }}>${renderDeleteIcon()}</button>
-            <button class="ui-button" title="${t("bundled.relays.refresh.aee887", "Refresh")}" aria-label="${t("bundled.relays.refresh.aee887", "Refresh")}" @click=${() => { void runtime.refreshFiles(context); }}>${renderRefreshIcon()}</button>
+            <button class="ui-button" title="${t("bundled.relays.refresh.aee887", "Refresh")}" aria-label="${t("bundled.relays.refresh.aee887", "Refresh")}" @click=${() => { void runtime.refreshFiles(context); void this.renderRoot.querySelector<ManagedAgentsMenu>("pi-web-managed-agents-menu")?.refresh(); }}>${renderRefreshIcon()}</button>
+            ${files.managedAgents === undefined ? nothing : html`<pi-web-managed-agents-menu .control=${files.managedAgents} .scopeKey=${workspaceContextKey(context)} .stylesheetIntegration=${this.stylesheetIntegration} @agents-applied=${() => { void runtime.refreshFiles(context); }}></pi-web-managed-agents-menu>`}
           </div>
           <input id="workspace-upload-input" class="visually-hidden" type="file" multiple hidden @change=${this.handleFileInputChange} />
         </section>

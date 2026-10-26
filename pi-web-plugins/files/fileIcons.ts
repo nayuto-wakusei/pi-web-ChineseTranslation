@@ -12,6 +12,10 @@ export function renderNewFileIcon(): TemplateResult {
   return icon(svg`<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M12 12v6"></path><path d="M9 15h6"></path>`);
 }
 
+export function renderAgentsInstructionsIcon(): TemplateResult {
+  return icon(svg`<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h6"></path>`);
+}
+
 export function renderNewFolderIcon(): TemplateResult {
   return icon(svg`<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path><path d="M12 10v6"></path><path d="M9 13h6"></path>`);
 }

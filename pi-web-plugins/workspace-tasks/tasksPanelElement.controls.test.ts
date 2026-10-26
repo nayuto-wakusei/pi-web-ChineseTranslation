@@ -7,6 +7,37 @@ import { defineTasksPanelElement, PiWebTasksPanel } from "./tasksPanelElement";
 defineTasksPanelElement();
 afterEach(() => { document.body.replaceChildren(); });
 
+it.each(["succeeded", "failed", "rejected"] as const)("shows a task's final result without an interactive terminal: %s", async (status) => {
+  const run: TerminalCommandRun = {
+    id: `result-${status}`, origin: "workspace-tasks", projectId: "p1", workspaceId: `result-${status}`, terminalId: "terminal-1",
+    title: "Build", command: "npm run build", status: "running", createdAt: "now", metadata: {},
+  };
+  let finish!: (result: TerminalCommandRun) => void;
+  let fail!: (error: Error) => void;
+  const completed = new Promise<TerminalCommandRun>((resolve, reject) => { finish = resolve; fail = reject; });
+  const context = createWorkspacePanelContext({ terminal: {
+    open: () => undefined,
+    runCommand: () => Promise.resolve({ run, completed }),
+  } });
+  context.workspace = { ...context.workspace, id: run.workspaceId };
+  context.files = { ...context.files, readFile: () => Promise.resolve({
+    path: ".pi-web/tasks.json", content: JSON.stringify({ version: 1, tasks: [{ id: "build", title: "Build", command: "npm run build" }] }),
+    encoding: "utf8", truncated: false, binary: false, size: 0, modifiedAt: "now",
+  }) };
+  const panel = new PiWebTasksPanel();
+  panel.context = context;
+  document.body.append(panel);
+  await vi.waitFor(() => { expect(panel.shadowRoot?.querySelector("[data-task-id]")).not.toBeNull(); });
+  panel.shadowRoot?.querySelector<HTMLButtonElement>("[data-task-id]")?.click();
+  await vi.waitFor(() => { expect(panel.shadowRoot?.textContent).toContain("已启动"); });
+  if (status === "rejected") fail(new Error("Permission expired"));
+  else finish({ ...run, status, exitCode: status === "succeeded" ? 0 : 1 });
+  await vi.waitFor(() => {
+    expect(panel.shadowRoot?.querySelector(".panel-status")?.textContent).toContain(status === "rejected" ? "Permission expired" : status === "succeeded" ? "Build 已完成。" : "Build 执行失败。");
+  });
+  if (status !== "rejected") expect(panel.shadowRoot?.querySelector(".panel-status")?.textContent).toContain(`退出码：${status === "succeeded" ? "0" : "1"}`);
+});
+
 it("keeps task controls explicitly non-submitting inside an external form", async () => {
   const run: TerminalCommandRun = {
     id: "controls-run", origin: "workspace-tasks", projectId: "p1", workspaceId: "w1", terminalId: "terminal-1",

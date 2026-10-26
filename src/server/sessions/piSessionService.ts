@@ -1105,7 +1105,11 @@ function createManagementRuntimeFactory(
           read: (parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string, toolCallId?: string) => subsessions.read(parentSessionId, sessionId, query, parentSessionFile, toolCallId, managementContext),
         };
     const managementFactories = [
-      ...(normalPermissions ? [createExtensionSessionDispatch(cwd, { ...(scopedSpawn === undefined ? {} : { spawn: scopedSpawn }), isEnabled: () => resolvedDelegationToolsEnabled })] : []),
+      createExtensionSessionDispatch(cwd, {
+        ...(scopedSpawn === undefined ? {} : { spawn: scopedSpawn }),
+        isEnabled: () => resolvedDelegationToolsEnabled
+          && (normalPermissions || managementContext.tools?.deny?.includes("dispatch_relay") !== true),
+      }),
       ...(scopedSubsessions === undefined ? [] : [createSubsessionCompletionDelivery(scopedSubsessions)]),
     ];
     const controlledManagementTools = [
@@ -1122,7 +1126,11 @@ function createManagementRuntimeFactory(
         requestedNetwork: managementContext.privileged?.network === true,
       }, "management privileged grant ignored because managementEmbed.allowPrivileged is disabled");
     }
-    const extraToolNames = [...controlledManagementToolNames, ...privilegedManagementToolNames(privileges)];
+    const extraToolNames = [
+      ...controlledManagementToolNames,
+      ...(resolvedDelegationToolsEnabled && scopedSpawn !== undefined ? ["dispatch_relay"] : []),
+      ...privilegedManagementToolNames(privileges),
+    ];
     const policyAgentDir = normalPermissions ? undefined : await writeManagementPermissionSystemPolicy(agentDir, cwd, managementContext, extraToolNames, privileges);
     const resourceEnvironment = normalPermissions ? {} : { [PI_PERMISSION_SYSTEM_POLICY_AGENT_DIR]: policyAgentDir };
     return withRuntimeCreationEnvironment(resourceEnvironment, async () => {

@@ -43,6 +43,9 @@ describe("workspace error localization boundary", () => {
 
     const absent = await app.inject("/api/projects/p/workspaces/w/file?path=missing.txt");
     expect(absent.statusCode).toBe(404);
+    const missingTree = await app.inject("/api/projects/p/workspaces/w/tree?path=.pi-web/relays");
+    expect(missingTree.statusCode).toBe(404);
+    expect(missingTree.json()).toEqual({ error: missing });
     expect(absent.json()).toEqual({ error: missing });
 
     const optional = await app.inject("/api/projects/p/workspaces/w/file?path=missing.txt&optional=true");

@@ -110,7 +110,7 @@ describe("workspace states", () => {
     // The fake rejects unknown paths with "Path does not exist".
     const panel = await mountPanel(panelContext(workspaceFilesFake()));
 
-    expect(viewerText(panel)).toContain("此工作区中没有中继。");
+    expect(viewerText(panel)).toContain("此工作区中没有接力。");
     expect(viewerText(panel)).toContain(`${RELAYS_ROOT}/<name>/`);
   });
 
@@ -120,7 +120,7 @@ describe("workspace states", () => {
 
     const panel = await mountPanel(panelContext(fake));
 
-    expect(viewerText(panel)).toContain("此工作区中没有中继。");
+    expect(viewerText(panel)).toContain("此工作区中没有接力。");
   });
 
   it("surfaces a scan failure with its detail", async () => {
@@ -130,7 +130,7 @@ describe("workspace states", () => {
     const panel = await mountPanel(panelContext(fake));
 
     const error = shadow(panel).querySelector(".status.error");
-    expect(error?.textContent).toContain("无法扫描工作区中继。");
+    expect(error?.textContent).toContain("无法扫描工作区接力。");
     expect(error?.textContent).toContain("connection lost");
   });
 });
@@ -232,7 +232,7 @@ describe("exact packet navigation", () => {
     const panel = await mountPanel(linkedPanelContext(fake, `${RELAYS_ROOT}/gone`));
 
     expect(picker(panel)?.value).toBe(`${RELAYS_ROOT}/gone`);
-    expect(viewerText(panel)).toContain("此中继已不存在。");
+    expect(viewerText(panel)).toContain("此接力已不存在。");
     expect(fake.readFile).not.toHaveBeenCalled();
   });
 
@@ -241,7 +241,7 @@ describe("exact packet navigation", () => {
     fake.failWith("custom/blocked", new Error("permission denied"));
     const panel = await mountPanel(linkedPanelContext(fake, "custom/blocked"));
 
-    expect(viewerText(panel)).toContain("无法列出此中继的文档。");
+    expect(viewerText(panel)).toContain("无法列出此接力的文档。");
     expect(viewerText(panel)).toContain("permission denied");
     expect(fake.readFile).not.toHaveBeenCalled();
   });
@@ -352,7 +352,7 @@ describe("document tabs", () => {
     const strips = shadow(panel).querySelectorAll("nav.document-tabs");
     expect(strips.length).toBe(1);
     const strip = strips[0];
-    expect(strip?.getAttribute("aria-label")).toBe("中继文档");
+    expect(strip?.getAttribute("aria-label")).toBe("接力文档");
     const children = [...(strip?.children ?? [])];
     expect(children.every((child) => child instanceof HTMLButtonElement)).toBe(true);
     expect(children.map((child) => child.textContent)).toEqual(["status.md", "log.md", "notes.md"]);
@@ -471,7 +471,7 @@ describe("document tabs", () => {
 
     const panel = await mountPanel(panelContext(fake));
 
-    expect(viewerText(panel)).toContain("此中继还没有文档。");
+    expect(viewerText(panel)).toContain("此接力还没有文档。");
   });
 });
 

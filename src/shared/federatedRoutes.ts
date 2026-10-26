@@ -62,6 +62,8 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "DELETE", path: "/projects/:projectId" },
   { method: "GET", path: "/project-directories" },
   { method: "GET", path: "/projects/:projectId/workspaces" },
+  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/agents-instructions" },
+  { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/agents-instructions" },
   ...PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS.map((path): FederatedHttpRouteSpec => ({
     method: "POST",
     path,

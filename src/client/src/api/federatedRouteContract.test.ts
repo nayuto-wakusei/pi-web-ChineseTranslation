@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { managedAgentsApi } from "./managedAgents";
 import type { Workspace } from "../../../shared/apiTypes";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, SESSION_TREE_FORK_PROXY_TIMEOUT_MS, SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS, WORKSPACE_FILE_PREVIEW_ROUTE_PATH, type FederatedHttpRouteSpec } from "../../../shared/federatedRoutes";
 import { MAX_INLINE_PREVIEW_BYTES } from "../../../shared/workspaceFiles";
@@ -209,6 +210,8 @@ describe("federated route contract", () => {
       ignoreParseFailure(noticesApi.snapshot(machineId)),
       ignoreParseFailure(noticesApi.dismiss(machineId, "daemon-a", "notice-1")),
       ignoreParseFailure(projectsApi.projects(machineId)),
+      ignoreParseFailure(managedAgentsApi.status("p 1", "w 1", machineId)),
+      ignoreParseFailure(managedAgentsApi.decide("p 1", "w 1", machineId, { action: "keep", revision: "snapshot" })),
       ignoreParseFailure(trustApi.projectTrust("/repo", machineId)),
       ignoreParseFailure(trustApi.workspaceTrust("p 1", "w 1", machineId)),
       ignoreParseFailure(trustApi.setWorkspaceTrust("p 1", "w 1", true, machineId)),

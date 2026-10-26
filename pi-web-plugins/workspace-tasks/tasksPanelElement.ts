@@ -43,6 +43,7 @@ export class PiWebTasksPanel extends HTMLElement {
 
   private contextValue: WorkspacePanelContext | undefined;
   private runningTaskId: string | undefined;
+  private taskDispatchVersion = 0;
   private status: TaskStatus | undefined;
   private readonly root: ShadowRoot;
   private readonly localStyle = document.createElement("style");
@@ -70,6 +71,7 @@ export class PiWebTasksPanel extends HTMLElement {
     // Parent app updates should not rebuild this shadow DOM for the same workspace:
     // doing so resets the mobile scroll position and can replace buttons mid-click.
     if (previousKey === nextKey) return;
+    this.taskDispatchVersion += 1;
     this.runningTaskId = undefined;
     this.status = undefined;
     this.render();
@@ -183,22 +185,35 @@ export class PiWebTasksPanel extends HTMLElement {
       return;
     }
 
+    const dispatchVersion = ++this.taskDispatchVersion;
     this.runningTaskId = task.id;
     this.status = { kind: "info", message: t("bundled.workspace-tasks.starting.80ae5c", "Starting {value1}...", { value1: task.title }) };
     this.render();
 
     try {
       const handle = await runWorkspaceTaskInTerminal(context.terminal, task);
-      if (!this.isCurrentContext(context)) return;
+      if (this.isCurrentContext(context) && dispatchVersion === this.taskDispatchVersion) {
+        this.status = {
+          kind: "info",
+          message: t("bundled.workspace-tasks.started.terminal.command.318e6c", "Started terminal command \"{value1}\".", { value1: handle.run.title }),
+          detail: task.command,
+        };
+        this.runningTaskId = undefined;
+        this.render();
+      }
+      const completed = await handle.completed;
+      if (!this.isCurrentContext(context) || dispatchVersion !== this.taskDispatchVersion) return;
       this.status = {
-        kind: "success",
-        message: t("bundled.workspace-tasks.started.terminal.command.318e6c", "Started terminal command \"{value1}\".", { value1: handle.run.title }),
-        detail: task.command,
+        kind: completed.status === "succeeded" ? "success" : "error",
+        message: completed.status === "succeeded"
+          ? t("bundled.workspace-tasks.completed", "Completed {title}.", { title: completed.title })
+          : t("bundled.workspace-tasks.failed", "Failed {title}.", { title: completed.title }),
+        detail: completed.exitCode === undefined ? task.command
+          : t("bundled.workspace-tasks.exit-code", "Exit code: {code}\n{command}", { code: String(completed.exitCode), command: task.command }),
       };
-      this.runningTaskId = undefined;
       this.render();
     } catch (error) {
-      if (!this.isCurrentContext(context)) return;
+      if (!this.isCurrentContext(context) || dispatchVersion !== this.taskDispatchVersion) return;
       this.runningTaskId = undefined;
       this.status = { kind: "error", message: error instanceof Error ? error.message : String(error) };
       this.render();

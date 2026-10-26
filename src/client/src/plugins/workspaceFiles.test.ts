@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_INLINE_PREVIEW_BYTES } from "../../../shared/workspaceFiles";
+import { managedAgentsApi } from "../api/managedAgents";
 import {
   uploadWorkspaceFile,
   WorkspaceUploadCancelledError,
@@ -18,11 +19,37 @@ const mutationInvalidation: WorkspaceInvalidation = {
 };
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
 
 describe("createWorkspaceFiles", () => {
+  it("exposes instruction review only in management mode and keeps its authority captured", async () => {
+    const onInvalidate = vi.fn();
+    const status = { available: true, pending: true, revision: "snapshot", modifiedAt: null, templateModifiedAt: null, templateRevision: "template" } as const;
+    const read = vi.spyOn(managedAgentsApi, "status").mockResolvedValue(status);
+    const decide = vi.spyOn(managedAgentsApi, "decide").mockResolvedValue({ ...status, pending: false });
+    const normal = createWorkspaceFiles(fakeApi(), workspace, "local", hostOptions());
+    expect(normal.managedAgents).toBeUndefined();
+    const files = createWorkspaceFiles(fakeApi(), workspace, "remote-1", hostOptions({ managementMode: true, onInvalidate }));
+    const control = files.managedAgents;
+    if (control === undefined) throw new Error("Expected management instructions control");
+    await control.status();
+    expect(read).toHaveBeenCalledWith("p-1", "w-1", "remote-1", undefined);
+    await control.decide({ action: "keep", revision: "snapshot" });
+    expect(onInvalidate).not.toHaveBeenCalled();
+    await control.decide({ action: "overwrite", revision: "snapshot" });
+    expect(decide).toHaveBeenLastCalledWith("p-1", "w-1", "remote-1", { action: "overwrite", revision: "snapshot" });
+    expect(onInvalidate).toHaveBeenCalledWith(mutationInvalidation);
+  });
+  it("binds optional reads to the same machine and workspace and forwards cancellation", async () => {
+    const optionalWorkspaceFile = vi.fn<NonNullable<WorkspaceFilesApi["optionalWorkspaceFile"]>>().mockResolvedValue(undefined);
+    const files = createWorkspaceFiles(fakeApi({ optionalWorkspaceFile }), workspace, "local", hostOptions());
+    const controller = new AbortController();
+    await expect(files.readOptionalFile?.(".pi-web/tasks.json", { signal: controller.signal })).resolves.toBeUndefined();
+    expect(optionalWorkspaceFile).toHaveBeenCalledWith("p-1", "w-1", ".pi-web/tasks.json", "local", { signal: controller.signal });
+  });
   it("advertises v1 host policy and returns browser-ready bound preview references", () => {
     vi.stubEnv("BASE_URL", "./");
     vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/pi-web/" });

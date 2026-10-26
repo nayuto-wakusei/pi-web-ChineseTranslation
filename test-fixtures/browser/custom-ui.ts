@@ -4,6 +4,7 @@ import { AppContextBar } from "../../src/client/src/components/appShell/AppConte
 import { ChatView } from "../../src/client/src/components/ChatView";
 import { PromptEditor } from "../../src/client/src/components/PromptEditor";
 import { ConversationLayout } from "../../src/client/src/components/ConversationLayout";
+import { StatusBar } from "../../src/client/src/components/StatusBar";
 import { SettingsDialog } from "../../src/client/src/components/SettingsDialog";
 import { ActionPalette } from "../../src/client/src/components/ActionPalette";
 import { NavigationSectionsController, type NavigationSection } from "../../src/client/src/appShell/navigationState";
@@ -146,14 +147,33 @@ editor.cwd = workspace.path;
 editor.status = {
   sessionId: session.id, model: { provider: "fixture", id: "coding-model" }, thinkingLevel: "high",
   isStreaming: false, isCompacting: false, isBashRunning: false, pendingMessageCount: 0, queuedMessages: [],
-  tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0,
+  tokens: { input: 32000, output: 4000, cacheRead: 0, cacheWrite: 0, total: 36000 }, cost: 0.1234,
+  contextUsage: { tokens: 32000, contextWindow: 128000, percent: 25 },
 };
 editor.shortcuts = { "composer.send.desktop": "enter", "composer.send.mobile": "enter" };
+let stopCalls = 0;
+let sendCalls = 0;
+let lastSendText = "";
+let lastSendBehavior: "steer" | "followUp" | undefined;
+editor.onStop = () => { stopCalls += 1; };
+editor.onSend = (text, behavior) => {
+  sendCalls += 1;
+  lastSendText = text;
+  lastSendBehavior = behavior;
+  return Promise.resolve(true);
+};
 const composer = document.createElement("div");
 composer.slot = "composer";
 composer.className = "composer-area";
 composer.append(editor);
-layout.append(chat, composer);
+const statusBar = new StatusBar();
+statusBar.slot = "status";
+statusBar.status = editor.status;
+statusBar.warningCount = 2;
+statusBar.onToggleWarnings = () => {
+  statusBar.warningsExpanded = !statusBar.warningsExpanded;
+};
+layout.append(chat, composer, statusBar);
 const conversation = document.createElement("div");
 conversation.className = "conversation";
 conversation.append(contextBar, layout);
@@ -166,7 +186,7 @@ let savedTheme: ThemePreference | undefined;
 const context = (): UiPresentationContextV1 => ({ mode: new URLSearchParams(location.search).has("management") ? "management" : "normal", machine, project, workspace, session: { id: session.id, label: session.name ?? session.id }, compact: innerWidth <= 760 });
 
 async function settle(): Promise<void> {
-  await Promise.all([navigation.updateComplete, contextBar.updateComplete, layout.updateComplete, chat.updateComplete, editor.updateComplete]);
+  await Promise.all([navigation.updateComplete, contextBar.updateComplete, layout.updateComplete, chat.updateComplete, editor.updateComplete, statusBar.updateComplete]);
   for (let index = 0; index < 3; index++) await new Promise<void>((resolve) => { requestAnimationFrame(() => { resolve(); }); });
 }
 async function apply(): Promise<void> {
@@ -195,6 +215,10 @@ declare global {
       fail: () => Promise<void>;
       openSettings: () => Promise<void>;
       setView: (value: "navigation" | "chat") => Promise<void>;
+      setActivity: (value: "idle" | "streaming" | "bash" | "compacting" | "queued") => Promise<void>;
+      setDraft: (value: string) => Promise<void>;
+      setDisabled: (value: boolean) => Promise<void>;
+      calls: () => { stop: number; send: number; lastSendText: string; lastSendBehavior: "steer" | "followUp" | undefined };
       focusSection: (section: NavigationSection) => Promise<boolean>;
       savedTheme: () => ThemePreference | undefined;
       identity: () => { editor: boolean; chat: boolean; draft: string };
@@ -205,6 +229,23 @@ window.customUiFixture = {
   setEnabled: async (value) => { enabled = value; await apply(); },
   setScheme: async (value) => { scheme = value; await apply(); },
   setView: async (value) => { main.dataset["view"] = value; await settle(); },
+  setActivity: async (value) => {
+    if (editor.status === undefined) throw new Error("Missing fixture session status");
+    editor.status = {
+      ...editor.status,
+      isStreaming: value === "streaming", isBashRunning: value === "bash", isCompacting: value === "compacting",
+      pendingMessageCount: value === "queued" ? 1 : 0,
+    };
+    editor.canSteer = editor.status.isStreaming;
+    editor.isCompacting = editor.status.isCompacting;
+    editor.canStop = editor.status.isStreaming || editor.status.isBashRunning || editor.status.isCompacting || editor.status.pendingMessageCount > 0;
+    layout.status = editor.status;
+    statusBar.status = editor.status;
+    await settle();
+  },
+  setDraft: async (value) => { editor.replaceText(value); await settle(); },
+  setDisabled: async (value) => { editor.disabled = value; await settle(); },
+  calls: () => ({ stop: stopCalls, send: sendCalls, lastSendText, lastSendBehavior }),
   focusSection: async (section) => {
     sections.expand(section);
     await settle();

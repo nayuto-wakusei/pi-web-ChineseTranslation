@@ -39,6 +39,26 @@ it("renders supplied chat navigation inside the input alongside the attachment c
   expect(jump).toHaveBeenCalledOnce();
 });
 
+it("projects active work separately from input permission and preserves the stop handler", async () => {
+  const editor = new PromptEditor();
+  editor.canStop = true;
+  editor.disabled = true;
+  editor.onStop = vi.fn();
+  document.body.append(editor);
+  await editor.updateComplete;
+  expect(editor.renderRoot.querySelector("footer")?.hasAttribute("data-active-work")).toBe(true);
+  const stop = editor.renderRoot.querySelector<HTMLButtonElement>(".stop-button");
+  if (stop === null) throw new Error("Expected stop control");
+  expect(stop.disabled).toBe(true);
+  editor.disabled = false;
+  await editor.updateComplete;
+  stop.click();
+  expect(editor.onStop).toHaveBeenCalledOnce();
+  editor.canStop = false;
+  await editor.updateComplete;
+  expect(editor.renderRoot.querySelector("footer")?.hasAttribute("data-active-work")).toBe(false);
+});
+
 function stubAttachSourceMedia(matches: boolean): void {
   const media = window.matchMedia("(pointer: coarse)");
   Object.defineProperty(media, "matches", { value: matches, configurable: true });

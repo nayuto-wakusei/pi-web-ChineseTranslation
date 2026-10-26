@@ -1,7 +1,7 @@
 import { createTranslator, UserFacingError, type Translator } from "../shared/i18n.js";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, realpath, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep, isAbsolute } from "node:path";
 import type { Project } from "./types.js";
 import type { PiWebManagementEmbedConfig } from "../shared/apiTypes.js";
@@ -40,6 +40,7 @@ export interface ManagementEmbedContext {
     agentsInstructions?: string;
     agentsInstructionsPolicy?: ManagedAgentsInstructionsPolicy;
     agentsInstructionsRevision?: string;
+    agentsInstructionsUpdatedAt?: string;
     agentsInstructionsReplaceIfMatches?: string[];
   }[];
   tools?: { allow?: string[]; deny?: string[]; permissions?: Record<string, boolean> };
@@ -376,6 +377,7 @@ function parseProjectEntry(value: unknown): ManagementEmbedContext["projects"][n
   const agentsInstructions = optionalContentField(value, "agentsInstructions");
   const agentsInstructionsPolicy = parseAgentsInstructionsPolicy(value["agentsInstructionsPolicy"]);
   const agentsInstructionsRevision = optionalStringField(value, "agentsInstructionsRevision");
+  const agentsInstructionsUpdatedAt = parseAgentsInstructionsUpdatedAt(value["agentsInstructionsUpdatedAt"]);
   const agentsInstructionsReplaceIfMatches = Array.isArray(value["agentsInstructionsReplaceIfMatches"])
     ? contentArray(value["agentsInstructionsReplaceIfMatches"])
     : undefined;
@@ -387,6 +389,7 @@ function parseProjectEntry(value: unknown): ManagementEmbedContext["projects"][n
     ...(agentsInstructions === undefined ? {} : { agentsInstructions }),
     ...(agentsInstructionsPolicy === undefined ? {} : { agentsInstructionsPolicy }),
     ...(agentsInstructionsRevision === undefined ? {} : { agentsInstructionsRevision }),
+    ...(agentsInstructionsUpdatedAt === undefined ? {} : { agentsInstructionsUpdatedAt }),
     ...(agentsInstructionsReplaceIfMatches === undefined ? {} : { agentsInstructionsReplaceIfMatches }),
   };
 }
@@ -397,70 +400,35 @@ function parseAgentsInstructionsPolicy(value: unknown): ManagedAgentsInstruction
   throw new Error("Management embed project entry is invalid");
 }
 
+function parseAgentsInstructionsUpdatedAt(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    || !Number.isFinite(Date.parse(value)) || new Date(`${value.slice(0, 19)}Z`).toISOString().slice(0, 19) !== value.slice(0, 19)) {
+    throw new Error("Management embed project entry is invalid");
+  }
+  return new Date(value).toISOString();
+}
+
 async function ensureManagedProjectAgentsFile(projectPath: string, project: ManagementEmbedContext["projects"][number]): Promise<void> {
   const instructions = project.agentsInstructions;
   if (instructions === undefined || instructions.trim() === "") return;
-  if (project.agentsInstructionsPolicy === "replace-managed") {
-    await replaceManagedProjectAgentsFile(
-      projectPath,
-      instructions,
-      project.agentsInstructionsRevision,
-      project.agentsInstructionsReplaceIfMatches ?? [],
-    );
+  const content = project.agentsInstructionsPolicy === "replace-managed"
+    ? managedAgentsFileContent(instructions, project.agentsInstructionsRevision) : instructions;
+  try {
+    await lstat(join(projectPath, "AGENTS.md"));
     return;
+  } catch (error) {
+    if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
   }
   try {
-    await writeFile(join(projectPath, "AGENTS.md"), instructions, { encoding: "utf8", flag: "wx" });
+    await writeFile(join(projectPath, "AGENTS.md"), content, { encoding: "utf8", flag: "wx" });
   } catch (error) {
     if (isNodeErrorWithCode(error, "EEXIST")) return;
     throw error;
   }
 }
 
-async function replaceManagedProjectAgentsFile(
-  projectPath: string,
-  instructions: string,
-  revision: string | undefined,
-  replaceIfMatches: string[],
-): Promise<void> {
-  const target = join(projectPath, "AGENTS.md");
-  const content = managedAgentsFileContent(instructions, revision);
-  try {
-    await writeFile(target, content, { encoding: "utf8", flag: "wx" });
-    return;
-  } catch (error) {
-    if (!isNodeErrorWithCode(error, "EEXIST")) throw error;
-  }
-
-  const existing = await readFile(target, "utf8");
-  if (!isManagedAgentsFile(existing) && !replaceIfMatches.some((baseline) => normalizeAgentsInstructions(baseline) === normalizeAgentsInstructions(existing))) return;
-  if (existing === content) return;
-  await backupManagedAgentsFile(projectPath, existing);
-  await writeFile(target, content, "utf8");
-}
-
-async function backupManagedAgentsFile(projectPath: string, content: string): Promise<void> {
-  const backupDir = join(projectPath, ".pi-web", "agents-backups");
-  await mkdir(backupDir, { recursive: true });
-  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-  const fingerprint = createHash("sha256").update(content).digest("hex").slice(0, 12);
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const suffix = attempt === 0 ? "" : `-${String(attempt)}`;
-    try {
-      await writeFile(join(backupDir, `AGENTS.${timestamp}.${fingerprint}${suffix}.md`), content, { encoding: "utf8", flag: "wx" });
-      return;
-    } catch (error) {
-      if (!isNodeErrorWithCode(error, "EEXIST")) throw error;
-    }
-  }
-  await writeFile(
-    join(backupDir, `AGENTS.${timestamp}.${fingerprint}-${randomBytes(4).toString("hex")}.md`),
-    content,
-    { encoding: "utf8", flag: "wx" },
-  );
-}
-
-function managedAgentsFileContent(instructions: string, revision: string | undefined): string {
+export function managedAgentsFileContent(instructions: string, revision: string | undefined): string {
   const normalizedInstructions = normalizeAgentsInstructions(instructions);
   const resolvedRevision = revision ?? createHash("sha256").update(normalizedInstructions).digest("hex").slice(0, 16);
   return `${MANAGED_AGENTS_MARKER_PREFIX}${JSON.stringify({ source: "management-embed", revision: resolvedRevision })}${MANAGED_AGENTS_MARKER_SUFFIX}\n${normalizedInstructions}`;
@@ -487,7 +455,7 @@ async function pathForManagedProjectEntry(
   options: ManagedProjectPathOptions,
 ): Promise<string> {
   const entryRoot = project.root?.trim();
-  if (entryRoot !== undefined && entryRoot !== "") return assertManagedCwd(projectRoot, context, entryRoot);
+  if (entryRoot !== undefined && entryRoot !== "") return assertManagedCwd(projectRoot, context, entryRoot, options);
   return managedProjectPath(projectRoot, context.user.rootUserId, project.id, options);
 }
 

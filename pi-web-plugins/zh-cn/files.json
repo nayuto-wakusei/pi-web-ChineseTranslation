@@ -1,4 +1,11 @@
 {
+  "managementAgents.conflict": "AGENTS.md 已发生变化，请核对最新版本后再选择。",
+  "managementAgents.unavailable": "没有可用的 AGENTS.md 平台模板。",
+  "managementAgents.invalidState": "AGENTS.md 确认状态无效。",
+  "managementAgents.tooLarge": "AGENTS.md 及其确认文件不得超过 1 MiB。",
+  "managementAgents.unsafePath": "AGENTS.md 及其备份路径必须是工作区内的普通文件或目录。",
+  "managementAgents.managementOnly": "仅嵌入管理模式支持确认 AGENTS.md。",
+  "managementAgents.invalidDecision": "请基于当前版本选择是否覆盖 AGENTS.md。",
   "server.files.projectConfigObject": "PI WEB 项目配置必须是 JSON 对象：{path}",
   "server.files.projectConfigVersion": "PI WEB 项目配置版本必须为 1：{path}",
   "server.files.terminalCommandsDisabled": "管理嵌入模式已禁用终端命令运行",

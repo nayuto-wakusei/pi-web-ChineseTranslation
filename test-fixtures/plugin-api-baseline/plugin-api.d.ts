@@ -1,4 +1,6 @@
 import type { ReactiveControllerHost, TemplateResult } from "lit";
+import type { ManagedAgentsStatus, ManagedAgentsDecision } from "./shared/pluginApiTypes.js";
+export type { ManagedAgentsStatus, ManagedAgentsDecision } from "./shared/pluginApiTypes.js";
 import type { LocalizationContribution, Translator } from "./shared/pluginApiTypes.js";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MachineKind, PluginBackend, PluginPeer, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
 export type { LocalizationContribution, TranslationMessages, TranslationParameters, Translator, FileContentMediaType, FileContentResponse, FileTreeEntry, FileTreeResponse, JsonObject, JsonPrimitive, JsonValue, PluginBackend, PluginBackendScope, PluginPeer, PluginPeerRequestOptions, PluginPeerChannelOptions, PluginPeerChannelClose, PluginPeerChannel, MachineKind, PiWebComponentStatus, PiWebDockerMode, PiWebInstallationInfo, PiWebInstallationKind, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, PiWebVersionResponse, PluginCapability, PluginCapabilityProvision, SessionUiMetadata, TerminalCommandRun, TerminalCommandRunHandle, TerminalCommandRunStatus, WorkspaceProviderCapabilities, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, } from "./shared/pluginApiTypes.js";
@@ -611,11 +613,18 @@ export interface WorkspaceFiles {
 export interface LegacyWorkspaceFiles extends WorkspaceFiles {
     readonly capabilityVersion?: undefined;
 }
+/** Review platform instructions without giving plugins control of paths or template content. */
+export interface ManagedAgentsControl {
+    status(options?: WorkspaceFileRequestOptions): Promise<ManagedAgentsStatus>;
+    decide(decision: ManagedAgentsDecision): Promise<ManagedAgentsStatus>;
+}
 /** Versioned workspace-scoped host capability available to first- and third-party browser plugins. */
 export interface WorkspaceFilesCapabilityV1 extends WorkspaceFiles {
     readonly capabilityVersion: 1;
     readonly defaultUploadFolder: string;
     readonly maxInlinePreviewBytes: number;
+    /** Optional management-only review of platform instructions in this workspace. */
+    readonly managedAgents?: ManagedAgentsControl;
     readFile(path: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse>;
     listFiles(path: string, options?: WorkspaceFileRequestOptions): Promise<FileTreeResponse>;
     /** Return a browser-ready URL already resolved by the host for this deployment and machine. */

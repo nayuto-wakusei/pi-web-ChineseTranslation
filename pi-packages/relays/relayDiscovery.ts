@@ -18,6 +18,7 @@ export const MAX_RELAY_DIRECTORIES = 50;
 export interface RelayDiscoveryFiles {
   listFiles(path: string): Promise<FileTreeResponse>;
   readFile(path: string): Promise<FileContentResponse>;
+  readOptionalFile?(path: string): Promise<FileContentResponse | undefined>;
 }
 
 export interface RelaySummary {
@@ -103,7 +104,8 @@ export async function listRelayDocumentTree(files: RelayDiscoveryFiles, relayPat
 /** Read one relay document. Never rejects. */
 export async function readRelayDocument(files: RelayDiscoveryFiles, documentPath: string): Promise<RelayDocumentContent> {
   try {
-    const file = await files.readFile(documentPath);
+    const file = await (files.readOptionalFile === undefined ? files.readFile(documentPath) : files.readOptionalFile(documentPath));
+    if (file === undefined) return { kind: "missing" };
     return { kind: "loaded", content: file.content, truncated: file.truncated, binary: file.binary };
   } catch (error) {
     return fileAccessFailure(error);
@@ -269,6 +271,7 @@ function anchorIndexOf(name: string): number {
 }
 
 function fileAccessFailure(error: unknown): { kind: "missing" } | { kind: "unavailable"; detail: string } {
+  if (error instanceof Error && "status" in error && error.status === 404) return { kind: "missing" };
   if (error instanceof Error && missingListingErrorMessages.has(error.message)) return { kind: "missing" };
   return { kind: "unavailable", detail: error instanceof Error ? error.message : String(error) };
 }

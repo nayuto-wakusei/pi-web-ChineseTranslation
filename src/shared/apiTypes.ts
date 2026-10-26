@@ -1,4 +1,5 @@
 import type { MachineStatusUiEvent } from "./machineStatus.js";
+export type { ManagedAgentsStatus, ManagedAgentsDecision } from "./managedAgents.js";
 import type { ThinkingLevel } from "./thinkingLevels.js";
 import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
 import type {

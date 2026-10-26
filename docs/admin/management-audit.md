@@ -34,6 +34,8 @@
 
 管理嵌入与普通模式的工作区列表共用 [WorkspaceProviderResolution](../../src/shared/apiTypes.ts) 响应结构：`status`（`provider`、`folder` 或 `degraded`）、`projectId`、可选 `ownerPluginId`、`workspaces` 和 `diagnostics`，每个工作区带有效配置。网关仍先验证管理身份与授权项目，再携带管理上下文解析工作区；共用响应结构不扩大授权范围。浏览器保持同一结构校验，提供者降级时保留状态与诊断，不将响应简化为裸工作区数组或静默忽略解析失败。
 
+管理项目初始化只在 `AGENTS.md` 缺失时创建签名指令，不替换已有文件。当前工作区的指令确认由网关持有，复核管理身份、项目及工作区授权后，才保存“不覆盖”决定或执行备份与覆盖；确认状态属于托管数据，不是核心配置。浏览器只关闭菜单不会确认版本，过期决定返回 `409`，不能静默覆盖刚修改的文件。完整交互及公共能力见[管理工作区指令](../plugins.md#managed-agents-review)。启用此确认流程需同时更新 Web/API 与 daemon 并安排重启，避免旧 daemon 继续执行自动覆盖；保存文件不承诺运行中的模型即时重新加载已缓存指令。
+
 Workbench 适配器在服务端保存访问状态及票据，以不透明 handle 联系 daemon；相同 entry token 的并发 bootstrap 复用同一 Agent Session。平台入口过期或资源授权失效时，应按提示回工作台重新进入，而不是复制旧票据到普通页面。
 
 entry token 交换为私有 Agent Session 后，access/capability tickets 必须留在服务端，只加载已授权的固定资源与 Skill 版本，并仅暴露受控能力工具。Workbench 集成与管理审计构造跨越网关和 daemon，两端使用相同有效 endpoint 与限额；这些配置或转发协议变化时重启两端。
@@ -54,7 +56,7 @@ entry token 交换为私有 Agent Session 后，access/capability tickets 必须
 
 受限模式使用 managed file tools 和自定义 `python`，Python 经 Bubblewrap 保持 workspace-only 隔离，默认无网络。默认受限 bash 也在 Bubblewrap 中执行：除必要只读运行路径外，仅当前工作区可见且可写，默认无网络。通用 SDK shell、PowerShell、terminal、MCP、HTTP、web-fetch、web-search 默认拒绝。
 
-单项签名 `privileged.bash`/`privileged.network` 仅在 `managementEmbed.allowPrivileged` 为 true 时生效。bash-only 可扩大宿主只读可见性；network-only 启用 `http`/`webfetch`/`websearch` 并移除沙箱网络隔离，但不扩大宿主目录可见性。受限模式的显式工具选择与 deny 仍是最终约束。
+单项签名 `privileged.bash`/`privileged.network` 仅在 `managementEmbed.allowPrivileged` 为 true 时生效。bash-only 可扩大宿主只读可见性；network-only 允许已安装的 `http`/`webfetch`/`websearch` 工具，并移除受控 bash/Python 的网络隔离，但不扩大宿主目录可见性。受限模式的显式工具选择与 deny 仍是最终约束。
 
 完整特权必须同时满足机器 `managementEmbed.allowPrivileged` 与两个有效签名特权，忽略管理 token 的 `tools.allow`/`tools.deny`。必须复用普通 SDK 工具和资源加载机制，不能用扩大只读沙箱或手写“allow all”策略代替。管理项目自动受信任，无需审批，也不能改变普通项目的 trust 决策。
 
@@ -78,6 +80,8 @@ entry token 交换为私有 Agent Session 后，access/capability tickets 必须
 PI WEB 不配置这些知识服务的后台账号，不接受任意 tenant/dataset ID 越过授权；短期知识票据由后端处理。知识来源 URL 是引用，不是连接配置。
 
 Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下载后同步到管理工作区 `.pi/skills/`。受限启动强制同步 `relay` 和 `relay-runner` 模板到 `.pi/skills/<name>/SKILL.md`，只替换所属工作区内的同名内容；因此不要把它们作为自定义内容的唯一副本。两个模板都必须纳入 npm 包和 Workbench Skill allowlist。普通与完整特权启动既不创建也不覆盖这些项目 Skill。
+
+安装并启用接力包且允许委派时，受限会话的 `dispatch_relay` 通过派发桥接创建继承管理 context 的独立后继会话，保持同项目工作区授权和普通插件的会话访问边界；显式 deny 或关闭委派仍生效，不以通用 `spawn` 替代，见[接力指南](../plugins.md#接力)。
 
 完整特权启动及 `/reload` 清理确认原样下发的项目 Relay 副本，由已启用的内置包提供技能。仅匹配当前模板或已知历史模板，目录必须只有普通文件 `SKILL.md`；修改过的副本、额外文件、符号链接和其他自定义 Skill 均保留，真实冲突照常报告。同步与清理共用稳定的 `.pi/skills` 目录队列，清理不得递归删除。普通模式不清理；取消特权并通过新的授权入口进入受限会话后，恢复受限模式的模板同步。权限与沙箱规则不因清理改变，完整生效条件见[配置参考](../config.md#workbench-and-mcp-integration)。
 

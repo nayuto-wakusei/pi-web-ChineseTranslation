@@ -1,5 +1,5 @@
 import { createTranslator, type Translator } from "../shared/i18n.js";
-import { workspaceErrorMessage } from "./workspaces/workspaceUserError.js";
+import { WorkspaceUserError, workspaceErrorMessage } from "./workspaces/workspaceUserError.js";
 import type { FastifyInstance } from "fastify";
 import type { WorkspaceTreeBatchRequest, WriteWorkspaceFileOptions } from "../shared/apiTypes.js";
 import type { PiWebConfigService } from "./configRoutes.js";
@@ -44,6 +44,7 @@ export function registerWorkspaceExplorerRoutes(app: FastifyInstance, projects: 
       const context = await resolveRouteWorkspaceContext(projects, workspaces, managementEmbed, request, reply, request.params.projectId, request.params.workspaceId, { createManagedProject: false });
       return await listWorkspaceTree(context.root, request.query.path, await pathAccessForWorkspaceContext(context, options.config));
     } catch (error) {
+      if (error instanceof WorkspaceUserError && error.key === "server.files.pathMissing") return reply.code(404).send({ error: workspaceErrorMessage(error, translate) });
       return sendWorkspaceRequestError(reply, error, 400, translate);
     }
   });

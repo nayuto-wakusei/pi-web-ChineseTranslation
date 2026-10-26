@@ -2688,6 +2688,7 @@ export class PiWebApp extends LitElement {
 
   private createWorkspaceFiles(workspace: Workspace, machine: PluginMachine): WorkspaceFilesCapabilityV1 {
     return createPluginWorkspaceFiles(workspacesApi, workspace, machine.id, {
+      managementMode: this.apiScope === "management",
       defaultUploadFolder: workspaceEffectiveUploadFolder(workspace.effectiveConfig, this.workspaceUploadDefaultFolder),
       onInvalidate: (invalidation) => { void this.invalidateWorkspaceResources(workspace, machine, invalidation); },
     });

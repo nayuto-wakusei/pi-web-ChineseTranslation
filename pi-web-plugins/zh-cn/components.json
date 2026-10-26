@@ -1,4 +1,6 @@
 {
+  "ui.statusBar.contextUsage": "上下文用量",
+  "ui.statusBar.sessionCost": "会话花费",
   "ui.settingsDialog.machineConnected": "已连接",
   "ui.settingsDialog.machineUnchecked": "尚未检查连接",
   "ui.settingsDialog.machineUnavailable": "不可用",

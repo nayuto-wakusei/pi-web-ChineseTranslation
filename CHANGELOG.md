@@ -1,5 +1,13 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202610.5
+
+### Patch Changes
+
+- Remove the stray composer divider in the optional Codex theme and align native context usage and session cost below the input. Share one primary position for Send and Stop, keeping Stop visible throughout active work without changing host actions, calculations or default layouts.
+- Restore authorized Relay dispatch in restricted embedded sessions while preserving management identity and explicit denies. Fix missing workspace task and relay states, display task completion and failure results, and translate Relay as 接力.
+- Require confirmation before replacing existing embedded-project AGENTS.md instructions. Add a Files toolbar review menu with update notifications, a keep-current choice, and backups before approved overwrites. Preserve existing POSIX file permissions during replacement and create review-service files and backups with owner-only access.
+
 ## 2.202610.4
 
 ### Patch Changes

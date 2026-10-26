@@ -305,7 +305,9 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 
 `workbench_search_knowledge` 检索授权元数据，可用 provider=ragflow/bookstack；RAGFlow 内容用 retrieve_knowledge，BookStack 用 retrieve_bookstack，参数 resource_name、简洁 question、可选 resource_version=live、top_k 默认 8/最大 20。通过后端 `POST /api/knowledge-access/bookstack/retrieval` 读取独立授权的已发布书籍当前非草稿页，不编辑、不提供语义检索。返回纯文本、修订、更新时间、源 URL 与 knowledge:// 引用；truncated 表示搜索/文本限制，不保证包含所有匹配。上限五批各 100 候选、每页 8000 字符、总 40000。源链接仍需要读者自身浏览器权限，工具不授予 BookStack 登录。
 
-先部署支持资源快照、knowledge token 和检索 endpoint 的 Workbench 后端，再更新 PI WEB；BookStack 凭据只在后端，不新增 PI WEB BookStack 配置。工具更新重启 daemon；共享 endpoint/limit 改变重启两进程。签名 `projects[].agentsInstructions` 仅在项目 AGENTS.md 不存在时独占创建，已有内容不覆盖，无此字段仍兼容，普通项目不受影响。
+先部署支持资源快照、knowledge token 和检索 endpoint 的 Workbench 后端，再更新 PI WEB；BookStack 凭据只在后端，不新增 PI WEB BookStack 配置。工具更新重启 daemon；共享 endpoint/limit 改变重启两进程。签名 `projects[].agentsInstructions` 仅在项目 `AGENTS.md` 不存在时独占创建，`replace-managed` 策略为首次创建的文件保留托管标记；已有文件不因初始化自动覆盖。管理嵌入可在当前工作区的[指令确认菜单](plugins.md#managed-agents-review)中选择覆盖并备份或保留，无此字段仍兼容，普通项目不受影响。
+
+可选签名字段 `projects[].agentsInstructionsUpdatedAt` 由平台提供模板的实际更新时间，使用带时区的 ISO 时间，如 `2026-10-26T10:00:00Z`。PI WEB 用它与当前工作区 `AGENTS.md` 修改时间比较，不从模板修订号或请求时间伪造更新时间；缺少此字段时界面显示“未提供”，不自动闪烁，仍可手动选择覆盖或保留。平台须提供此字段才能按时间提醒模板更新。时间判定、用户确认与备份规则见[管理工作区指令](plugins.md#managed-agents-review)。
 
 <a id="managed-data-directory"></a>
 ### 托管数据目录

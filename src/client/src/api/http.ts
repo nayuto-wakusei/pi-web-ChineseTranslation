@@ -44,10 +44,10 @@ export async function request<T>(url: string, parse: (value: unknown) => T, init
   return parse(body);
 }
 
-export async function requestOptional<T>(url: string, parse: (value: unknown) => T): Promise<T | undefined> {
+export async function requestOptional<T>(url: string, parse: (value: unknown) => T, init?: RequestInit): Promise<T | undefined> {
   const scope = apiScope;
   const requestUrl = scopedApiUrl(url);
-  const response = await transportRead(() => fetch(requestUrl));
+  const response = await transportRead(() => fetch(requestUrl, init), init?.signal);
   if (response.status === 204) {
     removeManagementEntryToken(scope);
     return undefined;
@@ -58,7 +58,7 @@ export async function requestOptional<T>(url: string, parse: (value: unknown) =>
     throw new HttpRequestError(errorMessage(body) ?? response.statusText, response.status);
   }
   removeManagementEntryToken(scope);
-  const body: unknown = await transportRead(() => response.json());
+  const body: unknown = await transportRead(() => response.json(), init?.signal);
   return parse(body);
 }
 

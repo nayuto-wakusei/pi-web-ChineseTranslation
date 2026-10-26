@@ -265,7 +265,7 @@ export const workspacesApi = {
     return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree/batch`, parseWorkspaceTreeBatchResponse, { method: "POST", body: JSON.stringify(body) });
   },
   workspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local", options?: { readonly signal?: AbortSignal }) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseFileContentResponse, options),
-  optionalWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => requestOptional(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}&optional=true`, parseFileContentResponse),
+  optionalWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local", options?: { readonly signal?: AbortSignal }) => requestOptional(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}&optional=true`, parseFileContentResponse, options),
   createWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local") => writeWorkspaceFile(projectId, workspaceId, path, new Uint8Array(), undefined, machineId),
   writeWorkspaceFile,
   deleteWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local"): Promise<DeleteWorkspaceFileResponse> => {

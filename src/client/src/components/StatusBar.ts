@@ -62,10 +62,10 @@ export class StatusBar extends LitElement {
             <span>${warningControl.countText}</span>
           </button>
         `}
-        <span>↑${formatTokenCount(tokens.input)}</span>
-        <span>↓${formatTokenCount(tokens.output)}</span>
-        <span class="context">${contextText}</span>
-        <span>${formatCost(status.cost)}</span>
+        <span class="token-input">↑${formatTokenCount(tokens.input)}</span>
+        <span class="token-output">↓${formatTokenCount(tokens.output)}</span>
+        <span class="context" title=${t("ui.statusBar.contextUsage", "Context usage")}>${contextText}</span>
+        <span class="cost" title=${t("ui.statusBar.sessionCost", "Session cost")}>${formatCost(status.cost)}</span>
         ${status.pendingMessageCount > 0 ? html`<span>${t("ui.statusBar.queuedCount", "{count} queued", { count: status.pendingMessageCount })}</span>` : null}
       </div>
     `;

@@ -1,4 +1,6 @@
 import { MAX_INLINE_PREVIEW_BYTES } from "../../../shared/workspaceFiles";
+import type { ManagedAgentsControl } from "../../../plugin-api";
+import { managedAgentsApi } from "../api/managedAgents";
 import {
   uploadWorkspaceFile as defaultUploadWorkspaceFile,
   workspaceUploadPath,
@@ -29,6 +31,7 @@ export interface WorkspaceFilesApi {
   moveWorkspaceDirectory?(projectId: string, workspaceId: string, fromPath: string, toPath: string, machineId?: string): Promise<{ path: string }>;
   deleteWorkspaceDirectory?(projectId: string, workspaceId: string, path: string, machineId?: string): Promise<{ path: string; deleted: true }>;
   workspaceFile(projectId: string, workspaceId: string, path: string, machineId?: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse>;
+  optionalWorkspaceFile?(projectId: string, workspaceId: string, path: string, machineId?: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse | undefined>;
   workspaceTree(projectId: string, workspaceId: string, path?: string, machineId?: string, options?: WorkspaceFileRequestOptions): Promise<FileTreeResponse>;
   writeWorkspaceFile(projectId: string, workspaceId: string, path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions, machineId?: string): Promise<WriteWorkspaceFileResponse>;
   deleteWorkspaceFile(projectId: string, workspaceId: string, path: string, machineId?: string): Promise<DeleteWorkspaceFileResponse>;
@@ -36,6 +39,7 @@ export interface WorkspaceFilesApi {
 }
 
 export interface CreateWorkspaceFilesOptions {
+  readonly managementMode?: boolean;
   readonly defaultUploadFolder: string;
   readonly maxInlinePreviewBytes?: number;
   readonly onInvalidate?: (invalidation: WorkspaceInvalidation) => void;
@@ -69,12 +73,22 @@ export function createWorkspaceFiles(
   const createDirectory = api.createWorkspaceDirectory?.bind(api);
   const moveDirectory = api.moveWorkspaceDirectory?.bind(api);
   const deleteDirectory = api.deleteWorkspaceDirectory?.bind(api);
+  const readOptionalFile = api.optionalWorkspaceFile?.bind(api);
   const previewUrl = options.workspaceFilePreviewUrl ?? defaultWorkspaceFilePreviewUrl;
   const uploadFile = options.uploadWorkspaceFile ?? defaultUploadWorkspaceFile;
   const publishMutation = () => { onFilesChanged?.(); options.onInvalidate?.(workspaceFilesMutationInvalidation); };
+  const managedAgents: ManagedAgentsControl | undefined = options.managementMode === true ? {
+    status: (requestOptions) => managedAgentsApi.status(projectId, workspaceId, machineId, requestOptions),
+    decide: async (decision) => {
+      const result = await managedAgentsApi.decide(projectId, workspaceId, machineId, decision);
+      if (decision.action === "overwrite") publishMutation();
+      return result;
+    },
+  } : undefined;
 
   return {
     capabilityVersion: 1,
+    ...(managedAgents === undefined ? {} : { managedAgents }),
     defaultUploadFolder: options.defaultUploadFolder ?? "",
     maxInlinePreviewBytes: options.maxInlinePreviewBytes ?? MAX_INLINE_PREVIEW_BYTES,
     ...(createDirectory === undefined ? {} : { createDirectory: async (path: string) => {
@@ -93,6 +107,9 @@ export function createWorkspaceFiles(
       return result;
     } }),
     readFile: (path, requestOptions) => api.workspaceFile(projectId, workspaceId, path, machineId, requestOptions),
+    ...(readOptionalFile === undefined ? {} : {
+      readOptionalFile: (path: string, requestOptions?: WorkspaceFileRequestOptions) => readOptionalFile(projectId, workspaceId, path, machineId, requestOptions),
+    }),
     listFiles: (path, requestOptions) => api.workspaceTree(projectId, workspaceId, path, machineId, requestOptions),
     writeFile: async (path, content, writeOptions) => {
       const result = await api.writeWorkspaceFile(projectId, workspaceId, path, content, writeOptions, machineId);

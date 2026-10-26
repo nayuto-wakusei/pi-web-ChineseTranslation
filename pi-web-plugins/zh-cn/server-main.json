@@ -1,10 +1,10 @@
 {
-  "server.main.f7ee5dbe3ca0": "中继",
+  "server.main.f7ee5dbe3ca0": "接力",
   "server.main.40c450439267": "船长日志",
   "server.main.8d1f2155372e": "不兼容",
   "server.main.46b71cd9c032": "当前模型不可用",
   "server.main.dc6de3fa868f": "消息",
-  "server.main.3a9b15de3ecb": "提供与工具无关的 Relay 方法、约定式 Relay Runner 配置，以及由人工确认后派发的独立 Pi 会话链提示词。",
+  "server.main.3a9b15de3ecb": "提供与工具无关的 接力 方法、约定式 接力执行器 配置，以及由人工确认后派发的独立 Pi 会话链提示词。",
   "server.main.71464aff7010": "将选中会话的最后回复转述为海盗风格，保留可见 Pi 消息记录。须手动安装并显式启用插件，模型调用可能产生费用。",
   "server.main.282cd5275cef": "没有可用的运行时详情",
   "server.main.8af35369452e": "必需的终端插件运行时{arg0}：{arg1}。请在会话守护进程可用且兼容后重试；仅已生效的 safe-start none 恢复模式可禁用终端。",
@@ -92,8 +92,8 @@
   "server.main.unavailable": "不可用",
   "projectError.invalidInput": "项目参数无效：必须提供 path；name 必须是字符串，create 必须是布尔值",
   "server.files.workspaceNotFound": "未找到工作区",
-  "package.known.@jmfederico/pi-relay.label": "中继",
-  "package.known.@jmfederico/pi-relay.description": "面向独立 Pi 会话链的通用 Relay 方法、运行配置与人工确认准备提示词。",
+  "package.known.@jmfederico/pi-relay.label": "接力",
+  "package.known.@jmfederico/pi-relay.description": "面向独立 Pi 会话链的通用 接力 方法、运行配置与人工确认准备提示词。",
   "package.known.@chainingintention/pi-captains-log.label": "船长日志",
   "package.known.@chainingintention/pi-captains-log.description": "将所选会话的最后回复转换成海盗风格，并保留可见的 Pi 消息记录。安装后需显式启用其 PI WEB 插件。"
 }

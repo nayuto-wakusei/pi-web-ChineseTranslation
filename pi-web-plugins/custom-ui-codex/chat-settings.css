@@ -20,7 +20,7 @@
   flex: 0 0 auto;
   width: 100%;
   max-width: 816px;
-  padding: 12px 28px 28px;
+  padding: 12px 28px 4px;
   margin-inline: auto;
 }
 :host(chat-view) .chat-wrap { border: 0; background: var(--pi-bg); }
@@ -69,6 +69,7 @@
   background: transparent;
 }
 :host(prompt-editor) .compact-status { align-items: center; justify-content: flex-end; }
+:host(prompt-editor) .actions > .ui-toolbar-group { border-inline-start: 0; }
 :host(prompt-editor) .actions .ui-button { min-height: 36px; border: 0; border-radius: 6px; padding-inline: 8px; background: transparent; }
 :host(prompt-editor) .actions .ui-button:hover:not(:disabled) { background: var(--pi-surface-hover); }
 :host(prompt-editor) .actions .ui-button--icon { width: 36px; min-width: 36px; padding: 0; }
@@ -90,11 +91,21 @@
 :host(prompt-editor) .editor-input .editor-attach .prompt-action-icon { width: 18px; height: 18px; }
 :host(prompt-editor) .actions .default-send-action:not(:disabled) { border-radius: 50%; background: var(--pi-text); color: var(--pi-bg); }
 :host(prompt-editor) .actions .default-send-action:hover:not(:disabled) { background: var(--pi-text-secondary); }
+:host(prompt-editor) .actions .send-button, :host(prompt-editor) .actions .stop-button { width: 36px; height: 36px; }
+:host(prompt-editor) footer:not([data-active-work]) .actions .stop-button { display: none; }
+:host(prompt-editor) footer[data-active-work] .actions > .ui-toolbar-group > .send-button { display: none; }
+:host(prompt-editor) footer[data-active-work] .actions .stop-button { display: inline-grid; border-radius: 50%; background: var(--pi-text); color: var(--pi-bg); }
+:host(prompt-editor) .actions .stop-button:hover:not(:disabled) { background: var(--pi-text-secondary); }
+:host(prompt-editor) .actions .steer-button.default-send-action:not(:disabled) { border-radius: 6px; background: transparent; color: var(--pi-text-secondary); }
+:host(prompt-editor) .actions .steer-button.default-send-action:hover:not(:disabled) { background: var(--pi-surface-hover); }
 :host(prompt-editor) .editor-chat-navigation { inset-inline-end: 10px; top: 8px; border: 0; border-radius: 6px; }
 :host(prompt-editor) .editor-chat-navigation .chat-jumps button + button { border: 0; }
 :host(prompt-editor) .attachments, :host(prompt-editor) .prompt-chips { margin: 8px 14px; }
 :host(prompt-editor) .attachment-remove { min-width: 32px; }
 :host(prompt-editor) .attach-source-panel { --ui-popup-placement: above-start; padding: 4px; border-radius: 8px; }
+:host(status-bar) { box-sizing: border-box; width: calc(100% - 56px); max-width: 760px; margin-inline: auto; }
+:host(status-bar) .bar { gap: 12px; flex-wrap: wrap; padding: 4px 0 18px; border: 0; background: transparent; overflow: visible; }
+:host(status-bar) .context, :host(status-bar) .cost { flex: 0 0 auto; }
 :host(prompt-editor) .mode-hint { bottom: 54px; right: 14px; }
 :host(autocomplete-menu) .menu { padding: 4px; border-radius: 8px; }
 :host(autocomplete-menu) button { border: 0; border-radius: 6px; }
@@ -242,7 +253,9 @@
   :host(settings-general-panel) .field > :is(input, select, textarea) { grid-column: 1; }
 }
 @media (max-width: 600px) {
-  :host(pi-web-ui-presentation) .codex-composer { padding: 8px 12px max(12px, env(safe-area-inset-bottom)); }
+  :host(pi-web-ui-presentation) .codex-composer { padding: 8px 12px 4px; }
+  :host(status-bar) { width: calc(100% - 24px); }
+  :host(status-bar) .bar { gap: 10px; padding-block-end: max(12px, env(safe-area-inset-bottom)); }
   :host(chat-view) .chat { padding: 20px 16px 36px; }
   :host(chat-view) .msg.user { max-width: 92%; }
   :host(prompt-editor) .select-model { padding-inline: 4px; }

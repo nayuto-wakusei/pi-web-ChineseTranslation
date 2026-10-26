@@ -11,6 +11,7 @@ export default defineConfig({
     emptyOutDir: true,
     rolldownOptions: {
       input: {
+        managedAgents: fileURLToPath(new URL("managed-agents.html", import.meta.url)),
         managementShell: fileURLToPath(new URL("management-shell.html", import.meta.url)),
         navigation: fileURLToPath(new URL("navigation.html", import.meta.url)),
         customUi: fileURLToPath(new URL("custom-ui.html", import.meta.url)),

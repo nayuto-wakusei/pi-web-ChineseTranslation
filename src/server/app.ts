@@ -27,6 +27,7 @@ import { registerSessionProxyRoutes, type ManagementProjectCwdResolver, type Nor
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerProjectTrustRoutes } from "./projectTrustRoutes.js";
 import { registerManagementTerminalProxyRoutes } from "./managementTerminalProxyRoutes.js";
+import { registerManagementAgentsRoutes } from "./managementAgentsRoutes.js";
 import { registerPluginBackendProxyRoutes } from "./plugins/pluginBackendProxyRoutes.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
 import { createFilePiWebConfigService, registerConfigRoutes, registerLocalMachineConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
@@ -370,6 +371,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerWorkspaceExplorerRoutes(app, projects, workspaceInput, "/api/machines/local", { config: configService, managementEmbed, fileSuggestions, translate: t });
   registerManagementTerminalProxyRoutes(app, workspaceInput, sessionDaemon, "/api", managementEmbed);
   registerManagementTerminalProxyRoutes(app, workspaceInput, sessionDaemon, "/api/machines/local", managementEmbed);
+  registerManagementAgentsRoutes(app, workspaceInput, "/api", managementEmbed, t);
+  registerManagementAgentsRoutes(app, workspaceInput, "/api/machines/local", managementEmbed, t);
   registerWorkspaceDeletionRoutes(app, sessionDaemon, "/api", managementEmbed);
   registerWorkspaceDeletionRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
 
