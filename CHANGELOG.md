@@ -1,5 +1,22 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202610.3
+
+### Patch Changes
+
+- 099d142: Align secondary navigation, pickers, authentication forms, and settings panels with the upstream shared UI styles while preserving Chinese localization and existing actions.
+- 3ce6b61: Allow ordinary folder projects to change workspace trust directly from the project menu without closing and re-adding the project.
+- bc93c1b: Update the HTTP transport dependency to patched Undici 8.12.2 to address denial-of-service and integrity validation advisories.
+- f955f40: Restore consistent upstream menu and control styling, and move local visual customizations into the optional, default-enabled Custom UI Codex browser plugin. Add gateway-owned UI presentation regions with upstream fallback, preserve existing theme choices, and improve streaming transcript and large-session-list rendering while loading settings on demand.
+
+  Adapt the Codex-inspired plugin layout with a nested selected-project tree, quick navigation actions, centered composer, and full-screen responsive settings while preserving file operations, trust controls, and existing permission boundaries. Use a text Actions button in the plugin header instead of the lightning icon.
+
+  Keep mobile tree navigation and attachment menus usable, reveal folded ancestors when navigating to a session, recognize migrated themes in settings, and invalidate presentation actions when their owner becomes inactive.
+
+  Keep the default theme shown in settings consistent with the theme applied when clearing a browser override, including the custom UI plugin's implicit default.
+
+  Refresh visible Markdown during continuous output by coalescing new text without postponing queued formatting, while preserving deferred previews and offscreen rendering.
+
 ## 2.202610.2
 
 ### Patch Changes
