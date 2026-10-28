@@ -1,4 +1,5 @@
 import type { PiWebPluginV5, PluginCapability, UiPresentationCapabilityV1, UiPresentationRenderContextV1 } from "@chainingintention/pi-web-cn/plugin-api";
+import { renderNewFileIcon, renderNewFolderIcon, renderUploadIcon, renderDownloadIcon, renderRenameIcon, renderDeleteIcon, renderRefreshIcon } from "./fileIcons";
 
 const presentationCapability: PluginCapability<UiPresentationCapabilityV1> = {
   pluginId: "pi-web", id: "ui-presentation", version: 1,
@@ -38,6 +39,11 @@ export default {
         ],
         themePairs: [{ id: "paper-graphite", name: "Paper / Graphite", description: t("client.themes.neutralPair.description", "Follow the system light/dark preference with neutral gray themes."), order: 20, light: "paper", dark: "graphite" }],
         uiPresentations: [
+          { id: "files-toolbar", region: "files-toolbar", render: (context) => html`<span class="codex-files-toolbar ui-toolbar-group">${(context.actions ?? []).map((action) => {
+            const icons = new Map([["new-file", renderNewFileIcon], ["new-folder", renderNewFolderIcon], ["upload", renderUploadIcon], ["download", renderDownloadIcon], ["rename", renderRenameIcon], ["delete", renderDeleteIcon], ["refresh", renderRefreshIcon]]);
+            const renderIcon = icons.get(action.id);
+            return html`<button type="button" class="ui-button" title=${action.label} aria-label=${action.label} ?disabled=${action.disabled === true} @click=${action.run}>${renderIcon === undefined ? action.label : renderIcon()}</button>`;
+          })}</span>` },
           { id: "navigation", region: "navigation", navigationLayout: "tree", render: (context) => html`
             <div class="codex-navigation" data-mode=${context.mode}>
               <div class="codex-header">${slot("header")}</div>

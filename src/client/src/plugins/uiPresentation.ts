@@ -10,6 +10,7 @@ const regionSlots: Readonly<Record<UiPresentationRegion, readonly string[]>> = O
   "context-bar": Object.freeze(["content", "actions"]),
   "chat-chrome": Object.freeze(["transcript", "composer"]),
   "settings-navigation": Object.freeze(["navigation"]),
+  "files-toolbar": Object.freeze([]),
 });
 
 /** A stable light-DOM boundary keeps editors/transcripts alive across presentation changes. */

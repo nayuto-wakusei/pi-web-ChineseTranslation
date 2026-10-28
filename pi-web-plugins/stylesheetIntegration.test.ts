@@ -64,7 +64,7 @@ describe("bundled stylesheet capability participation", () => {
     await result.start?.({ signal: new AbortController().signal, capabilities: {
       resolve<Value>(requirement: PluginCapability<Value>): Value {
         requests.push(requirement.id);
-        return requirement.parse(requirement.id === "stylesheet-integration" ? styles : {
+        return requirement.parse(requirement.id === "stylesheet-integration" ? styles : requirement.id === "ui-presentation" ? { version: 1, regions: [] } : {
           listRenderers: () => [], renderText: () => undefined, renderMarkdown: () => html``,
         });
       },

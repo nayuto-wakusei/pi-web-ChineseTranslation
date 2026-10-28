@@ -19,6 +19,25 @@ function context(): UiPresentationRenderContextV1 {
 }
 
 describe("gateway UI presentations", () => {
+  it("preserves the instance-bound file toolbar capability through registration", async () => {
+    const registry = new PluginRegistry();
+    let capability: import("../../../plugin-api").UiPresentationCapabilityV1 | undefined;
+    await registry.register({ id: "custom", plugin: {
+      apiVersion: 5, name: "Custom", requires: [uiPresentationCapabilityToken],
+      activate: () => ({
+        start: ({ capabilities }) => { capability = capabilities.resolve(uiPresentationCapabilityToken); },
+        contributions: { uiPresentations: [{ id: "files", region: "files-toolbar", render: () => html`<button>Upload</button>` }] },
+      }),
+    } });
+    const update = vi.fn();
+    const release = capability?.subscribe?.(update);
+    expect(capability?.render?.({ mode: "normal", region: "files-toolbar", slots: [] })).toBeDefined();
+    expect(capability?.fail?.("files-toolbar", new Error("failed"))).toBe(true);
+    expect(update).toHaveBeenCalledOnce();
+    expect(capability?.render?.({ mode: "normal", region: "files-toolbar", slots: [] })).toBeUndefined();
+    release?.();
+    await registry.dispose();
+  });
   it("invalidates retained actions on inactivity, including after fallback and reactivation", async () => {
     let active = true;
     const run = vi.fn();

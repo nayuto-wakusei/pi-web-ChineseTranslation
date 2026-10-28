@@ -99,7 +99,7 @@ export interface PluginContributionsV5 extends Omit<PluginContributions, "action
   messageActions?: MessageActionContributionV5[];
 }
 
-export type UiPresentationRegion = "navigation" | "context-bar" | "chat-chrome" | "settings-navigation";
+export type UiPresentationRegion = "navigation" | "context-bar" | "chat-chrome" | "settings-navigation" | "files-toolbar";
 
 /** Host-supplied actions remain bound to the selection and permissions that created them. */
 export interface UiPresentationActionV1 {
@@ -138,6 +138,10 @@ export interface UiPresentationContributionV1 {
 export interface UiPresentationCapabilityV1 {
   readonly version: 1;
   readonly regions: readonly UiPresentationRegion[];
+  /** Optional on older hosts. Uses the gateway presentation lifecycle and failure boundary. */
+  render?: (context: UiPresentationRenderContextV1) => TemplateResult | undefined;
+  subscribe?: (listener: () => void) => () => void;
+  fail?: (region: UiPresentationRegion, error: unknown) => boolean;
 }
 
 export type PluginActionV5 = Omit<PluginAction, "enabled" | "disabledReason" | "run"> & {

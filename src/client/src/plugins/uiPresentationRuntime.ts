@@ -1,15 +1,21 @@
 import type { TemplateResult } from "lit";
 import type { PluginCapability, UiPresentationCapabilityV1, UiPresentationContributionV1, UiPresentationRegion, UiPresentationRenderContextV1 } from "../../../plugin-api";
 
-export const uiPresentationRegions: readonly UiPresentationRegion[] = Object.freeze(["navigation", "context-bar", "chat-chrome", "settings-navigation"]);
+export const uiPresentationRegions: readonly UiPresentationRegion[] = Object.freeze(["navigation", "context-bar", "chat-chrome", "settings-navigation", "files-toolbar"]);
 export const uiPresentationCapability: UiPresentationCapabilityV1 = Object.freeze({ version: 1, regions: uiPresentationRegions });
 export const uiPresentationCapabilityToken: PluginCapability<UiPresentationCapabilityV1> = Object.freeze({
   pluginId: "pi-web", id: "ui-presentation", version: 1,
   parse: (value: unknown) => {
-    if (typeof value !== "object" || value === null || !("version" in value) || value.version !== 1) throw new Error("UI presentation capability v1 is unavailable");
-    return uiPresentationCapability;
+    if (!isPresentationCapability(value)) throw new Error("UI presentation capability v1 is unavailable");
+    // The host provision carries instance-bound rendering and lifecycle methods.
+    return value;
   },
 });
+
+function isPresentationCapability(value: unknown): value is UiPresentationCapabilityV1 {
+  return typeof value === "object" && value !== null && "version" in value && value.version === 1 && "regions" in value && Array.isArray(value.regions)
+    && ["render", "subscribe", "fail"].every((key) => Reflect.get(value, key) === undefined || typeof Reflect.get(value, key) === "function");
+}
 
 export interface RegisteredUiPresentation {
   readonly id: string;

@@ -279,7 +279,12 @@ export class PluginRegistry {
     this.promptChips = new PromptChipStore(options.onPromptChipsChanged);
     this.selection = new PluginSelectionHost(options.getSelection ?? (() => ({})));
     this.lifecycleTimeoutMs = positiveInteger(options.lifecycleTimeoutMs, DEFAULT_LIFECYCLE_TIMEOUT_MS, "lifecycleTimeoutMs");
-    for (const provision of snapshotCapabilityProvisions([{ capability: contentRenderingCapabilityToken, value: this.contentRendering }, { capability: syntaxHighlightingCapabilityToken, value: this.syntaxHighlighting }, { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability }, { capability: uiPresentationCapabilityToken, value: uiPresentationCapability }, ...(options.hostCapabilities ?? [])], undefined, "Browser host capability provisions")) {
+    const presentation = Object.freeze({ ...uiPresentationCapability,
+      render: this.uiPresentation.render.bind(this.uiPresentation),
+      subscribe: this.uiPresentation.subscribe.bind(this.uiPresentation),
+      fail: this.uiPresentation.fail.bind(this.uiPresentation),
+    });
+    for (const provision of snapshotCapabilityProvisions([{ capability: contentRenderingCapabilityToken, value: this.contentRendering }, { capability: syntaxHighlightingCapabilityToken, value: this.syntaxHighlighting }, { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability }, { capability: uiPresentationCapabilityToken, value: presentation }, ...(options.hostCapabilities ?? [])], undefined, "Browser host capability provisions")) {
       const internal = internalCapabilityProvision(provision);
       if (this.hostCapabilitiesByKey.has(internal.key)) {
         throw new BrowserPluginIncompatibleError(`Browser capability ${formatCapability(internal.capability)} is provided more than once by the host`);

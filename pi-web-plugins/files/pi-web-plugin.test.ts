@@ -17,6 +17,7 @@ describe("Files plugin activation", () => {
     expect(plugin.requires.map(({ id, version }) => ({ id, version }))).toEqual([
       { id: "stylesheet-integration", version: 1 },
       { id: "content-rendering", version: 1 },
+      { id: "ui-presentation", version: 1 },
     ]);
     const result = activateFilesPlugin(activationContext(), new FilesRuntime());
     const integration = { registerRoot: vi.fn(() => vi.fn()), createController: vi.fn(), subscribe: vi.fn(() => vi.fn()) };
@@ -24,10 +25,10 @@ describe("Files plugin activation", () => {
     await result.start?.({ signal: new AbortController().signal, capabilities: {
       resolve<Value>(token: PluginCapability<Value>): Value {
         requests.push(token.id);
-        return token.parse(token.id === "stylesheet-integration" ? integration : { listRenderers: vi.fn(), renderText: vi.fn(), renderMarkdown: vi.fn() });
+        return token.parse(token.id === "stylesheet-integration" ? integration : token.id === "ui-presentation" ? { version: 1, regions: [] } : { listRenderers: vi.fn(), renderText: vi.fn(), renderMarkdown: vi.fn() });
       },
     } });
-    expect(requests).toEqual(["content-rendering", "stylesheet-integration"]);
+    expect(requests).toEqual(["content-rendering", "stylesheet-integration", "ui-presentation"]);
     const panel = result.contributions.workspacePanels?.[0]?.render(createWorkspaceContext());
     expect(panel?.values).toContain(integration);
     const requirement = plugin.requires.find(({ id }) => id === "stylesheet-integration");

@@ -2,13 +2,18 @@ import type { ManagedAgentsStatus, WorkspaceFilesCapabilityV1 } from "../../src/
 import { stylesheetIntegrationCapability } from "../../src/client/src/plugins/styles";
 import { createWorkspacePanelContext } from "../../src/testSupport/plugin";
 import { createTranslator } from "../../src/shared/i18n";
-import messages from "../../pi-web-plugins/zh-cn/files.json";
-import bundledMessages from "../../pi-web-plugins/zh-cn/bundled.json";
+import chinesePlugin from "../../pi-web-plugins/zh-cn/pi-web-plugin";
 import { setTranslator } from "../../pi-web-plugins/files/i18n";
 import { WorkspaceFilesPanel } from "../../pi-web-plugins/files/FilesPanel";
 import { FilesRuntime } from "../../pi-web-plugins/files/FilesRuntime";
+import { html, svg } from "lit";
+import codexPlugin from "../../pi-web-plugins/custom-ui-codex/pi-web-plugin";
+import codexStyles from "../../pi-web-plugins/custom-ui-codex/codex.css?inline";
+import { UiPresentationRuntime } from "../../src/client/src/plugins/uiPresentationRuntime";
 
-setTranslator(createTranslator("zh-CN", { ...messages, ...bundledMessages }));
+const [catalog] = chinesePlugin.activate().contributions.localizations;
+if (catalog === undefined) throw new Error("Missing Chinese catalog");
+setTranslator(createTranslator(catalog.locale, catalog.messages));
 customElements.define("fixture-files-panel", WorkspaceFilesPanel);
 let status: Extract<ManagedAgentsStatus, { available: true }> = {
   available: true, pending: true, revision: "snapshot", modifiedAt: "2026-10-20T00:00:00.000Z",
@@ -44,4 +49,15 @@ panel.runtime = new FilesRuntime();
 panel.stylesheetIntegration = stylesheetIntegrationCapability;
 document.querySelector("#workspace")?.append(panel);
 await panel.updateComplete;
+const presentation = new UiPresentationRuntime();
+panel.presentation = { version: 1, regions: ["files-toolbar"], render: presentation.render.bind(presentation), subscribe: presentation.subscribe.bind(presentation), fail: presentation.fail.bind(presentation) };
+const skin = document.createElement("style");
+skin.textContent = codexStyles;
+window.addEventListener("fixture-codex-enable", () => {
+  const signal = new AbortController().signal;
+  const activation = codexPlugin.activate({ apiVersion: 5, pluginId: "custom", runtimePluginId: "custom", html, svg, signal, lifetimeSignal: signal });
+  presentation.register(activation.contributions.uiPresentations.map((entry) => ({ ...entry, pluginId: "custom", active: () => true })));
+  panel.shadowRoot?.append(skin);
+});
+window.addEventListener("fixture-codex-disable", () => { presentation.clear(); skin.remove(); });
 document.body.dataset["ready"] = "true";

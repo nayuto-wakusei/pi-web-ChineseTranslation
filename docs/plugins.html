@@ -179,7 +179,10 @@
 <tr><th scope="row"><code>context-bar</code></th><td><code>content</code>、<code>actions</code></td></tr>
 <tr><th scope="row"><code>chat-chrome</code></th><td><code>transcript</code>、<code>composer</code></td></tr>
 <tr><th scope="row"><code>settings-navigation</code></th><td><code>navigation</code></td></tr>
+<tr><th scope="row"><code>files-toolbar</code></th><td>无；使用宿主提供的文件操作</td></tr>
 </tbody></table></div>
+<p><code>files-toolbar</code> 的 <code>context.actions</code> 提供 <code>new-file</code>、<code>new-folder</code>、<code>upload</code>、<code>download</code>、<code>rename</code>、<code>delete</code>、<code>refresh</code>；<code>download</code> 仅在选中文件时出现。动作的标签和禁用状态由文件宿主持有，插件负责展示；宿主拒绝禁用动作及已失效的面板、选择或展示生命周期中的旧回调。该区域不替换文件预览标题栏的下载入口，也不接管独立的管理 <code>AGENTS.md</code> 菜单。</p>
+<p><code>UiPresentationCapabilityV1</code> 的可选 <code>render(context)</code> 返回区域模板或 <code>undefined</code>，<code>subscribe(listener)</code> 返回取消订阅函数，<code>fail(region, error)</code> 将错误交给网关展示失败边界并返回是否处理。文件面板通过这些方法使用同一展示生命周期；旧宿主未提供方法或当前没有可用模板时，保留默认工具栏。</p>
 <p><code>navigation</code> 贡献可选声明 <code>navigationLayout: "tree"</code>，请求宿主将原有列表组合为选中分支树：在选中项目下展开工作区，在选中工作区下展开会话；普通文件夹省略重复的工作区层。其他区域不能声明该字段，不支持的布局值会拒绝激活。树模式采用静态分区标题，由节点展开控件管理分支，不沿用手机独立列表的单层互斥折叠；定向定位工作区或会话时先展开所选祖先。展开和选择由宿主控件处理，数据仍由原有 controller 按当前选择加载；插件不会因此获得未选中分支的会话数据。未声明时保留宿主的独立列表布局与折叠偏好。</p>
 <p>渲染器使用 <code>context.slots</code> 中的名称输出 <code>&lt;slot name="..."&gt;</code>，不查找、移动或重建宿主控件。宿主持有编辑器和消息视图的生命周期，界面切换不重建它们；导航列表可随树形与独立布局切换重新装配，操作仍复用宿主菜单、信任入口和权限检查。上下文仅含普通/管理模式、紧凑布局标记及机器、项目、工作区、会话的只读标识和显示名称；可选操作由宿主按权限提供，并在选择或生命周期变化后失效。调用操作时还会核对展示贡献当前是否活动，未重绘前失去活动资格也不能执行保留的回调；界面回退后，旧快照不会因贡献恢复活动而重新生效。它不提供凭据、消息正文、内部路径或普通宿主会话连接，管理视图也不因此获得额外权限。</p>
 <p>禁用或缺少展示贡献时使用宿主默认界面，并恢复独立导航列表。展示渲染失败时，宿主停止使用该插件的展示贡献、样式和主题，报告错误并回退；插件仍是可信代码，此机制不是执行沙箱。布局 API 与样式表互补，精确类型以公开 <code>plugin-api</code> 声明为准。</p>

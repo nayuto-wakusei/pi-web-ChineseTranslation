@@ -75,3 +75,5 @@
   :host(project-list) .action-main, :host(workspace-list) .action-main, :host(session-list) .action-main,
   :host(project-list) .action-menu-toggle, :host(workspace-list) .action-menu-toggle, :host(session-list) .action-menu-toggle { min-height: 44px; }
 }
+:host(pi-web-files-panel) .toolbar, :host(pi-web-files-panel) .toolbar-actions, .codex-files-toolbar { flex-wrap: wrap; }
+.codex-files-toolbar .file-action-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

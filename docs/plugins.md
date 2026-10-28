@@ -93,6 +93,11 @@ Pi 的 Markdown transformer 链在 daemon 的浏览器投影阶段运行，仅�
 | `context-bar` | `content`、`actions` |
 | `chat-chrome` | `transcript`、`composer` |
 | `settings-navigation` | `navigation` |
+| `files-toolbar` | 无；使用宿主提供的文件操作 |
+
+`files-toolbar` 的 `context.actions` 提供 `new-file`、`new-folder`、`upload`、`download`、`rename`、`delete`、`refresh`；`download` 仅在选中文件时出现。动作的标签和禁用状态由文件宿主持有，插件负责展示；宿主拒绝禁用动作及已失效的面板、选择或展示生命周期中的旧回调。该区域不替换文件预览标题栏的下载入口，也不接管独立的管理 `AGENTS.md` 菜单。
+
+`UiPresentationCapabilityV1` 的可选 `render(context)` 返回区域模板或 `undefined`，`subscribe(listener)` 返回取消订阅函数，`fail(region, error)` 将错误交给网关展示失败边界并返回是否处理。文件面板通过这些方法使用同一展示生命周期；旧宿主未提供方法或当前没有可用模板时，保留默认工具栏。
 
 `navigation` 贡献可选声明 `navigationLayout: "tree"`，请求宿主将原有列表组合为选中分支树：在选中项目下展开工作区，在选中工作区下展开会话；普通文件夹省略重复的工作区层。其他区域不能声明该字段，不支持的布局值会拒绝激活。树模式采用静态分区标题，由节点展开控件管理分支，不沿用手机独立列表的单层互斥折叠；定向定位工作区或会话时先展开所选祖先。展开和选择由宿主控件处理，数据仍由原有 controller 按当前选择加载；插件不会因此获得未选中分支的会话数据。未声明时保留宿主的独立列表布局与折叠偏好。
 

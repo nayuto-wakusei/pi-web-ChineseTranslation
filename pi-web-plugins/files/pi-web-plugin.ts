@@ -1,5 +1,5 @@
 import { t, setTranslator } from "./i18n.js";
-import type { StylesheetIntegrationCapabilityV1, ContentRenderingCapability, PluginCapability, PiWebPlugin, PluginActivationContext, PluginActivationResult } from "@chainingintention/pi-web-cn/plugin-api";
+import type { UiPresentationCapabilityV1, StylesheetIntegrationCapabilityV1, ContentRenderingCapability, PluginCapability, PiWebPlugin, PluginActivationContext, PluginActivationResult } from "@chainingintention/pi-web-cn/plugin-api";
 import { FilesCodeViewer } from "./FilesCodeViewer";
 import { WorkspaceFilesPanel } from "./FilesPanel";
 import { FilesRuntime } from "./FilesRuntime";
@@ -49,8 +49,21 @@ function isStylesheetIntegration(value: unknown): value is StylesheetIntegration
     && "subscribe" in value && typeof value.subscribe === "function";
 }
 
+const presentationCapability: PluginCapability<UiPresentationCapabilityV1> = {
+  pluginId: "pi-web", id: "ui-presentation", version: 1,
+  parse(value) {
+    if (!isPresentationCapability(value)) throw new Error("UI presentation capability v1 is unavailable");
+    return value;
+  },
+};
+
+function isPresentationCapability(value: unknown): value is UiPresentationCapabilityV1 {
+  return typeof value === "object" && value !== null && "version" in value && value.version === 1 && "regions" in value && Array.isArray(value.regions)
+    && ["render", "subscribe", "fail"].every((key) => Reflect.get(value, key) === undefined || typeof Reflect.get(value, key) === "function");
+}
+
 const plugin = {
-  requires: [stylesheetIntegrationCapability, contentRenderingCapability],
+  requires: [stylesheetIntegrationCapability, contentRenderingCapability, presentationCapability],
   apiVersion: 4,
   name: "Files",
   activate: (context) => { setTranslator(context.translate); return activateFilesPlugin(context, new FilesRuntime()); },
@@ -62,6 +75,7 @@ export function activateFilesPlugin(context: PluginActivationContext, filesRunti
   defineFilesCustomElements();
   let contentRendering: ContentRenderingCapability | undefined;
   let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
+  let presentation: UiPresentationCapabilityV1 | undefined;
   const panelId = `${context.runtimePluginId}:workspace.files`;
   const icon = context.svg`
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -72,6 +86,7 @@ export function activateFilesPlugin(context: PluginActivationContext, filesRunti
     start: ({ capabilities }) => {
       contentRendering = capabilities.resolve(contentRenderingCapability);
       stylesheetIntegration = capabilities.resolve(stylesheetIntegrationCapability);
+      presentation = capabilities.resolve(presentationCapability);
     },
     contributions: {
       workspacePanels: [{
@@ -84,7 +99,7 @@ export function activateFilesPlugin(context: PluginActivationContext, filesRunti
         invalidationResources: ["workspace.files"],
         fileOpenQuery: (_workspaceContext, path) => ({ file: path }),
         onInvalidate: (workspaceContext, invalidation) => filesRuntime.invalidate(workspaceContext, invalidation),
-        render: (workspaceContext) => context.html`<pi-web-files-panel .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${filesRuntime} .contentRendering=${contentRendering}></pi-web-files-panel>`,
+        render: (workspaceContext) => context.html`<pi-web-files-panel .presentation=${presentation} .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${filesRuntime} .contentRendering=${contentRendering}></pi-web-files-panel>`,
       }],
       actions: [
         {

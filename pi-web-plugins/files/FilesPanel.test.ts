@@ -5,6 +5,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./FilesPanel";
 import { FilesRuntime, type WorkspaceUploadBatchState } from "./FilesRuntime";
 import { defineFilesCustomElements } from "./pi-web-plugin";
+import { html, svg } from "lit";
+import codexPlugin from "../custom-ui-codex/pi-web-plugin";
+import { UiPresentationRuntime } from "../../src/client/src/plugins/uiPresentationRuntime";
+
+function enableCodex(panel: WorkspaceFilesPanel): UiPresentationRuntime {
+  const signal = new AbortController().signal;
+  const activation = codexPlugin.activate({ apiVersion: 5, pluginId: "custom", runtimePluginId: "custom", html, svg, signal, lifetimeSignal: signal });
+  const runtime = new UiPresentationRuntime(() => undefined);
+  runtime.register(activation.contributions.uiPresentations.map((entry) => ({ ...entry, pluginId: "custom", active: () => true })));
+  panel.presentation = { version: 1, regions: ["files-toolbar"], render: runtime.render.bind(runtime), subscribe: runtime.subscribe.bind(runtime), fail: runtime.fail.bind(runtime) };
+  return runtime;
+}
 
 defineFilesCustomElements();
 
@@ -16,6 +28,43 @@ afterEach(() => {
 });
 
 describe("Files panel component boundary", () => {
+  it("restores upstream controls after disabling or failing the custom toolbar", async () => {
+    const panel = await mountPanel(createContext());
+    expect(panel.shadowRoot?.querySelector("[aria-label='新建文件']")).toBeNull();
+    expect(buttonWithText(panel.shadowRoot, "Upload").textContent).toBe("上传");
+    const presentation = enableCodex(panel);
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelector("[aria-label='新建文件']")).not.toBeNull();
+    presentation.clear();
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelector("[aria-label='新建文件']")).toBeNull();
+    const next = enableCodex(panel);
+    await panel.updateComplete;
+    next.fail("files-toolbar", new Error("render failed"));
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelector("[aria-label='新建文件']")).toBeNull();
+    expect(buttonWithText(panel.shadowRoot, "Upload").textContent).toBe("上传");
+  });
+
+  it("rejects retained custom actions after a workspace switch or plugin removal", async () => {
+    const panel = await mountPanel(createContext());
+    const presentation = enableCodex(panel);
+    let actions: readonly import("@chainingintention/pi-web-cn/plugin-api").UiPresentationActionV1[] = [];
+    const render = panel.presentation?.render;
+    panel.presentation = { ...panel.presentation, version: 1, regions: ["files-toolbar"], render: (context) => { actions = context.actions ?? []; return render?.(context); } };
+    await panel.updateComplete;
+    const oldCreate = actions.find((action) => action.id === "new-file");
+    const prompt = vi.fn<Window["prompt"]>();
+    vi.stubGlobal("prompt", prompt);
+    panel.context = createContext();
+    await oldCreate?.run();
+    expect(prompt).not.toHaveBeenCalled();
+    await panel.updateComplete;
+    const nextCreate = actions.find((action) => action.id === "new-file");
+    presentation.clear();
+    await nextCreate?.run();
+    expect(prompt).not.toHaveBeenCalled();
+  });
   it("exposes compact file-row semantics while retaining selected directories", async () => {
     const context = createContext({ files: createFiles({ listFiles: (path) => Promise.resolve(treeResponse(path,
       path === "" ? [{ name: "src", path: "src", type: "directory" }, { name: "README.md", path: "README.md", type: "file" }] : [])) }) });
@@ -66,12 +115,16 @@ describe("Files panel component boundary", () => {
     const context = createContext({ files: createFiles({ writeFile, moveFile, deleteFile }) });
     const panel = await mountPanel(context);
     const prompt = vi.fn<Window["prompt"]>().mockReturnValueOnce("new.txt").mockReturnValueOnce("renamed.txt");
+    enableCodex(panel);
+    await panel.updateComplete;
     vi.stubGlobal("prompt", prompt);
     requiredElement(panel.shadowRoot?.querySelector<HTMLButtonElement>("[aria-label='新建文件']"), "new file").click();
     await vi.waitFor(() => { expect(panel.runtime?.snapshot(context).selectedFilePath).toBe("new.txt"); });
     await panel.updateComplete;
-    const download = requiredElement(panel.shadowRoot?.querySelector<HTMLAnchorElement>("[aria-label='下载文件']"), "download");
-    expect(download.href).toContain("new.txt");
+    const download = requiredElement(panel.shadowRoot?.querySelector<HTMLButtonElement>("[aria-label='下载文件']"), "download");
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { expect(this.href).toContain("new.txt"); });
+    download.click();
+    expect(click).toHaveBeenCalledOnce();
     requiredElement(panel.shadowRoot?.querySelector<HTMLButtonElement>("[aria-label='移动或重命名']"), "move").click();
     await vi.waitFor(() => { expect(panel.runtime?.snapshot(context).selectedFilePath).toBe("renamed.txt"); });
     await panel.updateComplete;
@@ -93,6 +146,8 @@ describe("Files panel component boundary", () => {
       path === "" ? [{ name: "src", path: "src", type: "directory" }] : [])) });
     const context = createContext({ files });
     const panel = await mountPanel(context);
+    enableCodex(panel);
+    await panel.updateComplete;
     await vi.waitFor(() => { expect(panel.shadowRoot?.textContent).toContain("src"); });
     buttonWithText(panel.shadowRoot, "src").click();
     await panel.updateComplete;
