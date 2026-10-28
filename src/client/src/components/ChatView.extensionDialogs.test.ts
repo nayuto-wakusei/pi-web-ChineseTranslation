@@ -25,7 +25,7 @@ describe("ChatView open extension dialogs", () => {
     expect(card).toBeInstanceOf(ExtensionDialogCard);
     expect(card.hasAttribute("data-scroll-anchor-id")).toBe(false);
     expect(card.dialog).toBe(oldest);
-    expect(view.shadowRoot?.querySelector(".queued-dialogs")?.textContent).toContain("另有 1 个扩展对话框正在排队");
+    expect(view.shadowRoot?.querySelector(".queued-dialogs")?.textContent).toContain("1 more extension dialog queued");
   });
 
   it("renders no queued affordance for a single pending dialog", async () => {

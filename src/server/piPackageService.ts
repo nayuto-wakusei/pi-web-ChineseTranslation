@@ -226,7 +226,19 @@ export function createDefaultPiPackageService(cwd: string, agentDir: string): Pi
   return new DefaultPiPackageService({
     listConfiguredPackages: () => manager.listConfiguredPackages(),
     installAndPersist: (source, options) => manager.installAndPersist(source, options),
-    removeAndPersist: (source, options) => manager.removeAndPersist(source, options),
+    removeAndPersist: async (source, options) => {
+      const settings = options?.local === true ? settingsManager.getProjectSettings() : settingsManager.getGlobalSettings();
+      const packages = settings.packages ?? [];
+      const remaining = packages.filter((entry) => (typeof entry === "string" ? entry : entry.source) !== source);
+      if (remaining.length === packages.length) return await manager.removeAndPersist(source, options);
+
+      // The UI sends a configured source, whose relative paths are profile/project-relative,
+      // not cwd-relative like the SDK's removeAndPersist input matching.
+      await manager.remove(source, options);
+      if (options?.local === true) settingsManager.setProjectPackages(remaining);
+      else settingsManager.setPackages(remaining);
+      return true;
+    },
     update: (source) => manager.update(source),
     flush: () => settingsManager.flush(),
   });

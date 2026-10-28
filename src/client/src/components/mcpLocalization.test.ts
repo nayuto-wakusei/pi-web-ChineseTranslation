@@ -1,12 +1,16 @@
 // @vitest-environment happy-dom
 import { installNativeDialogFake } from "./nativeDialog.testSupport";
 installNativeDialogFake();
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import chinesePlugin from "../../../../pi-web-plugins/zh-cn/pi-web-plugin";
+import { initializeClientLocalization } from "../localizationBootstrap";
+import { localization } from "../localization/browser";
 import messages from "../../../../pi-web-plugins/zh-cn/components.json";
 import { api, type OAuthFlowState } from "../api";
 import { setClientTranslations } from "../i18n";
 import { AuthDialog } from "./AuthDialog";
 import { SettingsMcpPanel } from "./settings/SettingsMcpPanel";
+beforeAll(() => initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }])));
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -20,6 +24,7 @@ describe("MCP localization boundaries", () => {
     { locale: "en", finished: "Operation finished" },
     { locale: "zh-CN", finished: "操作已结束" },
   ])("localizes operation completion without translating SDK output in $locale", async ({ locale, finished }) => {
+    await localization.setPreferences({ language: locale, formatLocale: locale });
     setClientTranslations(locale, locale === "en" ? {} : messages);
     const flow: OAuthFlowState = { flowId: "flow-1", providerId: "mcp", providerName: "Server <raw> {count}", target: "mcp", mcpMode: "login", status: "complete", progress: ["Login denied: raw <message> {count}"] };
     const before = structuredClone(flow);
@@ -36,6 +41,7 @@ describe("MCP localization boundaries", () => {
   });
 
   it("localizes MCP controls while retaining the exact server identifier and description", async () => {
+    await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
     setClientTranslations("zh-CN", messages);
     const server = { name: "raw-server", description: "Connected <original> {count}" };
     vi.spyOn(api, "mcpAuthServers").mockResolvedValue({ servers: [server] });

@@ -1,5 +1,7 @@
+import { LocalizationController } from "../../localization/browser";
+import { appShellMessages as m } from "../../appShellMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
-import { t } from "../../i18n.js";
+
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
@@ -7,13 +9,14 @@ import { customElement, property } from "lit/decorators.js";
 export class AppRefreshControl extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
   @property({ attribute: false }) onReload?: () => void;
 
   override render() {
-    const label = t("ui.appRefreshControl.reloadEntirePage", "Reload entire page");
+    const label = m.t("reload");
     return html`
       <button
         class="app-refresh-button"

@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiPackagesResponse } from "../../api";
-import { SettingsPackagesPanel } from "./SettingsPackagesPanel";
+import { SettingsPackagesPanel, packagesMessages } from "./SettingsPackagesPanel";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -24,26 +24,26 @@ describe("settings-packages-panel installable known packages", () => {
     );
 
     const section = panel.shadowRoot?.querySelector(".known-package-section");
-    expect(section?.textContent).toContain("中继");
-    expect(section?.textContent).toContain("Relay 方法提示词和技能。");
+    expect(section?.textContent).toContain("Relays");
+    expect(section?.textContent).toContain(packagesMessages.t("relayDescription"));
 
-    knownPackageInstallButton(panel, "中继").click();
+    knownPackageInstallButton(panel, "Relays").click();
     await panel.updateComplete;
 
     expect(onInstallPackage).toHaveBeenCalledWith("/pi-web/dist/pi-packages/relays");
   });
 
-  it("does not install optional Captain’s Log until the user clicks Install", async () => {
+  it("does not install an optional known package until the user clicks Install", async () => {
     const onInstallPackage = vi.fn();
-    const source = "/pi-web/dist/pi-packages/captains-log";
+    const source = "/fixtures/optional-package";
     const panel = await mountPanel(
-      { packages: [], installableKnownPackages: [{ id: "@jmfederico/pi-captains-log", label: "船长日志", description: "可选的会话日志。", source }] },
+      { packages: [], installableKnownPackages: [{ id: "optional-package", label: "Optional package", description: "Optional package fixture.", source }] },
       { onInstallPackage },
     );
 
-    expect(panel.shadowRoot?.textContent).toContain("可安装包");
+    expect(panel.shadowRoot?.textContent).toContain("Available packages");
     expect(onInstallPackage).not.toHaveBeenCalled();
-    knownPackageInstallButton(panel, "船长日志").click();
+    knownPackageInstallButton(panel, "Optional package").click();
     await panel.updateComplete;
     expect(onInstallPackage).toHaveBeenCalledExactlyOnceWith(source);
   });
@@ -55,7 +55,7 @@ describe("settings-packages-panel installable known packages", () => {
     panel.operation = { kind: "update-all" };
     await panel.updateComplete;
 
-    expect(knownPackageInstallButton(panel, "中继").disabled).toBe(true);
+    expect(knownPackageInstallButton(panel, "Relays").disabled).toBe(true);
   });
 });
 
@@ -73,7 +73,7 @@ async function mountPanel(packagesResponse: PiPackagesResponse, callbacks: Panel
 }
 
 function knownPackageInstallButton(panel: SettingsPackagesPanel, label: string): HTMLButtonElement {
-  const button = panel.shadowRoot?.querySelector<HTMLButtonElement>(`button[title="安装 ${label}"]`);
+  const button = panel.shadowRoot?.querySelector<HTMLButtonElement>(`button[title="Install ${label}"]`);
   if (button === undefined || button === null) throw new Error(`Install button for ${label} was not rendered`);
   return button;
 }

@@ -1,5 +1,7 @@
+import { LocalizationController } from "../localization/browser";
+import { pickerMessages as messages } from "../pickerMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
-import { t } from "../i18n";
+
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
@@ -79,9 +81,11 @@ export class ModelPicker extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
-  @property() override title = t("client.actions.choose.model.1afed6", "Choose model");
+  @property() override title = "";
+  /** Enabled-mode rows: the session's pickable models, pre-labeled by the host. */
   @property({ attribute: false }) options: CommandOption[] = [];
   @property({ attribute: false }) catalog: SessionModelCatalogEntry[] = [];
   @property({ attribute: false }) selectedValue?: string;
@@ -106,36 +110,47 @@ export class ModelPicker extends LitElement {
   override render() {
     const rows = this.visibleRows();
     return html`
-      <modal-surface .onClose=${() => this.onCancel?.()} .initialFocus=${"input.search"} .label=${this.title} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
-        <header class="ui-dialog-header"><strong class="ui-dialog-title">${this.title}</strong><button class="ui-button ui-button--icon" aria-label="${t("ui.common.close", "Close")}" @click=${() => this.onCancel?.()}>×</button></header>
-        <div class="scope-toggle ui-toolbar" role="group" aria-label="${t("ui.main.24575c56a20e", "Model scope")}">
-          ${this.renderScopeToggleButton("enabled", t("ui.settingsSessiondPanel.enabled", "Enabled"))}
-          ${this.renderScopeToggleButton("all", t("ui.main.688facc5f591", "All models"))}
+      <modal-surface
+        .onClose=${() => this.onCancel?.()}
+        .initialFocus=${"input.search"}
+        .label=${this.title || messages.t("selectModel")}
+        @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}
+      >
+        <header class="ui-dialog-header">
+          <strong class="ui-dialog-title">${this.title || messages.t("selectModel")}</strong>
+          <button class="ui-button ui-button--icon" aria-label=${messages.t("close")} @click=${() => this.onCancel?.()}>×</button>
+        </header>
+        <div class="scope-toggle ui-toolbar" role="group" aria-label=${messages.t("modelScope")}>
+          ${this.renderScopeToggleButton("enabled", messages.t("enabled"))}
+          ${this.renderScopeToggleButton("all", messages.t("allModels"))}
         </div>
         ${!this.modelScopeEditable ? html`
           <div class="scope-notice" role="status">
-            <strong>${t("ui.main.4a76d59ee88e", "Project override")}</strong>
-            <span>${t("ui.main.b839179fd6bd", "Showing models from this workspace’s")} <code>.pi/settings.json</code> ${t("ui.main.98408917bb6f", ". Model availability selection is disabled.")}</span>
+            <strong>${messages.t("projectOverride")}</strong>
+            <span>${messages.rich("overrideNotice", { path: ".pi/settings.json", code: (parts) => html`<code dir="ltr">${parts}</code>` })}</span>
           </div>
         ` : nothing}
         ${this.onSetDefault === undefined ? nothing : defaultPinHelp()}
         <div class="search-row ui-dialog-search-row">
-          <input class="search ui-dialog-search" aria-label="${t("ui.main.df5586278501", "Search models")}" placeholder="${t("ui.commandPicker.search", "Search")}" .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>
+          <input class="search ui-dialog-search" aria-label=${messages.t("searchModels")} placeholder=${messages.t("search")} .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>
           ${this.mode === "all" ? this.renderToggleAllButton() : nothing}
         </div>
-        <div class="options ui-selection-list" role="region" aria-label=${this.mode === "all" ? t("ui.main.95424120e087", "All models in catalog order") : t("ui.main.380eb29a60a3", "Enabled models")} tabindex="0" aria-busy=${this.membershipChangePending ? "true" : "false"}>
+        <div
+          class="options ui-selection-list"
+          role="region"
+          aria-label=${this.mode === "all" ? messages.t("catalogOrder") : messages.t("enabledModels")}
+          tabindex="0"
+          aria-busy=${this.membershipChangePending ? "true" : "false"}
+        >
           ${this.mode === "all" ? this.renderCatalogList() : this.renderEnabledList()}
-          ${rows.length === 0 ? html`<div class="empty ui-dialog-empty">${t("ui.commandPicker.noMatchingOptions", "No matching options")}</div>` : null}
+          ${rows.length === 0 ? html`<div class="empty ui-dialog-empty">${messages.t("noOptions")}</div>` : null}
         </div>
       </modal-surface>
     `;
   }
 
-  override firstUpdated() {
-    this.anchorSelectionToSelectedValue();
-  }
-
   protected override willUpdate(changed: PropertyValues<this>): void {
+    if (!this.hasUpdated) this.anchorSelectionToSelectedValue();
     if (!changed.has("catalog")) return;
     if (this.mode === "all") this.catalogScrollTopBeforeUpdate = this.shadowRoot?.querySelector<HTMLElement>(".options")?.scrollTop;
     this.rememberCatalogOrder();
@@ -171,10 +186,16 @@ export class ModelPicker extends LitElement {
 
   private renderToggleAllButton(): TemplateResult {
     const plan = modelCatalogToggleAllPlan(this.catalog, this.selectedValue);
-    const label = plan.mode === "all" ? t("ui.sessionCleanupDialog.selectAll", "Select all") : t("ui.main.2d6cec165a76", "Deselect all");
+    const label = plan.mode === "all" ? messages.t("selectAll") : messages.t("deselectAll");
     return html`
-      <button class="toggle-all ui-button" ?disabled=${!this.modelScopeEditable || !plan.canApply || !plan.hasChanges || this.toggleAllPending || this.pendingToggles.size > 0} aria-describedby="model-scope-status" title=${!this.modelScopeEditable ? t("ui.main.7bd492497eee", "Workspace settings control model availability") : !plan.canApply ? t("ui.main.46b71cd9c032", "The current model is unavailable") : nothing} @click=${() => { this.requestToggleAll(); }}>${label}</button>
-      <span id="model-scope-status" class="scope-status" aria-live="polite">${this.membershipChangePending ? t("ui.main.6fa086f67183", "Updating model availability") : !this.modelScopeEditable ? t("ui.main.7bd492497eee", "Workspace settings control model availability") : !plan.canApply ? t("ui.main.46b71cd9c032", "The current model is unavailable") : nothing}</span>
+      <button
+        class="toggle-all ui-button"
+        ?disabled=${!this.modelScopeEditable || !plan.canApply || !plan.hasChanges || this.toggleAllPending || this.pendingToggles.size > 0}
+        aria-describedby="model-scope-status"
+        title=${!this.modelScopeEditable ? messages.t("workspaceControl") : !plan.canApply ? messages.t("unavailableCurrent") : nothing}
+        @click=${() => { this.requestToggleAll(); }}
+      >${label}</button>
+      <span id="model-scope-status" class="scope-status" aria-live="polite">${this.membershipChangePending ? messages.t("updating") : !this.modelScopeEditable ? messages.t("workspaceControl") : !plan.canApply ? messages.t("unavailableCurrent") : nothing}</span>
     `;
   }
 
@@ -230,14 +251,32 @@ export class ModelPicker extends LitElement {
     const selected = index === this.selectedIndex;
     const protectsCurrentModel = value === this.selectedValue && entry.enabled;
     const membershipDisabled = !this.modelScopeEditable || this.membershipChangePending || protectsCurrentModel;
-    const membershipLabel = !this.modelScopeEditable ? t("ui.main.d05c48dbb58b", "Availability of {arg0} is controlled by workspace settings", { arg0: value }) : protectsCurrentModel ? t("ui.main.613b6d756a13", "Cannot deselect the current model {arg0}", { arg0: value }) : `${entry.enabled ? t("ui.main.be70be5a2e12", "Disable") : t("ui.settingsSessiondPanel.enable", "Enable")} ${value}`;
+    const membershipLabel = !this.modelScopeEditable
+      ? messages.t("controlledModel", { model: value })
+      : protectsCurrentModel ? messages.t("protectedModel", { model: value }) : messages.t(entry.enabled ? "disableModel" : "enableModel", { model: value });
     return html`
       <div class="catalog-row ui-selection-row ${selected ? "selected" : ""}" data-model-value=${value} ${scrollWhenSelected(selected, value)}>
         <label class="membership-checkbox">
-          <input type="checkbox" .checked=${entry.enabled} ?disabled=${membershipDisabled} aria-label=${membershipLabel} title=${!this.modelScopeEditable ? t("ui.main.7bd492497eee", "Workspace settings control model availability") : protectsCurrentModel ? t("ui.main.c22854b56cf8", "The current model must remain enabled") : nothing} @focus=${() => { this.selectedIndex = index; }} @click=${(event: MouseEvent) => { this.handleEnableToggleClick(entry, event); }} />
+          <input
+            type="checkbox"
+            .checked=${entry.enabled}
+            ?disabled=${membershipDisabled}
+            aria-label=${membershipLabel}
+            title=${!this.modelScopeEditable ? messages.t("workspaceControl") : protectsCurrentModel ? messages.t("remainEnabled") : nothing}
+            @focus=${() => { this.selectedIndex = index; }}
+            @click=${(event: MouseEvent) => { this.handleEnableToggleClick(entry, event); }}
+          />
         </label>
-        <button class="membership ui-button ui-selection-option" ?disabled=${membershipDisabled} aria-label=${membershipLabel} aria-current=${value === this.selectedValue ? "true" : nothing} @focus=${() => { this.selectedIndex = index; }} @click=${(event: MouseEvent) => { this.requestEnabledToggle(entry, event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined); }}>
-          <span>${entry.id}${value === this.selectedValue ? t("ui.piWebApp.current", " ✓ Current") : ""}</span><small class="ui-selection-detail">${entry.provider}</small>
+        <button
+          class="membership ui-button ui-selection-option"
+          ?disabled=${membershipDisabled}
+          aria-label=${membershipLabel}
+          aria-current=${value === this.selectedValue ? "true" : nothing}
+          @focus=${() => { this.selectedIndex = index; }}
+          @click=${(event: MouseEvent) => { this.requestEnabledToggle(entry, event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined); }}
+        >
+          <span>${value === this.selectedValue ? messages.t("currentModel", { model: entry.id }) : entry.id}</span>
+          <small class="ui-selection-detail">${entry.provider}</small>
         </button>
         ${this.renderDefaultPin(value, entry.name ?? entry.id, entry.enabled)}
       </div>

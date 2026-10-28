@@ -13,7 +13,7 @@ die() {
   exit 1
 }
 
-workspace_dir=${PI_WEB_DEV_WORKSPACE_DIR:-/workspace}
+workspace_dir=${PI_WEB_DEV_WORKSPACE_DIR:-/usr/local/lib/node_modules/@chainingintention/pi-web-cn}
 seed_dir=${PI_WEB_DEV_DEPENDENCY_SEED_DIR:-/opt/pi-web-dev-dependencies}
 target_dir=$workspace_dir/node_modules
 generation_file=$seed_dir/generation

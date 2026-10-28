@@ -12,6 +12,19 @@ afterEach(() => {
 });
 
 describe("modal-surface rendering", () => {
+  it("opens with accessible ownership and focus without scheduling a corrective render", async () => {
+    const surface = new ModalSurface();
+    surface.initialFocus = "input";
+    surface.innerHTML = `<input aria-label="Query">`;
+    document.body.append(surface);
+
+    expect(await surface.updateComplete).toBe(true);
+    expect(surface.isUpdatePending).toBe(false);
+    expect(dialogSection(surface).getAttribute("aria-modal")).toBe("true");
+    expect(dialogSection(surface).getAttribute("aria-hidden")).toBeNull();
+    expect(document.activeElement).toBe(surface.querySelector("input"));
+  });
+
   it("renders a self-contained accessible name around slotted content", async () => {
     const surface = await mountSurface({
       content: `<h1 id="greeting">Hello</h1>`,
@@ -100,9 +113,11 @@ describe("modal-surface close contract", () => {
     surface.remove();
     expect(dialog.open).toBe(false);
     document.body.append(surface);
-    await surface.updateComplete;
-    await surface.updateComplete;
+    expect(await surface.updateComplete).toBe(true);
+    expect(surface.isUpdatePending).toBe(false);
     expect(dialog.open).toBe(true);
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.getAttribute("aria-hidden")).toBeNull();
     expect(surface.shadowRoot?.activeElement).toBe(dialogSection(surface));
   });
 
@@ -534,11 +549,20 @@ describe("modal-surface focus restoration", () => {
     expect(deepActiveElement()).toBe(lower.surface.querySelector("#lower-control"));
     expect(dialogSection(lower.surface).getAttribute("aria-modal")).toBe("true");
     expect(dialogSection(higher.surface).getAttribute("aria-hidden")).toBe("true");
+    expect(dialogSection(higher.surface).getAttribute("aria-modal")).toBe("false");
+    expect(higher.surface.isUpdatePending).toBe(false);
+
+    // A property render must not overwrite the registry's ownership state.
+    higher.surface.busy = true;
+    expect(await higher.surface.updateComplete).toBe(true);
+    expect(dialogSection(higher.surface).getAttribute("aria-busy")).toBe("true");
+    expect(dialogSection(higher.surface).getAttribute("aria-hidden")).toBe("true");
     lower.host.remove();
     await higher.surface.updateComplete;
     expect(deepActiveElement()).toBe(higherControl);
     expect(dialogSection(higher.surface).getAttribute("aria-modal")).toBe("true");
     expect(dialogSection(higher.surface).getAttribute("aria-hidden")).toBeNull();
+    expect(higher.surface.isUpdatePending).toBe(false);
 
     higher.host.remove();
     expect(document.activeElement).toBe(trigger);

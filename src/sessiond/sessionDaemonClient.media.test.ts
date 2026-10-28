@@ -60,6 +60,33 @@ describe("session daemon binary transport", () => {
     expect(requestedHeaders?.["accept-encoding"]).toBe("identity");
   });
 
+  it("forwards selected Range headers without enabling arbitrary header forwarding", async () => {
+    const server = http.createServer((request, response) => {
+      expect(request.headers.range).toBe("bytes=1-2");
+      expect(request.headers["accept-encoding"]).toBe("identity");
+      response.writeHead(206, { "content-type": "application/octet-stream", "content-range": "bytes 1-2/4" });
+      response.end(Buffer.from([0xff, 0x00]));
+    });
+    servers.push(server);
+    await listenTcp(server);
+    const result = await new SessionDaemonClient().requestStream("/resource", { headers: { range: "bytes=1-2" } });
+    expect(result.statusCode).toBe(206);
+    expect(result.headers["content-range"]).toBe("bytes 1-2/4");
+    const chunks: Buffer[] = [];
+    for await (const chunk of result.body) {
+      if (!Buffer.isBuffer(chunk)) throw new Error("Expected binary chunks");
+      chunks.push(chunk);
+    }
+    expect(Buffer.concat(chunks)).toEqual(Buffer.from([0xff, 0x00]));
+  });
+
+  it("bounds stalled response headers", async () => {
+    const server = http.createServer(() => { /* Deliberately never send headers. */ });
+    servers.push(server);
+    await listenTcp(server);
+    await expect(new SessionDaemonClient().requestStream("/resource", { timeoutMs: 20 })).rejects.toThrow("headers timed out");
+  });
+
   it("propagates cancellation after headers to a streaming response", async () => {
     let closeResponse: (() => void) | undefined;
     const closed = new Promise<void>((resolve) => { closeResponse = resolve; });

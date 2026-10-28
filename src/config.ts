@@ -1,9 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import type { PiWebAgentDirEnvSource, PiWebConfigValues, PiWebDeprecatedAgentInput } from "./shared/apiTypes.js";
 import { usesPiCodingAgentStateCompatibility } from "./shared/activeAgentProfile.js";
-import { parsePiWebConfig as parseBasePiWebConfig, piWebConfigRecord as basePiWebConfigRecord } from "./shared/piWebConfigParsing.js";
+import { parsePiWebConfig as parseBasePiWebConfig } from "./shared/piWebConfigParsing.js";
+import { parseSessionArchiveConfig } from "./shared/piWebConfigParsing.js";
+import { PI_WEB_CONFIG_DEFINITIONS, overlayPiWebConfig, parsePiWebEnvBoolean, piWebConfigEnvName, piWebConfigNamespaceFields, piWebConfigSettingPointers } from "./shared/configResolution.js";
+import { versionChecksDisabled } from "./shared/versionCheckPolicy.js";
+export { overlayPiWebConfig } from "./shared/configResolution.js";
 
 export type PiWebConfig = PiWebConfigValues;
 
@@ -11,7 +16,11 @@ export interface LoadedPiWebConfig {
   path: string;
   exists: boolean;
   config: PiWebConfig;
-  deprecatedAgentInputs: readonly PiWebDeprecatedAgentInput[];
+  /** Deployment-owned defaults, never included in writable config or saves. */
+  defaultsConfig?: PiWebConfig;
+  defaultsPath?: string;
+  /** Deprecated agent-configuration inputs detected in `env` and the loaded file. */
+  deprecatedAgentInputs: readonly DeprecatedAgentInput[];
 }
 
 export interface EffectivePiWebConfig extends Omit<PiWebConfig, "uploads" | "attachments" | "spawnSessions" | "subsessions" | "askUser" | "environmentFacts" | "agent" | "extensionDialogsTimeoutMs"> {
@@ -61,6 +70,7 @@ export const DEFAULT_ATTACHMENT_FOLDER = ".pi-web/attachments";
  * enabled.
  */
 export const DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS = 300_000;
+const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
 export const DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS = 10_000;
 export const DEFAULT_WORKBENCH_CAPABILITY_TIMEOUT_MS = 30_000;
 export const DEFAULT_WORKBENCH_SKILL_BUNDLE_MAX_BYTES = 10 * 1024 * 1024;
@@ -156,10 +166,7 @@ export function effectiveAttachmentsConfig(config: Pick<PiWebConfig, "attachment
 
 export function maxUploadBytes(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): number {
   const fromEnv = env["PI_WEB_MAX_UPLOAD_BYTES"];
-  if (fromEnv !== undefined && fromEnv !== "") {
-    const parsed = Number(fromEnv);
-    if (Number.isInteger(parsed) && parsed > 0) return parsed;
-  }
+  if (fromEnv !== undefined && fromEnv !== "") return parseMaxUploadBytes(fromEnv, "PI_WEB_MAX_UPLOAD_BYTES");
   if (config.maxUploadBytes !== undefined) return config.maxUploadBytes;
   return DEFAULT_MAX_UPLOAD_BYTES;
 }
@@ -186,13 +193,17 @@ export function piWebConfigPath(env: NodeJS.ProcessEnv = process.env, cwd = proc
 export function loadPiWebConfig(options: LoadOptions = {}): LoadedPiWebConfig {
   const env = options.env ?? process.env;
   const path = piWebConfigPath(env, options.cwd ?? process.cwd());
-  if (!existsSync(path)) return { path, exists: false, config: {}, deprecatedAgentInputs: detectDeprecatedAgentInputs(env) };
-
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (!isRecord(parsed)) throw new Error(`PI WEB config must be a JSON object: ${path}`);
-
-  const config = parsePiWebConfig(parsed, path);
-  return { path, exists: true, config, deprecatedAgentInputs: detectDeprecatedAgentInputs(env, config) };
+  const defaultsSelector = envValue(env, "PI_WEB_DEFAULTS_CONFIG");
+  const defaultsPath = defaultsSelector === undefined ? undefined : resolve(options.cwd ?? process.cwd(), defaultsSelector);
+  // A selected defaults file is deployment policy: a missing or corrupt file fails visibly.
+  const defaultsConfig = defaultsPath === undefined ? undefined : readConfig(defaultsPath);
+  const exists = existsSync(path);
+  const config = exists ? readConfig(path) : {};
+  return {
+    path, exists, config,
+    ...(defaultsPath !== undefined && defaultsConfig !== undefined ? { defaultsPath, defaultsConfig } : {}),
+    deprecatedAgentInputs: detectDeprecatedAgentInputs(env, overlayPiWebConfig(defaultsConfig ?? {}, config)),
+  };
 }
 
 export function effectivePiWebConfig(options: LoadOptions = {}): LoadedEffectivePiWebConfig {
@@ -201,36 +212,34 @@ export function effectivePiWebConfig(options: LoadOptions = {}): LoadedEffective
 
 export function resolveEffectivePiWebConfig(loaded: LoadedPiWebConfig, options: LoadOptions = {}): LoadedEffectivePiWebConfig {
   const env = options.env ?? process.env;
-  const host = env["PI_WEB_HOST"];
-  const port = env["PI_WEB_PORT"] ?? env["PORT"];
-  const allowedHosts = env["PI_WEB_ALLOWED_HOSTS"];
-  const maxUpload = env["PI_WEB_MAX_UPLOAD_BYTES"];
-  const agent = effectiveAgentConfig(env, loaded.config);
-  const workbenchIntegration = effectiveWorkbenchIntegrationConfig(env, loaded.config.workbenchIntegration);
-  const auditLog = effectiveAuditLogConfig(loaded.config.auditLog, env);
+  // These bootstrap policy aliases are not file settings, but invalid explicit
+  // values must fail startup rather than be discovered during a background check.
+  versionChecksDisabled(env);
+  const config = applyPiWebConfigEnv(overlayPiWebConfig(loaded.defaultsConfig ?? {}, loaded.config), env);
+  const agent = effectiveAgentConfig(env, config);
+  const workbenchIntegration = effectiveWorkbenchIntegrationConfig(env, config.workbenchIntegration);
+  const auditLog = effectiveAuditLogConfig(config.auditLog, env);
   return {
     ...loaded,
     config: {
-      ...loaded.config,
-      ...(host !== undefined && host !== "" ? { host } : {}),
-      ...(port !== undefined && port !== "" ? { port: parsePort(port, "PI_WEB_PORT") } : {}),
-      ...(allowedHosts !== undefined && allowedHosts !== "" ? { allowedHosts: parseAllowedHostsEnv(allowedHosts) } : {}),
-      ...(maxUpload !== undefined && maxUpload !== "" ? { maxUploadBytes: parseMaxUploadBytes(maxUpload, "PI_WEB_MAX_UPLOAD_BYTES") } : {}),
+      ...config,
       ...(workbenchIntegration === undefined ? {} : { workbenchIntegration }),
       auditLog,
-      uploads: effectiveUploadsConfig(loaded.config),
-      attachments: effectiveAttachmentsConfig(loaded.config),
+      uploads: effectiveUploadsConfig(config),
+      attachments: effectiveAttachmentsConfig(config),
       // Always resolved (on by default) so the effective config is the single
       // source of truth for the runtime state and the settings UI toggle.
-      spawnSessions: spawnSessionsEnabled(env, loaded.config),
-      // Resolved on by default so the effective config remains the single
-      // source of truth for the runtime state and the settings UI toggle.
-      subsessions: subsessionsEnabled(env, loaded.config),
+      spawnSessions: spawnSessionsEnabled({}, config),
+      // Resolved on by default like the other capabilities,
+      // so the effective config is the single source of truth for the runtime
+      // state and the settings UI toggle.
+      subsessions: subsessionsEnabled({}, config),
       // Always resolved (on by default); the user is present for every ask.
-      askUser: askUserEnabled(env, loaded.config),
-      environmentFacts: environmentFactsEnabled(env, loaded.config),
+      askUser: askUserEnabled({}, config),
+      // Always resolved (on by default); inert outside Docker deployments.
+      environmentFacts: environmentFactsEnabled({}, config),
       // Always resolved; the unattended-dialog safety valve, not a gate.
-      extensionDialogsTimeoutMs: loaded.config.extensionDialogsTimeoutMs ?? DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS,
+      extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs ?? DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS,
       agent: { command: agent.command, dir: agent.dir },
     },
   };
@@ -296,34 +305,113 @@ function positiveIntegerEnv(env: NodeJS.ProcessEnv, key: string): number | undef
 export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}): LoadedPiWebConfig {
   const env = options.env ?? process.env;
   const path = piWebConfigPath(env, options.cwd ?? process.cwd());
+  const defaultsSelector = envValue(env, "PI_WEB_DEFAULTS_CONFIG");
+  if (defaultsSelector !== undefined) {
+    const defaultsPath = resolve(options.cwd ?? process.cwd(), defaultsSelector);
+    const canonicalPath = (candidate: string): string => existsSync(candidate) ? realpathSync(candidate) : resolve(candidate);
+    if (canonicalPath(path) === canonicalPath(defaultsPath)) throw new Error("PI_WEB_CONFIG must not select the PI_WEB_DEFAULTS_CONFIG file");
+    // Validate deployment policy before touching the writable file.
+    readConfig(defaultsPath);
+  }
   const normalized = parsePiWebConfig(piWebConfigRecord(config), path);
   effectiveAgentConfig(env, normalized);
   const existing = readExistingConfigObject(path);
   if (existing["agent"] !== undefined) parseAgentConfig(existing["agent"], path);
-  delete existing["host"];
-  delete existing["port"];
-  delete existing["allowedHosts"];
-  delete existing["shortcuts"];
-  delete existing["defaultTheme"];
-  delete existing["defaultStreamingBehavior"];
-  delete existing["plugins"];
-  delete existing["pathAccess"];
-  delete existing["uploads"];
-  delete existing["attachments"];
-  delete existing["maxUploadBytes"];
-  delete existing["sessionNaming"];
-  delete existing["sessionArchive"];
-  delete existing["spawnSessions"];
-  delete existing["subsessions"];
-  delete existing["askUser"];
-  delete existing["respectProjectTrust"];
-  delete existing["environmentFacts"];
-  delete existing["agent"];
-  delete existing["workbenchIntegration"];
+  for (const key of [...Object.keys(PI_WEB_CONFIG_DEFINITIONS), "agent", "respectProjectTrust"]) {
+    if ((key === "normalAuth" || key === "auditLog" || key === "managementEmbed") && !Object.hasOwn(normalized, key)) continue;
+    Reflect.deleteProperty(existing, key);
+  }
   const merged = { ...existing, ...piWebConfigRecord(normalized) };
+  writeWritableConfig(path, merged);
+  return loadPiWebConfig(options);
+}
+
+/** Replace the resolved target atomically, preserving config symlinks and permissions. */
+function writeWritableConfig(path: string, config: Record<string, unknown>): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
-  return { path, exists: true, config: normalized, deprecatedAgentInputs: detectDeprecatedAgentInputs(env, normalized) };
+  const destination = existsSync(path) ? realpathSync(path) : path;
+  const mode = existsSync(destination) ? statSync(destination).mode & 0o777 : 0o600;
+  const temporary = join(dirname(destination), `.${basename(destination)}.${String(process.pid)}.${randomUUID()}.tmp`);
+  try {
+    writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode, flag: "wx" });
+    chmodSync(temporary, mode);
+    renameSync(temporary, destination);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
+
+function readConfig(path: string): PiWebConfig {
+  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (!isRecord(parsed)) throw new Error(`PI WEB config must be a JSON object: ${path}`);
+  return parsePiWebConfig(parsed, path);
+}
+
+function parseEnvJson(value: string, source: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed;
+  } catch (error) {
+    throw new Error(`${source} must contain valid JSON`, { cause: error });
+  }
+}
+
+function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv): { config: PiWebConfig; enforced: Record<string, string> } {
+  let config: PiWebConfig = {};
+  const enforced: Record<string, string> = {};
+  for (const [key, kind] of Object.entries(PI_WEB_CONFIG_DEFINITIONS)) {
+    const canonicalName = piWebConfigEnvName(key);
+    const name = key === "port" && env[canonicalName] === undefined ? "PORT" : canonicalName;
+    const value = env[name];
+    if (value === undefined) continue;
+    // Existing scalar overrides treat empty as unset; new strings (notably
+    // installationName) retain meaningful empty values. Booleans are strict.
+    if (value === "" && ["host", "port", "allowedHosts", "maxUploadBytes"].includes(key)) continue;
+    let parsed: unknown;
+    if (kind === "json") parsed = parseEnvJson(value, name);
+    else if (kind === "boolean") parsed = parsePiWebEnvBoolean(value, name);
+    else if (kind === "number") parsed = value === "" ? NaN : Number(value);
+    else if (kind === "allowedHosts") parsed = parseAllowedHostsEnv(value);
+    else parsed = value;
+    if (key === "plugins" && isRecord(parsed)) {
+      for (const [id, plugin] of Object.entries(parsed)) {
+        if (isRecord(plugin)) requireKnownConfigKeys(plugin, ["enabled", "settings"], `plugins.${id}`, name);
+      }
+    }
+    let override: PiWebConfig;
+    try {
+      override = parsePiWebConfig({ [key]: parsed }, name);
+    } catch (error) {
+      throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+    config = overlayPiWebConfig(config, override);
+    for (const pointer of piWebConfigSettingPointers(override)) enforced[pointer] = name;
+  }
+  const archiveDir = envValue(env, "PI_WEB_SESSION_ARCHIVE_DIR");
+  if (archiveDir !== undefined) {
+    config = overlayPiWebConfig(config, { sessionArchive: parseSessionArchiveConfig({ directory: archiveDir }, "PI_WEB_SESSION_ARCHIVE_DIR") });
+    enforced["/sessionArchive/directory"] = "PI_WEB_SESSION_ARCHIVE_DIR";
+  }
+  return { config, enforced };
+}
+
+/** Apply after project participation as well as machine overlays. Does not mutate inputs. */
+export function applyPiWebConfigEnv(config: PiWebConfig, env: NodeJS.ProcessEnv): PiWebConfig {
+  return overlayPiWebConfig(config, piWebConfigEnvOverrides(env).config);
+}
+
+/** JSON-pointer setting identifiers mapped to the controlling environment variable. */
+export function piWebConfigEnforcedSettings(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  return piWebConfigEnvOverrides(env).enforced;
+}
+
+/** Sources describe explicit settings only; omitted entries inherit built-in/feature defaults. */
+export function piWebConfigSources(loaded: LoadedPiWebConfig, options: LoadOptions = {}): Record<string, string> {
+  const sources: Record<string, string> = {};
+  for (const pointer of piWebConfigSettingPointers(loaded.defaultsConfig ?? {})) sources[pointer] = "defaults";
+  for (const pointer of piWebConfigSettingPointers(loaded.config)) sources[pointer] = "config";
+  Object.assign(sources, piWebConfigEnforcedSettings(options.env ?? process.env));
+  return sources;
 }
 
 function readExistingConfigObject(path: string): Record<string, unknown> {
@@ -334,22 +422,29 @@ function readExistingConfigObject(path: string): Record<string, unknown> {
 }
 
 function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
-  return {
-    ...basePiWebConfigRecord(config),
-    ...(config.askUser === undefined ? {} : { askUser: config.askUser }),
-    ...(config.environmentFacts === undefined ? {} : { environmentFacts: config.environmentFacts }),
-    ...(config.extensionDialogsTimeoutMs === undefined ? {} : { extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs }),
-    ...(config.agent !== undefined ? { agent: config.agent } : {}),
-  };
+  return Object.fromEntries(Object.entries(config).filter(([key, value]) => value !== undefined && (Object.hasOwn(PI_WEB_CONFIG_DEFINITIONS, key) || key === "agent")));
 }
 
-function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebConfig {
+function requireKnownConfigKeys(value: Record<string, unknown>, allowed: readonly string[], key: string, path: string): void {
+  const unknown = Object.keys(value).find((name) => !allowed.includes(name));
+  if (unknown !== undefined) throw new Error(`PI WEB config ${key} has unknown key ${JSON.stringify(unknown)}: ${path}`);
+}
+
+function requireNamespaceKeys(value: Record<string, unknown>, key: string, path: string): void {
+  requireKnownConfigKeys(value, piWebConfigNamespaceFields(key) ?? [], key, path);
+}
+
+export function parsePiWebConfig(value: Record<string, unknown>, path = "request", pathHost: AgentPathHost = "current"): PiWebConfig {
+  for (const key of ["pathAccess", "uploads", "attachments"]) {
+    const namespace = value[key];
+    if (isRecord(namespace)) requireNamespaceKeys(namespace, key, path);
+  }
   return {
     ...parseBasePiWebConfig(value, path),
     ...(value["askUser"] === undefined ? {} : { askUser: parseAskUser(value["askUser"], path) }),
     ...(value["environmentFacts"] === undefined ? {} : { environmentFacts: parseBooleanKey(value["environmentFacts"], "environmentFacts", path) }),
     ...(value["extensionDialogsTimeoutMs"] !== undefined ? { extensionDialogsTimeoutMs: parseExtensionDialogsTimeoutMs(value["extensionDialogsTimeoutMs"], path) } : {}),
-    ...(value["agent"] !== undefined ? { agent: parseAgentConfig(value["agent"], path) } : {}),
+    ...(value["agent"] !== undefined ? { agent: parseAgentConfig(value["agent"], path, pathHost) } : {}),
   };
 }
 
@@ -367,7 +462,7 @@ function parseMaxUploadBytes(value: unknown, key: string, path = "environment"):
  */
 export function spawnSessionsEnabled(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): boolean {
   const fromEnv = env["PI_WEB_SPAWN_SESSIONS"];
-  if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
+  if (fromEnv !== undefined) return parsePiWebEnvBoolean(fromEnv, "PI_WEB_SPAWN_SESSIONS");
   return config.spawnSessions ?? true;
 }
 
@@ -380,13 +475,13 @@ export function spawnSessionsEnabled(env: NodeJS.ProcessEnv = process.env, confi
  */
 export function subsessionsEnabled(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): boolean {
   const fromEnv = env["PI_WEB_SUBSESSIONS"];
-  if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
+  if (fromEnv !== undefined) return parsePiWebEnvBoolean(fromEnv, "PI_WEB_SUBSESSIONS");
   return config.subsessions ?? true;
 }
 
 export function environmentFactsEnabled(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): boolean {
   const fromEnv = env["PI_WEB_ENVIRONMENT_FACTS"];
-  if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
+  if (fromEnv !== undefined) return parsePiWebEnvBoolean(fromEnv, "PI_WEB_ENVIRONMENT_FACTS");
   return config.environmentFacts ?? true;
 }
 
@@ -401,8 +496,8 @@ function parseAskUser(value: unknown, path: string): boolean {
 }
 
 function parseExtensionDialogsTimeoutMs(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new Error(`PI WEB config extensionDialogsTimeoutMs must be a non-negative integer: ${path}`);
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > MAX_TIMER_TIMEOUT_MS) {
+    throw new Error(`PI WEB config extensionDialogsTimeoutMs must be a non-negative integer no greater than ${String(MAX_TIMER_TIMEOUT_MS)}: ${path}`);
   }
   return value;
 }
@@ -416,7 +511,7 @@ function parseExtensionDialogsTimeoutMs(value: unknown, path: string): number {
  */
 export function askUserEnabled(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): boolean {
   const fromEnv = env["PI_WEB_ASK_USER"];
-  if (fromEnv !== undefined && fromEnv !== "") return fromEnv === "1" || fromEnv.toLowerCase() === "true";
+  if (fromEnv !== undefined) return parsePiWebEnvBoolean(fromEnv, "PI_WEB_ASK_USER");
   return config.askUser ?? true;
 }
 
@@ -424,15 +519,20 @@ const OFFLINE_ENV_KEYS = ["PI_WEB_OFFLINE", "PI_OFFLINE"] as const;
 
 /**
  * Whether the operator asked PI WEB (or pi itself) to stay offline, meaning
- * background network access must be skipped. Matches the "set and non-empty"
- * semantics used for the other runtime-only env switches.
+ * background network access must be skipped. Both aliases use strict boolean
+ * parsing; false/0 no longer enable offline mode.
  *
  * Deliberately narrower than `piWebStatus`'s update-check suppression: the
  * `*_SKIP_VERSION_CHECK` keys only silence release lookups, while these keys ask
  * for no background network at all.
  */
 export function offlineModeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return OFFLINE_ENV_KEYS.some((key) => isEnvSet(env[key]));
+  // Validate every supplied alias, even if another alias already enables offline mode.
+  const values = OFFLINE_ENV_KEYS.map((key) => {
+    const value = env[key];
+    return value === undefined ? false : parsePiWebEnvBoolean(value, key);
+  });
+  return values.some(Boolean);
 }
 
 function parseString(value: unknown, key: string, path: string): string {
@@ -508,19 +608,17 @@ function isSafeAgentDirPath(value: string): boolean {
   return value !== "" && value === value.trim() && !hasControlCharacter(value);
 }
 
-function parsePort(value: unknown, key: string, path = "environment"): number {
-  const port = typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`PI WEB config ${key} must be an integer from 1 to 65535: ${path}`);
-  return port;
-}
-
 function parseAllowedHostsEnv(value: string): string[] | true {
-  if (value === "true") return true;
+  if (value.trim() === "true") return true;
+  if (["[", "{", "\"", "]"].some((prefix) => value.trimStart().startsWith(prefix)) || /^(false|null)$/.test(value.trim())) {
+    return parseBasePiWebConfig({ allowedHosts: parseEnvJson(value, "PI_WEB_ALLOWED_HOSTS") }, "PI_WEB_ALLOWED_HOSTS").allowedHosts ?? [];
+  }
   return value.split(",").map((host) => host.trim()).filter((host) => host !== "");
 }
 
 export function parsePathAccessConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["pathAccess"]> {
   if (!isRecord(value)) throw new Error(`PI WEB config pathAccess must be an object: ${path}`);
+  requireNamespaceKeys(value, "pathAccess", path);
   const allowedPaths = value["allowedPaths"];
   return {
     ...(allowedPaths !== undefined ? { allowedPaths: parseAllowedPaths(allowedPaths, path) } : {}),
@@ -534,6 +632,7 @@ function parseAllowedPaths(value: unknown, path: string): string[] {
 
 export function parseUploadsConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["uploads"]> {
   if (!isRecord(value)) throw new Error(`PI WEB config uploads must be an object: ${path}`);
+  requireNamespaceKeys(value, "uploads", path);
   const defaultFolder = value["defaultFolder"];
   return {
     ...(defaultFolder !== undefined ? { defaultFolder: parseWorkspaceRelativeFolder(defaultFolder, "uploads.defaultFolder", path) } : {}),
@@ -542,6 +641,7 @@ export function parseUploadsConfig(value: unknown, path: string): NonNullable<Pi
 
 export function parseAttachmentsConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["attachments"]> {
   if (!isRecord(value)) throw new Error(`PI WEB config attachments must be an object: ${path}`);
+  requireNamespaceKeys(value, "attachments", path);
   const defaultFolder = value["defaultFolder"];
   return {
     ...(defaultFolder !== undefined ? { defaultFolder: parseWorkspaceRelativeFolder(defaultFolder, "attachments.defaultFolder", path) } : {}),

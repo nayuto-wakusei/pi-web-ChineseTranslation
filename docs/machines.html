@@ -191,7 +191,7 @@ PI WEB gateway you opened
                 <li>Open the PI WEB instance you want to use as the gateway.</li>
                 <li>Open <strong>Actions → Add Machine</strong>.</li>
                 <li>Enter the remote PI WEB base URL, including <code>http://</code> or <code>https://</code>.</li>
-                <li>Accept the suggested name or enter a friendlier sidebar label.</li>
+                <li>Leave <strong>Local display name</strong> blank to use the remote machine's name, or enter a name to show only here.</li>
                 <li>Paste an optional bearer token if the remote endpoint requires one.</li>
               </ol>
               <p>
@@ -205,10 +205,29 @@ PI WEB gateway you opened
             </section>
 
             <section id="instance-identity">
-              <h2>这是哪个实例？</h2>
-              <p>已安装 PWA 没有浏览器地址栏或标签图标，PI WEB 自己显示身份。多机器时下拉列表显示每台机器的品牌图标，本地项显示网关地址；只有本地机器时静态标记显示实例图标及网关 host/部署路径。窄屏面包屑首项显示相同图标与地址的“机器”标记。普通浏览器已有地址栏，所以隐藏这些位置标记，只保留机器选择器。</p>
-              <p>地址标识服务此窗口的网关；所选机器决定项目、工作区和会话所在运行时。</p>
-              <p>开发部署使用紫色身份，包含 favicon、PWA 图标与名称 <strong>PI WEB (dev)</strong>。Docker 开发容器和源码 checkout 属于开发；包安装和 Docker runtime 使用青绿色。已安装 PWA 保留安装时捕获的图标/名称，部署类型改变后需重新安装 PWA。</p>
+              <h2>Which instance is this?</h2>
+              <p>
+                Set the <strong>Machine name</strong> in <strong>Settings → General</strong> for the selected machine. The local
+                entry uses that name, or <strong>PI-WEB</strong> when unnamed. With several machines, the selector shows
+                the selected machine's name; with only one, a static identity remains visible in both browsers and PWAs.
+                Narrow layouts show the same identity in the location bar. Installed PWAs also show the address because
+                they have no browser URL bar.
+              </p>
+              <p>
+                The address is the ground truth for which gateway serves the window; the selected machine decides which
+                runtime your projects, workspaces, and sessions live on.
+              </p>
+              <p>
+                Remote machines use their reported name unless you set a <strong>Local display name</strong>. Clear that
+                field to use the remote machine's name again. Existing saved names remain overrides. If discovery fails,
+                the last discovered name is retained for the gateway process lifetime, or <strong>PI-WEB</strong> is used.
+              </p>
+              <p>
+                The installed PWA uses the gateway's name, independently of the selected machine. Development deployments
+                append <strong>(dev)</strong> and recolor the favicon and PWA icons purple. Docker dev containers and
+                source checkouts count as development deployments; package installs and Docker runtime deployments stay
+                teal. Browser updates to existing launcher names and icons can be delayed; reinstall the PWA if needed.
+              </p>
             </section>
 
             <section id="what-is-proxied">

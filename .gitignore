@@ -1,5 +1,9 @@
 node_modules/
 dist/
+
+# Generated from the pinned material-icon-theme development dependency.
+/src/client/src/plugins/themes/material/generated.ts
+/src/client/src/plugins/themes/material/icons/
 .env
 .DS_Store
 *.log

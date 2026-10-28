@@ -7,7 +7,6 @@ import { api, trustApi, type WorkspaceTrustResponse } from "../api";
 import type { ProjectTrustChoice } from "../controllers/projectController";
 import { deepActiveElement, pressKey, requiredElement, settleRenderedDialog } from "./modalSurfaceTestSupport";
 import { ProjectDialog } from "./ProjectDialog";
-import { t } from "../i18n";
 
 beforeEach(() => {
   vi.spyOn(api, "projectDirectories").mockResolvedValue([]);
@@ -194,7 +193,7 @@ describe("project-dialog modal surface", () => {
     await settleRenderedDialog(dialog);
 
     expect(dialog.shadowRoot?.querySelector(".suggestions button")?.textContent).toContain("/work/proj/");
-    expect(dialog.shadowRoot?.textContent).not.toContain("正在加载文件夹…");
+    expect(dialog.shadowRoot?.textContent).not.toContain("Loading folders…");
   });
 
   it("distinguishes folder lookup failure from no results and retries the current machine and path", async () => {
@@ -210,16 +209,16 @@ describe("project-dialog modal surface", () => {
     });
     await settleRenderedDialog(dialog);
 
-    const noMatches = t("ui.projectDialog.noMatchingFoldersEnterANewPathTo", "No matching folders. Enter a new path to create one.");
+    const noMatches = "No matching folders. Enter a new path to create it.";
     expect(dialog.shadowRoot?.textContent).not.toContain(noMatches);
-    expect(descriptions(dialog, input)).toContain(t("ui.projectDialog.remoteFolders", "Folders on remote machine: {machineId}.", { machineId: "remote-box" }));
-    expect(descriptions(dialog, input)).toContain(t("ui.projectDialog.folderLookupFailed", "Could not load folders on this machine. Check the connection and retry, or enter a folder path."));
+    expect(descriptions(dialog, input)).toContain("Folders on remote machine: remote-box.");
+    expect(descriptions(dialog, input)).toContain("Could not load folders on this machine. Check the connection and retry, or enter a folder path.");
     expect(dialog.shadowRoot?.querySelector("#project-folder-error")?.getAttribute("role")).toBe("alert");
     // A failed lookup does not mean that the typed path is invalid.
     expect(input.getAttribute("aria-invalid")).not.toBe("true");
 
     vi.mocked(api.projectDirectories).mockResolvedValue([]);
-    buttonByText(dialog, t("ui.projectDialog.retryFolderLookup", "Retry folder lookup")).click();
+    buttonByText(dialog, "Retry folder lookup").click();
     await vi.waitFor(() => {
       expect(dialog.shadowRoot?.textContent).toContain(noMatches);
     });
@@ -242,15 +241,15 @@ describe("project-dialog modal surface", () => {
     await settleRenderedDialog(dialog);
     expect(trustCheckbox(dialog).disabled).toBe(true);
     expect(trustCheckbox(dialog).checked).toBe(false);
-    expect(descriptions(dialog, trustCheckbox(dialog))).toContain(t("ui.projectDialog.trustCodeWarning", "Extensions and packages can execute code on this machine. Only trust projects you know and trust."));
-    const trustFailure = t("ui.projectDialog.trustCheckFailed", "Could not check project trust: {error}. Retry to load the existing trust decision.", { error: "Offline" });
+    expect(descriptions(dialog, trustCheckbox(dialog))).toContain("Extensions and packages can execute code on this machine. Only trust projects you know and trust.");
+    const trustFailure = "Could not check project trust: Offline. Retry to load the existing trust decision.";
     expect(descriptions(dialog, trustCheckbox(dialog))).toContain(trustFailure);
     pressKey(input, "Enter");
     expect(onSubmit).toHaveBeenCalledWith("/work/proj", true, { trusted: false, changed: false });
 
     let resolveTrust: ((value: { path: string; decision: boolean; trusted: boolean }) => void) | undefined;
     vi.mocked(trustApi.projectTrust).mockReturnValue(new Promise((resolve) => { resolveTrust = resolve; }));
-    buttonByText(dialog, t("ui.projectDialog.retryTrustCheck", "Retry trust check")).click();
+    buttonByText(dialog, "Retry trust check").click();
     await settleRenderedDialog(dialog);
     expect(trustCheckbox(dialog).disabled).toBe(true);
     expect(dialog.shadowRoot?.querySelector("#project-trust-error")).toBeNull();
@@ -259,7 +258,7 @@ describe("project-dialog modal surface", () => {
     expect(trustApi.projectTrust).toHaveBeenLastCalledWith("/work/proj", "local");
     expect(trustCheckbox(dialog).checked).toBe(true);
     expect(descriptions(dialog, trustCheckbox(dialog))).not.toContain(trustFailure);
-    expect(dialog.shadowRoot?.querySelector("header button")?.getAttribute("aria-label")).toBe(t("ui.projectDialog.closeAddProject", "Close add project"));
+    expect(dialog.shadowRoot?.querySelector("header button")?.getAttribute("aria-label")).toBe("Close add project");
   });
 
   it("keeps showing folder suggestions while a slower trust read is still in flight", async () => {
@@ -277,7 +276,7 @@ describe("project-dialog modal surface", () => {
     resolveTrust?.({ path: "/work/proj", decision: null, trusted: false });
     await settleRenderedDialog(dialog);
 
-    expect(dialog.shadowRoot?.textContent).not.toContain("正在加载文件夹…");
+    expect(dialog.shadowRoot?.textContent).not.toContain("Loading folders…");
   });
 
   it("explains what trusting a project means and links to the project-trust documentation", async () => {
@@ -285,16 +284,16 @@ describe("project-dialog modal surface", () => {
 
     const hint = dialog.shadowRoot?.querySelector<HTMLElement>(".trust-hint");
     expect(hint).not.toBeNull();
-    expect(hint?.textContent).toContain(".pi 设置");
-    expect(hint?.textContent).toContain("扩展");
-    expect(hint?.textContent).toContain("技能");
+    expect(hint?.textContent).toContain(".pi settings");
+    expect(hint?.textContent).toContain("Extension");
+    expect(hint?.textContent).toContain("skills");
     expect(hint?.textContent).toContain("包");
     // The explanation stays short and links to the docs instead of being verbose.
     const link = hint?.querySelector<HTMLAnchorElement>("a");
     expect(link?.getAttribute("href")).toBe("https://pi.dev/docs/latest/security");
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(link?.getAttribute("rel")).toBe("noreferrer");
-    expect(link?.textContent).toBe("了解项目信任");
+    expect(link?.textContent).toBe("Learn about project trust");
   });
 });
 

@@ -4,10 +4,12 @@ x-pi-web-dev-build: &pi-web-dev-build
   context: ..
   dockerfile: docker/Dockerfile.dev
   args:
-    OPENSUSE_IMAGE: ${PI_WEB_OPENSUSE_IMAGE:-opensuse/tumbleweed}
-    NODEJS_MAJOR: ${PI_WEB_NODEJS_MAJOR:-22}
-    NODEJS_REPO: ${PI_WEB_NODEJS_REPO:-auto}
-    PI_WEB_EXTRA_ZYPPER_PACKAGES: ${PI_WEB_EXTRA_ZYPPER_PACKAGES:-}
+    UBUNTU_IMAGE: ${PI_WEB_UBUNTU_IMAGE:-ubuntu:26.04}
+    NODE_IMAGE: ${PI_WEB_NODE_IMAGE:-node:22.22.2-bookworm-slim}
+    PI_WEB_EXTRA_APT_PACKAGES: ${PI_WEB_EXTRA_APT_PACKAGES:-}
+    DOCKER_CLI_VERSION: ${PI_WEB_DOCKER_CLI_VERSION:-29-cli}
+    MISE_VERSION: ${PI_WEB_MISE_VERSION:-2026.10.17}
+    GIT_VERSION: ${PI_WEB_GIT_VERSION:-}
     PI_WEB_UID: ${PI_WEB_UID:-1000}
     PI_WEB_GID: ${PI_WEB_GID:-1000}
 
@@ -44,12 +46,12 @@ x-pi-web-dev-data-volume: &pi-web-dev-data-volume
 x-pi-web-dev-checkout-volume: &pi-web-dev-checkout-volume
   type: bind
   source: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}
-  target: /workspace
+  target: /usr/local/lib/node_modules/@chainingintention/pi-web-cn
 
 x-pi-web-dev-dependency-volume: &pi-web-dev-dependency-volume
   type: volume
   source: node_modules
-  target: /workspace/node_modules
+  target: /usr/local/lib/node_modules/@chainingintention/pi-web-cn/node_modules
   volume:
     nocopy: true
 
@@ -60,11 +62,19 @@ x-pi-web-dev-init-volumes: &pi-web-dev-init-volumes
   - *pi-web-dev-dependency-volume
   - *pi-web-dev-data-volume
 
-# One checkout and one dependency volume, visible at both container paths.
-# Compose merges mounts by target when the host checkout is already /workspace.
+# Runtime imports use the production package path; browser builds use a fixed
+# source path outside node_modules. All aliases share the dependency volume.
 x-pi-web-dev-volumes: &pi-web-dev-volumes
   - *pi-web-dev-checkout-volume
   - *pi-web-dev-dependency-volume
+  - type: bind
+    source: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}
+    target: /build/pi-web
+  - type: volume
+    source: node_modules
+    target: /build/pi-web/node_modules
+    volume:
+      nocopy: true
   - type: bind
     source: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}
     target: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}
@@ -84,8 +94,9 @@ services:
       - -lc
       - |
         set -euo pipefail
+        # Prepare only managed roots; never walk persistent user tool stores.
         mkdir -p /data/home /data/config /data/npm-cache /data/pi-web /data/pi-agent
-        chown -R "${PI_WEB_UID:-1000}:${PI_WEB_GID:-1000}" /data
+        chown "${PI_WEB_UID:-1000}:${PI_WEB_GID:-1000}" /data /data/home /data/config /data/npm-cache /data/pi-web /data/pi-agent
         /usr/local/sbin/pi-web-dev-sync-node-modules
     user: "0:0"
     security_opt:
@@ -98,8 +109,8 @@ services:
   sessiond:
     build: *pi-web-dev-build
     image: ${PI_WEB_DEV_IMAGE:-pi-web:dev}
-    command: ["npm", "run", "start:sessiond"]
-    working_dir: /workspace
+    command: ["pi-web-service", "scripts/dev-sessiond.mjs"]
+    working_dir: /usr/local/lib/node_modules/@chainingintention/pi-web-cn
     depends_on:
       web:
         condition: service_healthy
@@ -121,8 +132,8 @@ services:
   web:
     build: *pi-web-dev-build
     image: ${PI_WEB_DEV_IMAGE:-pi-web:dev}
-    command: ["bash", "-lc", "trap 'kill 0' EXIT; npm run dev:web & npm run dev:client & wait"]
-    working_dir: /workspace
+    command: ["bash", "-c", "trap 'kill 0' EXIT; (pi-web-service node_modules/typescript/bin/tsc -p tsconfig.plugins.json && pi-web-service scripts/dev-web.mjs) & (cd /build/pi-web && pi-web-service node_modules/vite/bin/vite.js --host 0.0.0.0) & wait"]
+    working_dir: /usr/local/lib/node_modules/@chainingintention/pi-web-cn
     depends_on:
       data-init:
         condition: service_completed_successfully

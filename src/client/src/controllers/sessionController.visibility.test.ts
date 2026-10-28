@@ -161,7 +161,7 @@ describe("SessionController deferred chat loading", () => {
     test.snapshot.resolve(snapshot(oldSession));
     await test.controller.loadSelectedSession();
 
-    expect(test.api.transcriptSnapshot).toHaveBeenCalledExactlyOnceWith(oldSession, { limit: 100 }, "remote");
+    expect(test.api.transcriptSnapshot).toHaveBeenCalledExactlyOnceWith(oldSession, expect.objectContaining({ limit: 100, timeoutMs: 10_000 }), "remote");
     expect(test.ready).toHaveBeenCalledWith({ machineId: "remote", session: oldSession });
   });
 

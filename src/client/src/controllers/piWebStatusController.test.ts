@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { localization } from "../localization/browser";
 import type { Machine, PiWebReleaseStatus, PiWebStatusResponse } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { PiWebStatusController, type PiWebStatusControllerDependencies } from "./piWebStatusController";
+
+afterEach(async () => {
+  await localization.setPreferences({ language: "en", formatLocale: "en" });
+});
 
 type StatusApi = NonNullable<PiWebStatusControllerDependencies["api"]>;
 
@@ -64,8 +69,8 @@ describe("PiWebStatusController", () => {
   });
 
   it.each([
-    [{ error: "registry unavailable" }, "PI WEB 更新检查失败：registry unavailable"],
-    [{ skipped: true }, "已跳过 PI WEB 更新检查"],
+    [{ error: "registry unavailable" }, "PI WEB update check failed: registry unavailable"],
+    [{ skipped: true }, "PI WEB update check was skipped"],
   ] as const)("applies status and rejects an unsuccessful manual check", async (release, message) => {
     const harness = createHarness();
     harness.checkForUpdates.mockResolvedValue(status("checked", release));
@@ -73,6 +78,29 @@ describe("PiWebStatusController", () => {
     await expect(harness.controller.checkForUpdates()).rejects.toThrow(message);
 
     expect(harness.state().piWebStatus?.generatedAt).toBe("checked");
+  });
+
+  it.each(["failed", "skipped"] as const)("keeps generated %s check feedback live without translating registry diagnostics", async (outcome) => {
+    const harness = createHarness();
+    const detail = "PI WEB update check failed: <raw/日本語>";
+    harness.checkForUpdates.mockResolvedValue(status("checked", outcome === "failed" ? { error: detail } : { skipped: true }));
+    const error: unknown = await harness.controller.checkForUpdates().catch((failure: unknown) => failure);
+    if (!(error instanceof Error)) throw new Error("Expected manual check failure");
+    const english = error.message;
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(error.message).not.toBe(english);
+      if (outcome === "failed") expect(error.message).toContain(detail);
+    }
+  });
+
+  it("passes transport errors through unchanged", async () => {
+    const harness = createHarness();
+    const failure = new Error("PI WEB update check was skipped");
+    harness.checkForUpdates.mockRejectedValue(failure);
+    await localization.setPreferences({ language: "ar-XB", formatLocale: "en" });
+    await expect(harness.controller.checkForUpdates()).rejects.toBe(failure);
+    expect(failure.message).toBe("PI WEB update check was skipped");
   });
 
   it("clears current status and reports periodic refresh failures", async () => {

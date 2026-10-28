@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 import { installPopoverFake } from "./anchoredPopup.testSupport";
 installPopoverFake();
-import { render, type TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo, SessionStatus } from "../api";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
@@ -46,7 +45,7 @@ describe("sessionRowActivityKind", () => {
     list.shadowRoot?.querySelector<HTMLButtonElement>(".action-menu-toggle")?.click();
     await list.updateComplete;
     const reloadButton = (): HTMLButtonElement => {
-      const button = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-panel button") ?? [])].find((item) => item.textContent.includes("从磁盘重新加载"));
+      const button = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-panel button") ?? [])].find((item) => item.textContent.includes("Reload from disk"));
       if (button === undefined) throw new Error("Missing reload action");
       return button;
     };
@@ -154,6 +153,57 @@ describe("session action eligibility", () => {
 });
 
 describe("mark-as-read actions", () => {
+  it("offers Mark as unread for a read current session without selecting it or mutating unread state", async () => {
+    const read = session("read");
+    const list = sessionList([read], new Set());
+    list.selected = read;
+    list.onMarkUnread = vi.fn();
+    list.onMarkRead = vi.fn();
+    list.onSelect = vi.fn();
+
+    await openSessionMenu(list, read.id);
+    const markUnread = list.shadowRoot?.querySelector<HTMLButtonElement>('button[title="Mark session as unread"]');
+    expect(markUnread?.textContent).toBe("Mark as unread");
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as read"]')).toBeNull();
+    markUnread?.click();
+    await list.updateComplete;
+
+    expect(list.onMarkUnread).toHaveBeenCalledExactlyOnceWith(read);
+    expect(list.onMarkRead).not.toHaveBeenCalled();
+    expect(list.onSelect).not.toHaveBeenCalled();
+    expect(list.unreadSessionIds.size).toBe(0);
+    expect(list.shadowRoot?.querySelector(".action-menu-panel")).toBeNull();
+
+    list.unreadSessionIds = new Set([read.id]);
+    await openSessionMenu(list, read.id);
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as unread"]')).toBeNull();
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as read"]')).not.toBeNull();
+  });
+
+  it.each([
+    ["cached", markCachedNewSessionInfo(session("ineligible"))],
+    ["transient", session("ineligible", { persisted: false })],
+    ["archived", session("ineligible", { archived: true })],
+    ["agent child", session("ineligible", { parentSessionPath: "/sessions/missing.jsonl", agentSubsession: true })],
+  ])("does not offer Mark as unread for a read %s session", async (_kind, ineligible) => {
+    const list = sessionList([ineligible], new Set());
+    document.body.append(list);
+    await list.updateComplete;
+    if (ineligible.archived === true) {
+      list.shadowRoot?.querySelector<HTMLButtonElement>(".subheading .section-toggle")?.click();
+      await list.updateComplete;
+    }
+    await openSessionMenu(list, ineligible.id);
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as unread"]')).toBeNull();
+  });
+
+  it("offers Mark as unread for an ordinary fork, not just root sessions", async () => {
+    const fork = session("fork", { parentSessionPath: "/sessions/missing.jsonl" });
+    const list = sessionList([fork], new Set());
+    await openSessionMenu(list, fork.id);
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as unread"]')).not.toBeNull();
+  });
+
   it("offers Mark as read in the menu of an unread current session and forwards it", async () => {
     const unread = session("unread");
     const list = sessionList([unread, session("read")], new Set([unread.id]));
@@ -211,25 +261,30 @@ describe("mark-as-read actions", () => {
     expect(markReadMenuButton(list)).toBeUndefined();
   });
 
-  it("enables bulk Mark read only when a selected session is unread and forwards only the unread selection", () => {
+  it("enables bulk Mark read only when a selected session is unread and forwards only the unread selection", async () => {
     const unreadA = session("unread-a");
     const readB = session("read-b");
     const unreadC = session("unread-c");
     const list = sessionList([unreadA, readB, unreadC], new Set([unreadA.id, unreadC.id]));
     const onMarkReadMany = vi.fn<(sessions: SessionInfo[]) => void>();
     list.onMarkReadMany = onMarkReadMany;
-    setComponentState(list, "selectionScopes", new Set(["current"]));
-
-    setComponentState(list, "selectedSessionIds", new Set([readB.id]));
-    const disabledButton = markReadButton(renderList(list));
-    expect(disabledButton.disabled).toBe(true);
-    disabledButton.click(new Event("click"));
+    document.body.append(list);
+    await list.updateComplete;
+    list.shadowRoot?.querySelector<HTMLButtonElement>(".bulk-select-entry")?.click();
+    await list.updateComplete;
+    const boxes = [...(list.shadowRoot?.querySelectorAll<HTMLInputElement>(".session-checkbox") ?? [])];
+    boxes[1]?.click();
+    await list.updateComplete;
+    const markRead = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".bulk-actions button") ?? [])].find((button) => button.textContent === "Mark read");
+    expect(markRead?.disabled).toBe(true);
+    markRead?.click();
     expect(onMarkReadMany).not.toHaveBeenCalled();
 
-    setComponentState(list, "selectedSessionIds", new Set([unreadA.id, readB.id, unreadC.id]));
-    const enabledButton = markReadButton(renderList(list));
-    expect(enabledButton.disabled).toBe(false);
-    enabledButton.click(new Event("click"));
+    boxes[0]?.click();
+    boxes[2]?.click();
+    await list.updateComplete;
+    expect(markRead?.disabled).toBe(false);
+    markRead?.click();
     expect(onMarkReadMany).toHaveBeenCalledWith([unreadA, unreadC]);
   });
 });
@@ -308,14 +363,10 @@ function sessionList(sessions: SessionInfo[], unreadSessionIds: ReadonlySet<stri
   return list;
 }
 
-function renderList(list: SessionList): TemplateResult {
-  return list.render();
-}
-
-async function openSessionMenu(list: SessionList, session: SessionInfo): Promise<void> {
+async function openSessionMenu(list: SessionList, session: SessionInfo | string): Promise<void> {
   if (!list.isConnected) document.body.append(list);
   await list.updateComplete;
-  const row = Array.from(list.shadowRoot?.querySelectorAll("[title]") ?? []).find((element) => element.getAttribute("title") === session.path);
+  const row = Array.from(list.shadowRoot?.querySelectorAll("[data-session-id]") ?? []).find((element) => element.getAttribute("data-session-id") === (typeof session === "string" ? session : session.id));
   const toggle = row?.querySelector<HTMLButtonElement>(".action-menu-toggle");
   if (toggle === null || toggle === undefined) throw new Error("Missing session menu toggle");
   toggle.click();
@@ -323,7 +374,7 @@ async function openSessionMenu(list: SessionList, session: SessionInfo): Promise
 }
 
 function markReadMenuButton(list: SessionList): HTMLButtonElement | undefined {
-  return Array.from(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-panel button") ?? []).find((button) => button.textContent.trim() === "标记为已读");
+  return Array.from(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-panel button") ?? []).find((button) => button.textContent.trim() === "Mark as read");
 }
 
 function componentState(list: SessionList, property: string): unknown {
@@ -332,15 +383,6 @@ function componentState(list: SessionList, property: string): unknown {
 
 function setComponentState(list: SessionList, property: string, value: unknown): void {
   if (!Reflect.set(list, property, value)) throw new Error(`Could not set session list property ${property}`);
-}
-
-function markReadButton(template: TemplateResult): { disabled: boolean; click: (event: Event) => void } {
-  const host = document.createElement("div");
-  document.body.append(host);
-  render(template, host);
-  const button = Array.from(host.querySelectorAll("button")).find((item) => item.textContent.trim() === "标记已读");
-  if (button === undefined) throw new Error("Expected bulk mark-read button");
-  return { disabled: button.disabled, click: () => { button.click(); } };
 }
 
 function sessionStatus(sessionId: string, overrides: Partial<SessionStatus> = {}): SessionStatus {
@@ -379,7 +421,7 @@ it("orders archived rows by activity immediately after archiving while preservin
   await list.updateComplete;
   const root = list.shadowRoot;
   if (root === null) throw new Error("Missing session list shadow root");
-  const toggle = [...root.querySelectorAll<HTMLButtonElement>(".section-toggle")].find((button) => button.textContent.includes("已归档"));
+  const toggle = [...root.querySelectorAll<HTMLButtonElement>(".section-toggle")].find((button) => button.textContent.includes("Archived"));
   if (toggle === undefined) throw new Error("Missing archive toggle");
   toggle.click();
   await list.updateComplete;

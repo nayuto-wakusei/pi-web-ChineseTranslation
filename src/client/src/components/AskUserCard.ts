@@ -3,11 +3,13 @@ import { uiFormStyles } from "./ui/formStyles";
 import { uiTranscriptStyles } from "./ui/transcriptStyles";
 import { uiTranscriptCardStyles } from "./ui/transcriptCardStyles";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
-import { t } from "../i18n.js";
+import { localization, LocalizationController } from "../localization/browser";
+import definitions from "./askUser.messages";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 import {
+  ASK_USER_COMMENT_MAX_LENGTH,
   ASK_USER_OTHER_TEXT_MAX_LENGTH,
   type AskUserOutcome,
   type AskUserQuestion,
@@ -17,6 +19,8 @@ import {
 } from "../../../shared/apiTypes";
 import {
   answeredCount,
+  isCommentOpen,
+  isCustomAnswerSelected,
   loadAskDraft,
   saveAskDraft,
   toSubmission,
@@ -25,11 +29,22 @@ import {
   type AskDraftAnswers,
 } from "../askDrafts";
 
+export const askUserMessages = localization.registerMessages("core.askUser", definitions);
+
+/** Structured outcome fields own browser presentation; the stored summary is model-facing text. */
+export function askUserOutcomeSummary(outcome: AskUserOutcome): string {
+  const counts = { answered: outcome.answeredCount, total: outcome.questions.length };
+  return outcome.unansweredIds.length === 0
+    ? askUserMessages.t("completeSummary", counts)
+    : askUserMessages.t("partialSummary", { ...counts, ids: localization.list(outcome.unansweredIds) });
+}
+
 export type AskUserSubmitCallback = (askId: string, submission: AskUserSubmission) => void | Promise<void>;
 
 interface DisplayedRecordAnswer {
   values: string[];
   otherText?: string;
+  comment?: string;
   fromDraft: boolean;
 }
 
@@ -44,6 +59,7 @@ export class AskUserCard extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @property({ attribute: false }) ask?: AskUserRequest;
@@ -84,9 +100,9 @@ export class AskUserCard extends LitElement {
     return html`
       <article class="ui-transcript-surface card open-card" aria-labelledby="ask-user-heading">
         <header class="ui-transcript-card-header card-header">
-          <h2 id="ask-user-heading">${t("ui.askUserCard.questions", "Questions")}</h2>
+          <h2 id="ask-user-heading">${askUserMessages.t("questions")}</h2>
           <span class="ui-transcript-card-status header-status" role="status" aria-live="polite" aria-atomic="true">
-            ${t("ui.extensionDialogCard.answered", "Answered")} ${count}/${ask.questions.length}
+            ${askUserMessages.t("progress", { answered: count, total: ask.questions.length })}
           </span>
         </header>
         <form class="ask-form" @submit=${(event: SubmitEvent) => { this.handleSubmit(event, ask); }}>
@@ -95,12 +111,12 @@ export class AskUserCard extends LitElement {
           </div>
           <footer class="form-footer">
             <button class="ui-button ui-button--compact secondary-action skip-questions" type="button" ?disabled=${this.submitting}
-              @click=${() => { this.submitAnswers(ask, { answers: [] }); }}>${t("ui.askUserCard.skipQuestions", "Skip questions")}</button>
+              @click=${() => { this.submitAnswers(ask, { answers: [] }); }}>${askUserMessages.t("skip")}</button>
             ${this.confirmingPartialSubmit && unanswered.length > 0
               ? this.renderPartialSubmitConfirmation(ask, unanswered)
               : html`
                   <button class="ui-button ui-button--primary primary-action" type="submit" ?disabled=${this.submitting}>
-                    ${this.submitting ? t("ui.askUserCard.sending", "Sending…") : t("ui.askUserCard.sendAnswers", "Send answers")}
+                    ${askUserMessages.t(this.submitting ? "sending" : "send")}
                   </button>
                 `}
           </footer>
@@ -114,7 +130,10 @@ export class AskUserCard extends LitElement {
     const answered = answeredCount([question], this.answers) === 1;
     const detailId = question.detail === undefined ? undefined : this.questionDetailId(index);
     const freeTextOnly = question.options.length === 0;
-    const customSelected = freeTextOnly || this.isOtherSelected(question, answer);
+    const customSelected = isCustomAnswerSelected(question, answer);
+    const commentSelected = !customSelected && question.options.some((option) => answer?.values.includes(option.value) === true);
+    const commentOpen = commentSelected && isCommentOpen(answer);
+    const textInputId = customSelected ? this.otherInputId(index) : this.commentInputId(index);
     const inputType = question.multiple === true ? "checkbox" : "radio";
     return html`
       <fieldset
@@ -124,10 +143,10 @@ export class AskUserCard extends LitElement {
         tabindex="-1"
       >
         <legend>
-          <span class="question-number">${String(index + 1)}.</span>
-          <span>${question.question}</span>
+          <span class="question-number">${askUserMessages.t("questionNumber", { number: index + 1 })}</span>
+          <span dir="auto">${question.question}</span>
         </legend>
-        ${question.detail === undefined ? null : html`<p class="question-detail" id=${detailId}>${question.detail}</p>`}
+        ${question.detail === undefined ? null : html`<p class="question-detail" dir="auto" id=${detailId}>${question.detail}</p>`}
         <div class="options">
           ${question.options.map((option) => html`
             <label class="option">
@@ -139,8 +158,8 @@ export class AskUserCard extends LitElement {
                 @change=${(event: Event) => { this.changeOption(question, option.value, event); }}
               />
               <span class="option-copy">
-                <span class="option-label">${option.label}</span>
-                ${option.detail === undefined ? null : html`<span class="option-detail">${option.detail}</span>`}
+                <span class="option-label" dir="auto">${option.label}</span>
+                ${option.detail === undefined ? null : html`<span class="option-detail" dir="auto">${option.detail}</span>`}
               </span>
             </label>
           `)}
@@ -153,20 +172,34 @@ export class AskUserCard extends LitElement {
                 .checked=${customSelected}
                 @change=${(event: Event) => { this.changeOther(question, index, event); }}
               />
-              <span class="option-copy"><span class="option-label">${t("ui.main.custom", "Custom")}</span></span>
+              <span class="option-copy"><span class="option-label">${askUserMessages.t("custom")}</span></span>
             </label>
           `}
-          ${customSelected ? html`
-            <label class="other-answer" for=${this.otherInputId(index)}>
-              <span>${t("ui.askUserCard.customAnswer", "Custom answer")}</span>
-              <textarea class="ui-input"
-                id=${this.otherInputId(index)}
-                rows="3"
-                maxlength=${String(ASK_USER_OTHER_TEXT_MAX_LENGTH)}
-                .value=${answer?.otherText ?? ""}
-                @input=${(event: Event) => { this.changeOtherText(question, event); }}
+          ${commentSelected && !commentOpen ? html`
+            <button class="ui-button ui-button--small add-comment" type="button"
+              @click=${() => { void this.addComment(question, index); }}>${askUserMessages.t("addComment")}</button>
+          ` : null}
+          ${customSelected || commentOpen ? html`
+            <div class="answer-text">
+              <div class="answer-text-header">
+                <label for=${textInputId}>${askUserMessages.t(customSelected ? "customAnswer" : "comment")}</label>
+                ${customSelected ? null : html`
+                  <button class="ui-button ui-button--small ui-button--icon" type="button"
+                    aria-label=${askUserMessages.t("closeComment")} title=${askUserMessages.t("closeCommentHint")}
+                    @click=${() => { void this.closeComment(question, index); }}>×</button>
+                `}
+              </div>
+              <textarea class="ui-input" dir="auto"
+                id=${textInputId}
+                rows=${customSelected ? "3" : "2"}
+                maxlength=${String(customSelected ? ASK_USER_OTHER_TEXT_MAX_LENGTH : ASK_USER_COMMENT_MAX_LENGTH)}
+                .value=${(customSelected ? answer?.otherText : answer?.comment) ?? ""}
+                @input=${(event: Event) => {
+                  if (customSelected) this.changeOtherText(question, event);
+                  else this.changeComment(question, event);
+                }}
               ></textarea>
-            </label>
+            </div>
           ` : null}
         </div>
       </fieldset>
@@ -175,19 +208,20 @@ export class AskUserCard extends LitElement {
 
   private renderPartialSubmitConfirmation(ask: AskUserRequest, unanswered: AskUserQuestion[]): TemplateResult {
     return html`
-      <div class="partial-confirmation" role="group" aria-label="${t("ui.askUserCard.confirmPartialAnswers", "Confirm partial answers")}">
-        <p>
-          <strong>${t("ui.askUserCard.theFollowingQuestionsAreUnanswered", "The following questions are unanswered:")}</strong>
-          ${unanswered.map((question, index) => html`${index === 0 ? " " : ", "}<button
+      <div class="partial-confirmation" role="group" aria-label=${askUserMessages.t("confirmPartial")}>
+        <div class="partial-prompt">
+          <p>${askUserMessages.t("partialPrompt")}</p>
+          <ul>${unanswered.map((question) => html`<li><button
             class="question-jump"
             type="button"
             @click=${() => { this.focusQuestion(ask.questions.indexOf(question)); }}
-          >${question.question}</button>`)}?
-        </p>
+            dir="auto"
+          >${question.question}</button></li>`)}</ul>
+        </div>
         <div class="confirmation-actions">
-          <button class="ui-button ui-button--compact secondary-action" type="button" @click=${() => { this.keepEditing(ask, unanswered); }}>${t("ui.askUserCard.keepEditing", "Keep editing")}</button>
+          <button class="ui-button ui-button--compact secondary-action" type="button" @click=${() => { this.keepEditing(ask, unanswered); }}>${askUserMessages.t("keepEditing")}</button>
           <button class="ui-button ui-button--primary primary-action send-anyway" type="button" ?disabled=${this.submitting} @click=${() => { this.submitAnswers(ask); }}>
-            ${this.submitting ? t("ui.askUserCard.sending", "Sending…") : t("ui.askUserCard.sendAnyway", "Send anyway")}
+            ${askUserMessages.t(this.submitting ? "sending" : "sendAnyway")}
           </button>
         </div>
       </div>
@@ -197,13 +231,13 @@ export class AskUserCard extends LitElement {
   private renderClosedAsk(ask: AskUserRequest): TemplateResult {
     return html`
       <details class="ui-transcript-surface card closed-card">
-        <summary class="ui-transcript-card-header card-header"><h2><span class="disclosure-indicator" aria-hidden="true">▸</span> ${t("ui.askUserCard.questions", "Questions")}</h2><span class="ui-transcript-card-status header-status">${t("ui.askUserCard.closedQuestions", "Closed · {count} questions", { count: ask.questions.length })}</span></summary>
-        ${this.outcomes.map((outcome) => html`<p class="record-summary">${outcome.summary}</p>`)}
+        <summary class="ui-transcript-disclosure ui-transcript-card-header card-header"><h2>${askUserMessages.t("questions")}</h2><span class="ui-transcript-card-status header-status">${askUserMessages.t("closed", { total: ask.questions.length })}</span></summary>
+        ${this.outcomes.map((outcome) => html`<p class="record-summary">${askUserOutcomeSummary(outcome)}</p>`)}
         <div class="record-questions">
           ${ask.questions.map((question, index) => html`
             <section class="record-question" aria-labelledby=${this.recordQuestionHeadingId(index)}>
-              <h3 id=${this.recordQuestionHeadingId(index)}><span class="question-number">${String(index + 1)}.</span><span>${question.question}</span></h3>
-              ${question.detail === undefined ? null : html`<p class="question-detail">${question.detail}</p>`}
+              <h3 id=${this.recordQuestionHeadingId(index)}><span class="question-number">${askUserMessages.t("questionNumber", { number: index + 1 })}</span><span dir="auto">${question.question}</span></h3>
+              ${question.detail === undefined ? null : html`<p class="question-detail" dir="auto">${question.detail}</p>`}
               ${this.renderOfferedOptions(question)}
               ${this.outcomes.length === 0
                 ? this.renderRecordedAnswer(undefined, { question, answered: false, values: [] })
@@ -219,28 +253,26 @@ export class AskUserCard extends LitElement {
   }
 
   private renderOfferedOptions(question: AskUserQuestion): TemplateResult {
-    return html`${question.multiple === true ? html`<p class="question-detail">${t("ui.askUserCard.multipleChoicesAllowed", "Multiple choices allowed")}</p>` : null}<ul class="offered-options">
-      ${question.options.map((option) => html`<li><span>${option.label}</span>${option.detail === undefined ? null : html`<p class="option-detail">${option.detail}</p>`}</li>`)}
-      <li>${question.options.length === 0 ? t("ui.askUserCard.customAnswer", "Custom answer") : t("ui.main.custom", "Custom")}</li>
+    return html`${question.multiple === true ? html`<p class="question-detail">${askUserMessages.t("multiple")}</p>` : null}<ul class="offered-options">
+      ${question.options.map((option) => html`<li><span dir="auto">${option.label}</span>${option.detail === undefined ? null : html`<p class="option-detail" dir="auto">${option.detail}</p>`}</li>`)}
+      <li>${askUserMessages.t(question.options.length === 0 ? "customAnswer" : "custom")}</li>
     </ul>`;
   }
 
   private renderRecord(outcome: AskUserOutcome): TemplateResult {
     const recordLabel = outcome.reason === "submitted"
-      ? outcome.answeredCount === 0 ? t("ui.askUserCard.questionsSkipped", "Questions skipped") : t("ui.askUserCard.answersSent", "Answers sent")
-      : outcome.reason === "superseded"
-        ? t("ui.askUserCard.superseded", "Superseded")
-        : t("client.shellMessages.cancelled.a37778", "Cancelled");
+      ? askUserMessages.t(outcome.answeredCount === 0 ? "skipped" : "sent")
+      : askUserMessages.t(outcome.reason === "superseded" ? "superseded" : "cancelled");
     return html`
       <article class="ui-transcript-surface card record-card" aria-labelledby="ask-user-record-heading">
         <header class="ui-transcript-card-header card-header">
-          <h2 id="ask-user-record-heading">${this.compact ? t("ui.askUserCard.answers", "Answers") : t("ui.askUserCard.questions", "Questions")}</h2>
-          <span class=${`ui-transcript-card-status header-status ${outcome.reason}`}>${recordLabel}</span>
+          <h2 id="ask-user-record-heading">${askUserMessages.t(this.compact ? "answers" : "questions")}</h2>
+          <span class=${`ui-transcript-card-status header-status ${outcome.reason} ${outcome.reason === "submitted" ? "ui-transcript-card-status--success" : outcome.reason === "superseded" ? "ui-transcript-card-status--warning" : ""}`}>${recordLabel}</span>
         </header>
         <p class="record-summary">
           ${outcome.reason === "superseded"
-            ? t("ui.askUserCard.aNewerQuestionSetReplacedThisOneThe", "A newer question set replaced this one. The draft answers below were not sent to the model.")
-            : askOutcomeSummary(outcome)}
+            ? askUserMessages.t("supersededSummary")
+            : askUserOutcomeSummary(outcome)}
         </p>
         <div class="record-questions">
           ${outcome.questions.map((record, index) => this.renderQuestionRecord(outcome, record, index))}
@@ -253,10 +285,10 @@ export class AskUserCard extends LitElement {
     return html`
       <section class="record-question" aria-labelledby=${this.recordQuestionHeadingId(index)}>
         <h3 id=${this.recordQuestionHeadingId(index)}>
-          <span class="question-number">${String(index + 1)}.</span>
-          <span>${record.question.question}</span>
+          <span class="question-number">${askUserMessages.t("questionNumber", { number: index + 1 })}</span>
+          <span dir="auto">${record.question.question}</span>
         </h3>
-        ${record.question.detail === undefined ? null : html`<p class="question-detail">${record.question.detail}</p>`}
+        ${record.question.detail === undefined ? null : html`<p class="question-detail" dir="auto">${record.question.detail}</p>`}
         ${this.compact ? null : this.renderOfferedOptions(record.question)}
         ${this.renderRecordedAnswer(outcome, record)}
       </section>
@@ -267,13 +299,14 @@ export class AskUserCard extends LitElement {
     const answer = this.displayedRecordAnswer(outcome, record);
     return html`
         ${answer === undefined
-          ? html`<p class="unanswered-record">${t("ui.askUserCard.unanswered", "Unanswered")}</p>`
+          ? html`<p class="unanswered-record">${askUserMessages.t("unanswered")}</p>`
           : html`
               <ul class="record-answers">
-                ${answer.values.map((value) => html`<li>${this.optionLabel(record.question, value)}</li>`)}
-                ${answer.otherText === undefined ? null : html`<li><strong>${t("ui.askUserCard.other", "Other:")}</strong> <span class="other-record-text">${answer.otherText}</span></li>`}
+                ${answer.values.map((value) => html`<li><span dir="auto">${this.optionLabel(record.question, value)}</span></li>`)}
+                ${answer.otherText === undefined ? null : html`<li class="other-record-text"><span dir="auto">${askUserMessages.t("customRecord", { answer: answer.otherText })}</span></li>`}
+                ${answer.comment === undefined ? null : html`<li class="other-record-text"><span dir="auto">${askUserMessages.t("commentRecord", { comment: answer.comment })}</span></li>`}
               </ul>
-              ${answer.fromDraft ? html`<p class="draft-note">${t("ui.askUserCard.draftAnswerNotSent", "Draft answer · Not sent")}</p>` : null}
+              ${answer.fromDraft ? html`<p class="draft-note">${askUserMessages.t("draft")}</p>` : null}
             `}
     `;
   }
@@ -282,30 +315,23 @@ export class AskUserCard extends LitElement {
     const input = event.currentTarget;
     if (!(input instanceof HTMLInputElement)) return;
     if (question.multiple !== true) {
-      if (input.checked) this.setAnswer(question, { values: [value] });
+      if (input.checked) this.setAnswer(question, { values: [value], customSelected: false });
       return;
     }
     const current = this.answers[question.id];
     const values = input.checked
       ? [...new Set([...(current?.values ?? []), value])]
       : (current?.values ?? []).filter((selected) => selected !== value);
-    this.setAnswer(question, {
-      values,
-      ...(current?.otherText === undefined ? {} : { otherText: current.otherText }),
-    });
+    this.setAnswer(question, { values });
   }
 
   private changeOther(question: AskUserQuestion, index: number, event: Event): void {
     const input = event.currentTarget;
     if (!(input instanceof HTMLInputElement)) return;
-    const current = this.answers[question.id];
     if (question.multiple === true) {
-      this.setAnswer(question, {
-        values: [...(current?.values ?? [])],
-        ...(input.checked ? { otherText: current?.otherText ?? "" } : {}),
-      });
+      this.setAnswer(question, { customSelected: input.checked });
     } else if (input.checked) {
-      this.setAnswer(question, { values: [], otherText: this.isOtherSelected(question, current) ? current?.otherText ?? "" : "" });
+      this.setAnswer(question, { values: [], customSelected: true });
     }
     if (input.checked) void this.focusOtherInput(index);
   }
@@ -313,17 +339,39 @@ export class AskUserCard extends LitElement {
   private changeOtherText(question: AskUserQuestion, event: Event): void {
     const input = event.currentTarget;
     if (!(input instanceof HTMLTextAreaElement)) return;
-    const current = this.answers[question.id];
     this.setAnswer(question, {
-      values: [...(current?.values ?? [])],
       otherText: input.value.slice(0, ASK_USER_OTHER_TEXT_MAX_LENGTH),
+      customSelected: true,
     });
   }
 
-  private setAnswer(question: AskUserQuestion, answer: AskDraftAnswer): void {
-    const next: AskDraftAnswers = answer.values.length === 0 && answer.otherText === undefined
-      ? Object.fromEntries(Object.entries(this.answers).filter(([id]) => id !== question.id))
-      : { ...this.answers, [question.id]: answer };
+  private async addComment(question: AskUserQuestion, index: number): Promise<void> {
+    this.setAnswer(question, { commentOpen: true });
+    await this.updateComplete;
+    this.renderRoot.querySelector<HTMLElement>(`#${this.commentInputId(index)}`)?.focus();
+  }
+
+  private async closeComment(question: AskUserQuestion, index: number): Promise<void> {
+    this.setAnswer(question, { commentOpen: false });
+    await this.updateComplete;
+    this.renderRoot.querySelector<HTMLElement>(`#${this.questionFieldsetId(index)} .add-comment`)?.focus();
+  }
+
+  /**
+   * A comment is an addition to the answer, never a replacement for it, so it
+   * leaves the question's selection and custom text exactly as they were.
+   */
+  private changeComment(question: AskUserQuestion, event: Event): void {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLTextAreaElement)) return;
+    this.setAnswer(question, { comment: input.value.slice(0, ASK_USER_COMMENT_MAX_LENGTH), commentOpen: true });
+  }
+
+  private setAnswer(question: AskUserQuestion, patch: Partial<AskDraftAnswer>): void {
+    // Keep editing buffers independent of which controls are active. Only
+    // toSubmission decides what is sent; switching controls never erases text.
+    const answer: AskDraftAnswer = { values: [], ...this.answers[question.id], ...patch };
+    const next: AskDraftAnswers = { ...this.answers, [question.id]: answer };
     this.answers = next;
     this.confirmingPartialSubmit = false;
     if (this.ask !== undefined && this.draftSessionId !== "") saveAskDraft(this.draftSessionId, this.ask.askId, next);
@@ -385,16 +433,12 @@ export class AskUserCard extends LitElement {
     this.renderRoot.querySelector<HTMLElement>(`#${this.otherInputId(index)}`)?.focus();
   }
 
-  private isOtherSelected(question: AskUserQuestion, answer: AskDraftAnswer | undefined): boolean {
-    if (answer?.otherText === undefined) return false;
-    return question.multiple === true || answer.values.length === 0;
-  }
-
   private displayedRecordAnswer(outcome: AskUserOutcome | undefined, record: AskUserQuestionRecord): DisplayedRecordAnswer | undefined {
     if (record.answered) {
       return {
         values: [...record.values],
         ...(record.otherText === undefined ? {} : { otherText: record.otherText }),
+        ...(record.comment === undefined ? {} : { comment: record.comment }),
         fromDraft: false,
       };
     }
@@ -404,6 +448,7 @@ export class AskUserCard extends LitElement {
     return {
       values: [...answer.values],
       ...(answer.otherText === undefined ? {} : { otherText: answer.otherText }),
+      ...(answer.comment === undefined ? {} : { comment: answer.comment }),
       fromDraft: true,
     };
   }
@@ -438,6 +483,10 @@ export class AskUserCard extends LitElement {
 
   private otherInputId(index: number): string {
     return `ask-user-other-${String(index)}`;
+  }
+
+  private commentInputId(index: number): string {
+    return `ask-user-comment-${String(index)}`;
   }
 
   private recordQuestionHeadingId(index: number): string {
@@ -525,9 +574,9 @@ export class AskUserCard extends LitElement {
     .option-label { line-height: 1.35; }
     .option-detail { color: var(--pi-muted); font-size: 12px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
     .add-comment { justify-self: start; margin-inline-start: 26px; }
-    .other-answer { display: grid; gap: 5px; color: var(--pi-muted); font-size: 12px; padding-block: 4px; padding-inline: 32px 8px; }
-    .other-answer:only-child { padding-inline: 0; }
-    .other-answer-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .answer-text { display: grid; gap: 5px; color: var(--pi-muted); font-size: 12px; padding-block: 4px; padding-inline: 32px 8px; }
+    .answer-text:only-child { padding-inline: 0; }
+    .answer-text-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     textarea { min-height: 52px; resize: vertical; }
     .form-footer {
       display: flex;
@@ -558,9 +607,6 @@ export class AskUserCard extends LitElement {
     .card-header { flex-wrap: wrap; }
     .card-header h2, .header-status { overflow-wrap: anywhere; min-width: 0; }
     legend > span:last-child, .option-label, .record-question h3 > span:last-child { overflow-wrap: anywhere; }
-    .disclosure-indicator { display: inline-block; }
-    .closed-card[open] .disclosure-indicator { transform: rotate(90deg); }
-    .partial-confirmation p { margin: 0; color: var(--pi-warning); font-size: 12px; }
     .closed-card > summary { cursor: pointer; position: static; }
     .offered-options { display: grid; gap: 5px; margin: 0 0 12px; padding-inline-start: 22px; color: var(--pi-muted); }
     .offered-options .option-detail { margin: 2px 0 0; }
@@ -584,13 +630,7 @@ export class AskUserCard extends LitElement {
     }
   `];}
 
-function askOutcomeSummary(outcome: AskUserOutcome): string {
-  const total = outcome.questions.length;
-  const answered = t("ui.main.e5972b436af4", "Answered {arg0}/{arg1} questions", { arg0: outcome.answeredCount.toString(), arg1: total.toString() });
-  return outcome.unansweredIds.length === 0
-    ? t("ui.main.607a56ddb3a3", "{arg0}; all questions answered", { arg0: answered })
-    : t("ui.main.507046aea4a4", "{arg0}; unanswered: {arg1}", { arg0: answered, arg1: outcome.unansweredIds.join("、") });
-}
+
 
 declare global {
   interface HTMLElementTagNameMap {

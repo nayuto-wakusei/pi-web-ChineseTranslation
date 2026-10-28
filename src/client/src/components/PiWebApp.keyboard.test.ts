@@ -242,10 +242,11 @@ async function openAuthenticationDialog(app: PiWebApp): Promise<HTMLElement> {
   await dialog.updateComplete;
   const surface = requiredElement(dialog.shadowRoot?.querySelector<ModalSurface>("modal-surface"), "authentication modal surface");
   await surface.updateComplete;
-  return requiredElement(dialog.shadowRoot?.querySelector<HTMLElement>("button[aria-label='关闭']"), "authentication close button");
+  return requiredElement(dialog.shadowRoot?.querySelector<HTMLElement>("button[aria-label='Close']"), "authentication close button");
 }
 
 async function openImageZoom(app: PiWebApp): Promise<HTMLElement> {
+  await waitForBuiltInPlugins(app);
   const selectedSession = session("session-image");
   setAppState(app, {
     selectedSession,

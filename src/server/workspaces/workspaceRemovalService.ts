@@ -1,5 +1,3 @@
-import type { Translator } from "../../shared/i18n.js";
-import { loadNodeTranslator } from "../../localization.js";
 import { isAbsolute, parse, relative, resolve, sep } from "node:path";
 import type { TerminalCommandRun, WorkspaceListing } from "../../shared/apiTypes.js";
 import { workspaceDeleteOperation, workspaceDeletionMetadata } from "../../shared/workspaceDeletion.js";
@@ -146,7 +144,7 @@ export class WorkspaceRemovalService {
     workspaceId: string,
     precondition: string,
     flightSignal: AbortSignal,
-    managementContext?: ManagementEmbedContext, t: Translator = loadNodeTranslator("server")
+    managementContext?: ManagementEmbedContext
   ): Promise<TerminalCommandRun> {
     try {
       return await runBoundedRemoval(this.timeoutMs, flightSignal, async (signal) => {
@@ -192,10 +190,12 @@ export class WorkspaceRemovalService {
             workspaceId: commandWorkspace.id,
             cwd: commandWorkspace.path,
             title: plan.title,
+            ...(plan.titlePresentation === undefined ? {} : { titlePresentation: plan.titlePresentation }),
             command,
             metadata: workspaceDeletionMetadata(target),
             failureNotice: {
-              message: t("server.main.8e9133b0ce4a", "Workspace removal failed. See terminal output."),
+              message: "Workspace removal failed. See terminal output.",
+              presentation: { kind: "workspaceRemovalCommandFailed" },
               context: { targetWorkspaceId: target.id },
             },
             ...(managementContext === undefined ? {} : { managementContext }),
@@ -214,7 +214,8 @@ export class WorkspaceRemovalService {
         : error;
       if (!isAbortError(failure) && managementContext === undefined) this.notices?.record({
         severity: "error",
-        message: t("server.main.f658c452e075", "Workspace removal failed: {arg0}", { arg0: errorMessage(failure) }),
+        message: `Workspace removal failed: ${errorMessage(failure)}`,
+        presentation: { kind: "workspaceRemovalFailed", detail: errorMessage(failure) },
         source: workspaceDeleteOperation,
         scope: { projectId: project.id },
         context: { targetWorkspaceId: workspaceId, projectId: project.id, workspaceId },

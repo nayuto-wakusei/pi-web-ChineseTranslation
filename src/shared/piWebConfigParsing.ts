@@ -1,5 +1,7 @@
 import { requireDefaultThemePreference } from "./themePreference.js";
 import { requireDefaultStreamingBehavior } from "./streamingBehavior.js";
+import { requireDefaultLocalization } from "./defaultLocalization.js";
+import { requireInstallationName } from "./installationName.js";
 import { UserFacingError, type TranslationParameters } from "./i18n.js";
 import type { PiWebConfigValues } from "./apiTypes.js";
 import { isPiWebPluginId, piWebPluginIdPattern } from "./pluginIds.js";
@@ -13,6 +15,10 @@ type ParseContext =
 
 export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unknown> {
   return {
+    ...(config.installationName !== undefined ? { installationName: config.installationName } : {}),
+    ...(config.defaultLocalization !== undefined ? { defaultLocalization: config.defaultLocalization } : {}),
+    ...(config.quietMode !== undefined ? { quietMode: config.quietMode } : {}),
+    ...(config.basePaths !== undefined ? { basePaths: config.basePaths } : {}),
     ...(config.host !== undefined ? { host: config.host } : {}),
     ...(config.port !== undefined ? { port: config.port } : {}),
     ...(config.allowedHosts !== undefined ? { allowedHosts: config.allowedHosts } : {}),
@@ -62,6 +68,10 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseContext): ParsedPiWebConfig {
   return {
+    ...(value["installationName"] === undefined ? {} : { installationName: requireInstallationName(value["installationName"], "PI WEB config installationName") }),
+    ...(value["defaultLocalization"] === undefined ? {} : { defaultLocalization: requireDefaultLocalization(value["defaultLocalization"], context.format === "file" ? context.path : "request") }),
+    ...(value["quietMode"] === undefined ? {} : { quietMode: parseBoolean(value["quietMode"], "quietMode", context) }),
+    ...(value["basePaths"] === undefined ? {} : { basePaths: parseBasePaths(value["basePaths"], context) }),
     ...(value["host"] !== undefined ? { host: parseString(value["host"], "host", context) } : {}),
     ...(value["port"] !== undefined ? { port: context.format === "request" ? parseRequestPort(value["port"]) : parsePort(value["port"], "port", context.path) } : {}),
     ...(value["allowedHosts"] !== undefined ? { allowedHosts: parseAllowedHosts(value["allowedHosts"], context) } : {}),
@@ -82,6 +92,13 @@ function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseCo
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseBoolean(value["spawnSessions"], "spawnSessions", context) } : {}),
     ...(value["subsessions"] !== undefined ? { subsessions: parseBoolean(value["subsessions"], "subsessions", context) } : {}),
   };
+}
+
+function parseBasePaths(value: unknown, context: ParseContext): string[] {
+  if (!Array.isArray(value) || !value.every((path): path is string => typeof path === "string" && path !== "")) {
+    throw error(context, "configError.basePaths", "PI WEB config basePaths must be an array of non-empty strings");
+  }
+  return value;
 }
 
 export function parseSessionNamingConfig(value: unknown, source: string): NonNullable<PiWebConfigValues["sessionNaming"]> {

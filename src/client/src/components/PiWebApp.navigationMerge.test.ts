@@ -8,7 +8,6 @@ import { NavigationOrderController, type NavigationOrderPort } from "../controll
 import { WorkspaceController } from "../controllers/workspaceController";
 import { AppShellController } from "../appShell/appShellController";
 import { PanelCollapseController } from "../appShell/panelCollapseController";
-import { t } from "../i18n";
 import { PiWebApp } from "./PiWebApp";
 import { AppNavigationPanel } from "./appShell/AppNavigationPanel";
 import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
@@ -102,7 +101,7 @@ it("restores tabbed two-column navigation when the wide workspace panel is colla
   const tabs = app.shadowRoot?.querySelector("app-mobile-main-tabs");
   if (!(tabs instanceof LitElement)) throw new Error("Missing tabs");
   await tabs.updateComplete;
-  const chat = [...tabs.shadowRoot?.querySelectorAll<HTMLButtonElement>("button") ?? []].find((button) => button.title === t("ui.piWebApp.chat", "Chat"));
+  const chat = [...tabs.shadowRoot?.querySelectorAll<HTMLButtonElement>("button") ?? []].find((button) => button.title === "Chat");
   expect(chat).toBeDefined();
   collapse.expandWorkspacePanel();
   await app.updateComplete;

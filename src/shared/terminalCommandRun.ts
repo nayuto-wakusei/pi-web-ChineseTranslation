@@ -1,4 +1,5 @@
 import type { TerminalCommandRun } from "./apiTypes.js";
+import { terminalTitlePresentationField } from "./terminalTitlePresentation.js";
 
 export function requireTerminalCommandRun(value: unknown, invalidCommandRun: () => Error): TerminalCommandRun {
   if (!isRecord(value)) throw invalidCommandRun();
@@ -7,6 +8,7 @@ export function requireTerminalCommandRun(value: unknown, invalidCommandRun: () 
   const startedAt = optionalString(value["startedAt"]);
   const completedAt = optionalString(value["completedAt"]);
   if (typeof value["id"] !== "string"
+    || (value["scope"] !== undefined && value["scope"] !== "workspace")
     || typeof value["origin"] !== "string"
     || typeof value["projectId"] !== "string"
     || typeof value["workspaceId"] !== "string"
@@ -23,11 +25,13 @@ export function requireTerminalCommandRun(value: unknown, invalidCommandRun: () 
   }
   return {
     id: value["id"],
+    ...(value["scope"] === "workspace" ? { scope: "workspace" as const } : {}),
     origin: value["origin"],
     projectId: value["projectId"],
     workspaceId: value["workspaceId"],
     terminalId: value["terminalId"],
     title: value["title"],
+    ...terminalTitlePresentationField(value["titlePresentation"]),
     command: value["command"],
     status,
     ...(exitCode === undefined ? {} : { exitCode }),

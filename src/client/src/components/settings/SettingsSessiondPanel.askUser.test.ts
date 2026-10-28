@@ -40,7 +40,7 @@ describe("SettingsSessiondPanel Ask Questions setting", () => {
 });
 
 function askUserToggle(panel: SettingsSessiondPanel): HTMLInputElement {
-  const toggle = panel.shadowRoot?.querySelector<HTMLInputElement>('input[aria-label="启用代理提问"]');
+  const toggle = panel.shadowRoot?.querySelector<HTMLInputElement>("#ask-user");
   if (toggle === undefined || toggle === null) throw new Error("Ask Questions toggle was not rendered");
   return toggle;
 }

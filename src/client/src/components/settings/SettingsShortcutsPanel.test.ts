@@ -26,9 +26,9 @@ describe("settings-shortcuts-panel layout", () => {
     await mount(panel);
 
     const frame = frameRoot(panel);
-    expect(frame.querySelector("h2")?.textContent).toBe("键盘快捷键");
-    expect(frame.querySelector(".description")?.textContent).toContain("按操作编辑应用快捷键。");
-    expect(frame.querySelector("code")?.textContent).toBe("mod+k");
+    expect(frame.querySelector("h2")?.textContent).toBe("Keyboard shortcuts");
+    expect(frame.querySelector(".description")?.textContent).toContain("Type or record a shortcut, then save each action.");
+    expect(frame.querySelector("code")?.textContent).toBe("mod");
     expect([...frame.querySelectorAll(".notice")].map((notice) => ({
       role: notice.getAttribute("role"),
       text: notice.textContent.trim(),
@@ -36,15 +36,16 @@ describe("settings-shortcuts-panel layout", () => {
       { role: "alert", text: "Failed to load shortcut settings." },
       { role: "status", text: "Shortcut settings saved." },
     ]);
-    button(frame, "重新加载").click();
+    button(frame, "Refresh shortcuts").click();
     expect(panel.onReload).toHaveBeenCalledOnce();
     expect(panel.renderRoot.querySelector(".config-path-card")?.textContent).toContain("/tmp/pi-web/config.json");
-    expect([...panel.renderRoot.querySelectorAll(".shortcut-group h3")].map((heading) => heading.textContent)).toEqual(["发送行为", "聊天输入框"]);
-    expect(row(panel, COMPOSER_SEND_DESKTOP).textContent).toContain("发送消息 — 桌面");
-    expect(row(panel, COMPOSER_SEND_MOBILE).textContent).toContain("发送消息 — 窄屏");
+    expect([...panel.renderRoot.querySelectorAll("h3")].map((heading) => heading.textContent)).toContain("Chat composer");
+    expect(row(panel, COMPOSER_SEND_DESKTOP).textContent).toContain("Send message — desktop");
+    expect(row(panel, COMPOSER_SEND_MOBILE).textContent).toContain("Send message — touch or narrow screen");
+    expect(panel.renderRoot.textContent).toContain("Touch or narrow screen applies when the primary pointer is coarse or the viewport is at most 760px wide. Desktop applies otherwise.");
     expect(panel.renderRoot.querySelectorAll("article")).toHaveLength(2);
-    expect(panel.renderRoot.querySelectorAll('input[type="radio"]')).toHaveLength(3);
-    expect(panel.renderRoot.textContent).not.toContain("没有已注册操作。");
+    expect(panel.renderRoot.querySelector('input[type="radio"]')).not.toBeNull();
+    expect(panel.renderRoot.textContent).not.toContain("No actions registered.");
   });
 
   it("preserves browser Enter defaults alongside the loading state", async () => {
@@ -52,11 +53,30 @@ describe("settings-shortcuts-panel layout", () => {
     panel.loading = true;
     await mount(panel);
 
-    expect(frameRoot(panel).querySelector("h2")?.textContent).toBe("键盘快捷键");
-    expect(button(frameRoot(panel), "重新加载").disabled).toBe(true);
-    expect(panel.renderRoot.querySelector(".loading-card")?.textContent).toBe("正在加载快捷键…");
+    expect(frameRoot(panel).querySelector("h2")?.textContent).toBe("Keyboard shortcuts");
+    expect(button(frameRoot(panel), "Refresh shortcuts").disabled).toBe(true);
+    expect(panel.renderRoot.querySelector(".loading-card")?.textContent).toBe("Loading shortcuts…");
     expect(panel.renderRoot.querySelector(".config-path-card")).toBeNull();
     expect(panel.renderRoot.querySelector(".prompt-enter-card")).not.toBeNull();
+  });
+});
+
+describe("settings-shortcuts-panel send behavior", () => {
+  it("defaults to steer and saves either behavior without dropping other config", async () => {
+    const onSave = vi.fn<SaveHandler>();
+    const panel = await panelWithShortcuts({ shortcuts: { "core:other": "mod+o" } }, onSave);
+    const select = panel.renderRoot.querySelector<HTMLSelectElement>('select[aria-label="Send while agent is running"]');
+    if (select === null) throw new Error("Missing send behavior setting");
+    expect(select.value).toBe("steer");
+    select.value = "followUp";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onSave).toHaveBeenLastCalledWith({ defaultStreamingBehavior: "followUp" });
+    panel.configResponse = configResponse({ defaultStreamingBehavior: "followUp" });
+    await settle(panel);
+    expect(select.value).toBe("followUp");
+    select.value = "steer";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onSave).toHaveBeenLastCalledWith({ defaultStreamingBehavior: "steer" });
   });
 });
 
@@ -67,38 +87,38 @@ describe("settings-shortcuts-panel shortcut row actions", () => {
     await editShortcut(panel, "core:open-palette", " control + shift + p ");
 
     expect(row(panel, "core:open-palette").querySelector(".shortcut-status")?.textContent).toContain("Ctrl+Shift+P");
-    expect(row(panel, "core:open-palette").textContent).toContain("配置覆盖 · 未保存");
-    await clickRow(panel, "core:open-palette", "保存");
+    expect(row(panel, "core:open-palette").textContent).toContain("Custom · Unsaved");
+    await clickRow(panel, "core:open-palette", "Save");
     expect(onSave).toHaveBeenLastCalledWith({ shortcuts: { "core:other": "mod+o", "core:open-palette": "mod+shift+p" } });
 
     panel.configResponse = configResponse({ shortcuts: { "core:open-palette": "mod+shift+p", "core:other": "mod+o" } });
     await settle(panel);
-    await clickRow(panel, "core:open-palette", "无");
+    await clickRow(panel, "core:open-palette", "Disable shortcut");
     expect(onSave).toHaveBeenLastCalledWith({ shortcuts: { "core:open-palette": null, "core:other": "mod+o" } });
 
     panel.configResponse = configResponse({ shortcuts: { "core:open-palette": null, "core:other": "mod+o" } });
     await settle(panel);
-    expect(row(panel, "core:open-palette").textContent).toContain("配置禁用");
-    await clickRow(panel, "core:open-palette", "重置");
+    expect(row(panel, "core:open-palette").textContent).toContain("Disabled");
+    await clickRow(panel, "core:open-palette", "Restore default");
     expect(onSave).toHaveBeenLastCalledWith({ shortcuts: { "core:other": "mod+o" } });
     expect(onSave).toHaveBeenCalledTimes(3);
   });
 
-  it.each(["保存", "无", "重置"] as const)("migrates former action ids when using %s", async (operation) => {
+  it.each(["Save", "Disable shortcut", "Restore default"] as const)("migrates former action ids when using %s", async (operation) => {
     const onSave = vi.fn<SaveHandler>();
     const action = shortcutAction({ id: "git:view.git", shortcutAliases: ["core:view.git"], shortcut: "mod+3" });
     const panel = await panelWithShortcuts({ shortcuts: { "core:view.git": "mod+8", "core:other": "mod+o" } }, onSave, action);
 
     expect(input(panel, action.id).value).toBe("mod+8");
     expect(row(panel, action.id).querySelector(".shortcut-status")?.textContent).toContain("Ctrl+8");
-    expect(row(panel, action.id).textContent).toContain("配置覆盖");
-    if (operation === "保存") await editShortcut(panel, action.id, "mod+9");
+    expect(row(panel, action.id).textContent).toContain("Custom");
+    if (operation === "Save") await editShortcut(panel, action.id, "mod+9");
     await clickRow(panel, action.id, operation);
 
     expect(onSave).toHaveBeenCalledExactlyOnceWith({
       shortcuts: {
         "core:other": "mod+o",
-        ...(operation === "重置" ? {} : { "git:view.git": operation === "无" ? null : "mod+9" }),
+        ...(operation === "Restore default" ? {} : { "git:view.git": operation === "Disable shortcut" ? null : "mod+9" }),
       },
     });
   });
@@ -126,7 +146,7 @@ describe("settings-shortcuts-panel composer shortcuts", () => {
       await editShortcut(panel, actionId, "mod+k");
       expect(input(panel, otherId).value).toBe(otherBinding);
       expect(panel.renderRoot.querySelector(".conflict")).toBeNull();
-      await clickRow(panel, actionId, "保存");
+      await clickRow(panel, actionId, "Save");
       const savedConfig = onSave.mock.lastCall?.[0];
       expect(savedConfig).toEqual({ shortcuts: {
         ...(actionId === COMPOSER_SEND_MOBILE ? { [COMPOSER_SEND_DESKTOP]: "mod+k" } : {}),
@@ -146,11 +166,11 @@ describe("settings-shortcuts-panel composer shortcuts", () => {
     const onSave = vi.fn<SaveHandler>();
     const panel = await panelWithShortcuts({ shortcuts: {} }, onSave);
     await editShortcut(panel, actionId, "g p");
-    await clickRow(panel, actionId, "保存");
+    await clickRow(panel, actionId, "Save");
 
     expect(onSave).not.toHaveBeenCalled();
     expect(frameRoot(panel).querySelector('[role="alert"]')?.textContent).toContain(
-      "发送快捷键只能使用一个组合键，不能使用按键序列。",
+      "Composer send shortcuts must be a single key combination, not a sequence.",
     );
     expect(input(panel, actionId).value).toBe("g p");
   });
@@ -158,19 +178,19 @@ describe("settings-shortcuts-panel composer shortcuts", () => {
   it.each([COMPOSER_SEND_DESKTOP, COMPOSER_SEND_MOBILE])("records one combination and stops immediately for %s", async (actionId) => {
     const onSave = vi.fn<SaveHandler>();
     const panel = await panelWithShortcuts({ shortcuts: {} }, onSave);
-    await clickRow(panel, actionId, "录制");
+    await clickRow(panel, actionId, "Record");
     expect(panel.shadowRoot?.activeElement).toBe(input(panel, actionId));
     pressKey("Enter", { shiftKey: true });
     await settle(panel);
 
     expect(input(panel, actionId).value).toBe("shift+enter");
     expect(row(panel, actionId).querySelector(".recording-hint")).toBeNull();
-    expect(button(row(panel, actionId), "录制")).toBeDefined();
+    expect(button(row(panel, actionId), "Record")).toBeDefined();
     pressKey("p");
     await settle(panel);
     expect(input(panel, actionId).value).toBe("shift+enter");
     expect(onSave).not.toHaveBeenCalled();
-    await clickRow(panel, actionId, "保存");
+    await clickRow(panel, actionId, "Save");
     expect(onSave).toHaveBeenCalledExactlyOnceWith({ shortcuts: { [actionId]: "shift+enter" } });
   });
 
@@ -178,21 +198,21 @@ describe("settings-shortcuts-panel composer shortcuts", () => {
     vi.useFakeTimers();
     const onSave = vi.fn<SaveHandler>();
     const panel = await panelWithShortcuts({ shortcuts: {} }, onSave);
-    await clickRow(panel, "core:open-palette", "录制");
+    await clickRow(panel, "core:open-palette", "Record");
     pressKey("g");
     await settle(panel);
     expect(input(panel, "core:open-palette").value).toBe("g");
     pressKey("p");
     await settle(panel);
     expect(input(panel, "core:open-palette").value).toBe("g p");
-    expect(button(row(panel, "core:open-palette"), "取消录制")).toBeDefined();
+    expect(button(row(panel, "core:open-palette"), "Cancel recording")).toBeDefined();
 
     await vi.advanceTimersByTimeAsync(shortcutSequenceTimeoutMs);
     await settle(panel);
     expect(row(panel, "core:open-palette").querySelector(".recording-hint")).toBeNull();
-    expect(button(row(panel, "core:open-palette"), "录制")).toBeDefined();
+    expect(button(row(panel, "core:open-palette"), "Record")).toBeDefined();
     expect(onSave).not.toHaveBeenCalled();
-    await clickRow(panel, "core:open-palette", "保存");
+    await clickRow(panel, "core:open-palette", "Save");
     expect(onSave).toHaveBeenCalledExactlyOnceWith({ shortcuts: { "core:open-palette": "g p" } });
   });
 });

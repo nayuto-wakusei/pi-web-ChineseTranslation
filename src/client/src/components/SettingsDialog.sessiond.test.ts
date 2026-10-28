@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import { configApi, pluginsApi, type PiWebConfigResponse, type PiWebPluginsResponse } from "../api";
 import { SettingsDialog } from "./SettingsDialog";
-import { t } from "../i18n";
+import { createTranslator } from "../../../shared/i18n";
+const t = createTranslator("en", {});
 import { callDialogPromise, callDialogUpdated, configResponse, deferred, getDialogProperty, pluginInfo, pluginsResponse, remoteMachine, runtimeWithPackageManagement as runtimeWithoutSelectedMachineSettings, secondRemoteMachine, setDialogProperty, stubWindowTimers } from "./SettingsDialog.testSupport";
 
 afterEach(() => {
@@ -15,11 +16,11 @@ describe("settings-dialog session daemon machine targeting", () => {
     stubWindowTimers();
     const patch = { spawnSessions: false, subsessions: true };
     const saved = configResponse(patch);
-    const saveSpy = vi.spyOn(configApi, "saveConfig").mockResolvedValue(saved);
+    const saveSpy = vi.spyOn(configApi, "updateConfig").mockResolvedValue(saved);
     const dialog = new SettingsDialog();
     dialog.machine = remoteMachine;
     await callDialogPromise(dialog, "saveSessiondConfig", patch);
-    expect(saveSpy).toHaveBeenCalledExactlyOnceWith(patch, remoteMachine.id);
+    expect(saveSpy).toHaveBeenCalledExactlyOnceWith({ set: patch, unset: [] }, remoteMachine.id);
     expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBe(saved);
     expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.sessionNaming.daemonSaved", "Session daemon settings saved for {machine}. Restart the session daemon to apply agent permission changes. Restarting interrupts active sessions.{naming}", { machine: remoteMachine.name, naming: "" }));
   });
@@ -72,23 +73,23 @@ describe("settings-dialog session daemon machine targeting", () => {
   it("saves local session-daemon config through the local machine alias and updates local daemon state", async () => {
     stubWindowTimers();
     const gatewayConfig = configResponse({ host: "127.0.0.1", spawnSessions: false, subsessions: false });
-    const savedConfig = configResponse({ spawnSessions: true });
-    const saveSpy = vi.spyOn(configApi, "saveConfig").mockResolvedValue(savedConfig);
+    const savedConfig = configResponse({ spawnSessions: true, subsessions: false });
+    const saveSpy = vi.spyOn(configApi, "updateConfig").mockResolvedValue(savedConfig);
     const dialog = new SettingsDialog();
     setDialogProperty(dialog, "configResponse", gatewayConfig);
 
     await callDialogPromise(dialog, "saveSessiondConfig", { spawnSessions: true });
 
-    expect(saveSpy.mock.calls).toEqual([[{ spawnSessions: true }, "local"]]);
+    expect(saveSpy.mock.calls).toEqual([[{ set: { spawnSessions: true }, unset: [] }, "local"]]);
     expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBe(savedConfig);
     expect(getDialogProperty(dialog, "configResponse")).toMatchObject({ config: { host: "127.0.0.1", spawnSessions: true, subsessions: false } });
-    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.sessionNaming.daemonSaved", "Session daemon settings saved for {machine}. Restart the session daemon to apply agent permission changes. Restarting interrupts active sessions.{naming}", { machine: t("ui.settingsMachineTarget.local", "Local"), naming: "" }));
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(t("ui.sessionNaming.daemonSaved", "Session daemon settings saved for {machine}. Restart the session daemon to apply agent permission changes. Restarting interrupts active sessions.{naming}", { machine: "本机", naming: "" }));
     expect(getDialogProperty(dialog, "saving")).toBe(false);
   });
 
   it("saves a remote agent profile without capability metadata", async () => {
     stubWindowTimers();
-    const saveSpy = vi.spyOn(configApi, "saveConfig").mockResolvedValue(configResponse({ agent: { command: "agent-lab", dir: "/srv/agent-lab" } }));
+    const saveSpy = vi.spyOn(configApi, "updateConfig").mockResolvedValue(configResponse({ agent: { command: "agent-lab", dir: "/srv/agent-lab" } }));
     const dialog = new SettingsDialog();
     dialog.machine = remoteMachine;
     dialog.machineRuntime = {
@@ -100,7 +101,7 @@ describe("settings-dialog session daemon machine targeting", () => {
 
     await callDialogPromise(dialog, "saveSessiondConfig", { agent: { command: "agent-lab", dir: "/srv/agent-lab" } });
 
-    expect(saveSpy).toHaveBeenCalledWith({ agent: { command: "agent-lab", dir: "/srv/agent-lab" } }, remoteMachine.id);
+    expect(saveSpy).toHaveBeenCalledWith({ set: { agent: { command: "agent-lab", dir: "/srv/agent-lab" } }, unset: [] }, remoteMachine.id);
     expect(getDialogProperty(dialog, "sessiondError")).toBe("");
   });
 
@@ -108,7 +109,7 @@ describe("settings-dialog session daemon machine targeting", () => {
     stubWindowTimers();
     const patch = { agent: { command: "agent-lab", dir: "/srv/agent-lab" } };
     const saved = configResponse(patch);
-    const saveSpy = vi.spyOn(configApi, "saveConfig").mockResolvedValue(saved);
+    const saveSpy = vi.spyOn(configApi, "updateConfig").mockResolvedValue(saved);
     const dialog = new SettingsDialog();
     dialog.machine = remoteMachine;
     dialog.machineRuntime = {
@@ -120,7 +121,7 @@ describe("settings-dialog session daemon machine targeting", () => {
 
     await callDialogPromise(dialog, "saveSessiondConfig", patch);
 
-    expect(saveSpy).toHaveBeenCalledWith(patch, remoteMachine.id);
+    expect(saveSpy).toHaveBeenCalledWith({ set: patch, unset: [] }, remoteMachine.id);
     expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBe(saved);
   });
 
@@ -146,7 +147,7 @@ describe("settings-dialog session daemon machine targeting", () => {
   it("ignores stale session-daemon save responses after the selected machine changes", async () => {
     stubWindowTimers();
     const save = deferred<PiWebConfigResponse>();
-    vi.spyOn(configApi, "saveConfig").mockReturnValue(save.promise);
+    vi.spyOn(configApi, "updateConfig").mockReturnValue(save.promise);
     const dialog = new SettingsDialog();
     dialog.machine = remoteMachine;
 
@@ -175,14 +176,14 @@ describe("settings-dialog session daemon machine targeting", () => {
 
     expect(configSpy).toHaveBeenCalledWith(remoteMachine.id);
     expect(pluginsSpy).not.toHaveBeenCalled();
-    expect(getDialogProperty(dialog, "pluginError")).toContain("不支持插件生命周期诊断");
+    expect(getDialogProperty(dialog, "pluginError")).toContain("Plugin lifecycle diagnostics are not available");
     expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBeDefined();
     expect(getDialogProperty(dialog, "accessConfigResponse")).toBeDefined();
     expect(getDialogProperty(dialog, "selectedPluginConfigResponse")).toBeDefined();
   });
 
   it("saves remote selected-machine settings without capability metadata", async () => {
-    const saveSpy = vi.spyOn(configApi, "saveConfig").mockResolvedValue(configResponse({ spawnSessions: true }));
+    const saveSpy = vi.spyOn(configApi, "updateConfig").mockResolvedValue(configResponse({ spawnSessions: true }));
     const dialog = new SettingsDialog();
     dialog.machine = remoteMachine;
     dialog.machineRuntime = runtimeWithoutSelectedMachineSettings;
@@ -193,9 +194,9 @@ describe("settings-dialog session daemon machine targeting", () => {
     await callDialogPromise(dialog, "togglePlugin", "info", false);
 
     expect(saveSpy.mock.calls).toEqual([
-      [{ spawnSessions: true }, remoteMachine.id],
-      [{ pathAccess: { allowedPaths: ["/mnt/share"] } }, remoteMachine.id],
-      [{ plugins: { info: { enabled: false } } }, remoteMachine.id],
+      [{ set: { spawnSessions: true }, unset: [] }, remoteMachine.id],
+      [{ set: { pathAccess: { allowedPaths: ["/mnt/share"] } }, unset: [] }, remoteMachine.id],
+      [{ set: { plugins: { info: { enabled: false } } } }, remoteMachine.id],
     ]);
   });
 
@@ -206,7 +207,49 @@ describe("settings-dialog session daemon machine targeting", () => {
 
     await callDialogPromise(dialog, "loadSessiondConfigForTarget");
 
-    expect(getDialogProperty(dialog, "sessiondError")).toBe("从 Lab Mac（远程机器） 加载会话守护进程配置失败：无法连接 Lab Mac 以获取所选机器设置。请检查机器连接后重试。");
+    expect(getDialogProperty(dialog, "sessiondError")).toBe("Failed to load session-daemon config from Lab Mac (remote machine): Remote machine unavailable");
     expect(getDialogProperty(dialog, "sessiondLoading")).toBe(false);
+  });
+});
+
+describe("upstream naming reset contracts", () => {
+it.each([
+    { model: "provider/naming", maxTokens: 48 },
+    { maxTokens: 64 },
+  ])("confirms naming-only saves apply without a restart, including resets (%j)", async (sessionNaming) => {
+    stubWindowTimers();
+    const patch = { sessionNaming };
+    const saved = configResponse(patch);
+    const saveSpy = vi.spyOn(configApi, "updateConfig").mockResolvedValue(saved);
+    const dialog = new SettingsDialog();
+    dialog.machine = remoteMachine;
+
+    await callDialogPromise(dialog, "saveSessiondConfig", patch);
+
+    expect(saveSpy).toHaveBeenCalledWith({ set: patch, unset: [] }, remoteMachine.id);
+    expect(getDialogProperty(dialog, "sessiondConfigResponse")).toBe(saved);
+    expect(getDialogProperty(dialog, "savedMessage")).toBe(`Session naming settings saved for ${remoteMachine.name}. They apply to the next naming request without a restart. Existing names and in-progress naming requests are unchanged.`);
+  });
+it("resets a naming group in one request without deleting an enforced saved model", async () => {
+    stubWindowTimers();
+    const snapshot = configResponse({ sessionNaming: { model: "hidden", maxTokens: 48, timeoutMs: 30000 } });
+    snapshot.enforcedSettings = { "/sessionNaming/model": "PI_WEB_SESSION_NAMING" };
+    const saveSpy = vi.spyOn(configApi, "updateConfig").mockResolvedValue(snapshot);
+    const dialog = new SettingsDialog();
+    dialog.machine = remoteMachine;
+    setDialogProperty(dialog, "sessiondConfigResponse", snapshot);
+    await callDialogPromise(dialog, "saveSessiondConfig", {}, ["/sessionNaming"]);
+    expect(saveSpy).toHaveBeenCalledExactlyOnceWith({ unset: ["/sessionNaming/maxTokens", "/sessionNaming/timeoutMs"] }, remoteMachine.id);
+    expect(getDialogProperty(dialog, "savedMessage")).toContain("without a restart");
+  });
+it("keeps the permission restart warning when a patch also changes naming", async () => {
+    stubWindowTimers();
+    const patch = { askUser: true, sessionNaming: { maxTokens: 48 } };
+    vi.spyOn(configApi, "updateConfig").mockResolvedValue(configResponse(patch));
+    const dialog = new SettingsDialog();
+
+    await callDialogPromise(dialog, "saveSessiondConfig", patch);
+
+    expect(getDialogProperty(dialog, "savedMessage")).toBe("Session daemon settings saved for 本机. Restart the session daemon to apply agent permission changes. Restarting interrupts active sessions. Naming changes apply to the next naming request without a restart.");
   });
 });

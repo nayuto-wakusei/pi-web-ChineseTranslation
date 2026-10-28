@@ -1,0 +1,27 @@
+import { message } from "./localization/service";
+
+export default {
+  forkCancelled: message("Fork cancelled", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  forked: message("Session forked", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  nameUsage: message("Usage: /name '<session name>'", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  requestExpired: message("Command request expired", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  reloadActive: message("Cannot reload while the session is active. Stop current activity before reloading.", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  reloadUnavailable: message("/reload is not available for this session runtime.", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  reloaded: message("Session runtime resources reloaded. Extensions, skills, prompt templates, themes, and context/system prompt files are refreshed for this session. Reload the browser page separately for PI WEB browser plugin changes.", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  cloneEmpty: message("Cannot clone: no current session entry", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  cloneCancelled: message("Clone cancelled", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  cloned: message("Session cloned", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  forkEmpty: message("No user messages to fork from", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  forkSelect: message("Fork from message", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  treeActive: message("Cannot open the session tree while the session is active. Stop current activity and try /tree again.", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  treeEmpty: message("Cannot navigate an empty session tree.", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  treeUnavailable: message("Session tree navigation is not available with this Pi runtime.", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  navigationActive: message("Cannot run commands while session tree navigation is active. Stop or finish the navigation first.", "Built-in session command feedback. Keep slash commands and PI WEB unchanged."),
+  unknown: message<{ command: string }>("Unknown command: /{command}", "Command name is an unchanged identifier"),
+  notImplemented: message<{ command: string }>("/{command} is not implemented in the web UI yet", "Command name is an unchanged identifier"),
+  named: message<{ name: string }>("Session named: {name}", "User-provided session name is unchanged"),
+  reloadFailed: message<{ detail: string }>("Reload failed: {detail}", "Detail is an untranslated runtime diagnostic"),
+  treeFailed: message<{ detail: string }>("Unable to open the session tree: {detail}", "Detail is an untranslated runtime diagnostic"),
+  replacementActive: message<{ command: string }>("{command, select, fork {Cannot fork while the session is active. Stop current activity before forking.} other {Cannot clone while the session is active. Stop current activity before cloning.}}", "Blocked session replacement; command is fork or clone"),
+  stats: message<{ sessionId: string; totalMessages: number; userMessages: number; assistantMessages: number; toolCalls: number; input: number; output: number; total: number; cost: string }>("Session: {sessionId}\nMessages: {totalMessages, number} ({userMessages, number} user, {assistantMessages, number} assistant)\nTool calls: {toolCalls, number}\nTokens: ↑{input, number} ↓{output, number} total {total, number}\nCost: {cost}", "Session statistics. ID is raw; cost is regional USD with four fraction digits; arrows indicate input/output tokens"),
+};

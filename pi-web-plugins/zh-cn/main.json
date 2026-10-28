@@ -455,5 +455,9 @@
   "ui.shared.168f8f19045c": "删除工作区：{workspace}",
   "ui.shared.ca71fd855ae2": "未找到终端命令运行记录",
   "ui.main.custom": "自定义",
-  "ui.common.close": "关闭"
+  "ui.common.close": "关闭",
+  "install.launcherFailure": "✗ 无法检查内置 {service} 启动器 {path}：{message}",
+  "install.launcherMissing": "✗ 服务管理器无法使用 {command}，且内置启动器 {path} 缺失。",
+  "doctor.launcherFailed": "✗ 无法检查内置 {arg0} 启动器 {arg1}：{arg2}",
+  "doctor.launcherMissing": "✗ 原生服务管理器无法使用 {arg0}，且内置启动器 {arg1} 缺失。"
 }

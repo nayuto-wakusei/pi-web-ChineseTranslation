@@ -14,8 +14,10 @@ beforeEach(() => {
   vi.spyOn(piPackagesApi, "packages").mockResolvedValue({ packages: [] });
 });
 
-afterEach(() => {
+const registries: PluginRegistry[] = [];
+afterEach(async () => {
   document.body.replaceChildren();
+  for (const registry of registries.splice(0)) await registry.dispose();
   localStorage.clear();
   vi.restoreAllMocks();
 });
@@ -25,7 +27,7 @@ describe("saving a theme default", () => {
     const defaultTheme = { themeId: "themes:graphite", auto: true };
     const config = { host: "127.0.0.1", defaultTheme };
     vi.mocked(configApi.config).mockResolvedValue(configResponse(config));
-    const save = vi.spyOn(configApi, "saveConfig").mockResolvedValue(configResponse(config));
+    const save = vi.spyOn(configApi, "updateConfig").mockResolvedValue(configResponse(config));
     const dialog = await mountDialog();
     dialog.themePreference = defaultTheme;
     dialog.themes = [...dialog.themes, {
@@ -34,15 +36,15 @@ describe("saving a theme default", () => {
     await dialog.updateComplete;
     const panel = themePanel(dialog);
     await panel.updateComplete;
-    expect(panel.shadowRoot?.textContent).toContain("默认：Graphite");
-    expect(button(panel, "设为网关默认主题").disabled).toBe(false);
+    expect(panel.shadowRoot?.textContent).toContain("Default: Graphite");
+    expect(button(panel, "Set gateway default").disabled).toBe(false);
     expect(save).not.toHaveBeenCalled();
     expect(defaultTheme).toEqual({ themeId: "themes:graphite", auto: true });
-    button(panel, "设为网关默认主题").click();
-    await vi.waitFor(() => { expect(save).toHaveBeenCalledWith({ ...config, defaultTheme: { themeId: "pi-web.custom-ui-codex:graphite", auto: true } }); });
+    button(panel, "Set gateway default").click();
+    await vi.waitFor(() => { expect(save).toHaveBeenCalledWith({ set: { defaultTheme: { themeId: "pi-web.custom-ui-codex:graphite", auto: true } } }); });
   });
 
-  it("uses fresh gateway config even with a remote machine selected, preserving other keys", async () => {
+  it("patches only the gateway theme even with a remote machine selected", async () => {
     const dialog = await mountDialog();
     const onSaved = vi.fn();
     dialog.onConfigSaved = onSaved;
@@ -51,12 +53,12 @@ describe("saving a theme default", () => {
     const current = { host: "127.0.0.1", shortcuts: { "core:view.chat": "mod+1" }, plugins: { info: { enabled: true } } };
     const defaultTheme = { themeId: "themes:pi-web-dark", auto: true };
     vi.mocked(configApi.config).mockResolvedValue(configResponse(current));
-    const save = vi.spyOn(configApi, "saveConfig").mockResolvedValue(configResponse({ ...current, defaultTheme }));
+    const save = vi.spyOn(configApi, "updateConfig").mockResolvedValue(configResponse({ ...current, defaultTheme }));
     vi.mocked(configApi.config).mockClear();
-    button(themePanel(dialog), "设为网关默认主题").click();
-    await vi.waitFor(() => { expect(save).toHaveBeenCalledWith({ ...current, defaultTheme }); });
+    button(themePanel(dialog), "Set gateway default").click();
+    await vi.waitFor(() => { expect(save).toHaveBeenCalledWith({ set: { defaultTheme } }); });
     await vi.waitFor(() => { expect(onSaved).toHaveBeenCalledWith({ ...current, defaultTheme }); });
-    expect(vi.mocked(configApi.config).mock.calls).toContainEqual([]);
+    expect(vi.mocked(configApi.config).mock.calls).not.toContainEqual([]);
     expect(save.mock.calls).toHaveLength(1);
   });
 
@@ -64,9 +66,9 @@ describe("saving a theme default", () => {
     const dialog = await mountDialog();
     const onSaved = vi.fn();
     dialog.onConfigSaved = onSaved;
-    vi.spyOn(configApi, "saveConfig").mockRejectedValue(new Error("Disk is read-only"));
-    button(themePanel(dialog), "设为网关默认主题").click();
-    await vi.waitFor(() => { expect(generalPanel(dialog).error).toContain("无法保存默认主题：Disk is read-only"); });
+    vi.spyOn(configApi, "updateConfig").mockRejectedValue(new Error("Disk is read-only"));
+    button(themePanel(dialog), "Set gateway default").click();
+    await vi.waitFor(() => { expect(generalPanel(dialog).error).toContain("Couldn't save the default theme: Disk is read-only"); });
     expect(onSaved).not.toHaveBeenCalled();
     expect(themePanel(dialog).defaultPreference).toEqual({ themeId: "themes:pi-web-dark", auto: true });
   });
@@ -74,13 +76,13 @@ describe("saving a theme default", () => {
 
 async function mountDialog(): Promise<SettingsDialog> {
   const registry = new PluginRegistry();
+  registries.push(registry);
   await registry.registerBatch([{ id: "themes", plugin: themePackPlugin }]);
   const dialog = new SettingsDialog();
   dialog.themes = registry.getThemes();
   document.body.append(dialog);
   await vi.waitFor(() => { expect(themePanel(dialog).loading).toBe(false); });
   await themePanel(dialog).updateComplete;
-  await registry.dispose();
   return dialog;
 }
 

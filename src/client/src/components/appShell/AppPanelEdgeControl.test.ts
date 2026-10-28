@@ -20,9 +20,8 @@ it("keeps keyboard resizing and reset independent from the collapse action", asy
   const separator = edge.renderRoot.querySelector<HTMLElement>('[role="separator"]');
   if (separator === null) throw new Error("Expected resize separator");
   const toggle = edge.renderRoot.querySelector<HTMLButtonElement>("button");
-  expect(toggle).not.toBeNull();
-  toggle?.click();
-  expect(edge.onToggle).toHaveBeenCalledOnce();
+  expect(toggle).toBeNull();
+  expect(edge.onToggle).not.toHaveBeenCalled();
   expect(edge.onResize).not.toHaveBeenCalled();
   expect(separator.getAttribute("aria-controls")).toBe("navigation-panel");
   expect(separator.getAttribute("aria-valuenow")).toBe("340");

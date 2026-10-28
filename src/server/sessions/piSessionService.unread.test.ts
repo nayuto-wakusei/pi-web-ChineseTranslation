@@ -34,6 +34,103 @@ afterEach(async () => {
 });
 
 describe("PiSessionService daemon-owned unread state", () => {
+  it("manually marks cold sessions and publishes only after persistence, preserving newer work", async () => {
+    const persistence = new BlockingUnreadPersistence();
+    const unreadStore = new SessionUnreadStore({ persistence, createCatalogId: () => "catalog-test" });
+    await unreadStore.load();
+    const hub = new CapturingSessionEventHub();
+    const createRuntime = vi.fn();
+    const service = new PiSessionService(hub, {
+      agentDir: TEST_AGENT_DIR, modelRuntime: testModelRuntime,
+      createAgentRuntime: createRuntime,
+      sessionManager: sessionGateway([sessionRecord("session-1")]),
+      archiveStore: emptyArchiveStore(), unreadStore,
+    });
+    try {
+      const gate = persistence.blockNextSave();
+      const marked = service.markUnread("session-1", WORKSPACE_CWD);
+      await drainMicrotasks();
+      expect(unreadEvents(hub)).toEqual([]);
+      gate.resolve();
+      const snapshot = await marked;
+      expect(snapshot.sessions).toMatchObject([{ sessionId: "session-1", completionOrder: 1 }]);
+      expect(persistence.savedStates.at(-1)?.sessions).toEqual(snapshot.sessions);
+      expect(unreadEvents(hub)).toMatchObject([{ unread: { completionOrder: 1 } }]);
+      expect(createRuntime).not.toHaveBeenCalled();
+      const newer = await service.markUnread("session-1", WORKSPACE_CWD);
+      expect(newer.sessions[0]?.completionOrder).toBe(2);
+      expect((await service.acknowledgeUnread("session-1", {
+        cwd: WORKSPACE_CWD, catalogId: snapshot.catalogId, throughCompletionOrder: 1,
+      })).sessions).toEqual(newer.sessions);
+    } finally { await service.dispose(); }
+  });
+
+  it("rejects missing, wrong-workspace, archived, transient, and tracked child sessions", async () => {
+    const archived = { sessionId: "archived", cwd: WORKSPACE_CWD, archivedAt: "2026-07-01T00:00:00.000Z" };
+    const transient = fakeRuntime("transient");
+    const child = { ...sessionRecord("child"), agentSubsession: true };
+    transient.session.sessionFile = undefined;
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR, modelRuntime: testModelRuntime,
+      createAgentRuntime: runtimeCreator(transient.runtime),
+      sessionManager: sessionGateway([
+        sessionRecord("archived"), sessionRecord("other", "/other"),
+        child,
+      ]),
+      archiveStore: { ...emptyArchiveStore(), list: () => Promise.resolve([archived]) },
+    });
+    try {
+      // Host a runtime without a backing transcript; this must not become unread.
+      await service.start(WORKSPACE_CWD);
+      for (const id of ["missing", "other", "archived", "transient", "child"]) {
+        await expect(service.markUnread(id, WORKSPACE_CWD)).rejects.toThrow("not eligible");
+      }
+      expect((await service.unreadCatalog()).sessions).toEqual([]);
+    } finally { await service.dispose(); }
+  });
+
+  it("does not resurrect unread state when an archive wins against asynchronous validation", async () => {
+    const fake = fakeRuntime("session-1");
+    const records = [sessionRecord("session-1")];
+    const gateway = sessionGateway(records);
+    const archived = new Map<string, { sessionId: string; cwd: string; archivedAt: string }>();
+    const gate = deferred();
+    const entered = deferred();
+    let blockListing = true;
+    gateway.list = async () => {
+      if (blockListing) {
+        blockListing = false;
+        entered.resolve();
+        await gate.promise;
+      }
+      return records;
+    };
+    const unreadStore = new SessionUnreadStore();
+    const service = new PiSessionService(new CapturingSessionEventHub(), {
+      agentDir: TEST_AGENT_DIR, modelRuntime: testModelRuntime,
+      createAgentRuntime: runtimeCreator(fake.runtime), sessionManager: gateway, unreadStore,
+      archiveStore: {
+        ...emptyArchiveStore(),
+        list: () => Promise.resolve([...archived.values()]),
+        archive: (input) => {
+          const record = { sessionId: input.sessionId, cwd: input.cwd, archivedAt: "2026-07-01T00:00:00.000Z" };
+          archived.set(input.sessionId, record);
+          return Promise.resolve(record);
+        },
+      },
+    });
+    try {
+      await service.status(sessionRef("session-1"));
+      const marked = service.markUnread("session-1", WORKSPACE_CWD);
+      const rejected = expect(marked).rejects.toThrow("not eligible");
+      await entered.promise;
+      await service.archive(sessionRef("session-1"));
+      gate.resolve();
+      await rejected;
+      expect((await service.unreadCatalog()).sessions).toEqual([]);
+    } finally { gate.resolve(); await service.dispose(); }
+  });
+
   it("publishes cleanup tombstones without signaling another completion or suppressing later work", async () => {
     const unreadStore = new SessionUnreadStore();
     const hub = new CapturingSessionEventHub();

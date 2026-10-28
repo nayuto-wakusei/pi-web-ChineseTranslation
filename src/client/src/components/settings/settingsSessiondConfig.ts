@@ -1,4 +1,5 @@
 import type { ActiveAgentProfileDescriptor, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues } from "../../api";
+import { mergeSelectedSettingsResponse } from "./settingsConfigUpdate";
 
 export type AgentProfileActivationState = "active" | "restart-required" | "unavailable";
 
@@ -45,9 +46,7 @@ export function mergeSelectedMachineSessiondConfig(base: PiWebConfigResponse, se
   if (selectedMachine.envOverrides.agentDirSource === undefined) delete envOverrides.agentDirSource;
   else envOverrides.agentDirSource = selectedMachine.envOverrides.agentDirSource;
   return {
-    ...base,
-    config: { ...base.config, ...selectedMachine.config },
-    effectiveConfig: { ...base.effectiveConfig, ...selectedMachine.effectiveConfig },
+    ...mergeSelectedSettingsResponse(base, selectedMachine, ["spawnSessions", "subsessions", "askUser", "sessionNaming", "agent"]),
     envOverrides,
   };
 }

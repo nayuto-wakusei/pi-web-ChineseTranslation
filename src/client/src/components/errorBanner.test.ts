@@ -2,7 +2,6 @@
 import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { errorBanner } from "./errorBanner";
-import { t } from "../i18n";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -36,7 +35,7 @@ describe("errorBanner", () => {
     expect(banner?.textContent).toContain("Failed to start workspace removal: HTTP request cancelled");
 
     const dismiss = host.querySelector<HTMLButtonElement>(".error-dismiss");
-    expect(dismiss?.getAttribute("aria-label")).toBe("关闭错误");
+    expect(dismiss?.getAttribute("aria-label")).toBe("Dismiss error");
     dismiss?.click();
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
@@ -58,11 +57,9 @@ describe("errorBanner", () => {
 
     expect(banner?.getAttribute("role")).toBe("alert");
     expect(banner?.classList.contains(severity)).toBe(true);
-    expect(retry?.textContent).toBe(t("ui.errorBanner.retry", "Retry"));
+    expect(retry?.textContent).toBe("Retry");
     expect(retry?.type).toBe("button");
-    const severityLabel = severity === "error" ? t("client.sessionNotifications.error.0bc1fb", "Error")
-      : severity === "warning" ? t("client.sessionNotifications.warning.a8b7a4", "Warning") : t("bundled.info.info.e70286", "Info");
-    const dismissLabel = t("ui.main.dcf2e3223649", "Dismiss {arg0}", { arg0: severityLabel });
+    const dismissLabel = `Dismiss ${severity}`;
     expect(dismiss?.getAttribute("aria-label")).toBe(dismissLabel);
     expect(dismiss?.getAttribute("title")).toBe(dismissLabel);
 
@@ -82,6 +79,6 @@ describe("errorBanner", () => {
     const banner = host.querySelector(".error");
 
     expect(banner?.classList.contains(severity)).toBe(true);
-    expect(banner?.querySelector(".error-dismiss")?.getAttribute("aria-label")).toBe(severity === "info" ? "关闭信息" : "关闭警告");
+    expect(banner?.querySelector(".error-dismiss")?.getAttribute("aria-label")).toBe(severity === "info" ? "Dismiss info" : "Dismiss warning");
   });
 });

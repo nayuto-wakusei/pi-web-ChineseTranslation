@@ -30,15 +30,15 @@ describe("extension-dialog-card confirm dialog", () => {
     expect(root.querySelector(".dialog-message")?.textContent).toBe("The extension wants to write files.");
     expect(root.querySelector("input, select, textarea")).toBeNull();
 
-    buttonWithText(root, "是").click();
+    buttonWithText(root, "Yes").click();
     await flushClose(card);
     expect(onAnswer).toHaveBeenCalledWith("dlg-1", true);
 
-    buttonWithText(root, "否").click();
+    buttonWithText(root, "No").click();
     await flushClose(card);
     expect(onAnswer).toHaveBeenCalledWith("dlg-1", false);
 
-    buttonWithText(root, "取消").click();
+    buttonWithText(root, "Cancel").click();
     await flushClose(card);
     expect(onCancel).toHaveBeenCalledWith("dlg-1");
     expect(onCancel).toHaveBeenCalledOnce();
@@ -50,13 +50,13 @@ describe("extension-dialog-card confirm dialog", () => {
     const card = await mountOpenDialog(openDialog(), { onAnswer });
     const root = renderRoot(card);
 
-    const yes = buttonWithText(root, "是");
+    const yes = buttonWithText(root, "Yes");
     yes.click();
     await card.updateComplete;
 
     expect(yes.disabled).toBe(true);
-    expect(buttonWithText(root, "否").disabled).toBe(true);
-    expect(buttonWithText(root, "取消").disabled).toBe(true);
+    expect(buttonWithText(root, "No").disabled).toBe(true);
+    expect(buttonWithText(root, "Cancel").disabled).toBe(true);
 
     resolveAnswer?.();
     await flushClose(card);
@@ -75,7 +75,7 @@ describe("extension-dialog-card select dialog", () => {
     }), { onAnswer });
     const root = renderRoot(card);
 
-    expect(buttonsWithText(root, "是")).toHaveLength(0);
+    expect(buttonsWithText(root, "Yes")).toHaveLength(0);
     buttonWithText(root, "Production").click();
     await Promise.resolve();
 
@@ -104,7 +104,7 @@ describe("extension-dialog-card input dialog", () => {
     input.value = "feature/dialogs";
     input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     await card.updateComplete;
-    buttonWithText(root, "发送").click();
+    buttonWithText(root, "Send").click();
     await Promise.resolve();
 
     expect(onAnswer).toHaveBeenCalledWith("dlg-1", "feature/dialogs");
@@ -115,7 +115,7 @@ describe("extension-dialog-card input dialog", () => {
     const card = await mountOpenDialog(openDialog({ kind: "input", title: "Notes?" }), { onAnswer });
     const root = renderRoot(card);
 
-    const send = buttonWithText(root, "发送");
+    const send = buttonWithText(root, "Send");
     expect(send.disabled).toBe(false);
     send.click();
     await Promise.resolve();
@@ -146,11 +146,11 @@ describe("extension-dialog-card countdown", () => {
     const root = renderRoot(card);
     const countdown = requiredElement(root.querySelector(".countdown"), "countdown");
 
-    expect(countdown.textContent).toBe("1 分 30 秒后自动取消");
+    expect(countdown.textContent).toBe("Auto-cancels in 1m 30s");
 
     await vi.advanceTimersByTimeAsync(30_000);
     await card.updateComplete;
-    expect(countdown.textContent).toBe("1 分 0 秒后自动取消");
+    expect(countdown.textContent).toBe("Auto-cancels in 1m 0s");
   });
 
   it("is decorative: no live region announcing every second", async () => {
@@ -199,12 +199,12 @@ describe("extension-dialog-card closed outcome", () => {
     await card.updateComplete;
     const root = renderRoot(card);
 
-    expect(root.querySelector(".header-status")?.textContent).toBe("已回答");
-    expect(root.querySelector(".closed-summary")?.textContent).toBe("回答：是");
+    expect(root.querySelector(".header-status")?.textContent).toBe("Answered");
+    expect(root.querySelector(".closed-summary")?.textContent).toBe("Answered: Yes");
     expect(root.querySelector("input, select, textarea")).toBeNull();
-    expect(buttonsWithText(root, "是")).toHaveLength(0);
+    expect(buttonsWithText(root, "Yes")).toHaveLength(0);
 
-    buttonWithText(root, "关闭").click();
+    buttonWithText(root, "Dismiss").click();
     expect(onDismiss).toHaveBeenCalledWith("dlg-1");
   });
 
@@ -215,8 +215,8 @@ describe("extension-dialog-card closed outcome", () => {
     await card.updateComplete;
     const root = renderRoot(card);
 
-    expect(root.querySelector(".header-status")?.textContent).toBe("已超时");
-    expect(root.querySelector(".closed-summary")?.textContent).toContain("超时");
+    expect(root.querySelector(".header-status")?.textContent).toBe("Timed out");
+    expect(root.querySelector(".closed-summary")?.textContent).toContain("timed out");
   });
 });
 
@@ -229,41 +229,41 @@ describe("extensionDialogCountdownText", () => {
   });
 
   it("formats seconds, minutes, and hours", () => {
-    expect(extensionDialogCountdownText("2026-07-27T10:00:45.000Z", now)).toBe("45 秒后自动取消");
-    expect(extensionDialogCountdownText("2026-07-27T10:05:00.000Z", now)).toBe("5 分 0 秒后自动取消");
-    expect(extensionDialogCountdownText("2026-07-27T11:02:00.000Z", now)).toBe("1 小时 2 分钟后自动取消");
+    expect(extensionDialogCountdownText("2026-07-27T10:00:45.000Z", now)).toBe("Auto-cancels in 45s");
+    expect(extensionDialogCountdownText("2026-07-27T10:05:00.000Z", now)).toBe("Auto-cancels in 5m 0s");
+    expect(extensionDialogCountdownText("2026-07-27T11:02:00.000Z", now)).toBe("Auto-cancels in 1h 2m");
   });
 
   it("never rounds the minutes up to 60 near an hour boundary", () => {
-    expect(extensionDialogCountdownText("2026-07-27T11:59:55.000Z", now)).toBe("1 小时 59 分钟后自动取消");
-    expect(extensionDialogCountdownText("2026-07-27T12:59:40.000Z", now)).toBe("2 小时 59 分钟后自动取消");
+    expect(extensionDialogCountdownText("2026-07-27T11:59:55.000Z", now)).toBe("Auto-cancels in 1h 59m");
+    expect(extensionDialogCountdownText("2026-07-27T12:59:40.000Z", now)).toBe("Auto-cancels in 2h 59m");
   });
 
   it("stays display-only once the deadline has passed", () => {
-    expect(extensionDialogCountdownText("2026-07-27T09:59:59.000Z", now)).toBe("即将自动取消");
+    expect(extensionDialogCountdownText("2026-07-27T09:59:59.000Z", now)).toBe("Auto-cancel imminent");
   });
 });
 
 describe("extensionDialogCloseLabel and extensionDialogCloseSummary", () => {
   it("labels every close reason", () => {
-    expect(extensionDialogCloseLabel("answered")).toBe("已回答");
-    expect(extensionDialogCloseLabel("cancelled")).toBe("已取消");
-    expect(extensionDialogCloseLabel("timeout")).toBe("已超时");
-    expect(extensionDialogCloseLabel("aborted")).toBe("已中止");
-    expect(extensionDialogCloseLabel("session-ended")).toBe("会话已结束");
+    expect(extensionDialogCloseLabel("answered")).toBe("Answered");
+    expect(extensionDialogCloseLabel("cancelled")).toBe("Cancelled");
+    expect(extensionDialogCloseLabel("timeout")).toBe("Timed out");
+    expect(extensionDialogCloseLabel("aborted")).toBe("Aborted");
+    expect(extensionDialogCloseLabel("session-ended")).toBe("Session ended");
   });
 
   it("summarizes answers by kind", () => {
-    expect(extensionDialogCloseSummary(closedDialog("answered", false))).toBe("回答：否");
-    expect(extensionDialogCloseSummary(closedDialog("answered", "Staging"))).toBe("回答：Staging");
-    expect(extensionDialogCloseSummary(closedDialog("answered", ""))).toBe("回答为空。");
+    expect(extensionDialogCloseSummary(closedDialog("answered", false))).toBe("Answered: No");
+    expect(extensionDialogCloseSummary(closedDialog("answered", "Staging"))).toBe("Answered: Staging");
+    expect(extensionDialogCloseSummary(closedDialog("answered", ""))).toBe("Answered with an empty response.");
   });
 
   it("summarizes closes without an answer", () => {
-    expect(extensionDialogCloseSummary(closedDialog("cancelled"))).toBe("已取消，未回答。");
-    expect(extensionDialogCloseSummary(closedDialog("timeout"))).toContain("超时");
-    expect(extensionDialogCloseSummary(closedDialog("aborted"))).toContain("运行");
-    expect(extensionDialogCloseSummary(closedDialog("session-ended"))).toContain("会话");
+    expect(extensionDialogCloseSummary(closedDialog("cancelled"))).toBe("Dismissed without an answer.");
+    expect(extensionDialogCloseSummary(closedDialog("timeout"))).toContain("timed out");
+    expect(extensionDialogCloseSummary(closedDialog("aborted"))).toContain("run");
+    expect(extensionDialogCloseSummary(closedDialog("session-ended"))).toContain("session");
   });
 });
 

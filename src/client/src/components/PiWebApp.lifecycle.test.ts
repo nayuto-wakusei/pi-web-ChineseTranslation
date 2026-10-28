@@ -112,13 +112,14 @@ describe("PiWebApp connection lifecycle", () => {
   it("reports management workspace removal errors without fetching server notices", async () => {
     const app = createConnectedApp("?embed=management");
     const refreshNotices = vi.spyOn(ServerNoticesController.prototype, "refresh").mockResolvedValue(undefined);
-    const reportError = vi.spyOn(BrowserErrorReporter.prototype, "report").mockImplementation(() => undefined);
+    const reportError = vi.spyOn(BrowserErrorReporter.prototype, "reportLocalized").mockImplementation(() => undefined);
     const scope = workspaceBrowserErrorScope("local", workspace.projectId, workspace.id);
 
     await callAsyncMethod(app, "reportWorkspaceRemovalFailure", workspace, "local", scope, new HttpRequestError("denied", 403));
 
     expect(refreshNotices).not.toHaveBeenCalled();
-    expect(reportError).toHaveBeenCalledWith(scope, expect.stringContaining("denied"));
+    expect(reportError).toHaveBeenCalledWith(scope, expect.any(Function));
+    expect(reportError.mock.calls[0]?.[1]()).toContain("denied");
   });
 
   it("does not resume polling when an in-flight refresh finishes after disconnect", async () => {
@@ -127,7 +128,7 @@ describe("PiWebApp connection lifecycle", () => {
     const refreshSelectedTranscript = replaceMethod(app, "refreshSelectedTranscript", vi.fn(() => refresh.promise));
 
     callMethod(app, "scheduleSelectedSessionRefresh");
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(30_000);
     expect(refreshSelectedTranscript).toHaveBeenCalledOnce();
 
     Object.defineProperty(app, "isConnected", { value: false, configurable: true });
@@ -147,13 +148,13 @@ describe("PiWebApp connection lifecycle", () => {
       .mockResolvedValue(undefined));
 
     callMethod(app, "scheduleSelectedSessionRefresh");
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(30_000);
     app.disconnectedCallback();
     Reflect.set(app, "authenticatedAppRunning", true);
     callMethod(app, "scheduleSelectedSessionRefresh");
     await vi.advanceTimersByTimeAsync(2_000);
     refresh.resolve();
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(28_000);
 
     expect(refreshSelectedTranscript).toHaveBeenCalledTimes(2);
     app.disconnectedCallback();

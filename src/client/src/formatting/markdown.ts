@@ -1,6 +1,6 @@
 import { marked, type Renderer } from "marked";
-import { t } from "../i18n";
 import { withManagementEmbed } from "../api/managementEmbed";
+import messages from "../components/formattedText.messages";
 import { DEFAULT_CODE_BLOCK_POLICY, type CodeBlockPolicy } from "./codeBlockPolicy";
 import { replaceLocalMarkdownImages } from "./markdownImages";
 import { workspaceFilePreviewUrl } from "../api/urls";
@@ -21,10 +21,12 @@ function markdownRenderer(codeBlocks: CodeBlockPolicy): Renderer {
     const language = token.lang?.trim().split(/\s/u)[0] ?? "";
     const label = language === "" ? "" : `<span class="code-block-label">${escapeHtml(language)}</span>`;
     const copy = codeBlocks.copy
-      ? `<button type="button" class="code-copy-button code-block-copy ui-button ui-button--icon ui-button--compact" title="${escapeHtml(t("images.code.copy", "Copy code block"))}" aria-label="${escapeHtml(t("images.code.copy", "Copy code block"))}"><span aria-hidden="true">⧉</span></button>`
+      ? `<button type="button" class="code-copy-button code-block-copy ui-button ui-button--icon ui-button--compact" title="${messages.copy.message}" aria-label="${messages.copy.message}"><span aria-hidden="true">⧉</span></button>`
       : "";
     // Generate the normal-flow header before mounting; never reparent source DOM.
-    const header = label === "" && copy === "" ? "" : `<div class="code-block-header" role="group" aria-label="${escapeHtml(t("images.code.controls", "Code block controls"))}">${label}${copy}</div>`;
+    // English source attributes keep cached HTML locale-neutral; FormattedText
+    // resolves owned labels on mount and on live language changes.
+    const header = label === "" && copy === "" ? "" : `<div class="code-block-header" role="group" aria-label="${messages.controls.message}">${label}${copy}</div>`;
     return `<div class="code-block-wrapper code-block-frame">${header}${block}</div>\n`;
   };
   return renderer;
@@ -106,7 +108,7 @@ function wrapTablesInScrollRegions(root: DocumentFragment): void {
     const wrapper = document.createElement("div");
     wrapper.className = TABLE_SCROLL_CLASS;
     wrapper.setAttribute("role", "region");
-    wrapper.setAttribute("aria-label", t("bundled.relays.table.22d9e7", "Table"));
+    wrapper.setAttribute("aria-label", messages.table.message);
     wrapper.setAttribute("tabindex", "0");
     table.before(wrapper);
     wrapper.append(table);

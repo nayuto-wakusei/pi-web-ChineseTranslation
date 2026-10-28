@@ -19,6 +19,9 @@ export interface MachineRequestOptions {
   timeoutMs?: number;
   contentType?: string;
   signal?: AbortSignal;
+  range?: string;
+  /** Resource-only: retain caller cancellation and a deadline through body close. */
+  streamLifetimeMs?: number;
 }
 
 export interface MachineClient {
@@ -58,23 +61,23 @@ export class RemoteMachineClient implements MachineClient {
   constructor(private readonly machine: Pick<StoredMachine, "baseUrl" | "token" | "headers">, private readonly fetchImpl: typeof fetch = fetch, private readonly translate: Translator = createTranslator("en", {})) {}
 
   async request(method: string, path: string, body?: unknown, options: MachineRequestOptions = {}): Promise<MachineHttpResponse> {
-    const response = await this.withResponse(method, path, body, options, (response) => response);
-    return {
-      statusCode: response.status,
-      headers: decodedResponseHeaders(response.headers),
-      ...(response.body === null ? {} : { body: readableFromWebResponseBody(response.body) }),
-    };
-  }
-
-  async requestJson(method: string, path: string, body?: unknown, options: MachineRequestOptions = {}): Promise<MachineJsonResponse> {
-    return await this.withResponse(method, path, body, options, async (response) => {
-      const text = await response.text();
-      const parsed: unknown = text === "" ? undefined : JSON.parse(text);
+    return this.withResponse(method, path, body, options, (response, retain) => {
+      const stream = response.body === null ? undefined : readableFromWebResponseBody(response.body);
+      if (stream !== undefined && options.streamLifetimeMs !== undefined) retain(stream);
       return {
         statusCode: response.status,
         headers: decodedResponseHeaders(response.headers),
-        body: parsed,
+        ...(stream === undefined ? {} : { body: stream }),
       };
+    });
+  }
+
+  async requestJson(method: string, path: string, body?: unknown, options: MachineRequestOptions = {}): Promise<MachineJsonResponse> {
+    // Keep the deadline and caller cancellation attached until the entire JSON body is read.
+    return this.withResponse(method, path, body, options, async (response) => {
+      const text = await response.text();
+      const parsed: unknown = text === "" ? undefined : JSON.parse(text);
+      return { statusCode: response.status, headers: decodedResponseHeaders(response.headers), body: parsed };
     });
   }
 
@@ -84,7 +87,10 @@ export class RemoteMachineClient implements MachineClient {
     return new WebSocket(url, { headers: this.remoteHeaders(), ...options });
   }
 
-  private async withResponse<T>(method: string, path: string, body: unknown, options: MachineRequestOptions, consume: (response: Response) => T | Promise<T>): Promise<T> {
+  private async withResponse<T>(
+    method: string, path: string, body: unknown, options: MachineRequestOptions,
+    consume: (response: Response, retain: (stream: Readable) => void) => T | Promise<T>,
+  ): Promise<T> {
     const controller = new AbortController();
     const abortFromParent = (): void => {
       if (!controller.signal.aborted) controller.abort(abortReason(options.signal));
@@ -93,8 +99,23 @@ export class RemoteMachineClient implements MachineClient {
     else options.signal?.addEventListener("abort", abortFromParent, { once: true });
 
     const timeoutError = new RemoteMachineRequestError(this.translate("machineError.requestTimedOut", "Remote machine request timed out"), 504);
-    const timeout = setTimeout(() => { controller.abort(timeoutError); }, options.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS);
+    let timeout = setTimeout(() => { controller.abort(timeoutError); }, options.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS);
     timeout.unref();
+    const lifetime = { retained: false };
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abortFromParent);
+    };
+    const retain = (stream: Readable): void => {
+      lifetime.retained = true;
+      clearTimeout(timeout);
+      timeout = setTimeout(() => { controller.abort(timeoutError); }, options.streamLifetimeMs);
+      timeout.unref();
+      const abortStream = (): void => { stream.destroy(abortReason(controller.signal)); };
+      controller.signal.addEventListener("abort", abortStream, { once: true });
+      stream.once("close", () => { cleanup(); controller.signal.removeEventListener("abort", abortStream); });
+      if (controller.signal.aborted) abortStream();
+    };
     try {
       const requestBody = serializeRequestBody(method, body);
       const init: RequestInit = {
@@ -105,7 +126,7 @@ export class RemoteMachineClient implements MachineClient {
       };
       if (requestBody !== undefined) init.body = requestBody;
       const response = await this.fetchImpl(this.remoteUrl(path), init);
-      return await consume(response);
+      return await consume(response, retain);
     } catch (error) {
       const reason: unknown = controller.signal.reason;
       if (reason instanceof RemoteMachineRequestError) throw reason;
@@ -114,15 +135,18 @@ export class RemoteMachineClient implements MachineClient {
       }
       throw new RemoteMachineRequestError(error instanceof Error ? error.message : String(error), 502);
     } finally {
-      clearTimeout(timeout);
-      options.signal?.removeEventListener("abort", abortFromParent);
+      if (!lifetime.retained) cleanup();
     }
   }
 
   private requestHeaders(body: unknown, options: MachineRequestOptions): Headers {
     const headers = new Headers(this.remoteHeaders());
     headers.set("accept", "*/*");
-    headers.set("accept-encoding", REMOTE_RESPONSE_ACCEPT_ENCODING);
+    headers.set("accept-encoding", options.streamLifetimeMs === undefined ? REMOTE_RESPONSE_ACCEPT_ENCODING : "identity");
+    if (options.range !== undefined) {
+      if (options.range.length > 256 || /[\r\n]/u.test(options.range)) throw new Error("Invalid resource Range header");
+      headers.set("range", options.range);
+    }
     if (body !== undefined) headers.set("content-type", options.contentType ?? defaultContentTypeForBody(body));
     return headers;
   }
@@ -204,7 +228,7 @@ function copyArrayBufferView(view: ArrayBufferView): ArrayBuffer {
   return copy.buffer;
 }
 
-function readableFromWebResponseBody(body: Response["body"]): NodeJS.ReadableStream {
+function readableFromWebResponseBody(body: Response["body"]): Readable {
   if (body === null) throw new UserFacingError("machineError.responseUnreadable", "Response body is not readable");
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Node fetch returns a web stream that is runtime-compatible with Readable.fromWeb, but DOM and node:stream/web types are not structurally identical in this TS config.
   return Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]);

@@ -68,12 +68,12 @@ it.each([
     { byteSize: -1 }, { byteSize: 1.5 }, { byteSize: Infinity }, { byteSize: "3" }, { byteSize: undefined },
   ])("fails closed for a malformed image reference: %j", (invalid) => {
     expect(normalizeMessage({ role: "user", content: [{ ...imageReference, ...invalid, data: "QUJD" }] }))
-      .toEqual([textMessage("user", "[image]")]);
+      .toEqual([{ role: "user", parts: [{ type: "text", text: "[image]", presentation: { kind: "imagePlaceholder" } }] }]);
   });
 
 it("also validates image references in already-shaped cached chat lines", () => {
     expect(normalizeMessage({ role: "user", entryId: "cached-image", parts: [{ ...imageReference, mediaId: "invalid", data: "QUJD" }] }))
-      .toEqual([{ role: "user", entryId: "cached-image", parts: [{ type: "text", text: "[image]" }] }]);
+      .toEqual([{ role: "user", entryId: "cached-image", parts: [{ type: "text", text: "[image]", presentation: { kind: "imagePlaceholder" } }] }]);
   });
 
 it("does not reinterpret non-image parts as media references", () => {

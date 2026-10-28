@@ -1,12 +1,12 @@
+import { initializeClientLocalization } from "../../src/client/src/localizationBootstrap";
+import { localization } from "../../src/client/src/localization/browser";
 import { configApi, piPackagesApi, pluginsApi, type Machine, type PiWebConfigResponse, type PiWebConfigValues } from "../../src/client/src/api";
 import { SettingsDialog } from "../../src/client/src/components/SettingsDialog";
-import { setClientTranslations } from "../../src/client/src/i18n";
 import chinesePlugin from "../../pi-web-plugins/zh-cn/pi-web-plugin";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../../src/shared/pluginRecoveryCommands";
 
-const [catalog] = chinesePlugin.activate().contributions.localizations;
-if (catalog === undefined) throw new Error("Bundled Chinese catalog is missing");
-setClientTranslations(catalog.locale, catalog.messages);
+await initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }]));
+await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
 
 const style = document.createElement("style");
 style.textContent = `
@@ -27,6 +27,7 @@ configApi.config = (id) => Promise.resolve(configResponse({
 }));
 configApi.namingModels = () => Promise.resolve({ models: [] });
 configApi.saveConfig = (config) => Promise.resolve(configResponse(config));
+configApi.updateConfig = (update) => Promise.resolve(configResponse(update.set ?? {}));
 piPackagesApi.packages = () => Promise.resolve({ packages: [] });
 pluginsApi.plugins = () => Promise.resolve({
   lifecycleVersion: 2, plugins: [], diagnostics: [],

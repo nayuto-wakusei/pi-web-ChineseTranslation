@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TranscriptImage, transcriptImageSource } from "./TranscriptImage";
-import { t } from "../i18n";
+import { imageMessages } from "../imageMessages";
 import { imageButton, nativeImage, settleImage } from "./imagePresentation.testSupport";
 
 const mediaId = "abc012".repeat(10) + "abcd";
@@ -34,7 +34,7 @@ describe("native transcript images", () => {
     const url = new URL(native.src);
     expect(url.pathname).toBe(`/nested/pi-web/api/machines/remote%20%2F%3F%23%25/sessions/session%20%2F%3F%23%25/media/${mediaId}`);
     expect(url.searchParams.get("cwd")).toBe(session.cwd);
-    expect(native.alt).toBe(t("images.attached", "attached image"));
+    expect(native.alt).toBe(imageMessages.t("attachedImage"));
     expect(native.getAttribute("width")).toBe("1200");
     expect(native.getAttribute("height")).toBe("800");
     expect(native.getAttribute("loading")).toBe("lazy");
@@ -55,7 +55,7 @@ describe("native transcript images", () => {
     expect(nativeImage(presentation)).toBe(native);
     expect(native.src).toBe(originalSource);
     expect(native.alt).toBe("read output image 2 of 3");
-    expect(imageButton(presentation).getAttribute("aria-label")).toBe(t("images.enlarge", "Enlarge {description}", { description: "read output image 2 of 3" }));
+    expect(imageButton(presentation).getAttribute("aria-label")).toBe(imageMessages.t("enlarge", { description: "read output image 2 of 3" }));
     expect(native.getAttribute("loading")).toBe("lazy");
   });
 
@@ -157,7 +157,7 @@ describe("transcript image source safety", () => {
   it("requires a session for references and preserves inline sources for helper consumers", () => {
     expect(transcriptImageSource(reference)).toBeUndefined();
     expect(transcriptImageSource({ type: "image", mimeType: "image/png", data: "QUJD" })).toEqual({
-      src: "data:image/png;base64,QUJD", alt: t("images.attached", "attached image"),
+      src: "data:image/png;base64,QUJD", alt: imageMessages.t("attachedImage"),
     });
   });
 });

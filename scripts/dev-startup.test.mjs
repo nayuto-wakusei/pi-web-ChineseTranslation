@@ -1,11 +1,11 @@
-import { EventEmitter } from "node:events";
 import { fork } from "node:child_process";
-import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { EventEmitter, once } from "node:events";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it, vi } from "vitest";
+import { startDevelopmentProcess } from "./dev-processes.mjs";
 import { runDevelopmentWeb } from "./dev-web.mjs";
 import { runDevelopmentSessiond, waitForPluginBuild } from "./dev-sessiond.mjs";
 
@@ -37,6 +37,52 @@ it("starts one builder, waits for publication, then starts the API without rebui
   builder.finish(1);
   expect(await running).toBe(1);
   expect(options.stop).toHaveBeenCalledWith(options.children[1]);
+});
+
+it.each([
+  [undefined, "1"],
+  ["0", "0"],
+  ["1", "1"],
+  ["", ""],
+])("passes dev plugin pairing %s to children as %s without changing the parent environment", async (configured, expected) => {
+  const options = harness();
+  options.env = configured === undefined ? {} : { PI_WEB_DEV_PLUGIN_PAIRING: configured };
+  const originalEnv = { ...options.env };
+  const running = runDevelopmentWeb(options);
+  options.children[0].emit("message", { type: "plugin-build-ready" });
+  expect(options.launch).toHaveBeenCalledTimes(2);
+  for (const call of options.launch.mock.calls) {
+    expect(call[2].PI_WEB_DEV_PLUGIN_PAIRING).toBe(expected);
+  }
+  expect(options.env).toEqual(originalEnv);
+  options.children[0].finish(0);
+  expect(await running).toBe(0);
+});
+
+it("launches a build process in its requested directory", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-web-build-cwd-"));
+  const child = startDevelopmentProcess("-e", ["process.send(process.cwd())"], process.env, { ipc: true, cwd });
+  try {
+    const exited = once(child, "exit");
+    const [reportedCwd] = await once(child, "message");
+    expect(await exited).toEqual([0, null]);
+    // Windows process.cwd() can retain an 8.3 alias; compare canonical paths.
+    expect(await realpath(reportedCwd)).toBe(await realpath(cwd));
+  } finally {
+    if (child.exitCode === null) child.kill();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+it("builds through the Docker source mount without changing API runtime cwd", async () => {
+  const options = harness();
+  options.env = { PI_WEB_DOCKER_MODE: "dev", PI_WEB_DOCKER_DEV_REPO_ROOT: "/host-checkout/node_modules/pi-web" };
+  const running = runDevelopmentWeb(options);
+  expect(options.launch.mock.calls[0][3]).toEqual({ ipc: true, cwd: "/build/pi-web" });
+  options.children[0].emit("message", { type: "plugin-build-ready" });
+  expect(options.launch.mock.calls[1][3]).toBeUndefined();
+  options.children[0].finish(0);
+  expect(await running).toBe(0);
 });
 
 it("does not start the API when the initial build fails", async () => {
@@ -71,8 +117,8 @@ it("starts sessiond only after build readiness without starting another builder"
   await vi.waitFor(() => expect(options.launch).toHaveBeenCalledOnce());
   expect(options.launch.mock.calls[0][0]).toBe("src/server/sessiond.ts");
   expect(options.launch.mock.calls[0][1]).toEqual([]);
-  expect(options.launch.mock.calls[0][4][0]).toBe("--import");
-  expect(new URL(options.launch.mock.calls[0][4][1]).protocol).toBe("file:");
+  expect(options.launch.mock.calls[0][3].execArgv[0]).toBe("--import");
+  expect(new URL(options.launch.mock.calls[0][3].execArgv[1]).protocol).toBe("file:");
   expect(options.launch.mock.calls[0][2]).toEqual(options.env);
   options.children[0].finish(0);
   expect(await running).toBe(0);
@@ -203,12 +249,12 @@ async function writeRequiredBrowserBuildFixtures(cwd) {
     await writeFile(join(root, "pi-web-plugin.ts"), "export default { apiVersion: 4, activate: () => ({ contributions: {} }) };");
     if (id === "mermaid") await writeFile(join(root, "mermaid-engine.ts"), "globalThis.fixtureMermaidEngine = true;");
   }
-  for (const id of ["captains-log", "workflows"]) {
-    const packageRoot = join(cwd, "pi-packages", id);
-    const entry = id === "captains-log" ? "pi-web-plugin" : "server-plugin";
+  {
+    const packageRoot = join(cwd, "pi-packages", "workflows");
+    const entry = "server-plugin";
     await mkdir(packageRoot, { recursive: true });
     await writeFile(join(packageRoot, "package.json"), JSON.stringify({ type: "module" }));
-    await writeFile(join(packageRoot, `${entry}.ts`), `export default { apiVersion: ${id === "captains-log" ? 4 : 3}, activate: () => ({ contributions: {} }) };`);
+    await writeFile(join(packageRoot, `${entry}.ts`), "export default { apiVersion: 3, activate: () => ({ contributions: {} }) };");
     await writeFile(join(packageRoot, "vite.config.mjs"), `import { fileURLToPath } from "node:url";
 export default { build: { lib: { entry: fileURLToPath(new URL("./${entry}.ts", import.meta.url)), formats: ["es"], fileName: () => "${entry}.js" } } };
 `);

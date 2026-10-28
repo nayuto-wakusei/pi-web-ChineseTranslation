@@ -8,6 +8,8 @@ import { ContentRendererHost } from "../../src/client/src/components/ContentRend
 import type { ContentRenderingCapability, FileContentResponse } from "@chainingintention/pi-web-cn/plugin-api";
 import type { WorkspaceFileViewMode, WorkspaceFileViewModeStore } from "./workspaceFileViewMode";
 import { WorkspaceFileViewer } from "./FilesViewer";
+import { filesLocalizationFixture } from "./filesLocalization.testSupport";
+import { createWorkspacePanelContext } from "../../src/testSupport/plugin";
 if (customElements.get("pi-web-files-viewer") === undefined) customElements.define("pi-web-files-viewer", WorkspaceFileViewer);
 useDeferredContent();
 beforeEach(() => { setTranslator(undefined); });
@@ -152,6 +154,13 @@ function fakeModeStore(adopted: WorkspaceFileViewMode = "raw"): FakeModeStore {
 
 async function mountViewer(file: FileContentResponse | undefined, patch: ViewerPatch = {}): Promise<WorkspaceFileViewer> {
   const viewer = new WorkspaceFileViewer();
+  viewer.content = filesLocalizationFixture().content;
+  viewer.files = createWorkspacePanelContext().files;
+  const rendering = patch.contentRendering;
+  if (rendering !== undefined) viewer.filePreviewing = {
+    listPreviewers: (request) => rendering.listRenderers({ machineId: request.machineId, text: request.file.content, filePath: request.file.path }).map((entry) => ({ ...entry, renderMode: entry.renderMode })),
+    renderPreview: (request) => rendering.renderText({ machineId: request.machineId, text: request.file.content, filePath: request.file.path, rendererId: request.previewerId, allowManualPreview: true, controls: "external" }),
+  };
   Object.assign(viewer, {
     machineId: "local",
     projectId: "project-1",

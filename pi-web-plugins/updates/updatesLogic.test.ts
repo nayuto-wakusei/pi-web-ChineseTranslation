@@ -1,11 +1,6 @@
-import { translateChinese } from "../localization.testSupport.js";
-import { setTranslator } from "./i18n.js";
-
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { PiWebComponentStatus, PiWebStatusMessage, PiWebStatusResponse, PluginRuntimeState } from "@chainingintention/pi-web-cn/plugin-api";
 import { additionalCommands, fallbackDockerStatus, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel } from "./updatesLogic";
-
-beforeEach(() => { setTranslator(translateChinese); });
 
 function component(overrides: Partial<PiWebComponentStatus> = {}): PiWebComponentStatus {
   return {
@@ -21,13 +16,13 @@ function component(overrides: Partial<PiWebComponentStatus> = {}): PiWebComponen
 
 function status(overrides: Partial<PiWebStatusResponse> = {}): PiWebStatusResponse {
   return {
-    packageName: "@chainingintention/pi-web-cn",
+    packageName: "@jmfederico/pi-web",
     generatedAt: "2026-06-14T00:00:00.000Z",
     components: {
       web: component({ component: "web", label: "Web/UI" }),
       sessiond: component({ component: "sessiond", label: "Session daemon" }),
     },
-    release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: false },
+    release: { packageName: "@jmfederico/pi-web", updateAvailable: false },
     commands: {},
     messages: [],
     ...overrides,
@@ -39,24 +34,24 @@ function stateWith(value: PiWebStatusResponse | undefined): PluginRuntimeState {
 }
 
 describe("recommendedCommand", () => {
-  it("recommends the installation-aware update command when an update is available", () => {
+  it("recommends the shared update CLI when an update is available", () => {
     const result = recommendedCommand(status({
-      release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true },
-      commands: { update: "pi-web update && pi-web restart", restart: "pi-web restart" },
+      release: { packageName: "@jmfederico/pi-web", updateAvailable: true },
+      commands: { update: "pi-web update", restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "更新 PI WEB", command: "pi-web update && pi-web restart" });
+    expect(result).toEqual({ label: "Update PI WEB", command: "pi-web update" });
   });
 
   it("falls through to restart when an update is available but the update command is empty", () => {
     const result = recommendedCommand(status({
-      release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true },
+      release: { packageName: "@jmfederico/pi-web", updateAvailable: true },
       components: {
         web: component({ stale: true }),
         sessiond: component({ component: "sessiond", label: "Session daemon" }),
       },
       commands: { update: "", restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "重启全部服务", command: "pi-web restart" });
+    expect(result).toEqual({ label: "Restart everything", command: "pi-web restart" });
   });
 
   it("recommends restart when the web component is stale", () => {
@@ -67,10 +62,10 @@ describe("recommendedCommand", () => {
       },
       commands: { restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "重启全部服务", command: "pi-web restart" });
+    expect(result).toEqual({ label: "Restart everything", command: "pi-web restart" });
   });
 
-  it("recommends restart when the session daemon is unavailable", () => {
+  it("does not recommend a restart just because a daemon version check failed", () => {
     const result = recommendedCommand(status({
       components: {
         web: component(),
@@ -78,7 +73,7 @@ describe("recommendedCommand", () => {
       },
       commands: { restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "重启全部服务", command: "pi-web restart" });
+    expect(result).toBeUndefined();
   });
 
   it("recommends restart when the session daemon is stale", () => {
@@ -89,7 +84,7 @@ describe("recommendedCommand", () => {
       },
       commands: { restart: "pi-web restart" },
     }));
-    expect(result).toEqual({ label: "重启全部服务", command: "pi-web restart" });
+    expect(result).toEqual({ label: "Restart everything", command: "pi-web restart" });
   });
 
   it("returns nothing when everything is current and available", () => {
@@ -98,16 +93,16 @@ describe("recommendedCommand", () => {
 
   it("preserves explicit Docker command text", () => {
     expect(recommendedCommand(status({
-      release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true },
+      release: { packageName: "@jmfederico/pi-web", updateAvailable: true },
       commands: { update: "pi-web-docker update", restart: "pi-web-docker restart" },
-    }))).toEqual({ label: "更新 PI WEB", command: "pi-web-docker update" });
+    }))).toEqual({ label: "Update PI WEB", command: "pi-web-docker update" });
     expect(recommendedCommand(status({
       components: {
         web: component({ stale: true, installation: { kind: "docker", dockerMode: "dev" } }),
         sessiond: component({ component: "sessiond", label: "Session daemon", installation: { kind: "docker", dockerMode: "dev" } }),
       },
       commands: { restart: "pi-web-docker --dev restart" },
-    }))).toEqual({ label: "重启全部服务", command: "pi-web-docker --dev restart" });
+    }))).toEqual({ label: "Restart everything", command: "pi-web-docker --dev restart" });
   });
 
   it("does not fabricate a restart command when one is not configured", () => {
@@ -133,19 +128,19 @@ describe("additionalCommands", () => {
         status: "pi-web status",
       },
     });
-    const result = additionalCommands(value, { label: "重启全部服务", command: "pi-web restart" });
+    const result = additionalCommands(value, { label: "Restart everything", command: "pi-web restart" });
     expect(result).toEqual([
-      { label: "更新", command: "pi-web update" },
-      { label: "重启会话守护进程", command: "pi-web restart sessiond" },
-      { label: "状态", command: "pi-web status" },
+      { label: "Update", command: "pi-web update" },
+      { label: "Restart session daemon", command: "pi-web restart sessiond" },
+      { label: "Status", command: "pi-web status" },
     ]);
   });
 
   it("keeps all commands when there is no recommended command", () => {
     const value = status({ commands: { update: "pi-web update", status: "pi-web status" } });
     expect(additionalCommands(value, undefined)).toEqual([
-      { label: "更新", command: "pi-web update" },
-      { label: "状态", command: "pi-web status" },
+      { label: "Update", command: "pi-web update" },
+      { label: "Status", command: "pi-web status" },
     ]);
   });
 
@@ -159,11 +154,11 @@ describe("additionalCommands", () => {
         status: "pi-web-docker status",
       },
     }), undefined)).toEqual([
-      { label: "更新", command: "pi-web-docker update" },
-      { label: "全部重启", command: "pi-web-docker restart" },
-      { label: "重启 Web/界面", command: "pi-web-docker restart-web" },
-      { label: "重启会话守护进程", command: "pi-web-docker restart-sessiond" },
-      { label: "状态", command: "pi-web-docker status" },
+      { label: "Update", command: "pi-web-docker update" },
+      { label: "Restart all", command: "pi-web-docker restart" },
+      { label: "Restart Web/UI", command: "pi-web-docker restart-web" },
+      { label: "Restart session daemon", command: "pi-web-docker restart-sessiond" },
+      { label: "Status", command: "pi-web-docker status" },
     ]);
 
     expect(additionalCommands(status({
@@ -174,11 +169,11 @@ describe("additionalCommands", () => {
         restartSessiond: "pi-web-docker --dev restart-sessiond",
         status: "pi-web-docker --dev status",
       },
-    }), { label: "更新 PI WEB", command: "pi-web-docker --dev update" })).toEqual([
-      { label: "全部重启", command: "pi-web-docker --dev restart" },
-      { label: "重启 Web/界面", command: "pi-web-docker --dev restart-web" },
-      { label: "重启会话守护进程", command: "pi-web-docker --dev restart-sessiond" },
-      { label: "状态", command: "pi-web-docker --dev status" },
+    }), { label: "Update PI WEB", command: "pi-web-docker --dev update" })).toEqual([
+      { label: "Restart all", command: "pi-web-docker --dev restart" },
+      { label: "Restart Web/UI", command: "pi-web-docker --dev restart-web" },
+      { label: "Restart session daemon", command: "pi-web-docker --dev restart-sessiond" },
+      { label: "Status", command: "pi-web-docker --dev status" },
     ]);
   });
 });
@@ -286,30 +281,28 @@ describe("messageCount", () => {
 
 describe("formatVersion", () => {
   it("renders unknown for missing or empty versions", () => {
-    expect(formatVersion(undefined)).toBe("未知");
-    expect(formatVersion("")).toBe("未知");
+    expect(formatVersion(undefined)).toBe("unknown");
+    expect(formatVersion("")).toBe("unknown");
     expect(formatVersion("1.202605.8")).toBe("1.202605.8");
   });
 });
 
 describe("installationLabel", () => {
   it("labels each installation kind", () => {
-    expect(installationLabel(undefined)).toBe("安装来源未知");
-    expect(installationLabel({ kind: "unknown" })).toBe("安装来源未知");
-    expect(installationLabel({ kind: "npm-global" })).toBe("全局 npm 包");
-    expect(installationLabel({ kind: "local" })).toBe("本地检出");
-    expect(installationLabel({ kind: "docker", dockerMode: "runtime" })).toBe("Docker 运行时");
-    expect(installationLabel({ kind: "docker", dockerMode: "dev" })).toBe("Docker 开发运行时");
+    expect(installationLabel(undefined)).toBe("installation unknown");
+    expect(installationLabel({ kind: "unknown" })).toBe("installation unknown");
+    expect(installationLabel({ kind: "npm-global" })).toBe("global npm package");
+    expect(installationLabel({ kind: "local" })).toBe("local checkout");
+    expect(installationLabel({ kind: "docker", dockerMode: "runtime" })).toBe("Docker runtime");
+    expect(installationLabel({ kind: "docker", dockerMode: "dev" })).toBe("Docker development runtime");
   });
 
   it("includes source and scope for pi-package installs", () => {
-    expect(installationLabel({ kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "user" }))
-      .toBe("npm:@chainingintention/pi-web-cn · 用户范围");
-    expect(installationLabel({ kind: "pi-package", source: "npm:@chainingintention/pi-web-cn", scope: "project" }))
-      .toBe("npm:@chainingintention/pi-web-cn · 项目范围");
+    expect(installationLabel({ kind: "pi-package", source: "npm:@jmfederico/pi-web", scope: "user" }))
+      .toBe("npm:@jmfederico/pi-web · user");
   });
 
   it("defaults the source and omits scope when absent", () => {
-    expect(installationLabel({ kind: "pi-package" })).toBe("Pi 包");
+    expect(installationLabel({ kind: "pi-package" })).toBe("Pi package");
   });
 });

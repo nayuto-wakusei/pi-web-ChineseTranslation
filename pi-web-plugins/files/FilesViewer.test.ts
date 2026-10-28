@@ -1,685 +1,266 @@
 // @vitest-environment happy-dom
-
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { html } from "lit";
-import { useDeferredContent, settleDeferredContent } from "../../src/client/src/formatting/deferredContent.testSupport";
-import { setClientTranslations } from "../../src/client/src/i18n";
-import mainMessages from "../zh-cn/main.json";
-import { createContentRenderingCapability } from "../../src/client/src/formatting/contentRendering";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { html, LitElement } from "lit";
+import type { ContentRenderingCapability, FileContentResponse, FilePreviewerContribution, WorkspaceFilesCapabilityV1 } from "@chainingintention/pi-web-cn/plugin-api";
 import { ContentRendererHost } from "../../src/client/src/components/ContentRendererHost";
-import type { ContentRenderingCapability, FileContentResponse } from "@chainingintention/pi-web-cn/plugin-api";
-import { adoptWorkspaceFileViewMode, WORKSPACE_FILE_VIEW_MODE_STORAGE_KEY, type WorkspaceFileViewMode, type WorkspaceFileViewModeStore } from "./workspaceFileViewMode";
-import { DEFAULT_MAX_INLINE_PREVIEW_BYTES as MAX_INLINE_PREVIEW_BYTES, WorkspaceFileViewer, workspaceFilePreviewKind, workspaceFileViewerIdentityKey, type WorkspaceFileViewerIdentity } from "./FilesViewer";
+import { createContentRenderingCapability } from "../../src/client/src/formatting/contentRendering";
+import { settleDeferredContent, useDeferredContent } from "../../src/client/src/formatting/deferredContent.testSupport";
+import { adaptPublicPlugin } from "../../src/client/src/plugins/publicContext";
+import { PluginRegistry } from "../../src/client/src/plugins/registry";
+import { FilesDocumentPreview } from "./FilesDocumentPreview";
+import { createDocumentPreviewers } from "./documentPreviewers";
+import { filesLocalizationFixture } from "./filesLocalization.testSupport";
+import { DEFAULT_MAX_INLINE_PREVIEW_BYTES, WorkspaceFileViewer, workspaceFileViewerIdentityKey, type WorkspaceFileViewerIdentity } from "./FilesViewer";
+import type { WorkspaceFileViewMode, WorkspaceFileViewModeStore } from "./workspaceFileViewMode";
 
 if (customElements.get("pi-web-files-viewer") === undefined) customElements.define("pi-web-files-viewer", WorkspaceFileViewer);
-
+if (customElements.get("pi-web-files-document-preview") === undefined) customElements.define("pi-web-files-document-preview", FilesDocumentPreview);
 useDeferredContent();
-beforeEach(() => { setClientTranslations("zh-CN", mainMessages); });
-
-afterEach(() => {
+const registries: PluginRegistry[] = [];
+afterEach(async () => {
   document.body.replaceChildren();
-  localStorage.clear();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  window.history.replaceState({}, "", "/");
+  for (const registry of registries.splice(0)) await registry.dispose();
+  localStorage.clear(); vi.restoreAllMocks();
 });
 
-describe("workspace-file-viewer", () => {
-  it.each(["automatic", "manual"] as const)("uses a plugin's title for its %s view button", async (renderMode) => {
-    const draw = vi.fn(() => html`<b>Named view</b>`);
-    const contentRendering = createContentRenderingCapability(() => [{ id: "highlighted", label: "Highlighted", renderer: {
-      id: "highlighted", title: "Highlighted", renderMode, render: draw,
-    } }]);
-    const viewer = await mountViewer(textFile("source.txt", "source"), { contentRendering });
-    const namedButton = buttonWithText(viewer, "Highlighted");
-    expect(namedButton.getAttribute("aria-pressed")).toBe("false");
-    expect(draw).not.toHaveBeenCalled();
-    expect(viewer.renderRoot.querySelector("select")).toBeNull();
-    namedButton.click();
-    await settleDeferredContent(viewer);
-    await settleDeferredContent(viewer);
-    expect(namedButton.getAttribute("aria-pressed")).toBe("true");
-    expect(draw).toHaveBeenCalledOnce();
-    modeButton(viewer, "源码").click();
-    await settleDeferredContent(viewer);
-    expect(namedButton.getAttribute("aria-pressed")).toBe("false");
-    expect(viewer.renderRoot.querySelector("pi-web-files-code-viewer")).not.toBeNull();
-  });
-
-  it.each(["fresh", "saved", "url"] as const)("honors %s Markdown preview intent for manual fences while preserving block controls", async (preference) => {
-    const alpha = vi.fn(() => html`<b>Alpha</b>`);
-    const beta = vi.fn(() => html`<b>Beta</b>`);
-    const contentRendering = createContentRenderingCapability(() => [
-      { id: "alpha", label: "Alpha", renderer: { id: "alpha", render: alpha } },
-      { id: "beta", label: "Beta", renderer: { id: "beta", render: beta } },
-    ]);
-    if (preference !== "fresh") localStorage.setItem(WORKSPACE_FILE_VIEW_MODE_STORAGE_KEY, preference === "saved" ? "preview" : "raw");
-    const modeStore = {
-      adopt: () => adoptWorkspaceFileViewMode({ read: () => preference === "url" ? "preview" : undefined, write: () => undefined }, localStorage),
-      publish: vi.fn(),
-    };
-    const viewer = await mountViewer(textFile("notes.md", "```diagram\nsource\n```", { mediaType: "markdown" }), { contentRendering, modeStore });
-    if (preference === "fresh") {
-      expect(viewer.renderRoot.querySelector("pi-web-content-renderer")).toBeNull();
-      expect(alpha).not.toHaveBeenCalled();
-      expect(modeStore.publish).not.toHaveBeenCalled();
-      modeButton(viewer, "预览").click();
-      await settleDeferredContent(viewer);
-    }
-    const host = viewer.renderRoot.querySelector<ContentRendererHost>("pi-web-content-renderer");
-    if (host === null) throw new Error("Expected Markdown fence host");
-    await settleDeferredContent(host);
-    expect(alpha).toHaveBeenCalledOnce();
-    expect(beta).not.toHaveBeenCalled();
-    expect(host.renderRoot.querySelector("select")).toBeNull();
-    buttonWithText(host, "Beta").click();
-    await settleDeferredContent(host);
-    expect(beta).toHaveBeenCalledOnce();
-    const raw = [...host.renderRoot.querySelectorAll("button")].find((button) => button.textContent === "源码");
-    if (raw === undefined) throw new Error("Expected block Raw control");
-    raw.click();
-    await settleDeferredContent(host);
-    viewer.requestUpdate();
-    await settleDeferredContent(viewer);
-    await settleDeferredContent(host);
-    expect(host.renderRoot.querySelector("pre code")?.textContent).toBe("source");
-    expect(host.renderRoot.querySelector(".preview")).toBeNull();
-    expect(buttonWithText(host, "源码").getAttribute("aria-pressed")).toBe("true");
-    expect(beta).toHaveBeenCalledOnce();
-    modeButton(viewer, "源码").click();
-    await settleDeferredContent(viewer);
-    expect(viewer.renderRoot.querySelector("pi-web-content-renderer")).toBeNull();
-  });
-
-  it.each(["manual", "automatic"] as const)("uses %s only as a fresh-browser default without saving it", async (renderMode) => {
-    const draw = vi.fn(() => html`<b>Preview</b>`);
-    const contentRendering = createContentRenderingCapability(() => [{ id: "diagram", label: "Diagram", renderer: { id: "diagram", renderMode, render: draw } }]);
-    const publish = vi.fn();
-    const viewer = await mountViewer(textFile("graph.mmd", "source"), { contentRendering, modeStore: { adopt: () => undefined, publish } });
-    await settleDeferredContent(viewer.renderRoot.querySelector<ContentRendererHost>("pi-web-content-renderer") ?? undefined);
-    expect(draw).toHaveBeenCalledTimes(renderMode === "automatic" ? 1 : 0);
-    expect(publish).not.toHaveBeenCalled();
-    modeButton(viewer, "源码").click();
-    await settleDeferredContent(viewer);
-    expect(publish).toHaveBeenCalledWith("raw");
-    expect(viewer.renderRoot.querySelector("pi-web-files-code-viewer")).not.toBeNull();
-  });
-
-  it.each(["manual", "automatic"] as const)("lets saved Preview and Raw override %s defaults", async (renderMode) => {
-    const draw = vi.fn(() => html`<b>Preview</b>`);
-    const contentRendering = createContentRenderingCapability(() => [{ id: "diagram", label: "Diagram", renderer: { id: "diagram", renderMode, render: draw } }]);
-    const viewer = await mountViewer(textFile("graph.mmd", "source"), { contentRendering, modeStore: fakeModeStore("preview") });
-    await settleDeferredContent(viewer.renderRoot.querySelector<ContentRendererHost>("pi-web-content-renderer") ?? undefined);
-    expect(draw).toHaveBeenCalledOnce();
-    viewer.modeStore = fakeModeStore("raw");
-    await settleDeferredContent(viewer);
-    expect(viewer.renderRoot.querySelector("pi-web-content-renderer")).toBeNull();
-    expect(draw).toHaveBeenCalledOnce();
-  });
-
-  it("owns standalone preview controls in the header and cancels the embedded renderer on Raw", async () => {
-    let signal: AbortSignal | undefined;
-    const contentRendering = createContentRenderingCapability(() => [{ id: "diagram", label: "Diagram", renderer: {
-      id: "diagram", languages: ["diagram"], render: (input) => {
-        signal = input.signal;
-        return html`<b>Diagram preview</b>`;
-      },
-    } }]);
-    const viewer = await mountViewer(textFile("graph.mmd", "A --> B"), { contentRendering });
-    expect(signal).toBeUndefined();
-    buttonWithText(viewer, "Diagram").click();
-    await settleDeferredContent(viewer);
-    const host = viewer.shadowRoot?.querySelector("pi-web-content-renderer");
-    if (!(host instanceof ContentRendererHost)) throw new Error("Expected preview host");
-    await settleDeferredContent(host);
-    expect(host.shadowRoot?.querySelector("button")).toBeNull();
-    expect(host.shadowRoot?.textContent).toContain("Diagram preview");
-    expect(viewer.shadowRoot?.querySelectorAll(".viewer-header button")).toHaveLength(2);
-    expect(viewer.shadowRoot?.querySelector(".viewer-header a[download]")).not.toBeNull();
-    modeButton(viewer, "源码").click();
-    await settleDeferredContent(viewer);
-    expect(signal?.aborted).toBe(true);
-    expect(viewer.shadowRoot?.querySelector("pi-web-content-renderer")).toBeNull();
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).not.toBeNull();
-    buttonWithText(viewer, "Diagram").click();
-    await settleDeferredContent(viewer);
-    const replacement = viewer.shadowRoot?.querySelector("pi-web-content-renderer");
-    if (!(replacement instanceof ContentRendererHost)) throw new Error("Expected resumed preview");
-    await settleDeferredContent(replacement);
-    expect(signal?.aborted).toBe(false);
-    const previousSignal = signal;
-    viewer.file = textFile("graph.mmd", "changed source");
-    await settleDeferredContent(viewer);
-    const changedHost = viewer.shadowRoot?.querySelector<ContentRendererHost>("pi-web-content-renderer");
-    await settleDeferredContent(changedHost ?? undefined);
-    expect(previousSignal?.aborted).toBe(true);
-    expect(signal).not.toBe(previousSignal);
-    expect(changedHost?.shadowRoot?.querySelector("b")?.textContent).toBe("Diagram preview");
-    expect(buttonWithText(viewer, "Diagram").getAttribute("aria-pressed")).toBe("true");
-  });
-
-  it("chooses alternatives in the header, preserves choice across modes, and resets for a different file", async () => {
-    const inputs: import("../../src/plugin-api").ContentRendererInput[] = [];
-    const choices = ["Alpha", "Beta"].map((label) => ({ id: label, label, renderer: {
-      id: label, render: (input: import("../../src/plugin-api").ContentRendererInput) => {
-        inputs.push(input);
-        return html`<b>${label}</b>`;
-      },
-    } }));
-    const contentRendering = createContentRenderingCapability(() => choices);
-    const viewer = await mountViewer(textFile("first.mmd", "source"), { contentRendering });
-    expect(viewer.renderRoot.querySelector("select")).toBeNull();
-    expect(buttonWithText(viewer, "Alpha").getAttribute("aria-pressed")).toBe("false");
-    expect(inputs).toHaveLength(0);
-    buttonWithText(viewer, "Alpha").click();
-    await settleDeferredContent(viewer);
-    const host = viewer.renderRoot.querySelector<ContentRendererHost>("pi-web-content-renderer");
-    if (host === null) throw new Error("Expected preview host");
-    await settleDeferredContent(host);
-    expect(host.shadowRoot?.querySelector("select,button")).toBeNull();
-    expect(inputs).toHaveLength(1);
-    buttonWithText(viewer, "Beta").click();
-    await settleDeferredContent(viewer);
-    await settleDeferredContent(host);
-    expect(inputs[0]?.signal.aborted).toBe(true);
-    expect(inputs).toHaveLength(2);
-    expect(host.shadowRoot?.querySelector("b")?.textContent).toBe("Beta");
-    buttonWithText(viewer, "Beta").click();
-    await settleDeferredContent(viewer);
-    await settleDeferredContent(host);
-    expect(host.shadowRoot?.querySelector("b")?.textContent).toBe("Beta");
-    expect(inputs).toHaveLength(2);
-    modeButton(viewer, "源码").click();
-    await settleDeferredContent(viewer);
-    expect(inputs[1]?.signal.aborted).toBe(true);
-    expect(buttonWithText(viewer, "源码").getAttribute("aria-pressed")).toBe("true");
-    buttonWithText(viewer, "Beta").click();
-    await settleDeferredContent(viewer);
-    const resumed = viewer.renderRoot.querySelector<ContentRendererHost>("pi-web-content-renderer");
-    if (resumed === null) throw new Error("Expected resumed preview");
-    await settleDeferredContent(resumed);
-    expect(resumed.shadowRoot?.querySelector("b")?.textContent).toBe("Beta");
-    viewer.selectedPath = "second.mmd";
-    viewer.file = textFile("second.mmd", "other");
-    await settleDeferredContent(viewer);
-    expect(buttonWithText(viewer, "Alpha").getAttribute("aria-pressed")).toBe("true");
-  });
-
-  it("passes Markdown policy and complete text files to the public rendering capability with machine scope", async () => {
-    const renderText = vi.fn<ContentRenderingCapability["renderText"]>(() => html`<div class="plugin-preview">Diagram</div>`);
-    const renderMarkdown = vi.fn<ContentRenderingCapability["renderMarkdown"]>(() => html`<div class="plugin-markdown">Markdown</div>`);
-    const contentRendering = { listRenderers: () => [], renderText, renderMarkdown };
-    const file = textFile("graph.mmd", "graph TD; A-->B");
-    const viewer = await mountViewer(file, { machineId: "remote", contentRendering });
-    expect(viewer.shadowRoot?.querySelector(".plugin-preview")).toBeNull();
-    expect(renderText).toHaveBeenCalledWith({ machineId: "remote", filePath: "graph.mmd", text: file.content, controls: "external", allowManualPreview: false });
-    expect(viewer.shadowRoot?.querySelector(".viewer-header .viewer-mode")).not.toBeNull();
-    modeButton(viewer, "预览").click();
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector(".plugin-preview")).not.toBeNull();
-    modeButton(viewer, "源码").click();
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector(".plugin-preview")).toBeNull();
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).not.toBeNull();
-    renderText.mockClear();
-    viewer.file = { ...file, truncated: true };
-    await settleDeferredContent(viewer);
-    expect(renderText).not.toHaveBeenCalled();
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).not.toBeNull();
-    viewer.file = { ...file, size: MAX_INLINE_PREVIEW_BYTES + 1 };
-    await settleDeferredContent(viewer);
-    expect(renderText).not.toHaveBeenCalled();
-
-    const markdown = textFile("README.md", "```mermaid\ngraph TD\n```", { mediaType: "markdown" });
-    viewer.selectedPath = markdown.path;
-    viewer.file = markdown;
-    await settleDeferredContent(viewer);
-    expect(renderMarkdown).not.toHaveBeenCalled();
-    modeButton(viewer, "预览").click();
-    await settleDeferredContent(viewer);
-    const request = renderMarkdown.mock.calls[0]?.[0];
-    expect(request).toMatchObject({ machineId: "remote", text: markdown.content, truncated: false });
-    expect(request?.toSafeHtml("![remote](https://evil.test/pixel)")).toContain("已省略图片");
-    expect(request?.toSafeHtml("![remote](https://evil.test/pixel)")).not.toContain("<img");
-    expect(viewer.shadowRoot?.querySelector(".plugin-markdown")).not.toBeNull();
-  });
-
-  it("shows explicit selection, loading, unavailable, and content-mismatch states", async () => {
-    const viewer = await mountViewer(undefined, { selectedPath: undefined });
-    expect(statusMessage(viewer)).toBe("请选择文件。");
-
-    viewer.selectedPath = "notes.md";
-    await settleDeferredContent(viewer);
-    expect(statusMessage(viewer)).toBe("正在加载 notes.md…");
-    expect(viewer.shadowRoot?.querySelector("[role='status']")?.getAttribute("aria-live")).toBe("polite");
-
-    viewer.loadError = "Path does not exist: notes.md";
-    await settleDeferredContent(viewer);
-    expect(statusMessage(viewer)).toBe("无法加载 notes.md：Path does not exist: notes.md");
-    expect(viewer.shadowRoot?.querySelector("[role='alert']")).not.toBeNull();
-
-    viewer.loadError = undefined;
-    viewer.file = textFile("other.md", "# Wrong file", { mediaType: "markdown", language: "markdown" });
-    await settleDeferredContent(viewer);
-    expect(statusMessage(viewer)).toBe("无法预览 notes.md：已加载内容属于 other.md。");
-    expect(viewer.shadowRoot?.querySelector("a, iframe, pi-web-files-code-viewer")).toBeNull();
-  });
-
-  it("opens HTML as literal raw source and previews it in an exactly sandboxed frame on request", async () => {
-    const source = `<h1 onclick="alert(1)">Literal heading</h1><script>alert("no")</script>`;
-    const file = textFile("pages/report.html", source, {
-      mediaType: "html",
-      mimeType: "text/html; charset=utf-8",
-      language: "html",
-    });
-    const viewer = await mountViewer(file);
-
-    const group = requiredElement(viewer.shadowRoot?.querySelector("[role='group']"), "mode group");
-    expect(group.getAttribute("aria-label")).toBe("查看 pages/report.html");
-    expect(modeButton(viewer, "源码").getAttribute("aria-pressed")).toBe("true");
-    expect(modeButton(viewer, "预览").getAttribute("aria-pressed")).toBe("false");
-    expect(viewer.shadowRoot?.querySelector("iframe")).toBeNull();
-    expect(requiredElement(viewer.shadowRoot?.querySelector<HTMLElement & { content: string }>("pi-web-files-code-viewer"), "raw code viewer").content).toBe(source);
-    expect(viewer.shadowRoot?.querySelector("h1, script")).toBeNull();
-
-    const open = anchorWithText(viewer, "打开 ↗");
-    expect(open.getAttribute("target")).toBe("_blank");
-    expect(open.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(open.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(new URL(open.href).searchParams.get("download")).toBeNull();
-    const download = requiredElement(viewer.shadowRoot?.querySelector<HTMLAnchorElement>("a[download]"), "download action");
-    expect(download.getAttribute("download")).toBe("report.html");
-    expect(new URL(download.href).searchParams.get("download")).toBe("1");
-
-    modeButton(viewer, "预览").click();
-    await settleDeferredContent(viewer);
-
-    expect(modeButton(viewer, "预览").getAttribute("aria-pressed")).toBe("true");
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).toBeNull();
-    const frame = requiredElement(viewer.shadowRoot?.querySelector<HTMLIFrameElement>("iframe"), "HTML preview frame");
-    expect(frame.getAttribute("sandbox")).toBe("");
-    expect(frame.getAttribute("allow")).toBe("");
-    expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(frame.getAttribute("title")).toBe("pages/report.html 的预览");
-
-    modeButton(viewer, "源码").click();
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector("iframe")).toBeNull();
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).not.toBeNull();
-  });
-
-  it("opens Markdown as literal raw source and renders it through the safe renderer on request", async () => {
-    const source = `# Rendered\n\n<script>alert(1)</script>\n\n![remote](https://attacker.test/pixel.png)\n\n[Docs](https://example.test/docs)`;
-    const file = textFile("README.md", source, { mediaType: "markdown", language: "markdown" });
-    const viewer = await mountViewer(file);
-
-    expect(modeButton(viewer, "源码").getAttribute("aria-pressed")).toBe("true");
-    const raw = requiredElement(viewer.shadowRoot?.querySelector<HTMLElement & { content: string }>("pi-web-files-code-viewer"), "raw Markdown viewer");
-    expect(raw.content).toBe(source);
-    expect(viewer.shadowRoot?.querySelector(".markdown-preview")).toBeNull();
-
-    modeButton(viewer, "预览").click();
-    await settleDeferredContent(viewer);
-
-    expect(modeButton(viewer, "预览").getAttribute("aria-pressed")).toBe("true");
-    const preview = requiredElement(viewer.shadowRoot?.querySelector(".markdown-preview"), "Markdown preview");
-    expect(preview.querySelector("h1")?.textContent).toBe("Rendered");
-    expect(preview.querySelector("script, img, iframe, object, embed, svg")).toBeNull();
-    expect(preview.textContent).toContain("<script>alert(1)</script>");
-    expect(preview.textContent).toContain("[已省略图片：remote]");
-    const renderedLink = requiredElement(preview.querySelector("a"), "rendered Markdown link");
-    expect(renderedLink.getAttribute("target")).toBe("_blank");
-    expect(renderedLink.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(viewer.shadowRoot?.textContent).not.toContain("打开 ↗");
-  });
-
-  it("adopts the remembered mode, keeps it across files, and publishes what is displayed", async () => {
-    const store = fakeModeStore("preview");
-    const original = textFile("report.html", "<p>first</p>", { mediaType: "html", language: "html" });
-    const viewer = await mountViewer(original, { modeStore: store });
-
-    expect(modeButton(viewer, "预览").getAttribute("aria-pressed")).toBe("true");
-    expect(store.published).toEqual(["preview"]);
-
-    // A new revision of the same file, a different machine, and a different
-    // file all keep the mode the user last chose.
-    viewer.file = { ...original, content: "<p>updated</p>", modifiedAt: "2026-06-25T00:01:00.000Z" };
-    await settleDeferredContent(viewer);
-    expect(modeButton(viewer, "预览").getAttribute("aria-pressed")).toBe("true");
-
-    viewer.machineId = "remote-1";
-    await settleDeferredContent(viewer);
-    expect(modeButton(viewer, "预览").getAttribute("aria-pressed")).toBe("true");
-
-    modeButton(viewer, "源码").click();
-    await settleDeferredContent(viewer);
-    expect(store.published).toEqual(["preview", "raw"]);
-
-    const readme = textFile("README.md", "# Docs", { mediaType: "markdown", language: "markdown" });
-    viewer.selectedPath = readme.path;
-    viewer.file = readme;
-    await settleDeferredContent(viewer);
-    expect(modeButton(viewer, "源码").getAttribute("aria-pressed")).toBe("true");
-    expect(viewer.shadowRoot?.querySelector(".markdown-preview")).toBeNull();
-
-    // Files without a rendered form never publish a mode, so a link to a PNG
-    // cannot rewrite the remembered choice.
-    const image = binaryFile("photo.png", { mediaType: "image", mimeType: "image/png" });
-    viewer.selectedPath = image.path;
-    viewer.file = image;
-    await settleDeferredContent(viewer);
-    expect(store.published).toEqual(["preview", "raw"]);
-  });
-
-  it("restores the rendered mode when host navigation supplies a new snapshot", async () => {
-    const file = textFile("first.html", "<p>first</p>", { mediaType: "html", language: "html" });
-    const viewer = await mountViewer(file, { modeStore: fakeModeStore("raw") });
-    expect(modeButton(viewer, "源码").getAttribute("aria-pressed")).toBe("true");
-
-    viewer.modeStore = fakeModeStore("preview");
-    await settleDeferredContent(viewer);
-    expect(modeButton(viewer, "预览").getAttribute("aria-pressed")).toBe("true");
-    expect(viewer.shadowRoot?.querySelector("iframe")).not.toBeNull();
-
-    viewer.modeStore = fakeModeStore("raw");
-    await settleDeferredContent(viewer);
-    expect(modeButton(viewer, "源码").getAttribute("aria-pressed")).toBe("true");
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).not.toBeNull();
-  });
-
-  it("ignores stale mode controls after a different file is selected", async () => {
-    const first = textFile("first.html", "<p>first</p>", { mediaType: "html", language: "html" });
-    const viewer = await mountViewer(first);
-    const detachedPreviewButton = modeButton(viewer, "预览");
-
-    // A streamed image has no mode controls, so the earlier buttons leave the
-    // DOM entirely and any later click on one is genuinely stale.
-    const image = binaryFile("second.png", { mediaType: "image", mimeType: "image/png" });
-    viewer.selectedPath = image.path;
-    viewer.file = image;
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector("img")).not.toBeNull();
-    expect(detachedPreviewButton.isConnected).toBe(false);
-
-    detachedPreviewButton.click();
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector("img")).not.toBeNull();
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).toBeNull();
-
-    // The stale click must not have changed the remembered mode either.
-    const notes = textFile("notes.md", "# notes", { mediaType: "markdown", language: "markdown" });
-    viewer.selectedPath = notes.path;
-    viewer.file = notes;
-    await settleDeferredContent(viewer);
-    expect(modeButton(viewer, "源码").getAttribute("aria-pressed")).toBe("true");
-    expect(viewer.shadowRoot?.querySelector(".markdown-preview")).toBeNull();
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).not.toBeNull();
-  });
-
-  it("ignores stale embedded-preview failures and exposes recovery for the current file", async () => {
-    const image = binaryFile("first.png", { mediaType: "image", mimeType: "image/png" });
-    const viewer = await mountViewer(image);
-    const detachedImage = requiredElement(viewer.shadowRoot?.querySelector<HTMLImageElement>("img"), "first image");
-
-    const pdf = binaryFile("second.pdf", { mediaType: "pdf", mimeType: "application/pdf" });
-    viewer.selectedPath = pdf.path;
-    viewer.file = pdf;
-    await settleDeferredContent(viewer);
-    const currentFrame = requiredElement(viewer.shadowRoot?.querySelector<HTMLIFrameElement>("iframe"), "current PDF frame");
-    // Sandboxed frames refuse native PDF handlers, so the PDF frame carries no
-    // sandbox attribute and relies on the response contract plus the always
-    // available Open/Download affordances.
-    expect(currentFrame.hasAttribute("sandbox")).toBe(false);
-    expect(currentFrame.getAttribute("allow")).toBe("");
-    expect(currentFrame.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(requiredElement(viewer.shadowRoot?.querySelector(".preview-note"), "PDF fallback note").textContent)
-      .toContain("若未显示，请在新窗口打开或下载");
-    expect(anchorWithText(viewer, "打开 ↗")).toBeDefined();
-
-    detachedImage.dispatchEvent(new Event("error"));
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector("iframe")).toBe(currentFrame);
-    expect(viewer.shadowRoot?.textContent).not.toContain("预览失败");
-
-    currentFrame.dispatchEvent(new Event("error"));
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector("[role='alert']")?.textContent).toContain("second.pdf 预览失败。");
-    expect(viewer.shadowRoot?.querySelector("iframe")).toBeNull();
-    expect(anchorWithText(viewer, "打开 ↗")).toBeDefined();
-    expect(viewer.shadowRoot?.querySelector("a[download]")).not.toBeNull();
-
-    buttonWithText(viewer, "重试预览").click();
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector("iframe")).not.toBeNull();
-  });
-
-  it("gives SVG a rendered preview and literal escaped raw source", async () => {
-    const source = `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(2)</script></svg>`;
-    const file = textFile("assets/diagram.svg", source, { mediaType: "image", mimeType: "image/svg+xml" });
-    const viewer = await mountViewer(file);
-
-    expect(modeButton(viewer, "源码").getAttribute("aria-pressed")).toBe("true");
-    expect(viewer.shadowRoot?.querySelector("img")).toBeNull();
-    const raw = requiredElement(viewer.shadowRoot?.querySelector<HTMLElement & { content: string }>("pi-web-files-code-viewer"), "raw SVG viewer");
-    expect(raw.content).toBe(source);
-    expect(viewer.shadowRoot?.querySelector("svg, script")).toBeNull();
-
-    modeButton(viewer, "预览").click();
-    await settleDeferredContent(viewer);
-
-    expect(modeButton(viewer, "预览").getAttribute("aria-pressed")).toBe("true");
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).toBeNull();
-    const image = requiredElement(viewer.shadowRoot?.querySelector<HTMLImageElement>("img"), "SVG preview image");
-    expect(new URL(image.src).searchParams.get("path")).toBe(file.path);
-    expect(image.getAttribute("alt")).toBe("assets/diagram.svg 的预览");
-
-    const streamedImage = binaryFile("photo.png", { mediaType: "image", mimeType: "image/png" });
-    viewer.selectedPath = streamedImage.path;
-    viewer.file = streamedImage;
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector("[role='group']")).toBeNull();
-  });
-
-  it("ignores delayed events from an earlier selection of an identically keyed file", async () => {
-    const report = textFile("report.html", "<p>first</p>", { mediaType: "html", language: "html" });
-    const viewer = await mountViewer(report, { modeStore: fakeModeStore("preview") });
-    const detachedFrame = requiredElement(viewer.shadowRoot?.querySelector<HTMLIFrameElement>("iframe"), "first HTML frame");
-    const detachedRawButton = modeButton(viewer, "源码");
-
-    const photo = binaryFile("photo.png", { mediaType: "image", mimeType: "image/png" });
-    viewer.selectedPath = photo.path;
-    viewer.file = photo;
-    await settleDeferredContent(viewer);
-
-    // Re-select the first file with identical metadata: its identity key is the
-    // same as before, so only a per-selection token can tell the renders apart.
-    viewer.selectedPath = report.path;
-    viewer.file = { ...report };
-    await settleDeferredContent(viewer);
-    expect(detachedFrame.isConnected).toBe(false);
-    expect(detachedRawButton.isConnected).toBe(false);
-    expect(viewer.shadowRoot?.querySelector("iframe")).not.toBe(detachedFrame);
-
-    detachedFrame.dispatchEvent(new Event("error"));
-    detachedRawButton.click();
-    await settleDeferredContent(viewer);
-
-    expect(viewer.shadowRoot?.textContent).not.toContain("预览失败");
-    expect(viewer.shadowRoot?.querySelector("iframe")).not.toBeNull();
-    expect(modeButton(viewer, "预览").getAttribute("aria-pressed")).toBe("true");
-    expect(viewer.shadowRoot?.querySelector("pi-web-files-code-viewer")).toBeNull();
-  });
-
-  it("keeps empty, oversized, unsupported, and truncated states explicit", async () => {
-    const emptyMarkdown = textFile("empty.md", "", { mediaType: "markdown", language: "markdown", size: 0 });
-    const viewer = await mountViewer(emptyMarkdown);
-    expect(statusMessage(viewer)).toBe("文件为空。");
-    expect(modeButton(viewer, "预览")).toBeDefined();
-    expect(viewer.shadowRoot?.querySelector("a[download]")).not.toBeNull();
-
-    const oversizedHtml = textFile("large.html", "<p>first capped bytes</p>", {
-      mediaType: "html",
-      language: "html",
-      size: MAX_INLINE_PREVIEW_BYTES + 1,
-      truncated: true,
-    });
-    viewer.selectedPath = oversizedHtml.path;
-    viewer.file = oversizedHtml;
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.querySelector("[role='status']")?.textContent).toContain("源码已截断");
-    expect(requiredElement(viewer.shadowRoot?.querySelector<HTMLElement & { content: string }>("pi-web-files-code-viewer"), "oversized raw source").content).toBe("<p>first capped bytes</p>");
-    expect(viewer.shadowRoot?.textContent).not.toContain("打开 ↗");
-    expect(viewer.shadowRoot?.querySelector("a[download]")).not.toBeNull();
-
-    modeButton(viewer, "预览").click();
-    await settleDeferredContent(viewer);
-    expect(statusMessage(viewer)).toContain("文件过大，无法预览");
-    expect(viewer.shadowRoot?.querySelector("iframe")).toBeNull();
-
-    modeButton(viewer, "源码").click();
-    await settleDeferredContent(viewer);
-
-    const archive = binaryFile(String.raw`C:\reports\archive.zip`);
-    viewer.selectedPath = archive.path;
-    viewer.file = archive;
-    await settleDeferredContent(viewer);
-    expect(viewer.shadowRoot?.textContent).toContain("此文件类型不支持预览。");
-    const fallback = requiredElement(viewer.shadowRoot?.querySelector<HTMLAnchorElement>(".download-link"), "unsupported-file download fallback");
-    expect(fallback.textContent).toContain("下载 archive.zip");
-    expect(fallback.getAttribute("download")).toBe("archive.zip");
-    expect(new URL(fallback.href).searchParams.get("path")).toBe(archive.path);
-    expect(new URL(fallback.href).searchParams.get("download")).toBe("1");
-  });
-});
-
-describe("workspace file viewer seams", () => {
-  it("classifies every viewer kind including Markdown", () => {
-    expect(workspaceFilePreviewKind(binaryFile("logo.png", { mediaType: "image" }))).toBe("image");
-    expect(workspaceFilePreviewKind(textFile("report.html", "x", { mediaType: "html" }))).toBe("html");
-    expect(workspaceFilePreviewKind(binaryFile("report.pdf", { mediaType: "pdf" }))).toBe("pdf");
-    expect(workspaceFilePreviewKind(textFile("README.md", "x", { mediaType: "markdown" }))).toBe("markdown");
-    expect(workspaceFilePreviewKind(binaryFile("archive.zip"))).toBe("download");
-    expect(workspaceFilePreviewKind(textFile("main.ts", "const x = 1", { language: "typescript" }))).toBe("code");
-  });
-
-  it("keys state by machine, project, workspace, path, modified time, and loaded format", () => {
-    const file = textFile("report.html", "<p>x</p>", { mediaType: "html" });
-    const base: WorkspaceFileViewerIdentity = {
-      machineId: "local",
-      projectId: "project-1",
-      workspaceId: "workspace-1",
-      selectedPath: file.path,
-      file,
-    };
-    const baseKey = workspaceFileViewerIdentityKey(base);
-    const variants: WorkspaceFileViewerIdentity[] = [
-      { ...base, machineId: "remote-1" },
-      { ...base, projectId: "project-2" },
-      { ...base, workspaceId: "workspace-2" },
-      { ...base, selectedPath: "other.html" },
-      { ...base, file: { ...file, modifiedAt: "2026-06-25T00:01:00.000Z" } },
-      { ...base, file: { ...file, mediaType: "markdown" } },
-    ];
-
-    expect(new Set(variants.map(workspaceFileViewerIdentityKey))).toHaveLength(variants.length);
-    for (const variant of variants) expect(workspaceFileViewerIdentityKey(variant)).not.toBe(baseKey);
-  });
-});
-
-interface ViewerPatch {
-  contentRendering?: ContentRenderingCapability;
-  machineId?: string;
-  projectId?: string;
-  workspaceId?: string;
-  selectedPath?: string | undefined;
-  file?: FileContentResponse | undefined;
-  loadError?: string | undefined;
-  previewUrlBuilder?: WorkspaceFileViewer["previewUrlBuilder"];
-  modeStore?: WorkspaceFileViewModeStore;
-}
-
-interface FakeModeStore extends WorkspaceFileViewModeStore {
-  published: WorkspaceFileViewMode[];
-}
-
-function fakeModeStore(adopted: WorkspaceFileViewMode = "raw"): FakeModeStore {
-  const published: WorkspaceFileViewMode[] = [];
-  return {
-    published,
-    adopt: () => adopted,
-    publish: (mode) => { published.push(mode); },
-  };
-}
-
-async function mountViewer(file: FileContentResponse | undefined, patch: ViewerPatch = {}): Promise<WorkspaceFileViewer> {
-  const viewer = new WorkspaceFileViewer();
-  Object.assign(viewer, {
-    machineId: "local",
-    projectId: "project-1",
-    workspaceId: "workspace-1",
-    selectedPath: file?.path,
-    file,
-    loadError: undefined,
-    previewUrlBuilder: inertPreviewUrl,
-    modeStore: fakeModeStore(),
-  }, patch);
-  document.body.append(viewer);
-  await settleDeferredContent(viewer);
-  return viewer;
-}
-
-const inertPreviewUrl: WorkspaceFileViewer["previewUrlBuilder"] = (_projectId, _workspaceId, path, options) => {
-  const params = new URLSearchParams({ path });
-  if (options?.modifiedAt !== undefined) params.set("v", options.modifiedAt);
-  if (options?.download === true) params.set("download", "1");
-  return `about:blank?${params.toString()}`;
-};
-
-function textFile(path: string, content: string, patch: Partial<FileContentResponse> = {}): FileContentResponse {
-  return {
-    path,
-    encoding: "utf8",
-    size: content.length,
-    modifiedAt: "2026-06-25T00:00:00.000Z",
-    content,
-    truncated: false,
-    binary: false,
-    ...patch,
-  };
-}
-
-function binaryFile(path: string, patch: Partial<FileContentResponse> = {}): FileContentResponse {
-  return {
-    path,
-    encoding: "utf8",
-    size: 4096,
-    modifiedAt: "2026-06-25T00:00:00.000Z",
-    content: "",
-    truncated: false,
-    binary: true,
-    ...patch,
-  };
-}
-
-function modeButton(viewer: WorkspaceFileViewer, text: "预览" | "渲染" | "源码"): HTMLButtonElement {
-  return buttonWithText(viewer, text);
-}
-
-function buttonWithText(viewer: WorkspaceFileViewer | ContentRendererHost, text: string): HTMLButtonElement {
-  const button = [...(viewer.shadowRoot?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((candidate) => candidate.textContent.trim() === text);
-  return requiredElement(button, `${text} button`);
-}
-
-function anchorWithText(viewer: WorkspaceFileViewer, text: string): HTMLAnchorElement {
-  const anchor = [...(viewer.shadowRoot?.querySelectorAll<HTMLAnchorElement>("a") ?? [])].find((candidate) => candidate.textContent.trim() === text);
-  return requiredElement(anchor, `${text} link`);
-}
-
-function statusMessage(viewer: WorkspaceFileViewer): string {
-  return requiredElement(viewer.shadowRoot?.querySelector<HTMLElement>(".viewer-status"), "viewer status").textContent.trim();
-}
-
-function requiredElement<T>(value: T | null | undefined, label: string): T {
-  if (value === null || value === undefined) throw new Error(`Expected ${label}`);
+function required<Value>(value: Value | null | undefined): Value {
+  if (value === null || value === undefined) throw new Error("Missing expected preview element");
   return value;
 }
+function query(root: ParentNode, selector: string): Element | null {
+  const direct = root.querySelector(selector);
+  if (direct !== null) return direct;
+  if (root instanceof Element && root.shadowRoot !== null) {
+    const nested = query(root.shadowRoot, selector);
+    if (nested !== null) return nested;
+  }
+  for (const element of root.querySelectorAll("*")) {
+    if (element.shadowRoot !== null) {
+      const found = query(element.shadowRoot, selector);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+function queryAs<ElementType extends Element>(root: ParentNode, selector: string, kind: new () => ElementType): ElementType | null {
+  const found = query(root, selector);
+  if (found !== null && !(found instanceof kind)) throw new Error("Unexpected preview element type");
+  return found;
+}
+async function settleTree(root: Element | ShadowRoot): Promise<void> {
+  if (root instanceof LitElement) await root.updateComplete;
+  if (root instanceof Element && root.shadowRoot !== null) await settleTree(root.shadowRoot);
+  for (const child of root.children) await settleTree(child);
+}
+async function settle(viewer: WorkspaceFileViewer): Promise<void> {
+  await settleTree(viewer); await settleDeferredContent(viewer); await settleTree(viewer);
+  await settleDeferredContent(viewer); await settleTree(viewer);
+}
+function button(viewer: WorkspaceFileViewer, label: string): HTMLButtonElement {
+  return required([...required(viewer.shadowRoot).querySelectorAll(".viewer-mode button")].find((item): item is HTMLButtonElement => item instanceof HTMLButtonElement && item.textContent.trim() === label));
+}
+function status(viewer: WorkspaceFileViewer): string { return required(query(viewer, ".viewer-status")).textContent.trim(); }
+function file(path: string, patch: Partial<FileContentResponse> = {}): FileContentResponse {
+  return { path, encoding: "utf8", size: 10, modifiedAt: "first", content: "source", truncated: false, binary: false, ...patch };
+}
+function store(preference: WorkspaceFileViewMode | "fresh" = "raw") {
+  return { adopt: () => preference === "fresh" ? undefined : preference, publish: vi.fn<(mode: WorkspaceFileViewMode) => void>() } satisfies WorkspaceFileViewModeStore;
+}
+async function mount(initial: FileContentResponse | undefined, preference: WorkspaceFileViewMode | "fresh" = "raw", rendering?: ContentRenderingCapability) {
+  const localization = filesLocalizationFixture();
+  const registry = new PluginRegistry({ localization: localization.service }); registries.push(registry);
+  const viewer = new WorkspaceFileViewer();
+  viewer.content = localization.content;
+  viewer.machineId = "local"; viewer.projectId = "project"; viewer.workspaceId = "workspace";
+  const modeStore = store(preference);
+  viewer.filePreviewing = registry.filePreviewing; viewer.modeStore = modeStore;
+  viewer.previewUrlBuilder = (_project, _workspace, path, options) => {
+    const query = new URLSearchParams({ path });
+    if (options?.modifiedAt !== undefined) query.set("v", options.modifiedAt);
+    if (options?.download === true) query.set("download", "1");
+    return `about:blank?${query.toString()}`;
+  };
+  const unavailable = (): never => { throw new Error("Unused fixture file operation"); };
+  const files: WorkspaceFilesCapabilityV1 = {
+    capabilityVersion: 1, defaultUploadFolder: "uploads", maxInlinePreviewBytes: DEFAULT_MAX_INLINE_PREVIEW_BYTES,
+    readFile: unavailable, listFiles: unavailable, writeFile: unavailable, deleteFile: unavailable, moveFile: unavailable, uploadFile: unavailable,
+    previewUrl: (path, options) => viewer.previewUrlBuilder(viewer.projectId, viewer.workspaceId, path, { ...(options?.version === undefined ? {} : { modifiedAt: options.version }), machineId: viewer.machineId }),
+    downloadUrl: (path) => viewer.previewUrlBuilder(viewer.projectId, viewer.workspaceId, path, { download: true }),
+  };
+  viewer.files = files;
+  await registry.register({ id: "documents", plugin: adaptPublicPlugin({ apiVersion: 5, name: "Document previews", activate: () => ({ contributions: {
+    filePreviewers: createDocumentPreviewers({ html, content: localization.content, getContentRendering: () => rendering ?? registry.contentRendering, getStylesheetIntegration: () => undefined }),
+  } }) }) });
+  viewer.file = initial; viewer.selectedPath = initial?.path;
+  document.body.append(viewer); await settle(viewer);
+  return { viewer, registry, localization, modeStore };
+}
+
+describe("Files as a preview contribution consumer", () => {
+  it("preserves explicit loading, error, mismatch and empty states", async () => {
+    const { viewer } = await mount(undefined);
+    expect(status(viewer)).toBe("Select a file.");
+    viewer.selectedPath = "notes.md"; await settle(viewer);
+    expect(status(viewer)).toBe("Loading notes.md…");
+    viewer.loadError = "backend <img> diagnostic"; await settle(viewer);
+    expect(status(viewer)).toContain("backend <img> diagnostic"); expect(query(viewer, "img")).toBeNull();
+    viewer.loadError = undefined; viewer.file = file("other.md"); await settle(viewer);
+    expect(status(viewer)).toContain("other.md");
+    viewer.file = file("notes.md", { size: 0, content: "", mediaType: "markdown" }); await settle(viewer);
+    expect(status(viewer)).toBe("This file is empty.");
+    expect(query(viewer, "a[download]")).not.toBeNull();
+  });
+
+  it.each([
+    ["image.svg", "image"], ["report.html", "html"], ["notes.md", "markdown"],
+  ] as const)("keeps Raw as the safe default for %s and mounts its registered preview on demand", async (path, mediaType) => {
+    const { viewer } = await mount(file(path, { mediaType }));
+    expect(query(viewer, "pi-web-files-document-preview")).toBeNull();
+    expect(query(viewer, "pi-web-files-code-viewer")).not.toBeNull();
+    button(viewer, "Preview").click(); await settle(viewer);
+    expect(query(viewer, "pi-web-files-document-preview")).toBeInstanceOf(FilesDocumentPreview);
+    expect(button(viewer, "Preview").getAttribute("aria-pressed")).toBe("true");
+    button(viewer, "Raw").click(); await settle(viewer);
+    expect(query(viewer, "pi-web-files-document-preview")).toBeNull();
+    expect(query(viewer, "pi-web-files-code-viewer")).not.toBeNull();
+  });
+
+  it.each([["photo.png", "image"], ["report.pdf", "pdf"]] as const)("automatically discovers the registered binary preview for %s", async (path, mediaType) => {
+    const { viewer } = await mount(file(path, { mediaType, binary: true, content: "" }));
+    expect(query(viewer, "pi-web-files-document-preview")).toBeInstanceOf(FilesDocumentPreview);
+    expect(query(viewer, mediaType === "image" ? "img" : "iframe")).not.toBeNull();
+    expect(button(viewer, "Preview").getAttribute("aria-pressed")).toBe("true");
+    expect(query(viewer, "a[download]")).not.toBeNull();
+  });
+
+  it("keeps the remembered source preference when choosing a binary preview without a redundant Original view", async () => {
+    const source = file("notes.md", { mediaType: "markdown" });
+    const { viewer, modeStore } = await mount(source, "preview");
+    const publish = modeStore.publish;
+    publish.mockClear();
+    viewer.file = file("report.pdf", { mediaType: "pdf", binary: true, content: "" });
+    viewer.selectedPath = "report.pdf";
+    await settle(viewer);
+    button(viewer, "Preview").click();
+    await settle(viewer);
+    expect(query(viewer, "pi-web-file-previewer")).not.toBeNull();
+    expect([...required(viewer.shadowRoot).querySelectorAll(".viewer-mode button")].map((item) => item.textContent.trim())).toEqual(["Preview"]);
+    expect(query(viewer, "a[download]")).not.toBeNull();
+    expect(publish).not.toHaveBeenCalled();
+    viewer.file = source;
+    viewer.selectedPath = source.path;
+    await settle(viewer);
+    expect(button(viewer, "Preview").getAttribute("aria-pressed")).toBe("true");
+    expect(publish).not.toHaveBeenCalledWith("raw");
+  });
+
+  it("preserves sandboxed HTML, unsandboxed native PDF, and machine-resolved file URLs", async () => {
+    const report = file("report.html", { mediaType: "html" });
+    const { viewer } = await mount(report, "preview");
+    const frame = required(queryAs(viewer, "iframe", HTMLIFrameElement));
+    expect(frame.getAttribute("sandbox")).toBe(""); expect(frame.getAttribute("allow")).toBe("");
+    expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(new URL(frame.src).searchParams.get("path")).toBe(report.path);
+    expect(new URL(frame.src).searchParams.get("v")).toBe(report.modifiedAt);
+    viewer.selectedPath = "report.pdf"; viewer.file = file("report.pdf", { mediaType: "pdf", binary: true, content: "" }); await settle(viewer);
+    const pdf = required(queryAs(viewer, "iframe", HTMLIFrameElement));
+    expect(pdf.hasAttribute("sandbox")).toBe(false); expect(pdf.getAttribute("allow")).toBe("");
+    expect(query(viewer, ".preview-note")?.textContent).toContain("PDF");
+  });
+
+  it("retains retry state and localized recovery actions across language changes", async () => {
+    const { viewer, localization } = await mount(file("image.svg", { mediaType: "image" }), "preview");
+    required(query(viewer, "img")).dispatchEvent(new Event("error")); await settle(viewer);
+    const retry = required(queryAs(viewer, ".preview-state button", HTMLButtonElement));
+    retry.focus(); expect(retry.textContent).toBe("Retry preview");
+    await localization.service.setPreferences({ ...localization.service.preferences, language: "ar-XB" }); await settle(viewer);
+    expect(retry.textContent).not.toBe("Retry preview"); expect(query(viewer, "img")).toBeNull();
+    expect(retry.isConnected).toBe(true);
+    retry.click(); await settle(viewer); expect(query(viewer, "img")).not.toBeNull();
+  });
+
+  it("ignores detached media events and header actions after an A-to-B-to-A switch", async () => {
+    const report = file("report.html", { mediaType: "html" });
+    const { viewer } = await mount(report, "preview");
+    const oldFrame = required(query(viewer, "iframe")); const oldRaw = button(viewer, "Raw");
+    viewer.file = undefined; viewer.selectedPath = "photo.png"; await settle(viewer);
+    viewer.file = file("photo.png", { mediaType: "image", binary: true }); await settle(viewer);
+    viewer.file = undefined; viewer.selectedPath = report.path; await settle(viewer);
+    viewer.file = { ...report }; await settle(viewer);
+    expect(oldRaw.isConnected).toBe(false);
+    oldFrame.dispatchEvent(new Event("error")); oldRaw.click(); await settle(viewer);
+    expect(query(viewer, ".preview-state[role=alert]")).toBeNull();
+    expect(query(viewer, "iframe")).not.toBeNull(); expect(button(viewer, "Preview").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("keeps size limits, capped Raw source, and unsupported-file downloads explicit", async () => {
+    const { viewer } = await mount(file("large.html", { mediaType: "html", content: "first bytes", size: DEFAULT_MAX_INLINE_PREVIEW_BYTES + 1, truncated: true }));
+    expect(query(viewer, "[role=status]")?.textContent).toContain("Raw source is truncated");
+    expect(query(viewer, '.viewer-actions a[target="_blank"]')).toBeNull();
+    button(viewer, "Preview").click(); await settle(viewer);
+    expect(status(viewer)).toContain("File too large to preview"); expect(query(viewer, "iframe")).toBeNull();
+    viewer.file = file(String.raw`C:\reports\archive.zip`, { binary: true, content: "" }); viewer.selectedPath = viewer.file.path; await settle(viewer);
+    const download = required(queryAs(viewer, ".download-link", HTMLAnchorElement));
+    expect(download.getAttribute("download")).toBe("archive.zip");
+    expect(new URL(download.href).searchParams.get("download")).toBe("1");
+  });
+
+  it("uses the same chooser and cancellation path for existing text content renderers", async () => {
+    const { viewer, registry } = await mount(file("graph.mmd"));
+    const signals: AbortSignal[] = [];
+    await registry.register({ id: "diagram", plugin: adaptPublicPlugin({ apiVersion: 5, name: "Diagram", activate: () => ({ contributions: { contentRenderers: [{
+      id: "graph", title: "Diagram", fileExtensions: ["mmd"], render: ({ signal }) => { signals.push(signal); return html`<b>Diagram preview</b>`; },
+    }] } }) }) });
+    viewer.requestUpdate(); await settle(viewer);
+    expect(signals).toHaveLength(0);
+    button(viewer, "Diagram").click(); await settle(viewer);
+    const host = required(queryAs(viewer, "pi-web-content-renderer", ContentRendererHost));
+    expect(host.shadowRoot?.textContent).toContain("Diagram preview");
+    expect(host.shadowRoot?.querySelector("button")).toBeNull();
+    expect(signals).toHaveLength(1);
+    button(viewer, "Raw").click(); await settle(viewer); expect(signals[0]?.aborted).toBe(true);
+    button(viewer, "Diagram").click(); await settle(viewer); expect(signals.at(-1)?.aborted).toBe(false);
+  });
+
+  it("preserves explicit renderer selection while new automatic choices appear", async () => {
+    const { viewer, registry } = await mount(file("model.custom"), "fresh");
+    const add = async (name: string) => registry.register({ id: name.toLowerCase(), plugin: adaptPublicPlugin({ apiVersion: 5, name, activate: () => ({ contributions: {
+      filePreviewers: [{ id: "view", title: name, fileExtensions: ["custom"], renderMode: "automatic", render: () => html`<b>${name}</b>` } satisfies FilePreviewerContribution],
+    } }) }) });
+    await add("Alpha"); await add("Beta"); viewer.requestUpdate(); await settle(viewer);
+    expect(button(viewer, "Beta").getAttribute("aria-pressed")).toBe("true");
+    button(viewer, "Alpha").click(); await settle(viewer);
+    await add("Gamma"); viewer.requestUpdate(); await settle(viewer);
+    expect(button(viewer, "Alpha").getAttribute("aria-pressed")).toBe("true");
+    button(viewer, "Raw").click(); await settle(viewer);
+    expect(query(viewer, "pi-web-file-previewer")).toBeNull();
+  });
+
+  it("keeps saved Markdown preview intent, sanitization and fenced-renderer controls", async () => {
+    const source = "# Notes\n\n![tracking](https://evil.test/pixel)\n\n```diagram\nsource\n```\n\n<script>bad()</script>";
+    const rendering = createContentRenderingCapability(() => [{ id: "diagram", label: "Diagram", renderer: { id: "diagram", languages: ["diagram"], render: ({ text }) => html`<b>${text}</b>` } }]);
+    const { viewer } = await mount(file("notes.md", { mediaType: "markdown", content: source, size: source.length }), "preview", rendering);
+    const preview = required(query(viewer, ".markdown-preview"));
+    expect(preview.querySelector("h1")?.textContent).toBe("Notes");
+    expect(preview.querySelector("script,img")).toBeNull();
+    expect(preview.textContent).toContain("Image omitted");
+    const host = required(queryAs(viewer, "pi-web-content-renderer", ContentRendererHost));
+    expect(host.shadowRoot?.querySelector("b")?.textContent).toBe("source");
+    const raw = required([...required(host.shadowRoot).querySelectorAll("button")].find((item) => item.textContent.trim() === "Raw"));
+    raw.click(); await settle(viewer);
+    expect(host.shadowRoot?.querySelector("pre code")?.textContent).toBe("source");
+    viewer.requestUpdate(); await settle(viewer);
+    expect(host.shadowRoot?.querySelector("pre code")?.textContent).toBe("source");
+  });
+});
+
+describe("file identity", () => {
+  it("separates source and format identity across machines, workspaces and file revisions", () => {
+    const value = file("report.html", { mediaType: "html" });
+    const base: WorkspaceFileViewerIdentity = { machineId: "local", projectId: "p", workspaceId: "w", selectedPath: value.path, file: value };
+    const variants = [{ ...base, machineId: "remote" }, { ...base, projectId: "other" }, { ...base, workspaceId: "other" },
+      { ...base, selectedPath: "other.html" }, { ...base, file: { ...value, modifiedAt: "later" } }, { ...base, file: { ...value, mediaType: "markdown" as const } }];
+    const identity = workspaceFileViewerIdentityKey(base);
+    for (const variant of variants) expect(workspaceFileViewerIdentityKey(variant)).not.toBe(identity);
+  });
+});

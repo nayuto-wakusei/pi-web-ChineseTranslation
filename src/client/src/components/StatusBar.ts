@@ -1,10 +1,15 @@
 import { stylesheetIntegrationCapability } from "../plugins/styles";
-import { t } from "../i18n.js";
+import { t } from "../i18n";
+
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { SessionStatus } from "../api";
 import { formatCost, formatTokenCount } from "../utils/format";
 import { renderSessionWarningIcon, statusBarStyles } from "./shared";
+import { localization, LocalizationController } from "../localization/browser";
+import definitions from "./statusBar.messages";
+
+export const statusBarMessages = localization.registerMessages("core.statusBar", definitions);
 
 export interface StatusBarWarningControlContent {
   countText: string;
@@ -13,10 +18,9 @@ export interface StatusBarWarningControlContent {
 
 export function statusBarWarningControlContent(count: number, expanded: boolean): StatusBarWarningControlContent | undefined {
   if (!Number.isInteger(count) || count <= 0) return undefined;
-  const warningText = t("ui.statusBar.warnings", "{count} warnings", { count: String(count) });
   return {
-    countText: String(count),
-    accessibleLabel: expanded ? t("ui.statusBar.minimize", "Minimize {warningText}", { warningText: warningText }) : t("ui.statusBar.showInTheWarningArea", "Show {warningText} in the warning area", { warningText: warningText }),
+    countText: localization.number(count),
+    accessibleLabel: statusBarMessages.t(expanded ? "minimizeWarnings" : "showWarnings", { count }),
   };
 }
 
@@ -25,9 +29,10 @@ export class StatusBar extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
-  @property({ attribute: false }) status?: SessionStatus;
+  @property({ attribute: false }) status: SessionStatus | undefined;
   @property({ type: Number }) warningCount = 0;
   @property({ type: Boolean }) warningsExpanded = false;
   @property({ attribute: false }) onToggleWarnings?: () => void;
@@ -38,13 +43,16 @@ export class StatusBar extends LitElement {
 
   override render() {
     const status = this.status;
-    if (status === undefined) return html`<div class="bar muted">${t("ui.statusBar.noSessionStatusYet", "No session status yet")}</div>`;
+    if (status === undefined) return html`<div class="bar muted">${statusBarMessages.t("empty")}</div>`;
     const context = status.contextUsage;
     const contextText = context
       ? context.percent == null
-        ? t("ui.statusBar.context", "Context {contextWindow}", { contextWindow: formatTokenCount(context.contextWindow) })
-        : `${context.percent.toFixed(1)}%/${formatTokenCount(context.contextWindow)}`
-      : t("ui.statusBar.contextUnknown", "Context unknown");
+        ? statusBarMessages.t("contextSize", { size: formatTokenCount(context.contextWindow) })
+        : statusBarMessages.t("contextUsage", {
+          percent: localization.number(context.percent / 100, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+          size: formatTokenCount(context.contextWindow),
+        })
+      : statusBarMessages.t("contextUnknown");
     const tokens = status.tokens;
     const warningControl = statusBarWarningControlContent(this.warningCount, this.warningsExpanded);
     return html`
@@ -66,7 +74,7 @@ export class StatusBar extends LitElement {
         <span class="token-output">↓${formatTokenCount(tokens.output)}</span>
         <span class="context" title=${t("ui.statusBar.contextUsage", "Context usage")}>${contextText}</span>
         <span class="cost" title=${t("ui.statusBar.sessionCost", "Session cost")}>${formatCost(status.cost)}</span>
-        ${status.pendingMessageCount > 0 ? html`<span>${t("ui.statusBar.queuedCount", "{count} queued", { count: status.pendingMessageCount })}</span>` : null}
+        ${status.pendingMessageCount > 0 ? html`<span>${statusBarMessages.t("queued", { count: status.pendingMessageCount })}</span>` : null}
       </div>
     `;
   }

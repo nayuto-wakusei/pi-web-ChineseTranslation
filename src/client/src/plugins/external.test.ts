@@ -3,6 +3,7 @@ import gitPlugin from "../../../../pi-web-plugins/git/browser/pi-web-plugin.js";
 import { machineScopedBundledPluginId, machineScopedPluginId } from "../../../shared/machinePluginIds";
 import { loadExternalPlugins, resolvePluginModuleUrl } from "./external";
 import { PluginRegistry } from "./registry";
+import { FileIconService, fileIconsCapabilityToken } from "../fileIconService";
 
 beforeEach(() => {
   vi.stubGlobal("document", { baseURI: "https://pi.example.test/" });
@@ -116,6 +117,8 @@ describe("external plugin manifests", () => {
     { pairedRequestVersion: 1 },
     { pairedChannelVersion: 2, backendRevision: "server-r1" },
     { pairedChannelVersion: 1 },
+    { pairedResourceVersion: 2, backendRevision: "server-r1" },
+    { pairedResourceVersion: 1 },
   ])("rejects invalid paired backend capability metadata before module import", async (backend) => {
     const moduleLoader = vi.fn(() => Promise.resolve({
       default: { apiVersion: 4, name: "Info", activate: () => ({ contributions: {} }) },
@@ -130,13 +133,14 @@ describe("external plugin manifests", () => {
     expect(moduleLoader).not.toHaveBeenCalled();
   });
 
-  it("accepts independently advertised paired request-only and channel-only capabilities", async () => {
+  it("accepts independently advertised paired request-only, channel-only and resource-only capabilities", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({
       lifecycleVersion: 2,
       terminalMode: "recovery-disabled",
       plugins: [
         { id: "request-only", module: "./request/plugin.js", backendRevision: "request-r1", pairedRequestVersion: 1 },
         { id: "channel-only", module: "./channel/plugin.js", backendRevision: "channel-r1", pairedChannelVersion: 1 },
+        { id: "resource-only", module: "./resource/plugin.js", backendRevision: "resource-r1", pairedResourceVersion: 1 },
       ],
     })))));
     const moduleLoader = vi.fn(() => Promise.resolve({
@@ -148,6 +152,7 @@ describe("external plugin manifests", () => {
     expect(result.registrations).toMatchObject([
       { id: "request-only", backendRevision: "request-r1", pairedRequestVersion: 1 },
       { id: "channel-only", backendRevision: "channel-r1", pairedChannelVersion: 1 },
+      { id: "resource-only", backendRevision: "resource-r1", pairedResourceVersion: 1 },
     ]);
   });
 
@@ -294,7 +299,7 @@ describe("external plugin manifests", () => {
     const moduleLoader = vi.fn(() => Promise.resolve({ default: gitPlugin }));
 
     const result = await loadExternalPlugins(manifestUrl, { machineId: "remote-1", moduleLoader });
-    const registry = new PluginRegistry();
+    const registry = new PluginRegistry({ hostCapabilities: [{ capability: fileIconsCapabilityToken, value: new FileIconService().capability }] });
     for (const registration of result.registrations) await registry.register(registration);
     const registrationPluginId = machineScopedPluginId("remote-1", "git");
 
@@ -308,6 +313,7 @@ describe("external plugin manifests", () => {
       machineSpecific: true,
     }]);
     expect(registry.getWorkspacePanels().map((panel) => panel.id)).toEqual([`${registrationPluginId}:workspace.git`]);
+    await registry.dispose();
   });
 
   it("accepts host-attributed bundled ids locally and through machine-scoped federation", async () => {

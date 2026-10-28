@@ -1,6 +1,6 @@
 import type { QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, ThemeToken } from "./plugins/types";
 
-import type { PiWebThemePreference } from "../../shared/apiTypes";
+import type { PiWebConfigResponse, PiWebThemePreference } from "../../shared/apiTypes";
 import { parseThemePreference } from "../../shared/themePreference";
 
 export type ThemePreference = PiWebThemePreference;
@@ -62,6 +62,26 @@ export const THEME_TOKENS: ThemeToken[] = [
   "--pi-success-bg-overlay",
   "--pi-terminal-selection",
 ];
+export interface ThemePolicy {
+  defaultPreference: ThemePreference | undefined;
+  enforcedBy: string | undefined;
+  source: string | undefined;
+}
+
+let themePolicy: ThemePolicy = { defaultPreference: undefined, enforcedBy: undefined, source: undefined };
+
+/** Apply a gateway response without changing the saved device preference. */
+export function configureThemePolicy(response: Pick<PiWebConfigResponse, "effectiveConfig" | "enforcedSettings" | "configSources">): void {
+  themePolicy = {
+    defaultPreference: response.effectiveConfig.defaultTheme === undefined ? undefined : { ...response.effectiveConfig.defaultTheme },
+    enforcedBy: response.enforcedSettings?.["/defaultTheme"],
+    source: response.configSources?.["/defaultTheme"],
+  };
+}
+
+export function getThemePolicy(): ThemePolicy {
+  return { ...themePolicy, defaultPreference: themePolicy.defaultPreference === undefined ? undefined : { ...themePolicy.defaultPreference } };
+}
 
 export function readStoredThemePreference(): ThemePreference | undefined {
   try {
@@ -73,6 +93,7 @@ export function readStoredThemePreference(): ThemePreference | undefined {
 }
 
 export function writeStoredThemePreference(preference: ThemePreference): void {
+  if (themePolicy.enforcedBy !== undefined) return;
   try {
     window.localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(preference));
   } catch {
@@ -81,6 +102,7 @@ export function writeStoredThemePreference(preference: ThemePreference): void {
 }
 
 export function clearStoredThemePreference(): void {
+  if (themePolicy.enforcedBy !== undefined) return;
   try {
     window.localStorage.removeItem(THEME_STORAGE_KEY);
   } catch {
@@ -89,7 +111,8 @@ export function clearStoredThemePreference(): void {
 }
 
 export function effectiveThemePreference(local: ThemePreference | undefined, configuredDefault: ThemePreference | undefined, themes: readonly QualifiedThemeContribution[] = []): ThemePreference {
-  return local ?? configuredDefault ?? (themes.some((theme) => theme.id === "pi-web.custom-ui-codex:graphite")
+  if (themePolicy.enforcedBy !== undefined) return themePolicy.defaultPreference ?? DEFAULT_THEME_PREFERENCE;
+  return local ?? configuredDefault ?? themePolicy.defaultPreference ?? (themes.some((theme) => theme.id === "pi-web.custom-ui-codex:graphite")
     ? { themeId: "pi-web.custom-ui-codex:graphite", auto: true }
     : DEFAULT_THEME_PREFERENCE);
 }

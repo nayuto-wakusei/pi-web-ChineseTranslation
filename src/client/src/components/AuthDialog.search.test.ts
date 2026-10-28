@@ -35,7 +35,7 @@ describe("auth-dialog provider search", () => {
     const dialog = await mountDialog(providerState());
     await typeIntoSearch(dialog, "missing");
     expect(optionButtons(dialog)).toHaveLength(0);
-    expect(dialog.shadowRoot?.textContent).toContain("没有匹配的提供商");
+    expect(dialog.shadowRoot?.textContent).toContain("No matching providers");
 
     dialog.state = { step: "logout", target: target(), providers: providerOptions() };
     await settleDialog(dialog);
@@ -80,7 +80,7 @@ function dialogSurface(dialog: AuthDialog): ModalSurface {
 }
 
 function searchInput(dialog: AuthDialog): HTMLInputElement {
-  return required(dialog.shadowRoot?.querySelector<HTMLInputElement>("input[aria-label='搜索提供商']"));
+  return required(dialog.shadowRoot?.querySelector<HTMLInputElement>("input[aria-label='Search providers']"));
 }
 
 function optionButtons(dialog: AuthDialog): HTMLButtonElement[] {

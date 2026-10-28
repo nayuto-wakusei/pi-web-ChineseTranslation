@@ -2,6 +2,10 @@
 import { html, render, svg } from "lit";
 import { afterEach, expect, it, vi } from "vitest";
 import type { JsonValue, WorkspacePanelContext } from "../../../src/plugin-api.js";
+import { chinesePluginLocalization } from "../../localization.testSupport.js";
+import { beforeEach } from "vitest";
+let localization: Awaited<ReturnType<typeof chinesePluginLocalization>>;
+beforeEach(async () => { localization = await chinesePluginLocalization("git"); });
 import { createGitBrowserContributions } from "./git-panel.js";
 
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); window.history.replaceState({}, "", "/"); });
@@ -19,7 +23,7 @@ it("preserves a direct diff URL while the first status request is pending across
     prompt: { insertText: vi.fn(), getText: () => "", getSelection: () => null },
     terminal: { open: vi.fn(), runCommand: vi.fn() },
   };
-  const panel = createGitBrowserContributions("git", "git", html, svg).workspacePanels?.[0];
+  const panel = createGitBrowserContributions("git", "git", html, svg, () => undefined, localization, () => undefined).workspacePanels?.[0];
   if (panel === undefined) throw new Error("Missing Git panel");
   const mount = document.createElement("div");
   document.body.append(mount);

@@ -100,7 +100,7 @@ describe("legacy navigation preference consumption", () => {
     await panel.updateComplete;
     await dialog.updateComplete;
     expect(panel.pinnedIds).toEqual([runtime("files"), runtime("git"), "missing:panel"]);
-    const unpin = dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="取消固定：文件"]');
+    const unpin = dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Unpin 文件"]');
     if (unpin == null) throw new Error("Missing aliased Files pin");
     unpin.click();
     expect(loadNavigationPreferences()).toEqual({ pinnedIds: ["core:workspace.git", "missing:panel"], mobileCollapsed: false });

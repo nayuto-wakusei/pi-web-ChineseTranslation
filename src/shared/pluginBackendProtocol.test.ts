@@ -4,6 +4,9 @@ import {
   parsePluginBackendRequestEnvelope,
   pluginBackendScopeFromRoute,
   pairedPluginBackendPath,
+  pairedPluginBackendResourcePath,
+  parsePluginBackendResourceQuery,
+  PLUGIN_BACKEND_RESOURCE_INPUT_MAX_BYTES,
   cloneBoundedPluginBackendJson,
   parseBoundedPluginBackendJson,
   parsePluginBackendChannelClientEnvelope,
@@ -18,6 +21,31 @@ import {
   serializePluginBackendChannelOpenEnvelope,
   serializePluginBackendChannelReadyEnvelope,
 } from "./pluginBackendProtocol.js";
+
+describe("plugin backend resource selectors", () => {
+  it("encodes every authority segment and separates resource operations from JSON requests", () => {
+    expect(pairedPluginBackendResourcePath({ pluginId: "tools/name", operation: "report" }))
+      .toBe("/paired-plugin-backends/tools%2Fname/resources/report");
+    expect(pairedPluginBackendResourcePath({ pluginId: "tools", projectId: "p/?", operation: "report" }))
+      .toBe("/paired-plugin-backends/tools/projects/p%2F%3F/resources/report");
+    expect(pairedPluginBackendResourcePath({ pluginId: "tools", projectId: "p", workspaceId: "w/#", operation: "report" }))
+      .toBe("/paired-plugin-backends/tools/projects/p/workspaces/w%2F%23/resources/report");
+  });
+
+  it("parses bounded JSON selectors without accepting repeated or missing query values", () => {
+    expect(parsePluginBackendResourceQuery({ revision: "r1", input: '{"artifact":"résumé"}' }))
+      .toEqual({ revision: "r1", input: { artifact: "résumé" } });
+    for (const query of [undefined, {}, { revision: ["r1", "r2"], input: "null" }, { revision: "r1", input: ["null", "null"] }, { revision: "r1", input: "{" }]) {
+      expect(() => parsePluginBackendResourceQuery(query)).toThrow();
+    }
+  });
+
+  it("bounds decoded UTF-8 input rather than JavaScript character count", () => {
+    const exact = JSON.stringify("é".repeat((PLUGIN_BACKEND_RESOURCE_INPUT_MAX_BYTES - 2) / 2));
+    expect(parsePluginBackendResourceQuery({ revision: "r1", input: exact }).input).toBe(JSON.parse(exact));
+    expect(() => parsePluginBackendResourceQuery({ revision: "r1", input: `${exact} ` })).toThrow("at most");
+  });
+});
 
 describe("plugin backend JSON contract", () => {
   it("preserves scoped wire calls and rejects scope or id contradictions while keeping legacy workspace calls", () => {

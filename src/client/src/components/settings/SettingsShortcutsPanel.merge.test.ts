@@ -106,19 +106,19 @@ describe("settings-shortcuts-panel accessibility", () => {
       ["Disable shortcut", "Disable shortcut for Open palette"],
       ["Restore default", "Restore default shortcut for Open palette"],
     ] as const) expect(button(row(panel, actionId), text).getAttribute("aria-label")).toBe(name);
-    expect(frameRoot(panel).querySelector(".description")?.textContent).toContain("Composer send bindings accept one key combination");
+    expect(panel.renderRoot.textContent).toContain("Composer send shortcuts accept one key combination");
     await clickRow(panel, actionId, "Record");
     const hint = row(panel, actionId).querySelector(".recording-hint");
     expect(hint?.getAttribute("role")).toBe("status");
     expect(hint?.id).toBe(input(panel, actionId).getAttribute("aria-describedby"));
-    expect(hint?.textContent).toContain("Recording:");
+    expect(hint?.textContent).toContain("Recording shortcut:");
     expect(button(row(panel, actionId), "Cancel recording").getAttribute("aria-label")).toBe("Cancel recording for Open palette");
     await clickRow(panel, actionId, "Cancel recording");
     panel.actions = [shortcutAction(), shortcutAction({ id: "core:other", title: "Other action", shortcut: "mod+p" })];
     await settle(panel);
     await editShortcut(panel, actionId, "mod+p");
-    expect(row(panel, actionId).querySelector(".conflict")?.textContent).toContain("Shadows 1 actions: Other action");
-    expect(row(panel, "core:other").querySelector(".conflict")?.textContent).toContain('Shadowed by "Open palette"');
+    expect(row(panel, actionId).querySelector(".conflict")?.textContent).toContain("Conflict: takes priority over 1 action: Other action");
+    expect(row(panel, "core:other").querySelector(".conflict")?.textContent).toContain("Open palette");
   });
 
   it("disables editing when config is unavailable while allowing refresh", async () => {
@@ -126,7 +126,7 @@ describe("settings-shortcuts-panel accessibility", () => {
     panel.onSave = vi.fn();
     panel.onReload = vi.fn();
     await mount(panel);
-    expect(panel.renderRoot.textContent).toContain("Shortcut settings are unavailable. Reload settings to try again.");
+    expect(panel.renderRoot.textContent).toContain("Shortcut settings are unavailable. Refresh shortcuts to try again.");
     for (const control of panel.renderRoot.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>(".shortcut-row input, .shortcut-row button, .shortcut-group select")) {
       expect(control.disabled).toBe(true);
       if (control instanceof HTMLButtonElement) control.click();
@@ -175,8 +175,7 @@ function row(panel: SettingsShortcutsPanel, actionId: string): HTMLElement {
 }
 
 function button(root: ParentNode, label: string): HTMLButtonElement {
-  const actual = label === "Refresh shortcuts" ? "Reload" : label === "Disable shortcut" ? "None" : label === "Restore default" ? "Reset" : label;
-  const result = [...root.querySelectorAll("button")].find((element) => element.textContent.trim() === actual);
+  const result = [...root.querySelectorAll("button")].find((element) => element.textContent.trim() === label);
   if (result === undefined) throw new Error(`Expected button: ${label}`);
   return result;
 }

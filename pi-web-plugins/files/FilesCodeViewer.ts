@@ -51,7 +51,7 @@ export class FilesCodeViewer extends LitElement {
   }
 
   override render() {
-    return html`<div class="host"></div>`;
+    return html`<div class="host" dir="ltr"></div>`;
   }
 
   private async recreateEditor(): Promise<void> {

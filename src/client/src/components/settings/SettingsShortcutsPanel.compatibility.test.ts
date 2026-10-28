@@ -16,7 +16,7 @@ describe("shortcut ownership compatibility", () => {
     await panel.updateComplete;
     const row = panel.shadowRoot?.querySelector<HTMLInputElement>('.shortcut-input[data-action-id="new:action"]')?.closest("article");
     expect(row?.querySelector<HTMLInputElement>(".shortcut-input")?.value).toBe("mod+p");
-    const reset = [...row?.querySelectorAll<HTMLButtonElement>("button") ?? []].find((button) => button.textContent === "重置");
+    const reset = [...row?.querySelectorAll<HTMLButtonElement>("button") ?? []].find((button) => button.textContent.trim() === "Restore default");
     expect(reset?.disabled).toBe(false);
     reset?.click();
     expect(onSave).toHaveBeenCalledWith({ shortcuts: { unrelated: "alt+x" } });

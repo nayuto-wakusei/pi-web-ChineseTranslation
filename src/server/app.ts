@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { parsePiWebEnvBoolean } from "../shared/configResolution.js";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyServerOptions } from "fastify";
@@ -46,9 +47,11 @@ import {
 } from "./activeAgentProfileProvider.js";
 import { MachineService } from "./machines/machineService.js";
 import { registerMachineRoutes } from "./machines/machineRoutes.js";
+import { installationDisplayName } from "../shared/installationName.js";
 import { registerMachineProxyRoutes } from "./machines/machineProxyRoutes.js";
 import { registerPluginBackendChannelProxyRoutes } from "./plugins/pluginBackendChannelProxyRoutes.js";
 import { handleWebSocketError, installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
+import { registerPluginBackendResourceProxyRoutes } from "./plugins/pluginBackendResourceProxyRoutes.js";
 import { proxyMachinePluginAsset, registerMachinePluginProxyRoutes } from "./machines/machinePluginProxyRoutes.js";
 import { NormalModeAuthService, registerNormalAuthRoutes, registerNormalModeAuthGate } from "./normalAuth.js";
 import { requestLoggerOptions } from "./requestLogging.js";
@@ -153,10 +156,11 @@ function isLegacyWorkspaceService(workspaces: WorkspaceCatalogInput): workspaces
 }
 
 async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWebConfigService, "read">): Promise<WorkspaceEffectiveConfig> {
-  const globalConfig = config === undefined ? {} : (await config.read()).effectiveConfig;
+  const response = await config?.read();
+  const globalConfig = response?.effectiveConfig ?? {};
   const [uploads, attachments] = await Promise.all([
-    loadEffectiveProjectUploadsConfig(projectPath, globalConfig),
-    loadEffectiveProjectAttachmentsConfig(projectPath, globalConfig),
+    loadEffectiveProjectUploadsConfig(projectPath, globalConfig, response?.enforcedSettings),
+    loadEffectiveProjectAttachmentsConfig(projectPath, globalConfig, response?.enforcedSettings),
   ]);
   return { uploads, attachments };
 }
@@ -247,6 +251,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const configService = deps.config ?? createFilePiWebConfigService();
   const readConfig = () => readEffectiveConfig(configService);
   const t = deps.translator ?? loadNodeTranslator("server", await readConfig());
+  const readInstallationName = async () => installationDisplayName((await readConfig()).installationName);
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
   const runtimeConfig = effectivePiWebConfig().config;
   const baseManagementEmbed = deps.managementEmbed ?? createManagementEmbedRuntime(runtimeConfig.managementEmbed);
@@ -261,7 +266,9 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     ? undefined
     : { providerRuntime: workspaces.providerRuntime.bind(workspaces) };
   const agentProfileProvider = deps.agentProfileProvider ?? new SessionDaemonActiveAgentProfileProvider(sessionDaemon);
+  const devPluginPairing = process.env["PI_WEB_DEV_PLUGIN_PAIRING"];
   const piWebPlugins = deps.piWebPlugins ?? new PiWebPluginService({
+    relaxBrowserPairing: devPluginPairing === undefined ? false : parsePiWebEnvBoolean(devPluginPairing, "PI_WEB_DEV_PLUGIN_PAIRING"),
     configProvider: readConfig,
     agentDirProvider: () => desiredPluginAgentDir(agentProfileProvider, configService),
     ...(providerRuntime === undefined ? {} : { runtimeProvider: providerRuntime }),
@@ -281,6 +288,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   );
   const machines = deps.machines ?? new MachineService(undefined, {
     translate: t,
+    localName: readInstallationName,
+    onNameDiscoveryError: (machineId, error) => { app.log.warn({ machineId, err: error }, "Remote installation name discovery failed; using cached or default name"); },
     localRuntime: () => getPiWebRuntime(sessionDaemon),
   });
   const resolveManagementProjectCwds: ManagementProjectCwdResolver = async (projectId, context) => {
@@ -332,6 +341,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   // only after the web-owned initial build and API startup have completed.
   app.get("/api/pi-web/health", () => Promise.resolve({ ok: true }));
   app.get("/api/pi-web/runtime", async () => getPiWebRuntime(sessionDaemon));
+  app.get("/api/pi-web/identity", async () => ({ name: await readInstallationName() }));
   app.get("/api/plugins", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.plugins()));
   app.get("/api/machines/local/plugins", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.plugins()));
   registerPiPackageRoutes(app, piPackages);
@@ -364,6 +374,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed, resolveManagementProjectCwds, resolveNormalProjectCwds, t);
   registerPluginBackendProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
   registerPluginBackendProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
+  registerPluginBackendResourceProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
+  registerPluginBackendResourceProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
   registerPluginBackendChannelProxyRoutes(app, sessionDaemon, "/api", managementEmbed);
   registerPluginBackendChannelProxyRoutes(app, sessionDaemon, "/api/machines/local", managementEmbed);
   const fileSuggestions = new FileSuggestionCatalog();
@@ -401,7 +413,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
       },
       (error) => { app.log.warn({ err: error }, "failed to detect PI WEB deployment flavor"); },
     );
-    registerDeploymentIdentityAssetRoutes(app, { clientDist, flavor: deploymentFlavor });
+    registerDeploymentIdentityAssetRoutes(app, { clientDist, flavor: deploymentFlavor, installationName: readInstallationName });
     app.setNotFoundHandler((request, reply) => {
       const pathname = new URL(request.url, "http://pi-web.local").pathname;
       const acceptsHtml = request.headers.accept?.split(",").some((value) => value.trim().split(";", 1)[0] === "text/html") ?? false;

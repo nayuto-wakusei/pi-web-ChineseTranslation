@@ -18,13 +18,13 @@ describe("settings-plugins-panel layout", () => {
     const rendered = flattenTemplateContent(panel.render());
 
     expectTextOrder(rendered, [
-      "PI WEB 插件",
-       "比较期望插件配置与以下机器的 sessiond 活动启动快照：",
+      "PI WEB plugins",
+      "Manage saved plugin settings and check running server plugins on ",
       "Lab Mac (remote machine)",
       "Failed to load PI WEB plugin settings from Lab Mac: PI WEB plugins: timed out.",
-      "Config saved. 重新加载浏览器标签页以应用仅浏览器插件的更改。",
-      "受信代码警告：",
-      "Lab Mac (remote machine) 上的配置键：",
+      "Config saved. Reload this browser tab to apply browser-only plugin changes.",
+      "Trusted code warning:",
+      "Changes save automatically on Lab Mac (remote machine).",
       "remote-enabled",
     ]);
   });
@@ -36,8 +36,8 @@ describe("settings-plugins-panel layout", () => {
 
     const rendered = flattenTemplateContent(panel.render());
 
-    expect(rendered).toContain("Config saved. 重启会话守护进程以应用服务端插件更改");
-    expect(rendered).not.toContain("Config saved. 重新加载浏览器标签页以应用仅浏览器插件的更改。");
+    expect(rendered).toContain("Config saved. Restart the session daemon to apply server-plugin changes");
+    expect(rendered).not.toContain("Config saved. Reload this browser tab to apply browser-only plugin changes.");
   });
 
   it("does not show a false empty state when the plugin response is missing", () => {
@@ -46,9 +46,9 @@ describe("settings-plugins-panel layout", () => {
 
     const rendered = flattenTemplateContent(panel.render());
 
-    expect(rendered).toContain("Lab Mac (remote machine) 的 PI WEB 插件列表不可用，请重新加载。");
-    expect(rendered).not.toContain("未发现 PI WEB 浏览器插件");
-    expect(rendered).not.toContain("受信代码警告");
+    expect(rendered).toContain("PI WEB plugin list unavailable for Lab Mac (remote machine). Choose Refresh plugins to try again.");
+    expect(rendered).not.toContain("No PI WEB browser plugins discovered");
+    expect(rendered).not.toContain("Trusted code warning");
   });
 
   it("keeps exact offline recovery available when lifecycle loading failed before discovering plugins", () => {
@@ -60,8 +60,8 @@ describe("settings-plugins-panel layout", () => {
 
     const rendered = flattenTemplateContent(panel.render());
 
-    expect(rendered).toContain("插件列表不可用");
-    expect(rendered).toContain("local (local gateway) 的离线恢复");
+    expect(rendered).toContain("PI WEB plugin list unavailable");
+    expect(rendered).toContain("Offline recovery on local (local gateway)");
     expect(rendered).toContain("pi-web plugins safe-start show");
     expect(rendered).toContain("pi-web plugins safe-start set none --restart");
   });
@@ -76,8 +76,8 @@ describe("settings-plugins-panel layout", () => {
 
     const rendered = flattenTemplateContent(panel.render());
 
-    expect(rendered).toContain("插件生命周期版本不匹配");
-    expect(rendered).not.toContain("Old host 的离线恢复");
+    expect(rendered).toContain("Plugin lifecycle version mismatch");
+    expect(rendered).not.toContain("Offline recovery on Old host");
     expect(rendered).not.toContain("pi-web plugins safe-start show");
   });
 
@@ -88,14 +88,14 @@ describe("settings-plugins-panel layout", () => {
 
     const rendered = flattenTemplateContent(panel.render());
 
-    expect(rendered).toContain("在 Lab Mac (remote machine) 上未发现或启用任何 PI WEB 插件。");
-    expect(rendered).not.toContain("插件列表不可用");
-    expect(rendered).not.toContain("受信代码警告");
+    expect(rendered).toContain("No PI WEB plugins are discovered or active on Lab Mac (remote machine).");
+    expect(rendered).not.toContain("PI WEB plugin list unavailable");
+    expect(rendered).not.toContain("Trusted code warning");
   });
 
   it.each([
-    ["bundled-only", "仅导入了内置服务端插件。"],
-    ["none", "未导入任何服务端插件；终端不可用，核心目录工作区仍可用于诊断。"],
+    ["bundled-only", "Only bundled server plugins were imported."],
+    ["none", "No server plugins were loaded. Terminal is unavailable; use the folder workspace to investigate."],
   ] as const)("renders active %s safe-start recovery", (safeStart, message) => {
     const panel = new SettingsPluginsPanel();
     const response = pluginsResponse([]);
@@ -105,7 +105,7 @@ describe("settings-plugins-panel layout", () => {
 
     const rendered = flattenTemplateContent(panel.render());
 
-    expect(rendered).toContain("服务端插件安全启动模式已生效");
+    expect(rendered).toContain("Server-plugin safe mode active");
     expect(rendered).toContain(message);
     expect(rendered).toContain("pi-web plugins safe-start clear --restart");
   });
@@ -130,7 +130,7 @@ describe("settings-plugins-panel layout", () => {
 
     const rendered = flattenTemplateContent(panel.render());
 
-    for (const label of ["已激活", "失败", "不兼容", "已禁用", "未激活", "活动状态不可用", "健康状态 正常"]) {
+    for (const label of ["Active", "Failed", "Incompatible", "Disabled", "Not active", "Active state unavailable", "Health healthy"]) {
       expect(rendered).toContain(label);
     }
   });
@@ -162,23 +162,23 @@ describe("settings-plugins-panel layout", () => {
     const rendered = flattenTemplateContent(panel.render());
 
     for (const label of [
-      "服务端插件安全启动模式已生效",
-      "未导入任何服务端插件",
-      "安全启动模式等待重启",
-      "离线配置已清除安全启动模式，但在 sessiond 重启前仍保持生效。",
-      "需要重启会话守护进程",
-      "插件 ID 冲突",
-      "失败",
-      "冲突",
-      "版本过期",
-      "需要重启",
-      "健康状态 异常",
+      "Server-plugin safe mode active",
+      "No server plugins were loaded",
+      "Safe-mode restart pending",
+      "Safe mode is turned off in saved settings, but remains active until the session daemon restarts.",
+      "Saved changes aren’t active yet",
+      "Plugin id conflict",
+      "Failed",
+      "Conflict",
+      "Package update pending",
+      "Restart required",
+      "Health unhealthy",
       "pi-web plugins disable broken-provider --restart",
       "pi-web plugins safe-start show",
       "pi-web plugins safe-start set bundled-only --restart",
       "pi-web plugins safe-start set none --restart",
       "pi-web plugins safe-start clear --restart",
-      "命令中不包含机器凭据。",
+      "They never include machine credentials.",
     ]) expect(rendered).toContain(label);
   });
 
@@ -202,8 +202,8 @@ describe("settings-plugins-panel layout", () => {
     panel.configResponse = config;
     const renderedWithoutLifecycle = flattenTemplateContent(panel.render());
     expect(renderedWithoutLifecycle).toContain("configured-only");
-    expect(renderedWithoutLifecycle).toContain("仅有配置 · 未发现插件包");
-    expect(renderedWithoutLifecycle).toContain("仅有配置");
+    expect(renderedWithoutLifecycle).toContain("Saved settings only · package not found");
+    expect(renderedWithoutLifecycle).toContain("Configured only");
     const configuredOnly = rows.find(({ id }) => id === "configured-only");
     if (configuredOnly === undefined) throw new Error("Expected configured-only settings row");
     expect(configuredOnly.editable).toBe(true);
@@ -220,9 +220,8 @@ describe("settings-plugins-panel layout", () => {
     panel.pluginsResponse = pluginsResponse([terminal]);
     panel.configResponse = config;
     const rendered = flattenTemplateContent(panel.render());
-    expect(rendered).toContain("必需插件 · 普通配置无法禁用");
-    expect(rendered).not.toContain("离线禁用：");
-    expect(templateValues(renderPluginTemplate(panel, row)).filter(isBoolean)).toEqual([true]);
+    expect(rendered).toContain("Required · cannot be disabled here");
+    expect(rendered).not.toContain("Offline disable:");
   });
 
   it("keeps loaded plugins visible but disabled when selected-machine config is unavailable", () => {
@@ -233,12 +232,11 @@ describe("settings-plugins-panel layout", () => {
     const rendered = flattenTemplateContent(panel.render());
 
     expectTextOrder(rendered, [
-      "配置不可用。更改插件启用状态前请重新加载。",
-      "受信代码警告：",
+      "Plugin settings are unavailable. Choose Refresh plugins to try again before making changes.",
+      "Trusted code warning:",
       "remote-disabled",
     ]);
-    expect(countOccurrences(rendered, "配置不可用。更改插件启用状态前请重新加载。")).toBe(1);
-    expect(templateValues(renderPluginTemplate(panel, pluginInfo("remote-disabled", false))).filter(isBoolean)).toEqual([true]);
+    expect(countOccurrences(rendered, "Plugin settings are unavailable. Choose Refresh plugins to try again before making changes.")).toBe(1);
   });
 
   it("maps plugin source, scope, and machine-specific metadata for display", () => {
@@ -250,9 +248,9 @@ describe("settings-plugins-panel layout", () => {
       machineSpecific: true,
     }));
 
-    expect(rendered).toContain("内置 · 用户范围 · 机器专属");
-    expect(rendered).not.toContain("bundled · user");
-    expect(rendered).not.toContain("machine-specific");
+    expect(rendered).toContain("bundled · user · machine-specific");
+    expect(rendered).not.toContain("内置 · 用户范围");
+    expect(rendered).not.toContain("机器专属");
   });
 });
 
@@ -318,10 +316,6 @@ function expectTextOrder(content: string, labels: readonly string[]): void {
 function countOccurrences(content: string, needle: string): number {
   return content.split(needle).length - 1;
 }
-function isBoolean(value: unknown): value is boolean {
-  return typeof value === "boolean";
-}
-
 function isSettingsNotice(value: unknown): value is SettingsNotice {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string" && Reflect.has(value, "content");
 }

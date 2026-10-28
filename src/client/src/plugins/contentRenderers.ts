@@ -1,3 +1,4 @@
+import { snapshotDisplayMetadata } from "./displayMetadata";
 import type { ContentRendererContributionV5 as ContentRendererContribution, ContentRenderRequest } from "../../../plugin-api";
 
 export interface RegisteredContentRenderer extends ContentRendererContribution {
@@ -52,10 +53,10 @@ export function snapshotContentRenderer(contribution: ContentRendererContributio
   if (renderMode !== undefined && renderMode !== "manual" && renderMode !== "automatic") throw new Error("Content renderer renderMode must be manual or automatic");
   if (contribution.supports !== undefined && typeof contribution.supports !== "function") throw new Error("Content renderer supports must be a callback");
   if (contribution.title !== undefined && (typeof contribution.title !== "string" || contribution.title.trim() === "")) throw new Error("Content renderer title must be a non-empty string");
-  return Object.freeze({ id: contribution.id, ...snapshotContentSelectors(contribution, contribution.supports !== undefined),
+  return Object.freeze(snapshotDisplayMetadata<ContentRendererContribution>(contribution, { id: contribution.id, ...snapshotContentSelectors(contribution, contribution.supports !== undefined),
     ...(contribution.title === undefined ? {} : { title: contribution.title }),
     ...(contribution.supports === undefined ? {} : { supports: contribution.supports.bind(contribution) }),
-    renderMode: contribution.renderMode ?? "manual", render: contribution.render.bind(contribution) });
+    renderMode: contribution.renderMode ?? "manual", render: contribution.render.bind(contribution) }));
 }
 
 export function snapshotContentSelectors(contribution: Pick<ContentRendererContribution, "languages" | "fileExtensions">, allowEmpty = false): Pick<ContentRendererContribution, "languages" | "fileExtensions"> {

@@ -1,4 +1,3 @@
-import { t, setTranslator } from "./i18n.js";
 // Skeleton of a PI WEB plugin: metadata plus contribution definitions.
 //
 // Everything the bundled Info panel and action actually render lives in
@@ -7,19 +6,21 @@ import { t, setTranslator } from "./i18n.js";
 // the internals for your own.
 
 import type { PiWebPlugin } from "@chainingintention/pi-web-cn/plugin-api";
-import { copyDiagnostics, renderInfoPanel } from "./infoInternals.js";
+import { createInfoContent } from "./infoInternals.js";
 
-const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
+const plugin = {
   apiVersion: 4,
-  name: t("bundled.info.info.plugin.b6e61e", "Info plugin"),
-  activate: ({ html, svg, translate }) => { setTranslator(translate); return ({
-    contributions: {
+  name: "Info Plugin",
+  activate: ({ html, svg, localization }) => {
+    if (localization === undefined) throw new Error("The Info plugin requires a localization-capable PI WEB host");
+    const { messages, copyDiagnostics, renderInfoPanel } = createInfoContent(localization);
+    return { contributions: {
       actions: [
         {
           id: "copy-diagnostics",
-          title: t("bundled.info.copy.pi.web.diagnostics.250f13", "Copy PI WEB diagnostics"),
-          description: t("bundled.info.copy.this.machine.s.version.installation.and.status.details.for.a.c01908", "Copy this machine's version, installation, and status details for a bug report"),
-          group: t("bundled.info.info.e70286", "Info"),
+          get title() { return messages.t("copyDiagnostics"); },
+          get description() { return messages.t("copyDescription"); },
+          get group() { return messages.t("info"); },
           run: (context) => copyDiagnostics(context),
         },
       ],
@@ -27,13 +28,13 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
         {
           id: "workspace.kind-label",
           order: 100,
-          items: (context) => [{ type: "text", text: context.workspace.provider?.pluginId ?? (context.workspace.isGitRepo === true ? "Git" : t("bundled.info.folder.7c7802", "Folder")), title: context.workspace.path }],
+          items: (context) => [{ type: "text", text: context.workspace.provider?.pluginId ?? messages.t("folder"), title: context.workspace.path }],
         },
       ],
       applicationPanels: [
         {
           id: "workspace.info",
-          title: t("bundled.info.info.e70286", "Info"),
+          get title() { return messages.t("info"); },
           icon: svg`
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="9"></circle>
@@ -45,8 +46,8 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
           render: (context) => renderInfoPanel(html, context),
         },
       ],
-    },
-  }); },
-};
+    } };
+  },
+} satisfies PiWebPlugin;
 
 export default plugin;

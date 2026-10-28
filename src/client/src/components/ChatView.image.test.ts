@@ -14,7 +14,7 @@ describe("ChatView image content derivation", () => {
   it("derives the legacy image data URL and alt text", () => {
     expect(chatImagePartSource({ type: "image", mimeType: "image/png", data: "QUJD" })).toEqual({
       src: "data:image/png;base64,QUJD",
-      alt: "附件图片",
+      alt: "attached image",
     });
   });
 
@@ -30,9 +30,9 @@ describe("ChatView image content derivation", () => {
   });
 
   it("labels tool image output by tool name and falls back to a generic label", () => {
-    expect(chatToolOutputLabel("read")).toBe("read 输出");
-    expect(chatToolOutputLabel(undefined)).toBe("工具输出");
-    expect(chatToolOutputLabel("")).toBe("工具输出");
+    expect(chatToolOutputLabel("read")).toBe("read output");
+    expect(chatToolOutputLabel(undefined)).toBe("tool output");
+    expect(chatToolOutputLabel("")).toBe("tool output");
   });
 
   it("keys a tool image message to its stable scroll anchor", () => {

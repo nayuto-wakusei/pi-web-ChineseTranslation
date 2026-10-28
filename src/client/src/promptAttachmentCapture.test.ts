@@ -116,7 +116,7 @@ describe("PromptEditor attachment wiring", () => {
       footer.dispatchEvent(pasteEvent);
       await vi.waitFor(() => {
         expect(editor.renderRoot.querySelectorAll(".attachment-chip")).toHaveLength(1);
-        expect(editor.renderRoot.querySelector(".attachment-error")?.textContent).toBe(READ_FAILURE_MESSAGE);
+        expect(editor.renderRoot.querySelector(".attachment-error")?.textContent).toBe("Failed to read an attachment.");
       });
 
       expect(preventDefault).toHaveBeenCalledOnce();
@@ -147,7 +147,7 @@ describe("PromptEditor attachment wiring", () => {
       { id: "attachment-2", kind: "image", name: "shot.png", mimeType: "image/png", data: "UE5H", size: 3 },
     ]);
 
-    const removeReport = templateEventHandlerAfterValue(editor.render(), "移除 report.pdf", "@click=");
+    const removeReport = templateEventHandlerAfterValue(editor.render(), "Remove report.pdf", "@click=");
     removeReport(new Event("click"));
 
     const send = templateEventHandlerAfterMarker(editor.render(), "send-button");

@@ -1,5 +1,7 @@
-import { t } from "../i18n";
+
 import { stylesheetIntegrationCapability } from "../plugins/styles";
+import { localization, LocalizationController } from "../localization/browser";
+import definitions from "./contentRenderer.messages";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
@@ -10,6 +12,9 @@ import { writeClipboardText } from "../clipboard";
 import type { CodeBlockSourcePolicy } from "../formatting/codeBlockPolicy";
 import { codeBlockFrameStyles } from "./codeBlockFrameStyles";
 import { VisibleContentController } from "../formatting/deferredContent";
+
+const messages = localization.registerMessages("core.content-renderer", definitions);
+const copyMessage = { idle: "copySource", copied: "copiedSource", failed: "copyFailed" } as const;
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return value !== null && typeof value === "object" && "then" in value && typeof value.then === "function";
@@ -24,6 +29,7 @@ function isTemplateResult(value: unknown): value is TemplateResult {
 export class ContentRendererHost extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
@@ -47,8 +53,8 @@ export class ContentRendererHost extends LitElement {
   @state() private selectedId: string | undefined;
   private renderer: ContentRendererContribution | undefined;
   @state() private raw = false;
-  @state() private failure: string | undefined;
-  @state() private copyStatus = t("ui.main.259e5385fc04", "Copy source");
+  @state() private failure: "previewFailed" | undefined;
+  @state() private copyStatus: keyof typeof copyMessage = "idle";
   private controller: AbortController | undefined;
   private preview: TemplateResult | undefined;
   private previewScheduled = false;
@@ -79,7 +85,7 @@ export class ContentRendererHost extends LitElement {
       this.renderer = choice?.renderer;
       this.cancelPreview();
       this.failure = undefined;
-      this.copyStatus = t("ui.main.259e5385fc04", "Copy source");
+      this.copyStatus = "idle";
     }
     if (changes.has("renderingRevision")) {
       // Refresh output/failures without discarding explicit activation or Raw intent.
@@ -148,7 +154,7 @@ export class ContentRendererHost extends LitElement {
     const fail = (): void => {
       if (controller.signal.aborted || this.controller !== controller) return;
       console.warn("Content renderer failed; source remains available");
-      this.failure = t("ui.main.4e1a3a974b7d", "Preview failed. Showing the original source.");
+      this.failure = "previewFailed";
       this.cancelPreview();
     };
     try {
@@ -171,7 +177,7 @@ export class ContentRendererHost extends LitElement {
   private async copy(): Promise<void> {
     const text = this.text;
     const copied = await writeClipboardText(text);
-    if (this.isConnected && text === this.text) this.copyStatus = copied ? t("ui.main.11c75c7531b4", "Source copied") : t("ui.main.0379aeb536da", "Failed to copy source");
+    if (this.isConnected && text === this.text) this.copyStatus = copied ? "copied" : "failed";
   }
 
   private get previewActive(): boolean {
@@ -202,30 +208,31 @@ export class ContentRendererHost extends LitElement {
   override render() {
     const preview = this.previewActive ? this.preview : undefined;
     const diagnostic = this.failure;
+    const copyLabel = messages.t(copyMessage[this.copyStatus]);
     const showingRaw = preview === undefined || diagnostic !== undefined;
     const sourceClass = this.codeBlocks?.overflow === "wrap" ? "source-wrap" : "source-scroll";
     return html`<div class=${this.externalControls ? "" : "code-block-frame"}>
-      ${this.externalControls ? null : html`<div class="controls code-block-header" role="group" aria-label=${t("ui.formattedText.codeBlockControls", "Code block controls")}>
+      ${this.externalControls ? null : html`<div class="controls code-block-header" role="group" aria-label=${messages.t("controls")}>
         <div class="views">
           ${repeat(this.choices, ({ id }) => id, ({ id, label, renderer }) => html`
             <button type="button" class="ui-button ui-button--compact" aria-controls="content" aria-pressed=${id === this.selectedId && !showingRaw} @click=${() => { this.selectRenderer(id); }}>${renderer.title ?? label}</button>
           `)}
           ${this.renderer === undefined ? null : html`
-            <button type="button" class="ui-button ui-button--compact" aria-controls="content" aria-pressed=${showingRaw} @click=${() => { this.setRaw(true); }}>${t("ui.main.05511bbf5d16", "Raw")}</button>
+            <button type="button" class="ui-button ui-button--compact" aria-controls="content" aria-pressed=${showingRaw} @click=${() => { this.setRaw(true); }}>${messages.t("raw")}</button>
           `}
         </div>
         ${this.codeBlocks?.copy === false ? null : html`
-          <button class="copy code-block-copy ui-button ui-button--icon ui-button--compact" type="button" title=${this.copyStatus} aria-label=${this.copyStatus} @click=${() => { void this.copy(); }}><span aria-hidden="true">${this.copyStatus === t("ui.main.11c75c7531b4", "Source copied") ? "✓" : "⧉"}</span></button>
-          <span class="sr-only" role="status">${this.copyStatus === t("ui.main.259e5385fc04", "Copy source") ? "" : this.copyStatus}</span>
+          <button class="copy code-block-copy ui-button ui-button--icon ui-button--compact" type="button" title=${copyLabel} aria-label=${copyLabel} @click=${() => { void this.copy(); }}><span aria-hidden="true">${this.copyStatus === "copied" ? "✓" : "⧉"}</span></button>
+          <span class="sr-only" role="status">${this.copyStatus === "idle" ? "" : copyLabel}</span>
         `}
       </div>`}
       <div id="content">
-        ${diagnostic === undefined ? null : html`<p role="status">${diagnostic}</p>`}
+        ${diagnostic === undefined ? null : html`<p role="status">${messages.t(diagnostic)}</p>`}
         ${showingRaw
           ? this.codeBlocks?.presentation === "plain"
-            ? html`<div class=${`plain-code-block ${sourceClass}`} tabindex="0" aria-label=${t("ui.formattedText.rawSource", "Raw source")}>${this.text}</div>`
-            : html`<pre class=${sourceClass} tabindex="0" aria-label=${t("ui.formattedText.rawSource", "Raw source")}><code>${this.text}</code></pre>`
-          : html`<div class="preview" tabindex="0" aria-label="Rendered content">${preview}</div>`}
+            ? html`<div class=${`plain-code-block ${sourceClass}`} tabindex="0" dir="ltr" aria-label=${messages.t("rawSource")}>${this.text}</div>`
+            : html`<pre class=${sourceClass} tabindex="0" dir="ltr" aria-label=${messages.t("rawSource")}><code>${this.text}</code></pre>`
+          : html`<div class="preview" tabindex="0" aria-label=${messages.t("renderedContent")}>${preview}</div>`}
       </div>
     </div>`;
   }

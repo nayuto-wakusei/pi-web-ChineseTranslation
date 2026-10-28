@@ -1,3 +1,5 @@
+import { chatSessionWarningRows, renderSessionWarnings } from "./chat/SessionWarnings";
+export { chatSessionWarningRows } from "./chat/SessionWarnings";
 import {
   notificationAnnouncementLabel,
   notificationDismissLabel,
@@ -14,6 +16,10 @@ import {
   type SelectedSessionNotificationView,
   type SessionNotificationTarget,
 } from "../sessionNotifications";
+import { LocalizationController, localization } from "../localization/browser";
+
+import { chatChromeMessages as chrome } from "../chatChromeMessages";
+import { chatTranscriptMessages } from "../chatTranscriptMessages";
 import { writeClipboardText } from "../clipboard";
 import type { QueuedMessageActionTarget } from "../queuedMessageActions";
 import { chatQueuedMessageSections, renderQueuedMessageSection, type QueuedMessageSection } from "./chat/QueuedMessages";
@@ -21,8 +27,6 @@ export { chatQueuedMessageSections, chatQueuedSectionShowsClearAction, type Queu
 import { clientLocale, t } from "../i18n";
 import { renderNotificationMessage } from "../notificationMessage";
 import { thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
-import { renderSessionWarningIcon } from "./shared";
-import type { SessionWarningSeverity } from "../api";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -55,7 +59,7 @@ import "./ToolExecutionView";
 import { transcriptImageSource } from "./TranscriptImage";
 import type { ImageOpenDetail } from "./ImagePresentation";
 
-const messageTimestampFormatter = localizedDateTimeFormatter({ dateStyle: "medium", timeStyle: "medium" });
+
 
 const notificationTimestampFormatter = localizedDateTimeFormatter({ timeStyle: "short" });
 
@@ -104,7 +108,7 @@ interface PendingNotificationFocus {
 export type ChatImagePart = Extract<ChatPart, { type: "image" }>;
 
 export function chatToolOutputLabel(toolName?: string): string {
-  return toolName === undefined || toolName === "" ? t("ui.chatView.toolOutput", "Tool output") : t("ui.chatView.output", "{toolName} output", { toolName: toolName });
+  return chatTranscriptMessages.t("toolOutput", { name: toolName ?? "", named: toolName === undefined || toolName === "" ? "no" : "yes" });
 }
 
 const chatMessageRoleLabels: Record<ChatLine["role"], () => string> = {
@@ -134,25 +138,9 @@ export function chatMessageGroupLabel(defaultOpen: boolean): string {
 
 
 
-export interface ChatSessionWarningRow {
-  severity: SessionWarningSeverity;
-  severityClass: string;
-  message: string;
-  source?: string;
-  path?: string;
-  dismissId?: string;
-}
 
-export function chatSessionWarningRows(status: SessionStatus | undefined): ChatSessionWarningRow[] {
-  return (status?.warnings ?? []).map((warning) => ({
-    severity: warning.severity,
-    severityClass: `session-warning ${warning.severity}`,
-    message: warning.message,
-    ...(warning.source === undefined ? {} : { source: warning.source }),
-    ...(warning.path === undefined ? {} : { path: warning.path }),
-    ...(warning.dismiss === undefined ? {} : { dismissId: warning.dismiss.id }),
-  }));
-}
+
+
 
 export function chatMessageMetadataLabel(message: ChatLine): string {
   const timestamp = message.meta?.timestamp;
@@ -161,13 +149,13 @@ export function chatMessageMetadataLabel(message: ChatLine): string {
   const thinkingLevel = message.meta?.thinkingLevel;
   const parts = [time, model, thinkingLevel === undefined || thinkingLevel === "" ? undefined : thinkingLevelDisplayLabel(thinkingLevel, t)]
     .filter((part): part is string => part !== undefined && part !== "");
-  return parts.length === 0 ? t("ui.chatView.noPiMessageMetadataAvailable", "No Pi message metadata available") : parts.join(" · ");
+  return parts.length === 0 ? chatTranscriptMessages.t("noMetadata") : localization.list(parts);
 }
 
 function formatMessageTimestamp(timestamp: string): string | undefined {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return undefined;
-  return messageTimestampFormatter.format(date);
+  return localization.date(date, { dateStyle: "medium", timeStyle: "medium" });
 }
 
 function chatMessageModelLabel(message: ChatLine): string | undefined {
@@ -224,6 +212,11 @@ export class ChatView extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this, localization, () => {
+      this.messageMetaCache = new WeakMap();
+      this.messageActionController.localizationChanged();
+      this.navigationLocalizationChanged = true;
+    });
   }
 
   @property({ attribute: false }) messages: ChatLine[] = [];
@@ -304,9 +297,8 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) onQueuedMessageAction?: (target: QueuedMessageActionTarget) => Promise<void>;
   @property({ type: Boolean }) canMutateQueuedMessages = false;
   @property({ type: Boolean }) queuedMessageActionPending = false;
-  @state() private queuedCopyFeedback = "";
+  @state() private queuedCopyFailed = false;
   private queuedCopyGeneration = 0;
-
   @property({ attribute: false }) onDismissWarning?: (dismissId: string) => void;
 
   @property({ attribute: false }) onDismissNotification?: (notificationId: string) => void;
@@ -318,9 +310,13 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) onToggleWarnings?: () => void;
 
   @property({ attribute: false }) onLoadMore?: () => void;
-
   @property({ attribute: false }) behaviors: ChatBehaviors = DEFAULT_CHAT_BEHAVIORS;
-
+  /**
+   * Start every event group collapsed, including the growing live group. The
+   * groups stay in the transcript and remain expandable; only their default
+   * disclosure changes.
+   */
+  @property({ type: Boolean }) quietMode = false;
   @query(".chat") private chat?: HTMLDivElement;
 
   @query("pi-web-image-gallery-dialog") private imageGalleryDialog?: ImageGalleryDialog;
@@ -361,23 +357,19 @@ export class ChatView extends LitElement {
   private groupedMessagesStart = 0;
 
   private groupedMessagesCache: ChatGroup[] = [];
-
   private readonly messageGrouper = new ChatMessageGrouper();
-
-  private readonly messageMetaCache = new WeakMap<ChatLine, string>();
-
+  private messageMetaCache = new WeakMap<ChatLine, string>();
+  private navigationLocalizationChanged = false;
   private imageSession: SessionRef | undefined;
-
   private touchY: number | undefined;
-
   private loadMoreRequested = false;
-
   private readonly onViewportResize = () => { this.scrollFlows.onViewportResize(); };
-
+  // Formatting completes independently of message updates. Reuse the existing
+  // layout/restore flow without making content loading wait for enhancement.
   private readonly onContentLayoutChanged = () => { this.scrollFlows.onViewportResize(); };
-
   private readonly handleScroll = () => { this.scrollFlows.onScroll(); };
-
+  // Native details toggles do not bubble; capture layout changes independently
+  // of the listener that remembers a group's disclosure choice.
   private readonly handleDisclosureToggle = {
     capture: true,
     handleEvent: (event: Event): void => {
@@ -400,27 +392,21 @@ export class ChatView extends LitElement {
     if (this.touchY !== undefined && y !== undefined && y > this.touchY) this.scrollFlows.onUpIntent();
     this.touchY = y;
   };
-
   private readonly handleTouchEnd = () => { this.touchY = undefined; };
-
   private readonly handleJumpTop = () => { this.scrollFlows.jumpToTop(); };
-
   private readonly handleJumpEnd = () => { this.scrollFlows.jumpToEnd(); };
-
-  private readonly openImageZoom = (src: string, alt: string): void => {
-    if (this.behaviors.loadImages) this.imageGalleryDialog?.show([{ src, alt }]);
+  private readonly openImageZoom = (image: ImageOpenDetail): void => {
+    if (this.behaviors.loadImages) this.imageGalleryDialog?.show([image]);
   };
-
-  private openToolImageGallery(images: readonly { part: ChatImagePart; description: string }[], selectedIndex: number): void {
+  private openToolImageGallery(images: readonly { part: ChatImagePart; description: () => string }[], selectedIndex: number): void {
     if (!this.behaviors.loadImages) return;
     const entries = images.flatMap((image, index) => {
       const source = transcriptImageSource(image.part, this.transcriptSession(), this.machineId);
-      return source === undefined ? [] : [{ src: source.src, alt: image.description, partIndex: index }];
+      return source === undefined ? [] : [{ src: source.src, get alt() { return image.description(); }, partIndex: index }];
     });
     const index = entries.findIndex((entry) => entry.partIndex === selectedIndex);
     if (index >= 0) this.imageGalleryDialog?.show(entries, index);
   }
-
   private readonly onPageHide = () => {
     this.saveScrollPosition();
   };
@@ -446,7 +432,7 @@ export class ChatView extends LitElement {
     this.scrollFlows.dispose();
     this.messageActionController.reset();
     this.queuedCopyGeneration += 1;
-    this.queuedCopyFeedback = "";
+    this.queuedCopyFailed = false;
     window.removeEventListener("resize", this.onViewportResize);
     window.removeEventListener("pagehide", this.onPageHide);
     window.visualViewport?.removeEventListener("resize", this.onViewportResize);
@@ -474,7 +460,7 @@ export class ChatView extends LitElement {
     const actionIdentity = JSON.stringify([this.machineId, this.sessionId, this.sessionCwd, this.workspaceContext?.machineId, this.workspaceContext?.projectId, this.workspaceContext?.workspaceId, this.workspaceContext?.root]);
     if (actionIdentity !== this.messageActionIdentity) {
       this.queuedCopyGeneration += 1;
-      this.queuedCopyFeedback = "";
+      this.queuedCopyFailed = false;
       this.messageActionIdentity = actionIdentity;
       this.messageActionController.reset();
     }
@@ -518,7 +504,8 @@ export class ChatView extends LitElement {
     if (changed.has("notificationInbox") && this.pendingNotificationFocus !== undefined) this.focusPendingNotificationTarget();
     if (this.onTranscriptRendered !== undefined) void this.reportRenderedTranscript();
     this.lastOpenQuestionId = openQuestionId;
-    if (changed.has("followingLive") || changed.has("behaviors") || changed.has("onNavigationChange")) {
+    if (this.navigationLocalizationChanged || changed.has("followingLive") || changed.has("behaviors") || changed.has("onNavigationChange")) {
+      this.navigationLocalizationChanged = false;
       this.onNavigationChange?.(this.renderNavigation());
     }
   }
@@ -550,7 +537,7 @@ export class ChatView extends LitElement {
       ${this.renderTopNotices()}
       ${this.renderNotificationLiveRegions()}
       <div class=${this.behaviors.visualEffects ? "chat-wrap" : "chat-wrap plain"}>
-        <div class="chat" @image-open=${(event: CustomEvent<ImageOpenDetail>) => { this.openImageZoom(event.detail.src, event.detail.alt); }}
+        <div class="chat" @image-open=${(event: CustomEvent<ImageOpenDetail>) => { this.openImageZoom(event.detail); }}
           @scroll=${this.behaviors.rememberPosition || this.behaviors.followTail || this.behaviors.automaticHistory ? this.handleScroll : undefined}
           @toggle=${this.behaviors.followTail ? this.handleDisclosureToggle : undefined}
           @content-layout-changed=${this.onContentLayoutChanged}
@@ -582,12 +569,13 @@ export class ChatView extends LitElement {
 
   private renderNavigation() {
     const following = this.behaviors.followTail && this.followingLive;
-    return html`<nav class="chat-jumps" aria-label=${t("ui.chatView.chatNavigation", "Chat navigation")}>
-      <button type="button" title=${t("ui.chatView.jumpToTop", "Jump to top")} aria-label=${t("ui.chatView.jumpToTop", "Jump to top")} @click=${this.handleJumpTop}>↑</button>
+    const state = !this.behaviors.followTail ? "disabled" : following ? "following" : "paused";
+    return html`<nav class="chat-jumps" aria-label=${chrome.t("navigation")}>
+      <button type="button" title=${chrome.t("jumpTop")} aria-label=${chrome.t("jumpTop")} @click=${this.handleJumpTop}>↑</button>
       <button type="button" class=${following ? "following" : ""}
-        title=${!this.behaviors.followTail ? t("ui.chatView.jumpToEnd", "Jump to end") : following ? t("ui.chatView.followingLiveJumpToEnd", "Following live - jump to end") : t("ui.chatView.jumpToEndAndFollowLive", "Jump to end and follow live")}
-        aria-label=${t("ui.chatView.jumpToEnd", "Jump to end")} aria-describedby="chat-follow-state" @click=${this.handleJumpEnd}>↓</button>
-      <span id="chat-follow-state" class="chat-follow-state">${!this.behaviors.followTail ? t("ui.chatView.followingDisabled", "Automatic following disabled") : following ? t("ui.chatView.followingLive", "Following live") : t("ui.chatView.followingPaused", "Live following paused")}</span>
+        title=${chrome.t("endTitle", { state })}
+        aria-label=${chrome.t("jumpEnd")} aria-describedby="chat-follow-state" @click=${this.handleJumpEnd}>↓</button>
+      <span id="chat-follow-state" class="chat-follow-state">${chrome.t("followState", { state })}</span>
     </nav>`;
   }
 
@@ -601,50 +589,7 @@ export class ChatView extends LitElement {
   private renderWarnings() {
     const rows = chatSessionWarningRows(this.status);
     if (!this.warningsVisible || rows.length === 0) return null;
-    return html`
-      <aside class="session-warnings" role="alert" aria-live="polite">
-        ${this.onToggleWarnings === undefined ? null : html`
-          <div class="session-warnings-controls">
-            <button
-              type="button"
-              class="session-warnings-collapse"
-              title="${t("ui.chatView.minimizeWarning", "Minimize warning")}"
-              aria-label="${t("ui.chatView.minimizeWarning", "Minimize warning")}"
-              @click=${this.handleToggleWarnings}
-            >
-              <svg class="session-warnings-collapse-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="m18 15-6-6-6 6"></path>
-              </svg>
-              <span>${t("ui.chatView.minimize", "Minimize")}</span>
-            </button>
-          </div>
-        `}
-        ${rows.map((row) => {
-          const dismissId = row.dismissId;
-          return html`
-          <div class=${row.severityClass}>
-            <div class="session-warning-head">
-              ${renderSessionWarningIcon(row.severity, "session-warning-icon")}
-              ${row.source === undefined ? null : html`<span class="session-warning-source">${row.source}</span>`}
-            </div>
-            <div class="session-warning-body">
-              <p class="session-warning-message">${row.message}</p>
-              ${row.path === undefined ? null : html`<p class="session-warning-path">${row.path}</p>`}
-            </div>
-            ${dismissId === undefined ? null : html`
-              <button
-                type="button"
-                class="session-warning-dismiss"
-                title="${t("ui.chatView.doNotShowThisWarningAgain", "Do not show this warning again")}"
-                aria-label="${t("ui.chatView.dismissWarning", "Dismiss warning")}"
-                @click=${() => { this.onDismissWarning?.(dismissId); }}
-              >×</button>
-            `}
-          </div>
-        `;
-        })}
-      </aside>
-    `;
+    return renderSessionWarnings(rows, this.onToggleWarnings === undefined ? undefined : this.handleToggleWarnings, this.onDismissWarning);
   }
 
   private groupedMessages(): ChatGroup[] {
@@ -669,8 +614,11 @@ export class ChatView extends LitElement {
 
   private renderQueuedMessages() {
     const serverQueued = this.status?.queuedMessages ?? [];
-    return html`${chatQueuedMessageSections(this.clientQueuedMessages, serverQueued).map((section) => this.renderQueuedMessageList(section))}
-      ${this.queuedCopyFeedback === "" ? nothing : html`<small role="status">${this.queuedCopyFeedback}</small>`}`;
+    return html`${chatQueuedMessageSections(this.clientQueuedMessages, serverQueued, (source, count) => ({
+      heading: chrome.t(source === "client" ? "clientHeading" : "serverHeading"),
+      detail: source === "client" ? chrome.t("clientDetail") : chrome.t("pending", { count }),
+    })).map((section) => this.renderQueuedMessageList(section))}
+      ${this.queuedCopyFailed ? html`<small role="status">${chrome.t("copyFailed")}</small>` : nothing}`;
   }
 
   private renderQueuedMessageList(section: QueuedMessageSection) {
@@ -693,7 +641,7 @@ export class ChatView extends LitElement {
     const generation = this.queuedCopyGeneration;
     const copied = await writeClipboardText(text);
     if (!this.isConnected || generation !== this.queuedCopyGeneration) return;
-    this.queuedCopyFeedback = copied ? "" : t("ui.queuedMessages.copyFailed", "Could not copy message");
+    this.queuedCopyFailed = !copied;
   }
 
   private actOnQueuedMessage(target: QueuedMessageActionTarget): void {
@@ -725,7 +673,9 @@ export class ChatView extends LitElement {
           .onAnswer=${this.onAnswerDialog}
           .onCancel=${this.onCancelDialog}
         ></extension-dialog-card>
-        ${queuedCount > 0 ? html`<p class="queued-dialogs" role="status">${t("ui.chatView.queuedDialogCount", "{count} more extension dialogs queued", { count: queuedCount })}</p>` : null}
+        ${queuedCount > 0
+          ? html`<p class="queued-dialogs" role="status">${chrome.t("queuedDialogs", { count: queuedCount })}</p>`
+          : null}
       `}
     `;
   }
@@ -733,25 +683,25 @@ export class ChatView extends LitElement {
   private renderSessionActivity() {
     if (!this.isCompacting) return null;
     return html`
-      <aside class="session-activity compacting" aria-live="polite">
-        <strong>${t("ui.chatView.compactingHistory", "Compacting history…")}</strong>
-        <span>${t("ui.chatView.theAgentIsSummarizingEarlierContextNewPrompts", "The agent is summarizing earlier context. New prompts will queue until compaction finishes.")}</span>
-        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} ${t("ui.main.4cf91aa75737", " messages queued")}</small>` : null}
+      <aside class="session-activity compacting ui-transcript-surface" aria-live="polite">
+        <strong>${chrome.t("compacting")}</strong>
+        <span>${chrome.t("compactionDetail")}</span>
+        ${this.pendingMessageCount > 0 ? html`<small>${chrome.t("queuedCount", { count: this.pendingMessageCount })}</small>` : null}
       </aside>
     `;
   }
 
   private renderHistoryBoundary() {
     const range = this.historyRangeLabel();
-    if (this.loadingMore) return html`<div class="history-boundary"><span>${t("ui.chatView.loadingEarlierMessages", "Loading earlier messages…")}</span>${range}</div>`;
+    if (this.loadingMore) return html`<div class="history-boundary"><span>${chrome.t("loadingHistory")}</span>${range}</div>`;
     if (this.hasMore) return html`
       <div class="history-boundary">
-        <button type="button" class="history-load-button" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>${t("ui.chatView.loadEarlierMessages", "Load earlier messages")}</button>
-        <span>${t("ui.chatView.scrollUpToLoadEarlierMessages", "Scroll up to load earlier messages")}</span>
+        <button type="button" class="history-load-button ui-button ui-button--compact" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>${chrome.t("loadHistory")}</button>
+        ${this.behaviors.automaticHistory ? html`<span>${chrome.t("scrollHistory")}</span>` : null}
         ${range}
       </div>
     `;
-    if (this.messages.length) return html`<div class="history-boundary"><span>${t("ui.chatView.startOfSession", "Start of session")}</span>${range}</div>`;
+    if (this.messages.length) return html`<div class="history-boundary"><span>${chrome.t("beginning")}</span>${range}</div>`;
     return null;
   }
 
@@ -760,7 +710,7 @@ export class ChatView extends LitElement {
     const from = this.messageStart + 1;
     const to = this.loadedRawMessageEnd();
     const total = Math.max(this.messageTotal, to);
-    return html`<small>${t("ui.main.f99875eec53e", "Showing messages")} ${from}–${to}${t("ui.main.c66df59d637e", " of ")}${total} ${t("ui.main.bce2ef61514a", " messages")}</small>`;
+    return html`<small>${chrome.t("range", { from, to, total })}</small>`;
   }
 
   private loadedRawMessageEnd(): number {
@@ -798,12 +748,13 @@ export class ChatView extends LitElement {
     };
   }
 
-  private renderMessageGroup(context: TranscriptRenderContext, group: Extract<ChatGroup, { kind: "group" }>, defaultOpen: boolean, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
-    const disclosureKey = this.groupDisclosureKey(group, defaultOpen);
+  private renderMessageGroup(context: TranscriptRenderContext, group: Extract<ChatGroup, { kind: "group" }>, liveTail: boolean, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
+    const defaultOpen = liveTail && !this.quietMode;
+    const disclosureKey = this.groupDisclosureKey(group, liveTail);
     const open = this.isDisclosureOpen(disclosureKey, defaultOpen);
-    return transcript.renderMessageGroup(context, group, defaultOpen, entryActionHeaders, {
+    return transcript.renderMessageGroup(context, group, liveTail, entryActionHeaders, {
       open,
-      anchor: this.groupAnchorKey(group, defaultOpen),
+      anchor: this.groupAnchorKey(group, liveTail),
       toggle: (event) => { this.onDisclosureToggle(disclosureKey, event, defaultOpen); },
     });
   }

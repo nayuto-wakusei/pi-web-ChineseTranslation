@@ -21,8 +21,9 @@ import {
   type PiWebVersionReportOptions,
   type RunningComponentId,
 } from "./piWebVersionReport.js";
-import { checkNodePtyDarwinSpawnHelper, formatNodePtyDarwinSpawnHelperCheck } from "./server/diagnostics/nodePtySpawnHelper.js";
-import { checkNodePtyNativeModule, formatNodePtyNativeModuleCheck } from "./server/diagnostics/nodePtyNativeModule.js";
+import { checkTerminalPrerequisites } from "./server/diagnostics/terminalPrerequisites.js";
+import { formatTerminalServiceStatus, getSessionDaemonTerminalStatus } from "./sessiond/sessionDaemonTerminalStatus.js";
+import { piWebRuntimeIdentity, type PiWebRuntimeIdentity } from "./shared/piWebRuntime.js";
 import {
   installNativeServiceCandidate,
   nativeServiceInstallFailureNeedsPathAdvice,
@@ -257,8 +258,8 @@ function packageRootPath(): string {
   return dirname(dirname(fileURLToPath(import.meta.url)));
 }
 
-function packageEntrypointPath(name: "server" | "sessiond"): string {
-  return join(packageRootPath(), "dist", "server", name === "server" ? "index.js" : "sessiond.js");
+function packageLauncherPath(name: "server" | "sessiond"): string {
+  return join(packageRootPath(), "dist", "bin", name === "server" ? "pi-web-server.sh" : "pi-web-sessiond.sh");
 }
 
 export function regularFileExists(path: string): boolean {
@@ -309,6 +310,8 @@ export function nativeServiceEnvironment(configPath: string | undefined, env: No
   const environment: Record<string, string> = configPath === undefined ? {} : { PI_WEB_CONFIG: configPath };
   const piPackageDir = ownEnvironmentValue(env, PI_WEB_PI_PACKAGE_DIR_ENV);
   if (piPackageDir !== undefined && piPackageDir !== "") environment[PI_WEB_PI_PACKAGE_DIR_ENV] = piPackageDir;
+  const runtime = ownEnvironmentValue(env, "PI_WEB_RUNTIME");
+  if (runtime !== undefined && runtime !== "") environment["PI_WEB_RUNTIME"] = runtime;
   return environment;
 }
 
@@ -633,12 +636,12 @@ function productionNativeServicePlanInput(
       sessiond: {
         configuredCommand: configuredServiceCommand("PI_WEB_SESSIOND_EXEC"),
         namedCommand: "pi-web-sessiond",
-        bundledEntrypointPath: packageEntrypointPath("sessiond"),
+        bundledLauncherPath: packageLauncherPath("sessiond"),
       },
       web: {
         configuredCommand: configuredServiceCommand("PI_WEB_SERVER_EXEC"),
         namedCommand: "pi-web-server",
-        bundledEntrypointPath: packageEntrypointPath("server"),
+        bundledLauncherPath: packageLauncherPath("server"),
       },
     },
   };
@@ -677,10 +680,10 @@ function printNativeServiceInstallFailure(failure: NativeServiceInstallFailure, 
     for (const item of failure.failures) {
       if (item.kind === "probe-infrastructure") {
         console.log(t("install.probeFailure", "✗ Service-manager probe infrastructure failure ({reason}): {message}", { reason: item.reason, message: item.message }));
-      } else if (item.kind === "entrypoint-inspection-failure") {
-        console.log(t("install.entrypointFailure", "✗ Could not inspect bundled {service} entrypoint {path}: {message}", { service: item.serviceId, path: item.entrypointPath, message: item.message }));
+      } else if (item.kind === "launcher-inspection-failure") {
+        console.log(t("install.launcherFailure", "✗ Could not inspect bundled {service} launcher {path}: {message}", { service: item.serviceId, path: item.launcherPath, message: item.message }));
       } else {
-        console.log(t("install.commandMissing", "✗ {command} is unavailable to the service manager, and bundled entrypoint {path} is missing.", { command: item.namedCommand, path: item.bundledEntrypointPath }));
+        console.log(t("install.launcherMissing", "✗ {command} is unavailable to the service manager, and bundled launcher {path} is missing.", { command: item.namedCommand, path: item.bundledLauncherPath }));
         if (item.namedCommandFailure !== null) console.log(`  ${item.namedCommandFailure}`);
       }
     }
@@ -708,7 +711,9 @@ async function install(args: string[], t: Translator = createTranslator("en", {}
   console.log(t("install.preflight", "Running PI WEB {mode} install preflight checks...", { mode: options.mode }));
   console.log(t("service.backend", "Service backend: {label}", { label: backend.label }));
   console.log(t("service.shell", "Service shell: {value}", { value: describeServiceShell() }));
-  if (!printNodePtyNativeModuleCheck(t)) {
+  const terminalPrerequisites = await checkTerminalPrerequisites();
+  for (const line of terminalPrerequisites.lines) console.log(line);
+  if (!terminalPrerequisites.ok) {
     throw new Error(t("install.preflightFailed", "Install preflight checks failed without changing config or services. Fix the failure above, then run `pi-web doctor` for more detail."));
   }
   const result = await installNativeServiceCandidate(candidate, {
@@ -891,11 +896,16 @@ export function nodeVersionCheck(): string {
   });
 }
 
-export function generalDoctorChecks(): Check[] {
+export function generalDoctorChecks(runtime: PiWebRuntimeIdentity = piWebRuntimeIdentity()): Check[] {
   const shell = serviceShellLabel();
+  const runtimeChecks: Check[] = runtime.name === "bun"
+    ? [[`Caller login ${shell} can find bun`, serviceShellCommand(commandWithVersionCheck("bun"))]]
+    : [
+      [`Caller login ${shell} can find node >= ${minimumSupportedNodeVersion}`, serviceShellCommand(nodeVersionCheck())],
+      [`Caller login ${shell} can find npm`, serviceShellCommand(commandWithVersionCheck("npm"))],
+    ];
   return [
-    [`Caller login ${shell} can find node >= ${minimumSupportedNodeVersion}`, serviceShellCommand(nodeVersionCheck())],
-    [`Caller login ${shell} can find npm`, serviceShellCommand(commandWithVersionCheck("npm"))],
+    ...runtimeChecks,
     // Sessions run on the bundled pi SDK; the only CLI check is a hardcoded
     // `pi` PATH probe — nothing names or locates a configurable command.
     [`Caller login ${shell} can find pi`, serviceShellCommand(commandWithVersionCheck("pi"))],
@@ -1304,9 +1314,12 @@ async function doctor(context: ReadinessDoctorCommandContext, t: Translator = cr
   const generalReadinessOk = runChecks(generalDoctorChecks());
   printOptionalDoctorChecks(t);
 
-  console.log(t("doctor.terminal", "\nNative terminal runtime readiness:"));
-  const nodePtyNativeModuleOk = printNodePtyNativeModuleCheck(t);
-  const nodePtySpawnHelperOk = nodePtyNativeModuleOk ? printNodePtyDarwinSpawnHelperCheck(t) : true;
+  const daemonAvailable = runningVersionInfo.sessiond?.available === true;
+  console.log(daemonAvailable ? "\nTerminal state (running session daemon):" : "\nTerminal prerequisites (CLI process only):");
+  const terminalReadiness = daemonAvailable
+    ? formatTerminalServiceStatus(await getSessionDaemonTerminalStatus())
+    : await checkTerminalPrerequisites();
+  for (const line of terminalReadiness.lines) console.log(line);
 
   let nativeServiceReport: NativeServiceDoctorReport | null = null;
   if (backend !== undefined) {
@@ -1350,19 +1363,7 @@ async function doctor(context: ReadinessDoctorCommandContext, t: Translator = cr
     console.log(`\n${manualRunAdvice(t)}`);
   }
 
-  if (doctorExitCode(generalReadinessOk, nativeServicePlanOk, nodePtyNativeModuleOk && nodePtySpawnHelperOk, runningComponentsOk) !== 0) process.exitCode = 1;
-}
-
-function printNodePtyNativeModuleCheck(t: Translator): boolean {
-  const result = formatNodePtyNativeModuleCheck(checkNodePtyNativeModule(), t);
-  for (const line of result.lines) console.log(line);
-  return result.ok;
-}
-
-function printNodePtyDarwinSpawnHelperCheck(t: Translator): boolean {
-  const result = formatNodePtyDarwinSpawnHelperCheck(checkNodePtyDarwinSpawnHelper(), t);
-  for (const line of result.lines) console.log(line);
-  return result.ok;
+  if (doctorExitCode(generalReadinessOk, nativeServicePlanOk, terminalReadiness.ok, runningComponentsOk) !== 0) process.exitCode = 1;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

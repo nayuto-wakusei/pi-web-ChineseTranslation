@@ -14,7 +14,9 @@ export type BrowserErrorRecovery = "session-refresh" | "workspace-sessions-refre
 export interface BrowserError {
   scope: BrowserErrorScope;
   message: string;
-
+  /** Render-time translation; message remains the stable identity used for dismissal. */
+  displayMessage?: () => string;
+  /** Only read-refresh failures can be retried or cleared by successful reads. */
   recovery?: BrowserErrorRecovery;
 }
 
@@ -106,6 +108,15 @@ export class BrowserErrorReporter {
 
   report(scope: BrowserErrorScope, message: string, recovery?: BrowserErrorRecovery): void {
     this.setState({ browserErrors: reportBrowserError(this.getState().browserErrors, scope, message, recovery) });
+  }
+
+  /** Retain semantic values in the callback so an existing banner follows live language changes. */
+  reportLocalized(scope: BrowserErrorScope, displayMessage: () => string, recovery?: BrowserErrorRecovery): void {
+    const message = displayMessage();
+    this.setState({ browserErrors: {
+      ...this.getState().browserErrors,
+      [browserErrorScopeKey(scope)]: { scope, message, displayMessage, ...(recovery === undefined ? {} : { recovery }) },
+    } });
   }
 
   captureRecovery(scope: BrowserErrorScope, recovery: BrowserErrorRecovery): BrowserError | undefined {

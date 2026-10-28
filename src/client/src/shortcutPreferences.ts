@@ -1,3 +1,4 @@
+import { snapshotDisplayMetadata } from "./plugins/displayMetadata";
 import type { AppAction } from "./actions";
 import type { PiWebShortcutConfig } from "./api";
 import { resolveShortcutBindings, shortcutPreferenceForAction } from "./keyboardShortcuts";
@@ -18,11 +19,11 @@ export function applyShortcutPreference(action: AppAction, shortcuts: PiWebShort
   const shortcut = shortcutPreferenceForAction(action, shortcuts);
   if (shortcut === undefined) return action;
   if (shortcut === null) return withoutShortcut(action);
-  return { ...action, shortcut };
+  return snapshotDisplayMetadata(action, { ...action, shortcut });
 }
 
 function withoutShortcut(action: AppAction): AppAction {
-  const copy = { ...action };
+  const copy = snapshotDisplayMetadata(action, { ...action });
   delete copy.shortcut;
   return copy;
 }

@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 
 it.each([
   "docker/pi-web-docker",
-  "docker/internal/image/install-opensuse-base",
+  "docker/internal/image/install-ubuntu-base",
   "docker/internal/dev/compose",
   "docker/internal/dev/sync-node-modules",
   "docker/internal/bin/hostexec",

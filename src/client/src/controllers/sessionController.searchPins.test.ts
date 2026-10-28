@@ -67,7 +67,9 @@ describe("SessionController session search and pins", () => {
       excerpts: [{ text: "message 1", matchRanges: [{ start: 0, length: 7 }] }],
     }, "message");
 
-    expect(transcriptSnapshot).toHaveBeenCalledExactlyOnceWith(session, { limit: 100 }, "local");
+    const signal = transcriptSnapshot.mock.calls[0]?.[1]?.signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(transcriptSnapshot).toHaveBeenCalledExactlyOnceWith(session, { limit: 100, signal, timeoutMs: 10_000 }, "local");
     expect(messages).toHaveBeenCalledExactlyOnceWith(session, { before: 8, limit: 500 }, "local");
     expect(state.messagePageStart).toBe(0);
     expect(state.messagePageEnd).toBe(10);

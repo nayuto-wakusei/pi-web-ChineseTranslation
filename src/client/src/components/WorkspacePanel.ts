@@ -1,3 +1,7 @@
+import { LocalizationController, localization } from "../localization/browser";
+import { horizontalScrollEdges } from "./appShell/scrollEdges";
+import { appShellMessages as m } from "../appShellMessages";
+import { renderPanelToggleButton } from "./appShell/panelToggleButton";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, html, type TemplateResult } from "lit";
@@ -29,6 +33,7 @@ export interface WorkspaceToolPanel {
 export class WorkspacePanel extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
@@ -40,6 +45,7 @@ export class WorkspacePanel extends LitElement {
   @property({ type: Boolean }) hideToolTabs = false;
   @property({ attribute: false }) pinnedIds: string[] = [];
   @property({ attribute: false }) onShowNavigation?: () => void;
+  @property({ attribute: false }) onTogglePanel?: () => void;
   @property({ type: Boolean }) hiddenActiveDestination = false;
   @property({ attribute: false }) onSelectTool: (tool: QualifiedContributionId) => void = () => undefined;
   @query(".workspace-header-strip") private workspaceHeaderStrip?: HTMLElement | null;
@@ -72,8 +78,8 @@ export class WorkspacePanel extends LitElement {
   override render() {
     const workspace = this.workspace;
     if (workspace === undefined && this.panels.length === 0) return this.renderEmptyState(this.error !== "" ? { title: t("ui.main.110fc6609529", "Navigation destination unavailable"), body: this.error } : this.emptyState ?? {
-      title: t("ui.workspacePanel.selectWorkspace", "Select workspace"),
-      body: t("ui.main.272d152c38f6", "Choose a workspace to use its tools."),
+      title: m.t("selectWorkspace"),
+      body: m.t("chooseWorkspace"),
     }, true);
     const visiblePanels = this.panels;
     // An unresolved route may leave a valid remembered tool, but its content is not displayed.
@@ -100,10 +106,11 @@ export class WorkspacePanel extends LitElement {
             </div>
           </div>
           ${this.renderNavigationButton(this.hiddenActiveDestination || (selectedPanel !== undefined && !pinnedPanels.some((panel) => panel.id === selectedPanel.id)))}
+          ${renderPanelToggleButton("workspace", false, this.onTogglePanel)}
         </header>
       `}
       ${this.error !== "" ? this.renderEmptyState({ title: t("ui.main.110fc6609529", "Navigation destination unavailable"), body: this.error }) : selectedPanel === undefined ? this.renderEmptyState({
-        title: this.tool === undefined ? t("ui.workspacePanel.noWorkspaceToolsAvailable", "No workspace tools available") : t("ui.main.8e931a1bb102", "Workspace panel unavailable: {arg0}", { arg0: this.tool }),
+        title: this.tool === undefined ? m.t("noTools") : m.t("unavailablePanel", { id: this.tool }),
       }) : html`
         <div class="panel-content">
           ${selectedPanel.render()}
@@ -122,15 +129,15 @@ export class WorkspacePanel extends LitElement {
 
   private panelTabAriaLabel(panel: WorkspaceToolPanel, badge: WorkspacePanelBadge): string {
     if (typeof badge !== "string" && typeof badge !== "number") return panel.title;
-    const trimmedBadge = String(badge).trim();
-    return trimmedBadge === "" ? panel.title : `${panel.title}, ${trimmedBadge}`;
+    const trimmedBadge = (typeof badge === "number" ? localization.number(badge) : badge).trim();
+    return trimmedBadge === "" ? panel.title : m.t("badge", { label: panel.title, badge: trimmedBadge });
   }
 
   private renderPanelTabContent(panel: WorkspaceToolPanel, badge: WorkspacePanelBadge): TemplateResult {
     return html`
       ${panel.icon === undefined ? null : html`<span class="tab-custom-icon" aria-hidden="true">${panel.icon}</span>`}
       <span class="tab-label">${panel.title}</span>
-      ${this.isEmptyBadge(badge) ? null : html`<span class="tab-badge">${badge}</span>`}
+      ${this.isEmptyBadge(badge) ? null : html`<span class="tab-badge">${typeof badge === "number" ? localization.number(badge) : badge}</span>`}
     `;
   }
 
@@ -139,7 +146,7 @@ export class WorkspacePanel extends LitElement {
   }
 
   private renderNavigationButton(hiddenActiveDestination = false) {
-    return this.onShowNavigation === undefined ? null : html`<button type="button" class=${`ui-button ui-button--icon navigation-menu-button${hiddenActiveDestination ? " selected" : ""}`} title="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-label="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`;
+    return this.onShowNavigation === undefined ? null : html`<button type="button" class=${`ui-button ui-button--icon navigation-menu-button${hiddenActiveDestination ? " selected" : ""}`} data-navigation-trigger title=${m.t("navigation")} aria-label=${m.t("navigation")} aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`;
   }
 
   private renderEmptyState(state: WorkspacePanelEmptyState, showNavigation = false): TemplateResult {
@@ -172,8 +179,9 @@ export class WorkspacePanel extends LitElement {
   private updateWorkspaceHeaderScrollState(): void {
     const strip = this.workspaceHeaderStripElement();
     const maxScrollLeft = strip === undefined ? 0 : Math.max(0, strip.scrollWidth - strip.clientWidth);
-    const canScrollLeft = strip !== undefined && strip.scrollLeft > 1;
-    const canScrollRight = strip !== undefined && maxScrollLeft - strip.scrollLeft > 1;
+    const edges = horizontalScrollEdges(strip?.scrollLeft ?? 0, maxScrollLeft, localization.direction);
+    const canScrollLeft = strip !== undefined && edges.left;
+    const canScrollRight = strip !== undefined && edges.right;
     if (this.workspaceHeaderCanScrollLeft !== canScrollLeft) this.workspaceHeaderCanScrollLeft = canScrollLeft;
     if (this.workspaceHeaderCanScrollRight !== canScrollRight) this.workspaceHeaderCanScrollRight = canScrollRight;
   }

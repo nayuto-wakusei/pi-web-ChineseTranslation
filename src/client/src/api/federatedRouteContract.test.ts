@@ -3,13 +3,12 @@ import { managedAgentsApi } from "./managedAgents";
 import type { Workspace } from "../../../shared/apiTypes";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, SESSION_TREE_FORK_PROXY_TIMEOUT_MS, SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS, WORKSPACE_FILE_PREVIEW_ROUTE_PATH, type FederatedHttpRouteSpec } from "../../../shared/federatedRoutes";
 import { MAX_INLINE_PREVIEW_BYTES } from "../../../shared/workspaceFiles";
-import { activityApi, configApi, filesApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, trustApi, workspacesApi } from "./clients";
-import { PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS, PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS, PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES, PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES } from "../../../shared/pluginBackendProtocol";
+import { PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS, PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS, PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS, PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES, PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES } from "../../../shared/pluginBackendProtocol";
+import { activityApi, configApi, filesApi, machineStatusApi, noticesApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, trustApi, workspacesApi } from "./clients";
 import { globalSessionEvents, realtimeEvents, sessionEvents } from "./sockets";
 import { workspaceFileDownloadUrl, workspaceImagePreviewUrl } from "./urls";
 import { PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS, WORKSPACE_FILE_FEDERATION_TIMEOUT_MS, WORKSPACE_FILE_JSON_RESPONSE_BODY_MAX_BYTES, WORKSPACE_REMOVAL_FEDERATION_TIMEOUT_MS } from "../../../shared/federatedRoutes";
 import { PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH } from "../../../shared/pluginBackendProtocol";
-import { machineStatusApi, noticesApi } from "./clients";
 import { requestPairedPluginBackend } from "./pluginBackends";
 import { sessionMediaUrl, workspaceFilePreviewUrl } from "./urls";
 
@@ -103,6 +102,7 @@ describe("federated route contract", () => {
   it("allowlists daemon-authoritative unread HTTP routes on the existing global socket", () => {
     expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("unread"))).toEqual([
       { method: "GET", path: "/sessions/unread" },
+      { method: "POST", path: "/sessions/:sessionId/unread" },
       { method: "POST", path: "/sessions/:sessionId/unread/acknowledge" },
     ]);
     expect(FEDERATED_WEBSOCKET_ROUTES.some((path) => path.includes("unread"))).toBe(false);
@@ -174,7 +174,10 @@ describe("federated route contract", () => {
       propagateCancellation: true,
     };
     expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("plugin-backends"))).toEqual(
-      PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS.map((path) => ({ ...boundedRequest, path })),
+      [
+        ...PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS.map((path) => ({ method: "GET", path, timeoutMs: 30_000, propagateCancellation: true })),
+        ...PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS.map((path) => ({ ...boundedRequest, path })),
+      ],
     );
     expect(FEDERATED_WEBSOCKET_ROUTES.filter((path) => path.includes("plugin-backends"))).toEqual(
       [...PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS],
@@ -244,6 +247,7 @@ describe("federated route contract", () => {
       ignoreParseFailure(sessionsApi.sessions("/repo", machineId)),
       ignoreParseFailure(sessionsApi.searchContent("/repo", "answer", machineId)),
       ignoreParseFailure(sessionsApi.unreadCatalog(machineId)),
+      ignoreParseFailure(sessionsApi.markUnread(session, machineId)),
       ignoreParseFailure(sessionsApi.acknowledgeUnread(session, "catalog-a", 7, machineId)),
       ignoreParseFailure(sessionsApi.startSession("/repo", machineId)),
       ignoreParseFailure(sessionsApi.cleanupPreview({ archiveIdleDays: 14 }, machineId)),

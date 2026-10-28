@@ -25,10 +25,10 @@ async function fixture() {
 describe("compaction feedback", () => {
   it.each([
     { reason: "manual", aborted: true, errorMessage: undefined, message: "Compaction cancelled.", severity: "info" },
-    { reason: "manual", aborted: false, errorMessage: "Compaction failed: Provider unavailable", message: "Could not compact history. Try again.", severity: "error" },
+    { reason: "manual", aborted: false, errorMessage: "Compaction failed: Provider unavailable", message: "Couldn’t compact history. Try again.", severity: "error" },
     { reason: "threshold", aborted: true, errorMessage: undefined, message: "Automatic compaction cancelled.", severity: "info" },
-    { reason: "threshold", aborted: false, errorMessage: "Auto-compaction failed: Provider unavailable", message: "Could not compact history. Try again.", severity: "error" },
-    { reason: "overflow", aborted: false, errorMessage: "Context overflow recovery failed: Provider unavailable", message: "Could not compact history. Try again.", severity: "error" },
+    { reason: "threshold", aborted: false, errorMessage: "Auto-compaction failed: Provider unavailable", message: "Couldn’t compact history. Try again.", severity: "error" },
+    { reason: "overflow", aborted: false, errorMessage: "Context overflow recovery failed: Provider unavailable", message: "Couldn’t compact history. Try again.", severity: "error" },
   ])("retains $reason/$severity feedback outside the transcript", async ({ reason, aborted, errorMessage, message, severity }) => {
     const f = await fixture();
     try {
@@ -47,7 +47,11 @@ describe("compaction feedback", () => {
       await vi.waitFor(() => { expect(f.service.notificationInbox(f.ref).notifications).toHaveLength(1); });
       await Promise.resolve();
       const snapshot = f.service.notificationInbox(f.ref);
-      expect(snapshot.notifications).toMatchObject([{ message, severity }]);
+      const presentation = { kind: aborted ? (reason === "manual" ? "compactionCancelled" : "automaticCompactionCancelled") : "compactionFailed" };
+      expect(snapshot.notifications).toMatchObject([{ message, severity, presentation }]);
+      expect(f.hub.sessionEvents.filter(({ event }) => event.type === "notifications.inbox")).toMatchObject([
+        { event: { delta: { kind: "added", notification: { message, presentation } } } },
+      ]);
       expect(f.service.notificationCatalog().sessions).toMatchObject([{ sessionId: f.ref.id, retainedCount: 1 }]);
       expect(f.hub.sessionEvents.filter(({ event }) => event.type === "notifications.inbox")).toHaveLength(1);
       expect(f.hub.sessionEvents.filter(({ event }) => event.type === "notifications.inbox").map(({ sessionId }) => sessionId)).toEqual([f.ref.id]);
@@ -60,7 +64,7 @@ describe("compaction feedback", () => {
       if (errorMessage !== undefined) expect(activityDetails).not.toContain(errorMessage);
       if (aborted) {
         const activities = f.hub.globalEvents.flatMap((event) => event.type === "activity.update" ? [event.activity] : []);
-        expect(activities).toContainEqual(expect.objectContaining({ sessionId: f.ref.id, phase: "idle", label: "Compaction cancelled" }));
+        expect(activities).toContainEqual(expect.objectContaining({ sessionId: f.ref.id, phase: "idle", label: "compaction cancelled" }));
         expect(activities.some((activity) => activity.phase === "error")).toBe(false);
       }
       const notice = snapshot.notifications[0];
@@ -79,7 +83,7 @@ describe("compaction feedback", () => {
       await expect(f.service.runCommand(f.ref, "/compact")).resolves.toEqual({ type: "done" });
       await vi.waitFor(() => {
         expect(f.service.notificationInbox(f.ref).notifications).toMatchObject([
-          { message: "Could not compact history. Try again.", severity: "error" },
+          { message: "Couldn’t compact history. Try again.", severity: "error", presentation: { kind: "compactionFailed" } },
         ]);
       });
       expect(f.hub.sessionEvents.filter(({ event }) => event.type === "command.output" || event.type === "session.error")).toEqual([]);

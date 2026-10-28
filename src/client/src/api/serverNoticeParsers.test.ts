@@ -20,6 +20,18 @@ describe("server notice parsers", () => {
     expect(parseRealtimeStreamEvent({ type: "notices.updated", snapshot })).toEqual({ type: "notices.updated", snapshot });
   });
 
+  it("retains validated generated provenance on snapshots and realtime, falling back for future or malformed metadata", () => {
+    for (const presentation of [{ kind: "workspaceRemovalCommandFailed" }, { kind: "workspaceRemovalFailed", detail: "<img> /repo" }]) {
+      const snapshot = { daemonInstanceId: "daemon-a", revision: 1, notices: [{ ...notice, presentation }] };
+      expect(parseServerNoticeSnapshot(snapshot)).toEqual(snapshot);
+      expect(parseRealtimeStreamEvent({ type: "notices.updated", snapshot })).toEqual({ type: "notices.updated", snapshot });
+    }
+    for (const presentation of [null, [], { kind: "future" }, { kind: "workspaceRemovalFailed", detail: 42 }, { kind: "workspaceRemovalFailed", detail: "x".repeat(4097) }]) {
+      const snapshot = { daemonInstanceId: "daemon-a", revision: 1, notices: [{ ...notice, presentation }] };
+      expect(parseServerNoticeSnapshot(snapshot).notices).toEqual([notice]);
+    }
+  });
+
   it("rejects malformed notice identity, severity, timestamps, and duplicate ids", () => {
     expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 0, notices: [{ ...notice, severity: "fatal" }] })).toThrow("severity");
     expect(() => parseServerNoticeSnapshot({ daemonInstanceId: "daemon-a", revision: 0, notices: [{ ...notice, createdAt: "not-a-time" }] })).toThrow("creation time");

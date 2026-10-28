@@ -77,8 +77,11 @@ describe("PiSessionService session startup progress", () => {
 
     // The proof that matters: the user is told what is being waited on before
     // the wait ends, not after it.
-    expect(startupText(hub)).toEqual(["正在创建会话: 正在启动 Pi 会话"]);
-    expect(startupEvents(hub).at(0)).toMatchObject({ activity: { sessionId: "session-1", phase: "active" } });
+    expect(startupText(hub)).toEqual(["Creating session: Starting the Pi session"]);
+    expect(startupEvents(hub).at(0)).toMatchObject({ activity: {
+      sessionId: "session-1", phase: "active",
+      startupPresentation: { intent: "create", stage: "runtime", catalogRefreshing: false },
+    } });
 
     runtimeResult.resolve(fake.runtime);
     await started;
@@ -94,8 +97,8 @@ describe("PiSessionService session startup progress", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     expect(startupText(hub)).toEqual([
-      "正在创建会话: 正在启动 Pi 会话",
-      "正在创建会话: 正在加载会话扩展",
+      "Creating session: Starting the Pi session",
+      "Creating session: Loading session extensions",
     ]);
 
     bindResult.resolve(undefined);
@@ -116,9 +119,14 @@ describe("PiSessionService session startup progress", () => {
     await started;
 
     expect(startupText(hub)).toEqual([
-      "正在创建会话: 正在启动 Pi 会话 · 服务商模型列表正在刷新",
-      "正在创建会话: 正在加载会话扩展 · 服务商模型列表正在刷新",
-      "空闲",
+      "Creating session: Starting the Pi session · provider model lists are refreshing",
+      "Creating session: Loading session extensions · provider model lists are refreshing",
+      "Idle",
+    ]);
+    expect(startupEvents(hub).map(({ activity }) => activity.startupPresentation)).toEqual([
+      { intent: "create", stage: "runtime", catalogRefreshing: true },
+      { intent: "create", stage: "extensions", catalogRefreshing: true },
+      undefined,
     ]);
     await service.dispose();
   });
@@ -131,9 +139,9 @@ describe("PiSessionService session startup progress", () => {
 
     for (const hub of [withStatus.hub, withoutStatus.hub]) {
       expect(startupText(hub)).toEqual([
-        "正在创建会话: 正在启动 Pi 会话",
-        "正在创建会话: 正在加载会话扩展",
-        "空闲",
+        "Creating session: Starting the Pi session",
+        "Creating session: Loading session extensions",
+        "Idle",
       ]);
     }
     await withStatus.service.dispose();
@@ -146,9 +154,14 @@ describe("PiSessionService session startup progress", () => {
     await service.status(sessionRef("session-1"));
 
     expect(startupText(hub)).toEqual([
-      "正在打开会话: 正在启动 Pi 会话",
-      "正在打开会话: 正在加载会话扩展",
-      "空闲",
+      "Opening session: Starting the Pi session",
+      "Opening session: Loading session extensions",
+      "Idle",
+    ]);
+    expect(startupEvents(hub).map(({ activity }) => activity.startupPresentation)).toEqual([
+      { intent: "open", stage: "runtime", catalogRefreshing: false },
+      { intent: "open", stage: "extensions", catalogRefreshing: false },
+      undefined,
     ]);
     await service.dispose();
   });
@@ -158,7 +171,7 @@ describe("PiSessionService session startup progress", () => {
 
     await service.start("/workspace");
 
-    expect(startupEvents(hub).at(-1)).toMatchObject({ activity: { sessionId: "session-1", phase: "idle", label: "空闲" } });
+    expect(startupEvents(hub).at(-1)).toMatchObject({ activity: { sessionId: "session-1", phase: "idle", label: "Idle" } });
     expect(startupEvents(hub).at(-1)?.activity.detail).toBeUndefined();
     await service.dispose();
   });
@@ -200,7 +213,7 @@ describe("PiSessionService session startup progress", () => {
 
     await expect(service.start("/workspace")).rejects.toBe(failure);
 
-    expect(startupText(hub)).toEqual(["正在创建会话: 正在启动 Pi 会话", "空闲"]);
+    expect(startupText(hub)).toEqual(["Creating session: Starting the Pi session", "Idle"]);
     await service.dispose();
   });
 
@@ -213,7 +226,7 @@ describe("PiSessionService session startup progress", () => {
 
     await service.start("/workspace");
 
-    expect(activityUpdates(hub).some((activity) => activity.label === "扩展错误")).toBe(true);
+    expect(activityUpdates(hub).some((activity) => activity.label === "extension error")).toBe(true);
     // No idle startup report, so the extension error a user needs to see stays.
     expect(startupEvents(hub).some((event) => event.activity.phase === "idle")).toBe(false);
     await service.dispose();
@@ -229,9 +242,9 @@ describe("PiSessionService session startup progress", () => {
     // The last word on this startup must not be an "active" phase the service is
     // no longer inside; otherwise a waiting row keeps a label that is now false.
     expect(startupText(hub)).toEqual([
-      "正在创建会话: 正在启动 Pi 会话",
-      "正在创建会话: 正在加载会话扩展",
-      "空闲",
+      "Creating session: Starting the Pi session",
+      "Creating session: Loading session extensions",
+      "Idle",
     ]);
     await service.dispose();
   });

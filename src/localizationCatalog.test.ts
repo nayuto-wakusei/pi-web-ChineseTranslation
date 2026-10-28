@@ -47,7 +47,8 @@ describe("language catalog contracts", () => {
   it("has matching Chinese entries and named parameters for every owned display message", () => {
     const catalogs = "pi-web-plugins/zh-cn";
     const messages: Record<string, string> = {};
-    for (const name of readdirSync(catalogs).filter((name) => name.endsWith(".json") && name !== "package.json")) {
+    // ICU catalogs are validated against their namespaces by the language-pack tests.
+    for (const name of readdirSync(catalogs).filter((name) => name.endsWith(".json") && name !== "package.json" && name !== "catalogs.json")) {
       const entries = parseTranslationMessages(JSON.parse(readFileSync(join(catalogs, name), "utf8")));
       for (const [key, value] of Object.entries(entries)) {
         expect(messages[key], `Duplicate translation key ${key} in ${name}`).toBeUndefined();

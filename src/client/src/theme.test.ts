@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, effectiveThemePreference, findAvailableTheme, findThemePairForTheme, resolveThemePreference } from "./theme";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, THEME_STORAGE_KEY, clearStoredThemePreference, configureThemePolicy, effectiveThemePreference, findAvailableTheme, findThemePairForTheme, getThemePolicy, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference } from "./theme";
+
+afterEach(() => {
+  configureThemePolicy({ effectiveConfig: {} });
+  vi.unstubAllGlobals();
+});
 import type { QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, ThemeColorScheme } from "./plugins/types";
 
 const themes = [
@@ -38,6 +43,31 @@ describe("effectiveThemePreference", () => {
     expect(effectiveThemePreference(undefined, configured, available)).toBe(configured);
     const local = { themeId: "custom:temporarily-missing", auto: false };
     expect(effectiveThemePreference(local, configured, available)).toBe(local);
+  });
+});
+
+describe("theme deployment policy", () => {
+  it("enforces the whole theme preference and preserves storage through refresh, reset attempts and unlock", () => {
+    const local = { themeId: "themes:classic", auto: true };
+    let stored: string | null = JSON.stringify(local);
+    const setItem = vi.fn((_key: string, value: string) => { stored = value; });
+    const removeItem = vi.fn(() => { stored = null; });
+    vi.stubGlobal("window", { localStorage: { getItem: () => stored, setItem, removeItem } });
+    const enforced = { themeId: "themes:pi-web-light", auto: false };
+    configureThemePolicy({ effectiveConfig: { defaultTheme: enforced }, enforcedSettings: { "/defaultTheme": "PI_WEB_DEFAULT_THEME" }, configSources: { "/defaultTheme": "environment" } });
+    expect(getThemePolicy()).toEqual({ defaultPreference: enforced, enforcedBy: "PI_WEB_DEFAULT_THEME", source: "environment" });
+    expect(effectiveThemePreference(readStoredThemePreference(), local)).toEqual(enforced);
+    writeStoredThemePreference(enforced);
+    clearStoredThemePreference();
+    expect(readStoredThemePreference()).toEqual(local);
+    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).not.toHaveBeenCalled();
+    configureThemePolicy({ effectiveConfig: { defaultTheme: { ...enforced, auto: true } }, enforcedSettings: { "/defaultTheme": "PI_WEB_DEFAULT_THEME" } });
+    expect(effectiveThemePreference(local, undefined)).toEqual({ ...enforced, auto: true });
+    configureThemePolicy({ effectiveConfig: { defaultTheme: enforced } });
+    expect(effectiveThemePreference(readStoredThemePreference(), enforced)).toEqual(local);
+    clearStoredThemePreference();
+    expect(removeItem).toHaveBeenCalledWith(THEME_STORAGE_KEY);
   });
 });
 

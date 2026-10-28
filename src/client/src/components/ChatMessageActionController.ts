@@ -20,11 +20,15 @@ export class ChatMessageActionController {
   private entryPending = false;
   private readonly displayPending = new Set<string>();
   private generation = 0;
-  private error: (ActionLocation & { message: string }) | undefined;
+  private error: (ActionLocation & { cause: unknown }) | undefined;
   private feedback: (ActionLocation & { actionId: string; presentation: MessageActionFeedback }) | undefined;
   private feedbackTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly context: () => ChatMessageActionContext, private readonly changed: () => void) {}
+
+  localizationChanged(): void {
+    this.availability.invalidate();
+  }
 
   available(source: ChatLine, displayed: ChatLine, includeEntryActions: boolean) {
     const context = this.context();
@@ -41,7 +45,9 @@ export class ChatMessageActionController {
   }
 
   errorMessage(key: string): string | undefined {
-    return this.error !== undefined && this.current(this.error) && this.error.key === key ? this.error.message : undefined;
+    if (this.error === undefined || !this.current(this.error) || this.error.key !== key) return undefined;
+    // Core presentation errors may expose a live localized message; external diagnostics stay verbatim.
+    return this.error.cause instanceof Error ? this.error.cause.message : String(this.error.cause);
   }
 
   /** Retire feedback on session changes and disconnect, without unlocking an in-flight entry action. */
@@ -90,7 +96,7 @@ export class ChatMessageActionController {
         this.feedbackTimer = setTimeout(() => { this.clearFeedback(); this.changed(); }, 1200);
       }
     } catch (error) {
-      if (this.current(location)) this.error = { ...location, message: error instanceof Error ? error.message : String(error) };
+      if (this.current(location)) this.error = { ...location, cause: error };
     } finally {
       if (action.target === "display") this.displayPending.delete(pendingKey);
       else this.entryPending = false;

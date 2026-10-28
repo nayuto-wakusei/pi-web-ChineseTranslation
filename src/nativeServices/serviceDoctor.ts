@@ -251,11 +251,11 @@ export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResul
       if (failure.kind === "probe-infrastructure") {
         infrastructure = true;
         lines.push(t("doctor.infrastructureFailure", "✗ Native service probe infrastructure failure ({arg0}): {arg1}", { arg0: failure.reason, arg1: failure.message }));
-      } else if (failure.kind === "entrypoint-inspection-failure") {
+      } else if (failure.kind === "launcher-inspection-failure") {
         infrastructure = true;
-        lines.push(t("doctor.entrypointFailed", "✗ Could not inspect bundled {arg0} entrypoint {arg1}: {arg2}", { arg0: failure.serviceId, arg1: failure.entrypointPath, arg2: failure.message }));
+        lines.push(t("doctor.launcherFailed", "✗ Could not inspect bundled {arg0} launcher {arg1}: {arg2}", { arg0: failure.serviceId, arg1: failure.launcherPath, arg2: failure.message }));
       } else {
-        lines.push(t("doctor.commandMissing", "✗ {arg0} is unavailable to the native service manager, and bundled entrypoint {arg1} is missing.", { arg0: failure.namedCommand, arg1: failure.bundledEntrypointPath }));
+        lines.push(t("doctor.launcherMissing", "✗ {arg0} is unavailable to the native service manager, and bundled launcher {arg1} is missing.", { arg0: failure.namedCommand, arg1: failure.bundledLauncherPath }));
         if (failure.namedCommandFailure !== null) lines.push(`  ${failure.namedCommandFailure}`);
       }
     }

@@ -1,4 +1,5 @@
 import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
+import { mergeSelectedSettingsResponse } from "./settingsConfigUpdate";
 
 export function pluginEnabledConfigPatch(baseConfig: PiWebConfigValues, pluginId: string, enabled: boolean): PiWebConfigValues {
   const currentPlugins = baseConfig.plugins ?? {};
@@ -12,14 +13,5 @@ export function pluginEnabledConfigPatch(baseConfig: PiWebConfigValues, pluginId
 }
 
 export function mergeSelectedMachinePluginConfig(base: PiWebConfigResponse, selectedMachine: PiWebConfigResponse): PiWebConfigResponse {
-  return {
-    ...base,
-    config: mergePluginConfig(base.config, selectedMachine.config),
-    effectiveConfig: mergePluginConfig(base.effectiveConfig, selectedMachine.effectiveConfig),
-  };
-}
-
-function mergePluginConfig(base: PiWebConfigValues, selectedMachine: PiWebConfigValues): PiWebConfigValues {
-  if (selectedMachine.plugins === undefined) return base;
-  return { ...base, plugins: selectedMachine.plugins };
+  return mergeSelectedSettingsResponse(base, selectedMachine, ["plugins"]);
 }

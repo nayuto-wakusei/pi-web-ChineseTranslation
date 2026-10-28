@@ -1,4 +1,4 @@
-import { t } from "./i18n";
+
 import type { AppAction } from "./actions";
 
 export const shortcutSequenceTimeoutMs = 1200;
@@ -19,6 +19,11 @@ export interface ShortcutKeyEvent {
   target: EventTarget | null;
   composedPath?(): EventTarget[];
 }
+
+export type ShortcutParseIssue =
+  | { kind: "empty" | "missingKey" | "multipleKeys" }
+  | { kind: "duplicateModifier" | "unsupportedKey"; value: string };
+export type ShortcutParsePresenter = (issue: ShortcutParseIssue) => string;
 
 export type ShortcutParseResult =
   | { ok: true; shortcut: string; tokens: string[] }
@@ -159,8 +164,8 @@ export function resolveShortcutBindings(actions: AppAction[], shortcuts?: Shortc
   }).sort((left, right) => left.order - right.order);
 }
 
-export function parseShortcutInput(shortcut: string): ShortcutParseResult {
-  return parseShortcut(shortcut);
+export function parseShortcutInput(shortcut: string, present?: ShortcutParsePresenter): ShortcutParseResult {
+  return parseShortcut(shortcut, present);
 }
 
 export function normalizeShortcut(shortcut: string): string[] {
@@ -262,14 +267,14 @@ function compareStrings(left: string, right: string): number {
   return 0;
 }
 
-function parseShortcut(shortcut: string): ShortcutParseResult {
+function parseShortcut(shortcut: string, present?: ShortcutParsePresenter): ShortcutParseResult {
   const cleaned = shortcut.trim().toLowerCase().replace(/\s*\+\s*/gu, "+");
-  if (cleaned === "") return { ok: false, message: t("client.keyboardShortcuts.enter.a.shortcut.select.none.or.reset.to.default.481e7b", "Enter a shortcut, select None, or reset to default.") };
+  if (cleaned === "") return { ok: false, message: present?.({ kind: "empty" }) ?? "Enter a shortcut, choose None, or reset to the default." };
 
   const tokens: string[] = [];
   const chordInputs = cleaned.split(/\s+/u).filter((token) => token !== "");
   for (const chordInput of chordInputs) {
-    const parsed = parseShortcutChord(chordInput);
+    const parsed = parseShortcutChord(chordInput, present);
     if (!parsed.ok) return parsed;
     tokens.push(parsed.token);
   }
@@ -281,27 +286,27 @@ type ShortcutChordParseResult =
   | { ok: true; token: string }
   | { ok: false; message: string };
 
-function parseShortcutChord(chord: string): ShortcutChordParseResult {
+function parseShortcutChord(chord: string, present?: ShortcutParsePresenter): ShortcutChordParseResult {
   const parts = chord.split("+").filter((part) => part !== "");
-  if (parts.length === 0) return { ok: false, message: t("client.keyboardShortcuts.a.shortcut.combination.must.contain.a.key.87dd82", "A shortcut combination must contain a key.") };
+  if (parts.length === 0) return { ok: false, message: present?.({ kind: "missingKey" }) ?? "Shortcut chords must include a key." };
 
   const modifiers = new Set<ShortcutModifier>();
   let key: string | undefined;
   for (const part of parts) {
     const modifier = modifierAlias(part);
     if (modifier !== undefined) {
-      if (modifiers.has(modifier)) return { ok: false, message: t("client.keyboardShortcuts.shortcut.contains.a.duplicate.modifier.8363e5", "Shortcut contains a duplicate {value1} modifier.", { value1: formatShortcutPart(modifier) }) };
+      if (modifiers.has(modifier)) return { ok: false, message: present?.({ kind: "duplicateModifier", value: formatShortcutPart(modifier) }) ?? `Shortcut has duplicate ${formatShortcutPart(modifier)} modifiers.` };
       modifiers.add(modifier);
       continue;
     }
 
     const normalizedKey = normalizeShortcutKeyName(part);
-    if (normalizedKey === undefined) return { ok: false, message: t("client.keyboardShortcuts.unsupported.shortcut.key.b3c1ce", "Unsupported shortcut key: {value1}", { value1: part }) };
-    if (key !== undefined) return { ok: false, message: t("client.keyboardShortcuts.each.shortcut.combination.can.contain.only.one.non.modifier.key.76ffb6", "Each shortcut combination can contain only one non-modifier key.") };
+    if (normalizedKey === undefined) return { ok: false, message: present?.({ kind: "unsupportedKey", value: part }) ?? `Unsupported shortcut key: ${part}` };
+    if (key !== undefined) return { ok: false, message: present?.({ kind: "multipleKeys" }) ?? "Each shortcut chord can include only one non-modifier key." };
     key = normalizedKey;
   }
 
-  if (key === undefined) return { ok: false, message: t("client.keyboardShortcuts.a.shortcut.combination.must.contain.a.key.87dd82", "A shortcut combination must contain a key.") };
+  if (key === undefined) return { ok: false, message: present?.({ kind: "missingKey" }) ?? "Shortcut chords must include a key." };
 
   const orderedModifiers = modifierOrder.filter((modifier) => modifiers.has(modifier));
   return { ok: true, token: [...orderedModifiers, key].join("+") };

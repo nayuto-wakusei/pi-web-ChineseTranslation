@@ -1046,3 +1046,38 @@ describe("Upstream transport and navigation contracts", () => {
     expect(fetchCall(fetchMock, 1)[1]?.signal).toBe(controller.signal);
   });
 });
+
+it("updates and resets settings in one PATCH at the gateway or selected machine", async () => {
+    const response = { ...piWebConfigResponse({ quietMode: false }), enforcedSettings: { "/host": "PI_WEB_HOST" }, configSources: { "/quietMode": "defaults" }, defaultsConfig: { quietMode: false }, defaultsPath: "/etc/defaults.json" };
+    const fetchMock = stubSequenceFetch([jsonResponse(response), jsonResponse(response)]);
+    const update = { set: { quietMode: true }, unset: ["/defaultTheme"] };
+    await expect(configApi.updateConfig(update)).resolves.toEqual(response);
+    await configApi.updateConfig({ unset: ["/sessionNaming"] }, "remote /a");
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "https://pi.example.test/api/config", "https://pi.example.test/api/machines/remote%20%2Fa/config",
+    ]);
+    expect(fetchCall(fetchMock, 0)[1]?.method).toBe("PATCH");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual(update);
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ unset: ["/sessionNaming"] });
+  });
+
+it("marks unread through encoded machine and session routes", async () => {
+    const snapshot = { catalogId: "catalog-a", catalogRevision: 1, sessions: [] };
+    const fetchMock = stubSequenceFetch([jsonResponse(snapshot)]);
+    await expect(sessionsApi.markUnread({ id: "s /?", cwd: "/repo" }, "remote a")).resolves.toEqual(snapshot);
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%20%2F%3F/unread");
+    expect(fetchCall(fetchMock, 0)[1]?.method).toBe("POST");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ cwd: "/repo" });
+  });
+
+it("passes transcript cancellation to HTTP without adding transport options to the query", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(new Promise(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const pending = sessionsApi.transcriptSnapshot({ id: "s-1", cwd: "/repo" }, { limit: 25, signal: controller.signal, timeoutMs: 1000 });
+    controller.abort();
+    await expect(pending).rejects.toBe(controller.signal.reason);
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/local/sessions/s-1/transcript-snapshot?cwd=%2Frepo&limit=25&media=reference");
+    expect(fetchCall(fetchMock, 0)[1]?.signal?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });

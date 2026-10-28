@@ -53,8 +53,8 @@ describe("deployment identity asset routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("application/manifest+json");
     expect(response.json()).toEqual({
-      name: "PI WEB (dev)",
-      short_name: "PI WEB (dev)",
+      name: "PI-WEB (dev)",
+      short_name: "PI-WEB (dev)",
       theme_color: "#21132f",
       icons: [{ src: "./pwa-icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" }],
     });
@@ -68,7 +68,24 @@ describe("deployment identity asset routes", () => {
     const icon = await app.inject({ method: "GET", url: "/pwa-icon-192.png" });
     expect(icon.body).toBe("stock icon");
     const manifest = await app.inject({ method: "GET", url: "/manifest.webmanifest" });
-    expect(manifest.body).toBe(STOCK_MANIFEST);
+    expect(manifest.json()).toEqual({ ...JSON.parse(STOCK_MANIFEST), name: "PI-WEB", short_name: "PI-WEB" });
+  });
+
+  it("reads the current installation name on each manifest request", async () => {
+    let name = "Office";
+    const app = Fastify({ logger: false });
+    await app.register(fastifyStatic, { root: clientDist });
+    registerDeploymentIdentityAssetRoutes(app, { clientDist, flavor: () => Promise.resolve("stable"), installationName: () => Promise.resolve(name) });
+    try {
+      const first = await app.inject({ method: "GET", url: "/manifest.webmanifest" });
+      expect(first.json()).toMatchObject({ name: "Office", short_name: "Office" });
+      expect(first.headers["cache-control"]).toBe("no-cache");
+      name = "Build lab";
+      const second = await app.inject({ method: "GET", url: "/manifest.webmanifest" });
+      expect(second.json()).toMatchObject({ name: "Build lab", short_name: "Build lab" });
+    } finally {
+      await app.close();
+    }
   });
 
   it("leaves other static files to the static plugin", async () => {

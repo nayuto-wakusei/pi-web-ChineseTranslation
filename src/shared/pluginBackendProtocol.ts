@@ -62,6 +62,14 @@ export const PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS = Object.freeze([
   PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATH,
 ]);
 
+/** Small, non-secret resource selectors travel in URLs; large inputs belong in requests. */
+export const PLUGIN_BACKEND_RESOURCE_INPUT_MAX_BYTES = 4 * 1024;
+export const PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS = Object.freeze([
+  "/paired-plugin-backends/:pluginId/resources/:operation",
+  "/paired-plugin-backends/:pluginId/projects/:projectId/resources/:operation",
+  "/paired-plugin-backends/:pluginId/projects/:projectId/workspaces/:workspaceId/resources/:operation",
+]);
+
 export type PluginBackendScopeKind = "machine" | "project" | "workspace";
 export interface PluginBackendScopeSelection {
   readonly scope?: PluginBackendScopeKind;
@@ -101,6 +109,24 @@ export function pairedPluginBackendPath(selection: PluginBackendScopeSelection &
   if (channel) segments.push("channels");
   segments.push(encodeURIComponent(selection.operation));
   return segments.join("/");
+}
+
+/** Unresolved host path; callers resolve it once at their browser or server boundary. */
+export function pairedPluginBackendResourcePath(selection: PluginBackendScopeSelection & { pluginId: string; operation: string }): string {
+  const path = pairedPluginBackendPath(selection);
+  const separator = path.lastIndexOf("/");
+  return `${path.slice(0, separator)}/resources${path.slice(separator)}`;
+}
+
+export function parsePluginBackendResourceQuery(value: unknown): PluginBackendRequestEnvelope {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Resource query is required");
+  const revision = requirePluginBackendRevision(Reflect.get(value, "revision"));
+  const serialized: unknown = Reflect.get(value, "input");
+  if (typeof serialized !== "string" || utf8ByteLength(serialized) > PLUGIN_BACKEND_RESOURCE_INPUT_MAX_BYTES) {
+    throw new Error(`Resource input must be JSON of at most ${String(PLUGIN_BACKEND_RESOURCE_INPUT_MAX_BYTES)} bytes`);
+  }
+  const input = cloneBoundedPluginBackendJson(JSON.parse(serialized), "Resource input", PLUGIN_BACKEND_RESOURCE_INPUT_MAX_BYTES);
+  return { revision, input };
 }
 
 const OPERATION_PATTERN = /^[a-z][a-z0-9.-]*$/u;

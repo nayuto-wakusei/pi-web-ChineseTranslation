@@ -96,6 +96,15 @@ describe("PiWebApp runtime-driven file invalidation", () => {
     expect(test.invalidate).toHaveBeenCalledOnce();
   });
 
+  it("does not refresh files again for periodic snapshots of the same ongoing work", async () => {
+    const test = await fixture();
+    await test.readActiveSnapshot();
+    expect(test.invalidate).toHaveBeenCalledOnce();
+    test.invalidate.mockClear();
+    await test.sessions.refreshSelectedSession(undefined, { silent: true });
+    expect(test.invalidate).not.toHaveBeenCalled();
+  });
+
   it.each(["throw", "reject"] as const)("does not turn an independent file-refresh failure into a transcript failure: %s", async (failureMode) => {
     const test = await fixture();
     const failure = new Error("Files unavailable");

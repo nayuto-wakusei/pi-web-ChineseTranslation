@@ -1,21 +1,26 @@
-import { t } from "./i18n.js";
+import type { TerminalTitlePresentation } from "@chainingintention/pi-web-cn/server-plugin-api";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync } from "node:fs";
-import * as pty from "node-pty";
+import { mkdirSync, existsSync } from "node:fs";
+import { t } from "./i18n.js";
+import { isAbsolute } from "node:path";
+import type { PtyHandle, PtyProvider } from "./ptyProvider.js";
 import type { ServerPluginNoticeInput } from "@chainingintention/pi-web-cn/server-plugin-api";
 
 const MAX_REPLAY_BUFFER = 200_000;
 
 export type TerminalCommandRunStatus = "queued" | "running" | "succeeded" | "failed";
 
-export interface TerminalCommandRun {
+export type TerminalIdentity =
+  | { scope?: "workspace"; projectId: string; workspaceId: string }
+  | { scope: "maintenance"; projectId?: never; workspaceId?: never };
+
+export type TerminalCommandRun = TerminalIdentity & {
   id: string;
   origin: string;
-  projectId: string;
-  workspaceId: string;
   terminalId: string;
   title: string;
+  titlePresentation?: TerminalTitlePresentation;
   command: string;
   status: TerminalCommandRunStatus;
   exitCode?: number;
@@ -33,10 +38,13 @@ export interface TerminalCommandRunFilter {
   metadata?: Record<string, string>;
 }
 
-export interface TerminalInfo {
+export type TerminalInfo = TerminalIdentity & {
   id: string;
   cwd: string;
   name: string;
+  titlePresentation?: TerminalTitlePresentation;
+  /** Present only for an automatically named shell; name remains the wire fallback. */
+  defaultShellNumber?: number;
   createdAt: string;
   exited: boolean;
   exitCode?: number;
@@ -44,25 +52,29 @@ export interface TerminalInfo {
 }
 
 export interface TerminalWorkspaceScope {
+  scope?: "workspace";
   projectId: string;
   workspaceId: string;
   cwd: string;
 }
+export type TerminalScope = TerminalIdentity & { cwd: string };
 
-export interface CreateTerminalOptions extends TerminalWorkspaceScope {
+export type CreateTerminalOptions = TerminalScope & {
   name?: string;
   cols?: number;
   rows?: number;
 }
 
 export interface TerminalCommandFailureNotice {
+  readonly presentation?: { kind: "workspaceRemovalCommandFailed" };
   readonly message: string;
   readonly context: Readonly<Record<string, string>>;
 }
 
-export interface RunTerminalCommandOptions extends TerminalWorkspaceScope {
+export type RunTerminalCommandOptions = TerminalScope & {
   origin: string;
   title: string;
+  titlePresentation?: TerminalTitlePresentation;
   command: string;
   metadata?: unknown;
   /** Private host-composition intent; never accepted from the paired browser protocol. */
@@ -76,13 +88,35 @@ export interface TerminalActivitySink {
   removeTerminal(terminalId: string, cwd?: string): void;
 }
 
-interface TerminalRecord extends TerminalInfo, TerminalWorkspaceScope {
+type TerminalRecord = TerminalInfo & {
   cancellationRequested?: boolean;
-  pty: pty.IPty;
+  shell?: string;
+  pty?: PtyHandle;
+  generation: number;
   buffer: string;
   events: EventEmitter;
   commandRunId?: string;
   failureNotice?: TerminalCommandFailureNotice;
+}
+
+export interface MaintenanceExecutionContext {
+  readonly cwd: string;
+  readonly env: Readonly<NodeJS.ProcessEnv>;
+}
+
+/** Validate the private host boundary without interpreting host configuration. */
+export function snapshotMaintenanceExecutionContext(value: unknown): MaintenanceExecutionContext {
+  if (typeof value !== "object" || value === null) throw new Error("Terminal maintenance execution context is required");
+  const cwd: unknown = Reflect.get(value, "cwd");
+  const env: unknown = Reflect.get(value, "env");
+  if (typeof cwd !== "string" || !isAbsolute(cwd)) throw new Error("Terminal maintenance cwd must be absolute");
+  if (!isRecord(env)) throw new Error("Terminal maintenance env is required");
+  const snapshot: NodeJS.ProcessEnv = {};
+  for (const [key, entry] of Object.entries(env)) {
+    if (entry !== undefined && typeof entry !== "string") throw new Error("Terminal maintenance env must contain only strings or undefined");
+    Object.defineProperty(snapshot, key, { value: entry, enumerable: true });
+  }
+  return Object.freeze({ cwd, env: Object.freeze(snapshot) });
 }
 
 export class TerminalService {
@@ -91,17 +125,44 @@ export class TerminalService {
   private activitySink: TerminalActivitySink | undefined;
   private disposed = false;
 
+  private maintenanceExecutionContext: MaintenanceExecutionContext | undefined;
+
   constructor(
+    private readonly provider: PtyProvider,
     private readonly recordNotice?: (input: ServerPluginNoticeInput) => void,
-    private readonly spawnPty: typeof pty.spawn = pty.spawn,
   ) {}
+
+  bindMaintenanceExecutionContext(context: MaintenanceExecutionContext): void {
+    if (this.maintenanceExecutionContext !== undefined) throw new Error("Terminal maintenance execution context is already bound");
+    this.maintenanceExecutionContext = snapshotMaintenanceExecutionContext(context);
+  }
+
+  maintenanceScope(): TerminalScope {
+    return { scope: "maintenance", cwd: this.requireMaintenanceExecutionContext().cwd };
+  }
+
+  private requireMaintenanceExecutionContext(): MaintenanceExecutionContext {
+    if (this.maintenanceExecutionContext === undefined) throw new Error("Terminal maintenance directory is unavailable");
+    return this.maintenanceExecutionContext;
+  }
+
+  private executionEnvironment(scope: TerminalIdentity): NodeJS.ProcessEnv {
+    const env = scope.scope === "maintenance" ? this.requireMaintenanceExecutionContext().env : process.env;
+    return { ...env, TERM: "xterm-256color", PI_WEB_TERMINAL: "1" };
+  }
+
+  private prepareCwd(scope: TerminalScope): void {
+    if (scope.scope !== "maintenance") return;
+    if (scope.cwd !== this.requireMaintenanceExecutionContext().cwd) throw new Error("Invalid Terminal maintenance directory");
+    mkdirSync(scope.cwd, { recursive: true });
+  }
 
   bindActivitySink(sink: TerminalActivitySink): void {
     if (this.activitySink !== undefined) throw new Error(t("ui.main.5d3c64acebaa", "Terminal activity sink is already bound"));
     this.activitySink = sink;
   }
 
-  list(scope: TerminalWorkspaceScope): TerminalInfo[] {
+  list(scope: TerminalScope): TerminalInfo[] {
     validateScope(scope);
     return [...this.terminals.values()]
       .filter((terminal) => matchesScope(terminal, scope))
@@ -117,7 +178,7 @@ export class TerminalService {
 
   create(options: CreateTerminalOptions): TerminalInfo {
     validateScope(options);
-    const shell = interactiveShell();
+    const shell = interactiveShell(this.executionEnvironment(options));
     return this.createTerminal({ ...options, shell, shellArgs: interactiveShellArgs(shell) });
   }
 
@@ -135,10 +196,10 @@ export class TerminalService {
     const queued: TerminalCommandRun = {
       id: commandRunId,
       origin: options.origin,
-      projectId: options.projectId,
-      workspaceId: options.workspaceId,
+      ...terminalIdentity(options),
       terminalId,
       title: options.title,
+      ...terminalTitlePresentationField(options.titlePresentation),
       command: options.command,
       status: "queued",
       createdAt,
@@ -150,14 +211,14 @@ export class TerminalService {
     try {
       this.createTerminal({
         id: terminalId,
-        projectId: options.projectId,
-        workspaceId: options.workspaceId,
+        ...terminalIdentity(options),
         cwd: options.cwd,
         name: options.title,
+        ...terminalTitlePresentationField(options.titlePresentation),
         ...(options.cols === undefined ? {} : { cols: options.cols }),
         ...(options.rows === undefined ? {} : { rows: options.rows }),
         shellArgs: ["-lc", commandRunShellScript(options.command)],
-        shell: commandRunShell(),
+        shell: commandRunShell(this.executionEnvironment(options)),
         commandRunId,
         ...(failureNotice === undefined ? {} : { failureNotice }),
       });
@@ -175,9 +236,9 @@ export class TerminalService {
       .map(copyCommandRun);
   }
 
-  listCommandRunsForScope(scope: TerminalWorkspaceScope, filter: TerminalCommandRunFilter = {}): TerminalCommandRun[] {
+  listCommandRunsForScope(scope: TerminalScope, filter: TerminalCommandRunFilter = {}): TerminalCommandRun[] {
     validateScope(scope);
-    return this.listCommandRuns({ ...filter, projectId: scope.projectId, workspaceId: scope.workspaceId });
+    return this.listCommandRuns(filter).filter((run) => matchesIdentity(run, scope));
   }
 
   getCommandRun(runId: string): TerminalCommandRun | undefined {
@@ -185,10 +246,10 @@ export class TerminalService {
     return run === undefined ? undefined : copyCommandRun(run);
   }
 
-  getCommandRunForScope(scope: TerminalWorkspaceScope, runId: string): TerminalCommandRun | undefined {
+  getCommandRunForScope(scope: TerminalScope, runId: string): TerminalCommandRun | undefined {
     validateScope(scope);
     const run = this.commandRuns.get(runId);
-    return run?.projectId === scope.projectId && run.workspaceId === scope.workspaceId
+    return run !== undefined && matchesIdentity(run, scope)
       ? copyCommandRun(run)
       : undefined;
   }
@@ -197,19 +258,19 @@ export class TerminalService {
     return this.cancelCommandRunRecord(this.requireCommandRun(runId));
   }
 
-  cancelCommandRunForScope(scope: TerminalWorkspaceScope, runId: string): TerminalCommandRun {
+  cancelCommandRunForScope(scope: TerminalScope, runId: string): TerminalCommandRun {
     const run = this.getCommandRunForScope(scope, runId);
     if (run === undefined) throw new Error(t("ui.main.3bea6b3edcd2", "Terminal command run not found in this workspace"));
     return this.cancelCommandRunRecord(this.requireCommandRun(runId));
   }
 
-  get(scope: TerminalWorkspaceScope, id: string): TerminalInfo | undefined {
+  get(scope: TerminalScope, id: string): TerminalInfo | undefined {
     const terminal = this.terminals.get(id);
     return terminal === undefined || !matchesScope(terminal, scope) ? undefined : toInfo(terminal);
   }
 
   attach(
-    scope: TerminalWorkspaceScope,
+    scope: TerminalScope,
     id: string,
     handlers: { output(data: string, replay: boolean): void; exit(exitCode: number | undefined): void; closed?(): void },
   ): () => void {
@@ -232,49 +293,59 @@ export class TerminalService {
     };
   }
 
-  write(scope: TerminalWorkspaceScope, id: string, data: string): void {
+  write(scope: TerminalScope, id: string, data: string): void {
     const terminal = this.requireScoped(scope, id);
-    if (!terminal.exited) terminal.pty.write(data);
+    if (!terminal.exited) terminal.pty?.write(data);
   }
 
-  resize(scope: TerminalWorkspaceScope, id: string, cols: number, rows: number): void {
+  resize(scope: TerminalScope, id: string, cols: number, rows: number): void {
     const terminal = this.requireScoped(scope, id);
     if (!terminal.exited && Number.isFinite(cols) && Number.isFinite(rows) && cols > 0 && rows > 0) {
-      terminal.pty.resize(Math.floor(cols), Math.floor(rows));
+      terminal.pty?.resize(Math.floor(cols), Math.floor(rows));
     }
   }
 
-  continue(scope: TerminalWorkspaceScope, id: string): TerminalInfo {
+  continue(scope: TerminalScope, id: string): TerminalInfo {
+    this.requireAvailable();
     const record = this.requireScoped(scope, id);
+    this.prepareCwd(record);
     if (!record.exited) return toInfo(record);
+    const previousExitCode = record.exitCode;
+    const previousCommandRunId = record.commandRunId;
+    const previousFailureNotice = record.failureNotice;
     delete record.exitCode;
     delete record.commandRunId;
+    delete record.failureNotice;
     record.exited = false;
-    const marker = t("ui.main.7e39d66ff416", "\r\n[continued in interactive shell]\r\n");
-    record.buffer = trimReplayBuffer(record.buffer + marker);
-    record.events.emit("output", marker);
-    const shell = interactiveShell();
-    record.pty = this.spawnPty(shell, interactiveShellArgs(shell), {
-      name: "xterm-256color",
-      cwd: record.cwd,
-      cols: 100,
-      rows: 30,
-      env: terminalEnvironment(),
-    });
-    this.attachPtyEvents(record);
+    const shell = interactiveShell(this.executionEnvironment(record));
+    const previousShell = record.shell;
+    record.shell = shell;
+    delete record.cancellationRequested;
+    try {
+      this.spawnPty(record, interactiveShellArgs(shell), 100, 30, "\r\n[continued in interactive shell]\r\n");
+    } catch (error) {
+      record.exited = true;
+      if (previousExitCode !== undefined) record.exitCode = previousExitCode;
+      if (previousCommandRunId !== undefined) record.commandRunId = previousCommandRunId;
+      if (previousFailureNotice !== undefined) record.failureNotice = previousFailureNotice;
+      if (previousShell === undefined) delete record.shell;
+      else record.shell = previousShell;
+      throw error;
+    }
+
     const info = toInfo(record);
     this.activitySink?.updateTerminal(info);
     return info;
   }
 
-  closeAll(scope: TerminalWorkspaceScope): void {
+  closeAll(scope: TerminalScope): void {
     validateScope(scope);
     for (const terminal of [...this.terminals.values()].filter((candidate) => matchesScope(candidate, scope))) {
       this.closeRecord(terminal);
     }
   }
 
-  close(scope: TerminalWorkspaceScope, id: string): void {
+  close(scope: TerminalScope, id: string): void {
     validateScope(scope);
     const terminal = this.terminals.get(id);
     if (terminal === undefined) return;
@@ -285,64 +356,94 @@ export class TerminalService {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const terminal of [...this.terminals.values()]) this.closeRecord(terminal);
+    const errors: unknown[] = [];
+    for (const terminal of [...this.terminals.values()]) {
+      try { this.closeRecord(terminal); } catch (error) { errors.push(error); }
+    }
+    if (errors.length > 0) throw new AggregateError(errors, "Failed to dispose terminal PTYs");
   }
 
-  private createTerminal(options: CreateTerminalOptions & { id?: string; shell?: string; shellArgs: string[]; commandRunId?: string; failureNotice?: TerminalCommandFailureNotice }): TerminalInfo {
+  private createTerminal(options: CreateTerminalOptions & { titlePresentation?: TerminalTitlePresentation; id?: string; shell?: string; shellArgs: string[]; commandRunId?: string; failureNotice?: TerminalCommandFailureNotice }): TerminalInfo {
     this.requireAvailable();
     validateScope(options);
+    this.prepareCwd(options);
     const id = options.id ?? randomUUID();
     const createdAt = new Date().toISOString();
-    const shell = options.shell ?? interactiveShell();
-    const terminal = this.spawnPty(shell, options.shellArgs, {
-      name: "xterm-256color",
-      cwd: options.cwd,
-      cols: options.cols ?? 100,
-      rows: options.rows ?? 30,
-      env: terminalEnvironment(),
-    });
     const requestedName = options.name?.trim();
+    const defaultShellNumber = requestedName === undefined || requestedName === "" ? this.list(options).length + 1 : undefined;
     const record: TerminalRecord = {
       id,
-      projectId: options.projectId,
-      workspaceId: options.workspaceId,
+      ...terminalIdentity(options),
       cwd: options.cwd,
-      name: requestedName !== undefined && requestedName !== "" ? requestedName : `Shell ${String(this.list(options).length + 1)}`,
+      ...(options.shell === undefined ? {} : { shell: options.shell }),
+      name: defaultShellNumber === undefined ? requestedName ?? "" : `Shell ${String(defaultShellNumber)}`,
+      ...(defaultShellNumber === undefined ? {} : { defaultShellNumber }),
+      ...terminalTitlePresentationField(options.titlePresentation),
       createdAt,
       exited: false,
-      pty: terminal,
+      generation: 0,
       buffer: "",
       events: new EventEmitter(),
       ...(options.commandRunId === undefined ? {} : { commandRunId: options.commandRunId }),
       ...(options.failureNotice === undefined ? {} : { failureNotice: options.failureNotice }),
     };
-    this.attachPtyEvents(record);
     this.terminals.set(id, record);
+    try {
+      this.spawnPty(record, options.shellArgs, options.cols ?? 100, options.rows ?? 30);
+    } catch (error) {
+      this.terminals.delete(id);
+      throw error;
+    }
     const info = toInfo(record);
     this.activitySink?.updateTerminal(info);
     return info;
   }
 
-  private attachPtyEvents(record: TerminalRecord): void {
-    record.pty.onData((data) => {
-      record.buffer = trimReplayBuffer(record.buffer + data);
-      record.events.emit("output", data);
+  private spawnPty(record: TerminalRecord, args: string[], cols: number, rows: number, marker = ""): void {
+    const generation = ++record.generation;
+    // Stage synchronous spawn callbacks until the handle and continuation marker are installed.
+    const pending: (() => void)[] = [];
+    let ready = false;
+    const deliver = (callback: () => void): void => {
+      if (!ready) pending.push(callback);
+      else callback();
+    };
+    const current = (): boolean => this.terminals.get(record.id) === record
+      && record.generation === generation && !record.exited;
+    const env = this.executionEnvironment(record);
+    const handle = this.provider.spawn({
+      shell: record.shell ?? interactiveShell(env), args, cwd: record.cwd, cols, rows, env,
+    }, {
+      output: (data) => { deliver(() => {
+        if (!current()) return;
+        record.buffer = trimReplayBuffer(record.buffer + data);
+        record.events.emit("output", data);
+      }); },
+      exit: (exitCode) => { deliver(() => {
+        if (!current()) return;
+        record.exited = true;
+        if (exitCode !== undefined) record.exitCode = exitCode;
+        record.pty?.dispose();
+        delete record.pty;
+        this.completeCommandRun(record.commandRunId, exitCode, record.failureNotice, record.cancellationRequested === true);
+        record.events.emit("exit", exitCode);
+        this.activitySink?.updateTerminal(toInfo(record));
+      }); },
     });
-    record.pty.onExit(({ exitCode }) => {
-      record.exited = true;
-      record.exitCode = exitCode;
-      this.completeCommandRun(record.commandRunId, exitCode, record.failureNotice, record.cancellationRequested === true);
-      record.events.emit("exit", exitCode);
-      const info = toInfo(record);
-      this.activitySink?.updateTerminal(info);
-    });
+    record.pty = handle;
+    if (marker !== "") {
+      record.buffer = trimReplayBuffer(record.buffer + marker);
+      record.events.emit("output", marker);
+    }
+    ready = true;
+    for (const callback of pending) callback();
   }
 
   private completeCommandRun(
     runId: string | undefined,
     exitCode: number | undefined,
     failureNotice: TerminalCommandFailureNotice | undefined,
-    cancelled: boolean,
+    cancelled = false,
   ): void {
     if (runId === undefined) return;
     const run = this.commandRuns.get(runId);
@@ -358,13 +459,14 @@ export class TerminalService {
       this.recordNotice?.({
         severity: "error",
         message: failureNotice.message,
-        scope: { projectId: completed.projectId },
+        ...(failureNotice.presentation === undefined ? {} : { presentation: failureNotice.presentation }),
+        ...(completed.scope === "maintenance" ? {} : { scope: { projectId: completed.projectId } }),
         context: { ...failureNotice.context, commandRunId: completed.id },
       });
     }
   }
 
-  private requireScoped(scope: TerminalWorkspaceScope, id: string): TerminalRecord {
+  private requireScoped(scope: TerminalScope, id: string): TerminalRecord {
     validateScope(scope);
     const terminal = this.terminals.get(id);
     if (terminal === undefined || !matchesScope(terminal, scope)) {
@@ -385,7 +487,7 @@ export class TerminalService {
     if (terminal === undefined) throw new Error(t("ui.main.970ebf253e68", "Terminal not found"));
     if (!terminal.exited && terminal.cancellationRequested !== true) {
       terminal.cancellationRequested = true;
-      try { terminal.pty.write("\x03"); }
+      try { terminal.pty?.write("\x03"); }
       catch (error) { terminal.cancellationRequested = false; throw error; }
     }
     return copyCommandRun(run);
@@ -393,10 +495,17 @@ export class TerminalService {
 
   private closeRecord(terminal: TerminalRecord): void {
     if (!this.terminals.delete(terminal.id)) return;
-    terminal.events.emit("closed");
-    terminal.events.removeAllListeners();
-    this.activitySink?.removeTerminal(terminal.id, terminal.cwd);
-    if (!terminal.exited) terminal.pty.kill();
+    // Closing is final even if a provider never publishes an exit after disposal.
+    terminal.generation += 1;
+    this.completeCommandRun(terminal.commandRunId, undefined, undefined);
+    try {
+      terminal.pty?.dispose();
+    } finally {
+      delete terminal.pty;
+      terminal.events.emit("closed");
+      terminal.events.removeAllListeners();
+      this.activitySink?.removeTerminal(terminal.id, terminal.cwd);
+    }
   }
 
   private requireAvailable(): void {
@@ -407,9 +516,11 @@ export class TerminalService {
 function toInfo(record: TerminalRecord): TerminalInfo {
   return {
     id: record.id,
+    ...terminalIdentity(record),
     cwd: record.cwd,
     name: record.name,
-    createdAt: record.createdAt,
+    ...terminalTitlePresentationField(record.titlePresentation),
+    ...(record.defaultShellNumber === undefined ? {} : { defaultShellNumber: record.defaultShellNumber }),    createdAt: record.createdAt,
     exited: record.exited,
     ...(record.exitCode === undefined ? {} : { exitCode: record.exitCode }),
     ...(record.commandRunId === undefined ? {} : { commandRunId: record.commandRunId }),
@@ -425,10 +536,6 @@ export function interactiveShellArgs(shell: string): string[] {
   const executable = shell.split(/[\\/]/).at(-1)?.toLowerCase().replace(/^-/, "").replace(/\.exe$/, "");
   // Preserve the existing invocation for arbitrary SHELL values rather than guessing at an unsupported login flag.
   return executable === "bash" || executable === "zsh" || executable === "fish" ? ["-l"] : [];
-}
-
-function terminalEnvironment(): NodeJS.ProcessEnv {
-  return { ...process.env, TERM: "xterm-256color", PI_WEB_TERMINAL: "1" };
 }
 
 function interactiveShell(env: NodeJS.ProcessEnv = process.env): string {
@@ -458,16 +565,30 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function validateScope(scope: TerminalWorkspaceScope): void {
-  if (scope.projectId.trim() === "") throw new Error(t("ui.main.c785a1f6204e", "projectId is required"));
-  if (scope.workspaceId.trim() === "") throw new Error(t("ui.main.9850b858e3ba", "workspaceId is required"));
-  if (scope.cwd.trim() === "") throw new Error(t("ui.main.3554e67956ef", "cwd is required"));
+function validateScope(scope: { scope?: string; projectId?: string; workspaceId?: string; cwd: string }): void {
+  if (scope.scope === "maintenance") {
+    if (scope.projectId !== undefined || scope.workspaceId !== undefined) throw new Error("Maintenance scope cannot include workspace ids");
+  } else {
+    if (scope.scope !== undefined && scope.scope !== "workspace") throw new Error("Invalid Terminal scope");
+    if (typeof scope.projectId !== "string" || scope.projectId.trim() === "") throw new Error("projectId is required");
+    if (typeof scope.workspaceId !== "string" || scope.workspaceId.trim() === "") throw new Error("workspaceId is required");
+  }
+  if (scope.cwd.trim() === "") throw new Error("cwd is required");
 }
 
-function matchesScope(record: TerminalWorkspaceScope, scope: TerminalWorkspaceScope): boolean {
-  return record.projectId === scope.projectId
-    && record.workspaceId === scope.workspaceId
-    && record.cwd === scope.cwd;
+function terminalIdentity(scope: TerminalIdentity): TerminalIdentity {
+  return scope.scope === "maintenance"
+    ? { scope: "maintenance" }
+    : { ...(scope.scope === undefined ? {} : { scope: "workspace" as const }), projectId: scope.projectId, workspaceId: scope.workspaceId };
+}
+
+function matchesIdentity(record: TerminalIdentity, scope: TerminalIdentity): boolean {
+  if (record.scope === "maintenance" || scope.scope === "maintenance") return record.scope === scope.scope;
+  return record.projectId === scope.projectId && record.workspaceId === scope.workspaceId;
+}
+
+function matchesScope(record: TerminalScope, scope: TerminalScope): boolean {
+  return matchesIdentity(record, scope) && record.cwd === scope.cwd;
 }
 
 function validateCommandRunOptions(options: RunTerminalCommandOptions): void {
@@ -496,7 +617,12 @@ function parseFailureNotice(value: TerminalCommandFailureNotice | undefined): Te
   if (!isRecord(value.context) || !Object.values(value.context).every((item) => typeof item === "string")) {
     throw new Error(t("ui.main.a38dcafc6669", "failureNotice context must contain only strings"));
   }
-  return Object.freeze({ message: value.message, context: Object.freeze({ ...value.context }) });
+  return Object.freeze({
+    message: value.message,
+    context: Object.freeze({ ...value.context }),
+    ...(value.presentation?.kind === "workspaceRemovalCommandFailed"
+      ? { presentation: Object.freeze({ kind: "workspaceRemovalCommandFailed" as const }) } : {}),
+  });
 }
 
 function matchesCommandRunFilter(run: TerminalCommandRun, filter: TerminalCommandRunFilter): boolean {
@@ -512,6 +638,16 @@ function matchesCommandRunFilter(run: TerminalCommandRun, filter: TerminalComman
 
 function isTerminalCommandRunFinal(status: TerminalCommandRunStatus): boolean {
   return status === "succeeded" || status === "failed";
+}
+
+// This server entry is shipped as a self-contained transpiled graph, not bundled
+// with core. Validate its private input locally; only the public type is imported.
+function terminalTitlePresentationField(value: unknown): { titlePresentation?: TerminalTitlePresentation } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const kind: unknown = Reflect.get(value, "kind");
+  const label: unknown = Reflect.get(value, "label");
+  return kind === "workspaceRemoval" && typeof label === "string" && label.length <= 4096
+    ? { titlePresentation: Object.freeze({ kind, label }) } : {};
 }
 
 function copyCommandRun(run: TerminalCommandRun): TerminalCommandRun {

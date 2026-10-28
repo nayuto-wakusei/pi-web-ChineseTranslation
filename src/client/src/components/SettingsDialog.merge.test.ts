@@ -29,7 +29,7 @@ afterEach(() => {
 
 describe("settings-dialog modal surface", () => {
   it("keeps save confirmations scoped to the section that performed the save", async () => {
-    vi.spyOn(configApi, "saveConfig").mockResolvedValue(configResponse({ spawnSessions: false }));
+    vi.spyOn(configApi, "updateConfig").mockResolvedValue(configResponse({ spawnSessions: false }));
     const dialog = await mountDialog();
     dialog.section = "sessiond";
     await dialog.updateComplete;

@@ -1,7 +1,7 @@
 import { UserFacingError, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import { loadNodeTranslator } from "../../localization.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type AskUserAnswer, type AskUserSubmission, type ExtensionDialogAnswerRequest, type ExtensionDialogCancelRequest, type SessionBulkMutationRequest, type SessionBulkMutationRef, type SessionCleanupRequest, type SessionModelScopeMode, type SessionTreeForkRequest, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice, type SessionUnreadAcknowledgeRequest } from "../../shared/apiTypes.js";
+import { ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type AskUserAnswer, type AskUserSubmission, type ExtensionDialogAnswerRequest, type ExtensionDialogCancelRequest, type SessionBulkMutationRequest, type SessionBulkMutationRef, type SessionCleanupRequest, type SessionModelScopeMode, type SessionTreeForkRequest, type SessionTreeNavigateRequest, type SessionTreeSummaryChoice, type SessionUnreadAcknowledgeRequest } from "../../shared/apiTypes.js";
 import { parseSessionDefaultsUpdate } from "../../shared/sessionDefaults.js";
 import { projectBrowserMessageResponse, projectBrowserStreamSnapshot, projectBrowserTranscriptSnapshot, type BrowserImageProjector } from "../browserMessageProjection.js";
 import { isSessionMediaId, SESSION_MEDIA_MODE } from "../../shared/sessionMedia.js";
@@ -107,6 +107,23 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
       return await sessions.unreadCatalog(managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(503).send({ error: errorMessage(error, t) });
+    }
+  });
+
+  app.post<{ Params: { sessionId: string }; Body: Record<string, unknown> | undefined }>(`${prefix}/sessions/:sessionId/unread`, async (request, reply) => {
+    let sessionId: string;
+    let cwd: string;
+    try {
+      const body = requireRecord(request.body);
+      sessionId = requireNonEmptyBoundedString(request.params.sessionId, "sessionId", SESSION_UNREAD_SESSION_ID_MAX_LENGTH);
+      cwd = normalizeRequestCwd(requireNonEmptyBoundedString(body["cwd"], "cwd", SESSION_UNREAD_CWD_MAX_LENGTH));
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+    try {
+      return await sessions.markUnread(sessionId, cwd, managementContextFromHeaders(request.headers));
+    } catch (error) {
+      return reply.code(503).send({ error: errorMessage(error) });
     }
   });
 
@@ -795,10 +812,14 @@ function askUserAnswerFromValue(value: unknown): AskUserAnswer {
   const otherText = record["otherText"];
   if (otherText !== undefined && typeof otherText !== "string") throw new Error("otherText field must be a string");
   if (typeof otherText === "string" && otherText.length > ASK_USER_OTHER_TEXT_MAX_LENGTH) throw new Error("otherText field is too long");
+  const comment = record["comment"];
+  if (comment !== undefined && typeof comment !== "string") throw new Error("comment field must be a string");
+  if (typeof comment === "string" && comment.length > ASK_USER_COMMENT_MAX_LENGTH) throw new Error("comment field is too long");
   return {
     id: requireBoundedId(record["id"], "id"),
     values: values.map((entry) => requireBoundedId(entry, "values entry")),
     ...(otherText === undefined ? {} : { otherText }),
+    ...(comment === undefined ? {} : { comment }),
   };
 }
 

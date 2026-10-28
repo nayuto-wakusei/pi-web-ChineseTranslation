@@ -1,8 +1,22 @@
-import type { ReactiveControllerHost, TemplateResult } from "lit";
-import type { ManagedAgentsStatus, ManagedAgentsDecision } from "./shared/pluginApiTypes.js";
+import type { ReactiveController, ReactiveControllerHost, TemplateResult } from "lit";
+import type { ManagedAgentsStatus, ManagedAgentsDecision, LocalizationContribution, Translator, JsonValue } from "./shared/pluginApiTypes.js";
 export type { ManagedAgentsStatus, ManagedAgentsDecision } from "./shared/pluginApiTypes.js";
-import type { LocalizationContribution, Translator } from "./shared/pluginApiTypes.js";
-import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MachineKind, PluginBackend, PluginPeer, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
+import type { LocalizationReader, LocalizedMessages, MessageDefinitions, TranslationContribution } from "./shared/localization.js";
+export type * from "./shared/localization.js";
+export type { TerminalTitlePresentation } from "./shared/terminalTitlePresentation.js";
+
+/** Localization registrations and observers are released when this activation ends. */
+export interface PluginLocalization extends LocalizationReader {
+  /** Define source descriptors without importing a runtime library. */
+  readonly message: typeof import("./shared/localization.js").message;
+  /** Sources use plugin:<package ID>:<local namespace>, shared across machines. */
+  registerMessages<Definitions extends MessageDefinitions>(namespace: string, definitions: Definitions): LocalizedMessages<Definitions>;
+  /** May target any full namespace, including core and other plugins. IDs are owner-scoped. */
+  registerCatalog(contribution: TranslationContribution): () => void;
+  /** Attach live language/catalog updates to a Lit host. */
+  controller(host: ReactiveControllerHost): ReactiveController;
+}
+import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, MachineKind, PluginBackend, PluginPeer, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, MaintenanceTerminalCommandRun, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
 
 export type {
   LocalizationContribution,
@@ -25,6 +39,7 @@ export type {
   PluginPeerChannel,
   MachineKind,
   PiWebComponentStatus,
+  PiWebRuntimeIdentity,
   PiWebDockerMode,
   PiWebInstallationInfo,
   PiWebInstallationKind,
@@ -37,6 +52,8 @@ export type {
   PluginCapability,
   PluginCapabilityProvision,
   SessionUiMetadata,
+  AnyTerminalCommandRun,
+  MaintenanceTerminalCommandRun,
   TerminalCommandRun,
   TerminalCommandRunHandle,
   TerminalCommandRunStatus,
@@ -89,8 +106,10 @@ export interface PluginContributionsV5 extends Omit<PluginContributions, "action
   uiPresentations?: UiPresentationContributionV1[];
   stylesheets?: StylesheetContribution[];
   syntaxHighlighters?: SyntaxHighlighterContribution[];
+  filePreviewers?: FilePreviewerContribution[];
   contentRenderers?: ContentRendererContributionV5[];
   themes?: ThemeContributionV5[];
+  fileIconThemes?: FileIconThemeContribution[];
   actions?: PluginActionV5[];
   applicationPanels?: ApplicationPanelContributionV5[];
   workspacePanels?: WorkspacePanelContributionV5[];
@@ -149,7 +168,8 @@ export type PluginActionV5 = Omit<PluginAction, "enabled" | "disabledReason" | "
   disabledReason?: (context: PluginRuntimeContextV5) => string | undefined;
   run: (context: PluginRuntimeContextV5) => MaybePromise<void>;
 };
-export type ApplicationPanelContributionV5 = Omit<ApplicationPanelContribution, "visible" | "badge" | "render"> & {
+export type ApplicationPanelContributionV5 = Omit<ApplicationPanelContribution, "visible" | "badge" | "render" | "onInvalidate"> & {
+  onInvalidate?: (context: ApplicationPanelContextV5) => MaybePromise<void>;
   visible?: (context: ApplicationPanelContextV5) => boolean;
   badge?: (context: ApplicationPanelContextV5) => string | number | TemplateResult | undefined;
   render: (context: ApplicationPanelContextV5) => TemplateResult;
@@ -193,6 +213,8 @@ export interface LegacyPiWebPlugin {
 /** Host-owned frozen values supplied once during browser plugin activation. */
 export interface PluginActivationContext {
   readonly translate?: Translator;
+  /** Available on localization-capable hosts; feature-detect for older installations. */
+  readonly localization?: PluginLocalization;
   readonly apiVersion: 4;
   /** Stable package/source identity, including on federated machines. */
   readonly pluginId: PluginId;
@@ -261,6 +283,48 @@ export interface ContentRendererContributionV5 extends Omit<ContentRendererContr
   /** Synchronous eligibility; replaces absent selectors or further restricts declared selectors. */
   supports?(request: Readonly<ContentRenderRequest>): boolean;
   render(input: ContentRendererInputV5): TemplateResult;
+}
+
+export interface FilePreviewRequest {
+  readonly machineId: string;
+  readonly projectId: string;
+  readonly workspaceId: string;
+  readonly file: Readonly<FileContentResponse>;
+}
+
+export interface FilePreviewerInput extends FilePreviewRequest {
+  readonly files: WorkspaceFilesContextValue;
+  readonly backend?: PluginBackend;
+  readonly signal: AbortSignal;
+  readonly fail: (error: unknown) => void;
+}
+
+export interface FilePreviewerContribution {
+  id: LocalContributionId;
+  title: string;
+  /** Extensions without a leading dot, matched case-insensitively. */
+  fileExtensions?: readonly string[];
+  /** Exact MIME types or type/* wildcards. */
+  mimeTypes?: readonly string[];
+  /** Replaces absent selectors or further restricts declared selectors. */
+  supports?(request: Readonly<FilePreviewRequest>): boolean;
+  renderMode?: "manual" | "automatic";
+  render(input: FilePreviewerInput): TemplateResult;
+}
+
+export type FilePreviewerOption = ContentRendererOption;
+
+export interface FilePreviewRenderRequest extends FilePreviewRequest {
+  previewerId: string;
+  files: WorkspaceFilesContextValue;
+  fail: (error: unknown) => void;
+}
+
+/** Host capability token: { pluginId: "pi-web", id: "file-previewing", version: 1, parse }. */
+export interface FilePreviewingCapability {
+  listPreviewers(request: FilePreviewRequest): readonly FilePreviewerOption[];
+  /** Only mounts the selected previewer; callers authorize manual rendering. */
+  renderPreview(request: FilePreviewRenderRequest): TemplateResult | undefined;
 }
 
 export type SyntaxHighlightTokenKind = "keyword" | "string" | "number" | "comment" | "type" | "function" | "variable" | "operator" | "punctuation" | "property" | "literal" | "meta";
@@ -769,6 +833,11 @@ export interface WorkspacePanelTerminal {
   runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle>;
 }
 
+export interface MaintenanceTerminal {
+  open(options?: { terminalId?: string | undefined }): void;
+  runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle<MaintenanceTerminalCommandRun>>;
+}
+
 export type ContributionQueryValue = string | number | boolean | readonly (string | number | boolean)[];
 
 export interface WorkspacePanelNavigationV1 {
@@ -797,6 +866,10 @@ export interface ApplicationPanelContext {
   workspace?: Workspace;
   /** Workspace-bound terminal; present only with a selected workspace and an available Terminal provider. */
   terminal?: WorkspacePanelTerminal;
+  /** Runs on this machine in PI WEB's maintenance directory, independent of workspace selection. Omitted by older hosts. */
+  maintenanceTerminal?: MaintenanceTerminal;
+  /** Contribution-scoped workspace queries; present only when a workspace is selected. */
+  navigation?: WorkspacePanelNavigationV1;
   navigate: PluginNavigate;
   prompt: PluginPromptEditor;
   host: WorkspaceHost;
@@ -811,6 +884,8 @@ export interface ApplicationPanelContribution {
   routeAliases?: string[];
   visible?: (context: ApplicationPanelContext) => boolean;
   badge?: (context: ApplicationPanelContext) => string | number | TemplateResult | undefined;
+  /** Refreshes the panel after navigation restore or manual invalidation. */
+  onInvalidate?: (context: ApplicationPanelContext) => void | Promise<void>;
   render: (context: ApplicationPanelContext) => TemplateResult;
 }
 
@@ -911,6 +986,31 @@ export interface SessionLabelContribution {
   order?: number;
   visible?: (context: SessionLabelContext) => boolean;
   items: (context: SessionLabelContext) => SessionLabelItem[];
+}
+
+/** Transparent artwork rendered as a single-tone alpha mask. Remote assets require CORS. */
+export interface FileIconAsset {
+  url: string;
+  lightUrl?: string;
+}
+
+/** File-only icons. URLs must be absolute HTTP(S) asset URLs, never inline markup. */
+export interface FileIconThemeContribution {
+  id: string;
+  name: string;
+  description?: string;
+  order?: number;
+  file: FileIconAsset;
+  /** Case-insensitive basename matching: first exact filename wins, then longest extension.
+   * Extensions include their leading dot (for example .d.ts); equal-length ties use declaration order.
+   */
+  files?: readonly { filenames?: readonly string[]; extensions?: readonly string[]; icon: FileIconAsset }[];
+}
+
+/** App-owned host capability: { pluginId: "pi-web", id: "file-icons", version: 1, parse }. */
+export interface FileIconsCapability {
+  resolveIcon(path: string): string | undefined;
+  subscribe(listener: () => void): () => void;
 }
 
 export type ThemeColorScheme = "dark" | "light";

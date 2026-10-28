@@ -96,8 +96,9 @@ describe("bundled Git workspace provider", () => {
         isMain: false,
         publicMetadata: { isGitRepo: true, isGitWorktree: true, branch: "feature/with-space" },
         removal: {
-          actionLabel: "删除工作区",
-          confirmation: `删除工作区 feature/with-space？\n\n此操作将运行 git worktree remove 并删除：\n${linked}\n\n不会删除对应的 Git 分支。`,
+          localization: { kind: "gitWorktree", label: "feature/with-space", path: linked },
+          actionLabel: "Delete workspace",
+          confirmation: `Delete workspace feature/with-space?\n\nThis will run git worktree remove and delete:\n${linked}\n\nThe Git branch will not be deleted.`,
         },
       }),
       expect.objectContaining({
@@ -252,7 +253,8 @@ describe("bundled Git workspace provider", () => {
       workspace: target,
       signal: new AbortController().signal,
     })).resolves.toEqual({
-      title: "删除工作区：feature/remove",
+      title: "Delete workspace: feature/remove",
+      titlePresentation: { kind: "workspaceRemoval", label: "feature/remove" },
       command: `git worktree remove '${linked.replaceAll("'", "'\\''")}'`,
     });
   });

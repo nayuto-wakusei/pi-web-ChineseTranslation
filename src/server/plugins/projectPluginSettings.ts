@@ -1,10 +1,13 @@
 import { isAbsolute, resolve } from "node:path";
+import { applyPiWebConfigEnv } from "../../config.js";
 import type { JsonObject, ProjectInput } from "../../server-plugin-api.js";
 import type { ProjectService } from "../projects/projectService.js";
 import { loadProjectPiWebConfig, snapshotPluginSettings, type LoadedProjectPiWebConfig } from "../workspaces/projectPiWebConfig.js";
 
 interface ProjectPluginSettingsSnapshotOptions {
   readonly timeoutMs?: number;
+  /** Startup environment, captured before agent-visible process environment changes. */
+  readonly env?: NodeJS.ProcessEnv;
   readonly loadConfig?: (projectPath: string, signal: AbortSignal) => Promise<LoadedProjectPiWebConfig>;
 }
 
@@ -19,15 +22,21 @@ type ScopeSnapshot =
 export class ProjectPluginSettingsSnapshots {
   private readonly scopes = new Map<string, Promise<ScopeSnapshot>>();
   private readonly timeoutMs: number;
+  private readonly enforcedSettings: Readonly<Record<string, JsonObject>>;
   private readonly loadConfig: NonNullable<ProjectPluginSettingsSnapshotOptions["loadConfig"]>;
 
   constructor(
     private readonly projects: Pick<ProjectService, "requireProject">,
-    { timeoutMs = 5_000, loadConfig = loadProjectPiWebConfig }: ProjectPluginSettingsSnapshotOptions = {},
+    { timeoutMs = 5_000, loadConfig = loadProjectPiWebConfig, env = {} }: ProjectPluginSettingsSnapshotOptions = {},
   ) {
     if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) throw new Error("Project config timeoutMs must be a positive integer");
     this.timeoutMs = timeoutMs;
     this.loadConfig = loadConfig;
+    const enforced = applyPiWebConfigEnv({}, { ...env });
+    this.enforcedSettings = Object.freeze(Object.fromEntries(Object.entries(enforced.plugins ?? {})
+      .flatMap(([id, plugin]) => plugin.settings === undefined ? [] : [[id,
+        snapshotPluginSettings(plugin.settings, `Environment settings for server plugin ${id}`),
+      ]])));
   }
 
   /** Optional startup preload. Bad or timed-out scopes are retained without rejecting startup. */
@@ -54,7 +63,8 @@ export class ProjectPluginSettingsSnapshots {
       signal.throwIfAborted();
       if ("error" in snapshot) throw snapshot.error;
       const overrides = Object.hasOwn(snapshot.settings, pluginId) ? snapshot.settings[pluginId] : undefined;
-      return snapshotPluginSettings({ ...base, ...overrides }, `Project settings for server plugin ${pluginId}`);
+      const enforced = Object.hasOwn(this.enforcedSettings, pluginId) ? this.enforcedSettings[pluginId] : undefined;
+      return snapshotPluginSettings({ ...base, ...overrides, ...enforced }, `Project settings for server plugin ${pluginId}`);
     } finally {
       signal.throwIfAborted();
     }

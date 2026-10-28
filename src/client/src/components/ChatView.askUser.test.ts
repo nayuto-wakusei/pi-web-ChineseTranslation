@@ -81,12 +81,12 @@ describe("ChatView ask_user transcript records", () => {
     await card.updateComplete;
 
     const cardRoot = requiredElement(card.shadowRoot, "ask_user record shadow root");
-    expect(cardRoot.textContent).toContain("回答已发送");
-    expect(cardRoot.textContent).toContain("已回答 1/2 个问题；未回答：region");
-    expect(cardRoot.textContent).not.toContain("Answered 1 of 2");
+    expect(cardRoot.textContent).toContain("Answers sent");
+    expect(cardRoot.textContent).toContain("Answered 1 of 2; unanswered: region");
+    expect(cardRoot.textContent.match(/Answered 1 of 2/g)).toHaveLength(1);
     expect(cardRoot.textContent).toContain("Vim");
     expect(cardRoot.textContent).toContain("Which region?");
-    expect(cardRoot.textContent).toContain("未回答");
+    expect(cardRoot.textContent).toContain("Unanswered");
     expect(cardRoot.querySelector("input, textarea, button, select")).toBeNull();
     expect(view.shadowRoot?.querySelector("article.ask-user-record-shell .msg-header")).toBeNull();
   });

@@ -1,32 +1,43 @@
-import { t } from "../../i18n";
+
 import type { PiWebPlugin } from "../types";
+import definitions from "./themes.messages";
+import { materialFileIcons } from "./material/generated";
 
 export const themePackPlugin: PiWebPlugin = {
   apiVersion: 5,
-  name: t("client.index.pi.web.themes.9c5a30", "PI WEB Themes"),
-  activate: () => ({
-    contributions: {
+  name: "PI WEB Themes",
+  activate: ({ localization }) => {
+    if (localization === undefined) throw new Error("The built-in theme pack requires host localization");
+    const messages = localization.registerMessages("themes", definitions);
+    return { contributions: {
+      fileIconThemes: [{
+        id: "material",
+        get name() { return messages.t("materialName"); },
+        get description() { return messages.t("materialDescription"); },
+        order: 10,
+        ...materialFileIcons,
+      }],
       themes: [
         {
           id: "pi-web-dark",
-          name: t("client.index.pi.web.dark.91b604", "PI WEB Dark"),
-          description: t("client.index.pi.web.dark.color.scheme.9d56a4", "Dark PI WEB palette."),
+          get name() { return messages.t("darkName"); },
+          get description() { return messages.t("darkDescription"); },
           order: 10,
           colorScheme: "dark",
           stylesheets: [{ id: "palette", url: new URL("./pi-web-dark.css?no-inline", import.meta.url).href }],
         },
         {
           id: "pi-web-light",
-          name: t("client.index.pi.web.light.081df9", "PI WEB Light"),
-          description: t("client.index.pi.web.light.color.scheme.b51736", "Light PI WEB palette."),
+          get name() { return messages.t("lightName"); },
+          get description() { return messages.t("lightDescription"); },
           order: 20,
           colorScheme: "light",
           stylesheets: [{ id: "palette", url: new URL("./pi-web-light.css?no-inline", import.meta.url).href }],
         },
         {
           id: "classic",
-          name: t("client.index.pi.web.classic.4793fe", "PI WEB Classic"),
-          description: t("client.index.original.pi.web.dark.color.scheme.80bcd3", "The original PI WEB dark palette."),
+          get name() { return messages.t("classicName"); },
+          get description() { return messages.t("classicDescription"); },
           order: 30,
           colorScheme: "dark",
           stylesheets: [{ id: "palette", url: new URL("./classic.css?no-inline", import.meta.url).href }],
@@ -35,13 +46,13 @@ export const themePackPlugin: PiWebPlugin = {
       themePairs: [
         {
           id: "pi-web",
-          name: "PI WEB",
-          description: t("client.index.follow.the.system.light.dark.preference.with.pi.web.themes.33941c", "Follow the system light/dark preference with PI WEB themes."),
+          get name() { return messages.t("piWebPairName"); },
+          get description() { return messages.t("piWebPairDescription"); },
           order: 10,
           light: "pi-web-light",
           dark: "pi-web-dark",
         },
       ],
-    },
-  }),
+    } };
+  },
 };

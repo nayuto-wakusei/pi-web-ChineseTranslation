@@ -2,6 +2,10 @@
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { FileContentResponse, FileTreeEntry, FileTreeResponse, StylesheetIntegrationCapabilityV1, WorkspaceFiles, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
+import { LocalizationService } from "../../src/client/src/localization/service";
+import { createPluginLocalization } from "../../src/client/src/plugins/localization";
+import { createRelaysContent, type RelaysContent } from "./relaysLocalization";
+import { chinesePluginLocalization } from "../../pi-web-plugins/localization.testSupport";
 import { RELAYS_ROOT, type RelayDiscoveryFiles, type RelayTreeNode } from "./relayDiscovery";
 import {
   collapsedAncestorOfSelectedFile,
@@ -10,6 +14,7 @@ import {
 } from "./relaysPanelElement";
 
 interface RelaysPanelTestElement extends HTMLElement {
+  content: RelaysContent | undefined;
   context: WorkspacePanelContext | undefined;
   stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
 }
@@ -99,11 +104,81 @@ function stylesheetIntegrationFake() {
   } satisfies StylesheetIntegrationCapabilityV1 & { release: typeof release };
 }
 
+describe("localization", () => {
+  it("updates live chrome and table labels without reloading or replacing focused controls and content", async () => {
+    const service = new LocalizationService({ development: true });
+    const lifetime = new AbortController();
+    const localization = createPluginLocalization(service, "@jmfederico/pi-relay", "relay", lifetime.signal);
+    const content = createRelaysContent(localization);
+    const fake = twoRelays();
+    fake.addDocument(`${RELAYS_ROOT}/newer/status.md`, "# User content\n\n| Code |\n| --- |\n| `echo test` |");
+    const panel = await mountPanel(panelContext(fake));
+    panel.content = content;
+    const root = shadow(panel);
+    const refresh = root.querySelector<HTMLButtonElement>("[data-refresh]");
+    refresh?.focus();
+    const tab = activeTab(panel);
+    const documentNode = root.querySelector(".document");
+    const viewer = root.querySelector<HTMLElement>(".viewer");
+    if (viewer !== null) viewer.scrollTop = 85;
+    const readFile = vi.spyOn(fake.files, "readFile");
+    const listFiles = vi.spyOn(fake.files, "listFiles");
+    const reads = readFile.mock.calls.length;
+    const lists = listFiles.mock.calls.length;
+    for (const language of ["en-XA", "ar-XB"]) {
+      await service.setPreferences({ language, formatLocale: "en" });
+      expect(refresh?.getAttribute("aria-label")).toBe(content.messages.t("refresh"));
+      expect(root.querySelector(".document-tabs")?.getAttribute("dir")).toBe(service.direction);
+      expect(root.querySelector(".table-scroll")?.getAttribute("aria-label")).toBe(content.messages.t("table"));
+      expect(root.activeElement).toBe(refresh);
+      expect(activeTab(panel)).toBe(tab);
+      expect(root.querySelector(".document")).toBe(documentNode);
+      expect(documentNode?.textContent).toContain("User content");
+      expect(documentNode?.querySelector("code")?.textContent).toBe("echo test");
+      expect(viewer?.scrollTop).toBe(85);
+      expect(readFile).toHaveBeenCalledTimes(reads);
+      expect(listFiles).toHaveBeenCalledTimes(lists);
+    }
+    const subscribe = vi.spyOn(service, "subscribe");
+    panel.remove();
+    const disconnectedLabel = refresh?.getAttribute("aria-label");
+    await service.setPreferences({ language: "en", formatLocale: "en" });
+    expect(refresh?.getAttribute("aria-label")).toBe(disconnectedLabel);
+    document.body.append(panel);
+    expect(subscribe).toHaveBeenCalledOnce();
+    expect(refresh?.getAttribute("aria-label")).toBe("Refresh");
+    expect(activeTab(panel)).toBe(tab);
+    lifetime.abort();
+  });
+
+  it("escapes translated empty-state text while leaving backend diagnostics unchanged", async () => {
+    const service = new LocalizationService({ development: true });
+    const lifetime = new AbortController();
+    const localization = createPluginLocalization(service, "@jmfederico/pi-relay", "relay", lifetime.signal);
+    const content = createRelaysContent(localization);
+    localization.registerCatalog({ id: "test", namespace: "plugin:@jmfederico/pi-relay:browser", locale: "de", load: () => Promise.resolve({ noRelays: "'<img src=x onerror=\"bad()\">'", scanFailed: "Scan fehlgeschlagen" }) });
+    const fake = workspaceFilesFake();
+    const panel = await mountPanel(panelContext(fake));
+    panel.content = content;
+    await service.setPreferences({ language: "de", formatLocale: "de" });
+    expect(viewerText(panel)).toContain('<img src=x onerror="bad()">');
+    expect(shadow(panel).querySelector("img")).toBeNull();
+    fake.failWith(RELAYS_ROOT, new Error("Could not scan workspace relays."));
+    shadow(panel).querySelector<HTMLButtonElement>("[data-refresh]")?.click();
+    await flushAsync();
+    expect(viewerText(panel)).toContain("Scan fehlgeschlagen");
+    expect(shadow(panel).querySelector(".status pre")?.textContent).toBe("Could not scan workspace relays.");
+    await service.setPreferences({ language: "ar-XB", formatLocale: "en" });
+    expect(shadow(panel).querySelector(".status pre")?.textContent).toBe("Could not scan workspace relays.");
+    lifetime.abort();
+  });
+});
+
 describe("workspace states", () => {
   it("asks for a workspace when no context is set", async () => {
     const panel = await mountPanel();
 
-    expect(shadow(panel).textContent).toContain("请选择工作区。");
+    expect(shadow(panel).textContent).toContain("请选择一个工作区。");
   });
 
   it("explains the relays convention when the workspace has no relays root", async () => {
@@ -241,7 +316,7 @@ describe("exact packet navigation", () => {
     fake.failWith("custom/blocked", new Error("permission denied"));
     const panel = await mountPanel(linkedPanelContext(fake, "custom/blocked"));
 
-    expect(viewerText(panel)).toContain("无法列出此接力的文档。");
+    expect(viewerText(panel)).toContain("无法列出此接力包的文档。");
     expect(viewerText(panel)).toContain("permission denied");
     expect(fake.readFile).not.toHaveBeenCalled();
   });
@@ -984,6 +1059,7 @@ function twoRelays(): WorkspaceFilesFake {
 async function mountPanel(context?: WorkspacePanelContext): Promise<RelaysPanelTestElement> {
   defineRelaysPanelElement();
   const panel = document.createElement(relaysPanelTagName);
+  panel.content = createRelaysContent(await chinesePluginLocalization("relays"));
   document.body.append(panel);
   if (context !== undefined) panel.context = context;
   await flushAsync();

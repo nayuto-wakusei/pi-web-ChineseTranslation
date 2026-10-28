@@ -1,4 +1,3 @@
-import { t } from "./i18n.js";
 import { marked } from "./vendor/marked.esm.js";
 
 // Raw HTML inside relay documents is escaped before sanitizing, so the
@@ -17,12 +16,12 @@ export function isMarkdownDocumentPath(path: string): boolean {
 }
 
 /** Render one relay markdown document into sanitized HTML safe to interpolate into innerHTML. */
-export function renderRelayDocumentHtml(source: string): string {
-  const cached = markdownHtmlCache.get(source);
+export function renderRelayDocumentHtml(source: string, tableLabel = "Table"): string {
+  const cached = markdownHtmlCache.get(JSON.stringify([source, tableLabel]));
   if (cached !== undefined) return cached;
   const html = marked.parse(source, { async: false, breaks: true, gfm: true, renderer });
-  const safeHtml = sanitizeHtml(html);
-  markdownHtmlCache.set(source, safeHtml);
+  const safeHtml = sanitizeHtml(html, tableLabel);
+  markdownHtmlCache.set(JSON.stringify([source, tableLabel]), safeHtml);
   if (markdownHtmlCache.size > MAX_MARKDOWN_CACHE_ENTRIES) {
     const oldest = markdownHtmlCache.keys().next().value;
     if (oldest !== undefined) markdownHtmlCache.delete(oldest);
@@ -39,7 +38,7 @@ function escapeHtml(text: string): string {
 
 const TABLE_SCROLL_CLASS = "table-scroll";
 
-function sanitizeHtml(html: string): string {
+function sanitizeHtml(html: string, tableLabel: string): string {
   const template = document.createElement("template");
   template.innerHTML = html;
   template.content.querySelectorAll("script, style, iframe, object, embed").forEach((node) => { node.remove(); });
@@ -54,19 +53,19 @@ function sanitizeHtml(html: string): string {
       element.setAttribute("rel", "noreferrer noopener");
     }
   });
-  wrapTablesInScrollRegions(template.content);
+  wrapTablesInScrollRegions(template.content, tableLabel);
   return template.innerHTML;
 }
 
 // Tables keep their natural width and scroll horizontally instead of being
 // squeezed into the panel, which is unreadable on narrow screens.
-function wrapTablesInScrollRegions(root: DocumentFragment): void {
+function wrapTablesInScrollRegions(root: DocumentFragment, tableLabel: string): void {
   root.querySelectorAll("table").forEach((table) => {
     if (table.parentElement?.classList.contains(TABLE_SCROLL_CLASS) === true) return;
     const wrapper = document.createElement("div");
     wrapper.className = TABLE_SCROLL_CLASS;
     wrapper.setAttribute("role", "region");
-    wrapper.setAttribute("aria-label", t("bundled.relays.table.22d9e7", "Table"));
+    wrapper.setAttribute("aria-label", tableLabel);
     wrapper.setAttribute("tabindex", "0");
     table.before(wrapper);
     wrapper.append(table);

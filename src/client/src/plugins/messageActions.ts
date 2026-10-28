@@ -53,6 +53,11 @@ export class MessageActionAvailabilityCache {
   private actions: readonly RegisteredMessageAction[] = [];
   private messages = new WeakMap<ChatLine, Map<string, readonly AvailableMessageAction[]>>();
 
+  /** Invalidate localized labels without retiring pending invocations or transient feedback. */
+  invalidate(): void {
+    this.messages = new WeakMap();
+  }
+
   get(
     message: ChatLine,
     actions: readonly RegisteredMessageAction[],

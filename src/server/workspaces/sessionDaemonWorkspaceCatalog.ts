@@ -277,6 +277,7 @@ function parseRuntimeRecord(value: unknown, index: number): ServerPluginRuntimeR
   const browserRevision = optionalString(value, "browserRevision", label);
   const pairedRequestVersion = parsePairedCapabilityVersion(value["pairedRequestVersion"], label, "request");
   const pairedChannelVersion = parsePairedCapabilityVersion(value["pairedChannelVersion"], label, "channel");
+  const pairedResourceVersion = parsePairedCapabilityVersion(value["pairedResourceVersion"], label, "resource");
   return Object.freeze({
     pluginId: requirePluginId(value, "pluginId", label),
     source: requireString(value, "source", label),
@@ -287,6 +288,7 @@ function parseRuntimeRecord(value: unknown, index: number): ServerPluginRuntimeR
     machineSpecific: requireBoolean(value, "machineSpecific", label),
     ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
     ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
+    ...(pairedResourceVersion === undefined ? {} : { pairedResourceVersion }),
     state,
     ...(name === undefined ? {} : { name }),
     ...(phase === undefined ? {} : { phase }),
@@ -294,7 +296,7 @@ function parseRuntimeRecord(value: unknown, index: number): ServerPluginRuntimeR
   });
 }
 
-function parsePairedCapabilityVersion(value: unknown, label: string, capability: "request" | "channel"): 1 | undefined {
+function parsePairedCapabilityVersion(value: unknown, label: string, capability: "request" | "channel" | "resource"): 1 | undefined {
   if (value === undefined) return undefined;
   if (value !== 1) throw protocolError(`${label} paired ${capability} version is invalid`);
   return value;

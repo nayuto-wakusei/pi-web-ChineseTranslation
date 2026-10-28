@@ -1,9 +1,11 @@
 import { isAbsolute, resolve } from "node:path";
+import { Readable } from "node:stream";
 import type {
   JsonObject,
   JsonValue,
   PluginCapability,
   ServerPluginPeerChannel,
+  ServerPluginResourceResponse,
   ServerPluginPeerChannelOpenContextV5 as ServerPluginPeerChannelOpenContext,
   ServerPluginPeerRequestContextV5 as ServerPluginPeerRequestContext,
   ServerPluginPeerWorkspace,
@@ -19,6 +21,7 @@ import {
 } from "../../server-plugin-api.js";
 import { isPiWebPluginId } from "../../shared/pluginIds.js";
 import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../shared/requiredTerminalPlugin.js";
+import { parsePluginResourceMetadata } from "../../shared/pluginResourceMetadata.js";
 import {
   boundedPluginBackendChannelCloseReason,
   cloneBoundedPluginBackendJson,
@@ -78,6 +81,11 @@ export interface PluginBackendRequest {
   managementContext?: ManagementEmbedContext;
 }
 
+export interface PluginBackendResourceResponse extends Omit<ServerPluginResourceResponse, "body" | "statusCode"> {
+  readonly body: Readable;
+  readonly statusCode: 200 | 206 | 416;
+}
+
 export type PluginBackendRequestErrorCode =
   | "inactive-plugin"
   | "stale-plugin-revision"
@@ -113,6 +121,8 @@ export interface PluginBackendRegistryOptions {
   workspaces: Pick<WorkspaceProviderRegistry, "resolve">;
   callbackTimeoutMs?: number;
   dispatchTimeoutMs?: number;
+  resourceLifetimeMs?: number;
+  resourceMaxTotal?: number;
   channelCallbackTimeoutMs?: number;
   channelOpenTimeoutMs?: number;
   channelLifetimeMs?: number;
@@ -216,6 +226,10 @@ export class PluginBackendRegistry {
   private readonly openingChannelCleanup = new PluginCallbackDrain();
   private readonly requestTasks = new Set<Promise<JsonValue>>();
   private readonly requestCallbacks = new PluginCallbackDrain();
+  private readonly resourceCallbacks = new PluginCallbackDrain();
+  private readonly resourceControllers = new Set<AbortController>();
+  private readonly resourceLifetimeMs: number;
+  private readonly resourceMaxTotal: number;
   private readonly shutdown = new AbortController();
   private closePromise: Promise<void> | undefined;
   private channelAdmissionCount = 0;
@@ -234,6 +248,8 @@ export class PluginBackendRegistry {
       PLUGIN_BACKEND_DISPATCH_TIMEOUT_MS,
       "dispatchTimeoutMs",
     );
+    this.resourceLifetimeMs = Math.min(positiveInteger(options.resourceLifetimeMs, 30 * 60_000, "resourceLifetimeMs"), 30 * 60_000);
+    this.resourceMaxTotal = Math.min(positiveInteger(options.resourceMaxTotal, 128, "resourceMaxTotal"), 128);
     this.channelCallbackTimeoutMs = positiveInteger(options.channelCallbackTimeoutMs, PLUGIN_BACKEND_CHANNEL_CALLBACK_TIMEOUT_MS, "channelCallbackTimeoutMs");
     this.channelOpenTimeoutMs = positiveInteger(options.channelOpenTimeoutMs, PLUGIN_BACKEND_CHANNEL_OPEN_TIMEOUT_MS, "channelOpenTimeoutMs");
     this.channelLifetimeMs = positiveInteger(options.channelLifetimeMs, PLUGIN_BACKEND_CHANNEL_MAX_LIFETIME_MS, "channelLifetimeMs");
@@ -274,6 +290,114 @@ export class PluginBackendRegistry {
     } finally {
       this.requestTasks.delete(task);
     }
+  }
+
+  async resource(request: PluginBackendRequest & { range?: string }, signal?: AbortSignal): Promise<PluginBackendResourceResponse> {
+    if (this.channelsAreShuttingDown()) throw requestShutdownError(request.pluginId);
+    if (this.resourceControllers.size >= this.resourceMaxTotal) {
+      throw backendError("request-failed", 503, "Plugin backend resource capacity is exhausted");
+    }
+    if (request.range !== undefined && (typeof request.range !== "string" || request.range.length > 1024 || /[\r\n]/.test(request.range))) {
+      throw backendError("invalid-input", 400, "Invalid resource range");
+    }
+    const controller = new AbortController();
+    this.resourceControllers.add(controller);
+    let callbackSettled = false;
+    let ended = false;
+    let iterator: AsyncIterator<unknown> | undefined;
+    let iteratorEnded = false;
+    let cleanupStarted = false;
+    let cleanupSettled = true;
+    let pendingReads = 0;
+    let body: Readable | undefined;
+    let callbackTimer: ReturnType<typeof setTimeout> | undefined;
+    const release = (): void => {
+      if (ended && callbackSettled && cleanupSettled && pendingReads === 0) this.resourceControllers.delete(controller);
+    };
+    const cleanup = (): void => {
+      if (iterator !== undefined && !iteratorEnded && !cleanupStarted) {
+        cleanupStarted = true;
+        cleanupSettled = false;
+        const closing = Promise.resolve().then(() => iterator?.return?.());
+        this.resourceCallbacks.track(closing);
+        void closing.then(() => { cleanupSettled = true; release(); }, (error: unknown) => {
+          this.options.logger?.error({ err: error, pluginId: request.pluginId }, "Plugin backend resource cleanup failed");
+          cleanupSettled = true;
+          release();
+        });
+      }
+      release();
+    };
+    const callbackFinished = (): void => {
+      callbackSettled = true;
+      if (ended) cleanup();
+    };
+    const finish = (error?: Error): void => {
+      if (!ended) {
+        ended = true;
+        clearTimeout(lifetimeTimer);
+        clearTimeout(callbackTimer);
+        signal?.removeEventListener("abort", cancel);
+        controller.signal.removeEventListener("abort", aborted);
+        if (!controller.signal.aborted) controller.abort(error ?? new DOMException("Resource completed", "AbortError"));
+        if (body !== undefined && !body.destroyed) body.destroy(error);
+      }
+      cleanup();
+    };
+    const cancel = (): void => { controller.abort(backendError("request-cancelled", 499, "Plugin backend resource was cancelled")); };
+    const aborted = (): void => { finish(abortError(controller.signal)); };
+    const lifetimeTimer = setTimeout(() => {
+      controller.abort(backendError("request-timeout", 504, "Plugin backend resource lifetime expired"));
+    }, this.resourceLifetimeMs);
+    lifetimeTimer.unref();
+    controller.signal.addEventListener("abort", aborted, { once: true });
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted === true) cancel();
+    const task = (async (): Promise<PluginBackendResourceResponse> => {
+      try {
+        const { contribution, context } = await runBoundedPluginBackendOperation(
+          request.pluginId, "resource dispatch", this.dispatchTimeoutMs,
+          (dispatchSignal) => this.prepareInvocation(request, dispatchSignal, "resource"), controller.signal,
+        );
+        controller.signal.throwIfAborted();
+        callbackTimer = setTimeout(() => {
+          controller.abort(backendError("request-timeout", 504, "Plugin backend resource callback timed out"));
+        }, this.callbackTimeoutMs);
+        callbackTimer.unref();
+        const resource = contribution.backend.resource?.bind(contribution.backend);
+        if (resource === undefined) throw backendError("operation-unavailable", 501, "Resource callback is unavailable");
+        const result: unknown = await resource(Object.freeze({
+          ...context, signal: controller.signal, ...(request.range === undefined ? {} : { range: request.range }),
+        }));
+        clearTimeout(callbackTimer);
+        // Capture the iterator before metadata validation so invalid and late results are also closed.
+        iterator = resourceIterator(result);
+        controller.signal.throwIfAborted();
+        const metadata = resourceMetadata(result);
+        body = resourceReadable(iterator, metadata.contentLength, () => { iteratorEnded = true; },
+          (pending) => {
+            pendingReads += 1;
+            this.resourceCallbacks.track(pending);
+            const settled = (): void => { pendingReads -= 1; release(); };
+            void pending.then(settled, settled);
+          });
+        // An aborted response may never reach a transport; avoid an unhandled error event.
+        body.on("error", () => undefined);
+        body.once("close", () => { finish(); });
+        return { ...metadata, body };
+      } catch (error) {
+        const failure = controller.signal.aborted ? abortError(controller.signal)
+          : error instanceof PluginBackendRequestError ? error
+          : error instanceof PluginBackendTimeoutError ? backendError("request-timeout", 504, boundedErrorMessage(error), error)
+          : backendError("request-failed", 502, boundedErrorMessage(error), error);
+        finish(failure);
+        throw failure;
+      } finally {
+        callbackFinished();
+      }
+    })();
+    this.resourceCallbacks.track(task);
+    return await raceResourceAbort(task, controller.signal);
   }
 
   reserveChannel(request: PluginBackendChannelAdmissionRequest): PluginBackendChannelAdmission {
@@ -481,9 +605,11 @@ export class PluginBackendRegistry {
     for (const controller of this.openingChannelControllers) {
       if (!controller.signal.aborted) controller.abort(new DOMException(reason, "AbortError"));
     }
+    for (const controller of this.resourceControllers) controller.abort(requestShutdownError("resource"));
     await Promise.allSettled([...this.requestTasks, ...this.openingChannelTasks]);
     const channels = [...this.channels];
     const results = await Promise.allSettled([
+      this.resourceCallbacks.waitForSettled(this.callbackTimeoutMs, "Plugin backend resource callbacks and cleanup"),
       this.requestCallbacks.waitForSettled(
         this.callbackTimeoutMs,
         "Plugin backend request callbacks",
@@ -538,7 +664,7 @@ export class PluginBackendRegistry {
     return this.shutdown.signal.aborted;
   }
 
-  private async dispatch(request: PluginBackendRequest, dispatchSignal: AbortSignal): Promise<JsonValue> {
+  private async prepareInvocation(request: PluginBackendRequest, dispatchSignal: AbortSignal, kind: "request" | "resource") {
     const pluginId = parsePluginId(request.pluginId);
     const operation = parseOperation(request.operation);
     const moduleRevision = parseRevision(request.moduleRevision, operation);
@@ -559,12 +685,11 @@ export class PluginBackendRegistry {
         `Server plugin ${pluginId} backend revision is stale for operation ${operation}; reload after the session daemon restarts`,
       );
     }
-    const pairedRequest = contribution.backend.request?.bind(contribution.backend);
-    if (pairedRequest === undefined) {
+    if (contribution.backend[kind] === undefined || (kind === "resource" && contribution.apiVersion !== 5)) {
       throw backendError(
         "operation-unavailable",
         501,
-        `Server plugin ${pluginId} does not expose paired request operation ${operation}`,
+        `Server plugin ${pluginId} does not expose paired ${kind} operation ${operation}`,
       );
     }
     if (request.managementContext !== undefined && (pluginId === REQUIRED_TERMINAL_PLUGIN_ID || pluginRequiresNormalOnlyHostCapability(contribution.requires))) {
@@ -589,6 +714,15 @@ export class PluginBackendRegistry {
       input,
       signal: dispatchSignal,
     });
+    return { contribution, context };
+  }
+
+  private async dispatch(request: PluginBackendRequest, dispatchSignal: AbortSignal): Promise<JsonValue> {
+    const { contribution, context } = await this.prepareInvocation(request, dispatchSignal, "request");
+    const { operation } = context;
+    const pluginId = contribution.pluginId;
+    const pairedRequest = contribution.backend.request?.bind(contribution.backend);
+    if (pairedRequest === undefined) throw backendError("operation-unavailable", 501, "Request callback is unavailable");
     let result: unknown;
     try {
       result = await runBoundedPluginBackendOperation(
@@ -974,6 +1108,95 @@ function channelError(
   cause?: unknown,
 ): PluginBackendChannelError {
   return new PluginBackendChannelError(code, closeCode, message, cause === undefined ? {} : { cause });
+}
+
+function invalidResource(message: string): PluginBackendRequestError {
+  return backendError("invalid-result", 502, `Invalid plugin resource: ${message}`);
+}
+
+function isResourceRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function resourceIterator(result: unknown): AsyncIterator<unknown> {
+  if (typeof result !== "object" || result === null || !("body" in result)) throw invalidResource("missing body");
+  const body: unknown = result.body;
+  if (body instanceof Uint8Array) {
+    return (async function* () { yield await Promise.resolve(body); })();
+  }
+  if (typeof body !== "object" || body === null || !(Symbol.asyncIterator in body)
+    || typeof body[Symbol.asyncIterator] !== "function") throw invalidResource("body must contain bytes or an async iterable of bytes");
+  const createIterator: unknown = body[Symbol.asyncIterator];
+  if (typeof createIterator !== "function") throw invalidResource("invalid body iterator factory");
+  const iterator: unknown = Reflect.apply(createIterator, body, []);
+  if (typeof iterator !== "object" || iterator === null || !("next" in iterator) || typeof iterator.next !== "function") {
+    throw invalidResource("invalid body iterator");
+  }
+  const next = iterator.next;
+  const close = "return" in iterator && typeof iterator.return === "function" ? iterator.return : undefined;
+  return {
+    async next() {
+      const chunk: unknown = await Reflect.apply(next, iterator, []);
+      if (!isResourceRecord(chunk)) throw invalidResource("invalid iterator result");
+      return chunk["done"] === true ? { done: true, value: undefined } : { done: false, value: chunk["value"] };
+    },
+    ...(close === undefined ? {} : { async return() { await Reflect.apply(close, iterator, []); return { done: true as const, value: undefined }; } }),
+  };
+}
+
+function resourceMetadata(result: unknown): Omit<PluginBackendResourceResponse, "body"> {
+  let metadata;
+  try { metadata = parsePluginResourceMetadata(result); }
+  catch (error) { throw invalidResource(boundedErrorMessage(error)); }
+  const responseBody: unknown = typeof result === "object" && result !== null ? Reflect.get(result, "body") : undefined;
+  if (responseBody instanceof Uint8Array && metadata.contentLength !== undefined && responseBody.byteLength !== metadata.contentLength) {
+    throw invalidResource("body length does not match contentLength");
+  }
+  return metadata;
+}
+
+function resourceReadable(
+  iterator: AsyncIterator<unknown>, contentLength: number | undefined, onEnd: () => void,
+  track: (pending: Promise<unknown>) => void,
+): Readable {
+  let reading = false;
+  let bytes = 0;
+  const body = new Readable({
+    read() {
+      if (reading) return;
+      reading = true;
+      const pending = Promise.resolve().then(() => iterator.next()).then((chunk) => {
+        reading = false;
+        if (body.destroyed) return;
+        if (chunk.done === true) {
+          onEnd();
+          if (contentLength !== undefined && bytes !== contentLength) throw invalidResource("truncated body");
+          body.push(null);
+          return;
+        }
+        if (!(chunk.value instanceof Uint8Array)) throw invalidResource("body chunk must be Uint8Array");
+        bytes += chunk.value.byteLength;
+        if (!Number.isSafeInteger(bytes) || (contentLength !== undefined && bytes > contentLength)) throw invalidResource("body exceeds contentLength");
+        body.push(Buffer.from(chunk.value));
+      }).catch((error: unknown) => { body.destroy(error instanceof Error ? error : invalidResource("body stream failed")); });
+      track(pending);
+    },
+  });
+  return body;
+}
+
+async function raceResourceAbort<T>(task: Promise<T>, signal: AbortSignal): Promise<T> {
+  let onAbort: () => void = () => undefined;
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    onAbort = () => { reject(abortError(signal)); };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([task, cancelled]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
 }
 
 function snapshotContributions(

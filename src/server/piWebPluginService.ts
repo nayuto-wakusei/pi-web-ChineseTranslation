@@ -55,6 +55,7 @@ export interface PiWebPluginManifestEntry {
   pairedRequestVersion?: 1;
   /** Versioned transport metadata used to expose `context.peer.openChannel`. */
   pairedChannelVersion?: 1;
+  pairedResourceVersion?: 1;
   source: string;
   scope: PiWebPluginScope;
   machineSpecific: boolean;
@@ -78,6 +79,8 @@ const BROWSER_ARTIFACT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 
 export interface PiWebPluginServiceOptions extends PiWebPluginCatalogOptions {
   catalog?: PiWebPluginCatalog;
+  /** Development only: serve rebuilt UI against the still-running backend. */
+  relaxBrowserPairing?: boolean;
   runtimeProvider?: WorkspaceProviderRuntimeReader;
   recoveryProvider?: () => { safeStart?: PiWebPluginSafeStart } | Promise<{ safeStart?: PiWebPluginSafeStart }>;
 }
@@ -85,6 +88,7 @@ export interface PiWebPluginServiceOptions extends PiWebPluginCatalogOptions {
 /** Browser manifest and asset adapter over the process-neutral package catalog. */
 export class PiWebPluginService {
   private readonly catalog: PiWebPluginCatalog;
+  private readonly relaxBrowserPairing: boolean;
   private readonly runtimeProvider: WorkspaceProviderRuntimeReader | undefined;
   private readonly recoveryProvider: PiWebPluginServiceOptions["recoveryProvider"];
   private readonly browserArtifacts = new Map<string, CachedBrowserArtifact>();
@@ -92,6 +96,7 @@ export class PiWebPluginService {
 
   constructor(options: PiWebPluginServiceOptions = {}) {
     this.catalog = options.catalog ?? new PiWebPluginCatalog(options);
+    this.relaxBrowserPairing = options.relaxBrowserPairing ?? false;
     this.runtimeProvider = options.runtimeProvider;
     this.recoveryProvider = options.recoveryProvider;
   }
@@ -106,7 +111,7 @@ export class PiWebPluginService {
       );
     }
     const plugins: PiWebPluginManifestEntry[] = [];
-    for (const { plugin, backendRevision, pairedRequestVersion, pairedChannelVersion } of lifecycle.browserPlugins) {
+    for (const { plugin, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion } of lifecycle.browserPlugins) {
       const artifact = await this.captureBrowserArtifact(plugin, backendRevision);
       if (artifact === undefined) continue;
       plugins.push({
@@ -115,6 +120,7 @@ export class PiWebPluginService {
         ...(backendRevision === undefined ? {} : { backendRevision }),
         ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
         ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
+        ...(pairedResourceVersion === undefined ? {} : { pairedResourceVersion }),
         source: plugin.source,
         scope: plugin.scope,
         machineSpecific: plugin.machineSpecific,
@@ -148,9 +154,9 @@ export class PiWebPluginService {
     let artifact = this.browserArtifacts.get(pluginId);
     if (artifact !== undefined && !await this.cachedArtifactIsActive(artifact)) artifact = undefined;
     artifact ??= await this.loadBrowserArtifact(pluginId);
-    // Browser-only snapshots may lag the catalog's advertised entry revision.
-    // Refresh on mismatch, but keep server-backed snapshots pinned to sessiond.
-    if (artifact !== undefined && artifact.backendRevision === undefined
+    // Refresh advertised revisions for browser-only and relaxed development
+    // snapshots; production server-backed assets stay pinned to sessiond.
+    if (artifact !== undefined && (artifact.backendRevision === undefined || this.relaxBrowserPairing)
       && browserRevision !== undefined && artifact.revision !== browserRevision) {
       artifact = await this.loadBrowserArtifact(pluginId);
     }
@@ -217,6 +223,11 @@ export class PiWebPluginService {
 
   private async cachedArtifactIsActive(artifact: CachedBrowserArtifact): Promise<boolean> {
     if (artifact.backendRevision === undefined) return true;
+    if (this.relaxBrowserPairing) {
+      const lifecycle = await this.lifecycle();
+      return lifecycle.browserPlugins.some(({ plugin, backendRevision }) =>
+        plugin.id === artifact.pluginId && backendRevision === artifact.backendRevision);
+    }
     const runtime = await this.loadRuntime();
     if (runtime.status !== "available") return false;
     const record = runtime.snapshot.records.find(({ pluginId }) => pluginId === artifact.pluginId);
@@ -253,7 +264,7 @@ export class PiWebPluginService {
   private async lifecycle() {
     const desired = await this.catalog.snapshot();
     const [runtime, desiredSafeStart] = await Promise.all([this.loadRuntime(), this.loadDesiredSafeStart()]);
-    return reconcilePiWebPluginLifecycle(desired, runtime, browserModuleUrl, desiredSafeStart);
+    return reconcilePiWebPluginLifecycle(desired, runtime, browserModuleUrl, desiredSafeStart, this.relaxBrowserPairing);
   }
 
   private async loadDesiredSafeStart(): Promise<PiWebPluginSafeStart | "off" | undefined> {

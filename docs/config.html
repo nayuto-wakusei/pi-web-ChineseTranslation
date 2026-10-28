@@ -85,6 +85,7 @@
 <div class="reference-legend" id="keys"><p class="reference-scroll-hint">窄屏可横向滚动表格查看所有列。</p><p><strong>作用域：</strong> “机器”为联邦中所选机器；“网关”为服务当前浏览器的机器；“项目”为同一仓库的全部工作区。</p><p><strong>重启：</strong> “Sessiond”为会话守护进程。重启可能中断活跃会话，Web/API 重启或浏览器刷新不能代替。</p></div>
 
 <section id="files"><h2>配置文件与优先级</h2>
+<p>可选 <code>PI_WEB_DEFAULTS_CONFIG</code> 指向只读、同 schema JSON，没有默认路径。显式缺失、格式错误或无效文件会失败；不能与可写 <code>PI_WEB_CONFIG</code> 共用路径。两个服务必须使用同一选择。部署默认值不是锁，强制策略使用环境变量。</p>
 <p><a id="settings-target-and-drafts"></a></p>
 <h3>设置目标与草稿</h3>
 <p>普通模式的设置对话框独立持有“配置机器”选择，只改变机器级设置的目标，不切换正在使用的项目、工作区或会话。网关配置、默认主题和快捷键仍属网关，浏览器主题覆盖仍属设备。存在未保存的文件访问或上传草稿时，切换设置机器前需确认放弃或继续编辑；管理模式不开放这套普通跨机器选择器。</p>
@@ -119,7 +120,89 @@
 <td><code>~/.pi-web</code> 为默认值。 <strong>不是</strong> 用户可编辑配置 API，参见 <a href="#managed-data-directory">存储</a>。</td>
 </tr>
 </tbody></table></div>
-<p id="precedence"><strong>机器优先级：</strong> 内置默认值 → 全局配置 → 环境覆盖（最高）。</p>
+<p id="precedence"><strong>适用层优先级（高到低）：</strong> 环境强制 → 浏览器选择 → 支持的项目覆盖 → 可写全局配置 → 部署默认文件 → 内置默认值。项目或浏览器不能绕过环境强制。</p>
+<h2 id="precedence-and-reloads">Precedence and reloads</h2>
+<p>Highest priority first, for layers applicable to that setting:</p>
+<pre><code class="language-text">enforced environment &gt; browser-local choice &gt; supported project override
+  &gt; writable global config &gt; deployment defaults &gt; built-in defaults
+</code></pre>
+<p>Browser-local choices apply to colour theme, file icon theme, and localization. Project config participates only for supported keys. Environment policy wins over both; it is not a default that projects or browsers can override.</p>
+<p>Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: <code>uploads.defaultFolder</code>, <code>attachments.defaultFolder</code>, <code>sessionNaming.model</code>, <code>.maxTokens</code>, <code>.thinkingLevel</code>, <code>.timeoutMs</code>, <code>sessionArchive.directory</code>, <code>pathAccess.allowedPaths</code>, and <code>defaultLocalization.language</code>, <code>.formatLocale</code>, <code>.timeZone</code>, <code>.hourCycle</code>. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace <code>{}</code> contributes no overrides; missing leaves inherit.</p>
+<p>Each plugin&#39;s <code>enabled</code> and each top-level <code>plugins.&lt;id&gt;.settings.&lt;key&gt;</code> also resolve independently. An individual array/dictionary-valued setting still replaces entirely, including an explicit empty value. <code>defaultTheme</code> remains one atomic, coherent preference; <code>shortcuts</code> and deprecated <code>agent</code> are also atomic. JSON depth alone does not define a setting. Path additions have the separate composition rules below.</p>
+
+<h3 id="environment-policy">Environment policy</h3>
+<p>Every nondeprecated runtime core config key has an environment override named <code>PI_WEB_&lt;SNAKE_CASE_KEY&gt;</code>. Strings and numbers use scalar values; object/array settings use JSON. See the matrix below for names. Offline plugin recovery state is managed separately by the recovery CLI. For example:</p>
+<pre><code class="language-sh">PI_WEB_INSTALLATION_NAME=&#39;Build lab&#39;
+PI_WEB_BASE_PATHS=&#39;[&quot;/opt/reference&quot;]&#39;
+PI_WEB_UPLOADS=&#39;{&quot;defaultFolder&quot;:&quot;manual/uploads&quot;}&#39;
+PI_WEB_DEFAULT_LOCALIZATION=&#39;{&quot;timeZone&quot;:&quot;UTC&quot;}&#39;
+PI_WEB_PLUGINS=&#39;{&quot;git&quot;:{&quot;settings&quot;:{&quot;workspaceDiscoveryHooks&quot;:false}}}&#39;
+</code></pre>
+<p>Container JSON variables keep their existing names: <code>PI_WEB_UPLOADS</code>, <code>PI_WEB_ATTACHMENTS</code>, <code>PI_WEB_SESSION_NAMING</code>, <code>PI_WEB_SESSION_ARCHIVE</code>, <code>PI_WEB_PATH_ACCESS</code>, and <code>PI_WEB_DEFAULT_LOCALIZATION</code>. Only supplied namespace leaves are enforced, including <code>pathAccess.allowedPaths</code> and plugin leaves; <code>{}</code> enforces none. Atomic settings lock the whole value. <code>PI_WEB_PORT</code> retains the <code>PORT</code> fallback; a nonempty <code>PI_WEB_SESSION_ARCHIVE_DIR</code> alias wins over <code>PI_WEB_SESSION_ARCHIVE</code> JSON. <code>PI_WEB_ALLOWED_HOSTS</code> accepts JSON <code>true</code> or a string array, plus legacy <code>true</code>/comma-separated hosts. Allowing all hosts is unsafe for an exposed development server; prefer an explicit list.</p>
+<p>Boolean environment inputs accept only <code>true</code>/<code>false</code> (case-insensitive) or <code>1</code>/<code>0</code>. Invalid supplied policy values fail startup instead of being ignored. Unknown fields in declared core containers are errors, including misspellings in <code>pathAccess</code>, <code>uploads</code>, and <code>attachments</code>. Plugin environment envelopes accept only <code>enabled</code> and <code>settings</code>; keys inside <code>settings</code> remain plugin-owned. Unset a variable to remove enforcement; empty strings are not a general reset syntax. Legacy empty host, port, allowed-hosts, upload-limit, and archive-directory overrides remain ignored. Runtime-only variables have their own contracts; see offline flags below. Markers such as <code>PI_WEB_SESSION</code> are not config policy.</p>
+
+<h3 id="sources-saves-and-resets">Sources, saves, and resets</h3>
+<p>Settings identifies inherited sources and environment-enforced values. Enforced controls are read-only. Where a saved override has a <strong>Reset saved override</strong> control, resetting deletes that override and exposes the next applicable layer; it does not copy today&#39;s effective default into the writable file. Loading deployment defaults keeps them separate from writable overrides. Theme and localization enforcement temporarily masks saved browser choices without erasing them; removing policy restores those choices.</p>
+<p>The config API returns <code>config</code> (writable overrides), <code>effectiveConfig</code>, optional <code>defaultsPath</code> / <code>defaultsConfig</code>, <code>configSources</code> (JSON-pointer identifiers mapped to <code>defaults</code>, <code>config</code>, or the controlling environment variable), and <code>enforcedSettings</code> (identifiers mapped to environment variables). Source and enforcement pointers address declared leaves, such as <code>/sessionNaming/model</code> and <code>/pathAccess/allowedPaths</code>; the archive alias reports <code>/sessionArchive/directory</code>. Missing source entries inherit built-in/feature defaults; this is machine metadata, not browser/project provenance.</p>
+<p>Use <code>PATCH /api/config</code> for explicit updates, or <code>PATCH /api/machines/&lt;machineId&gt;/config</code> for selected-machine-supported keys (<code>local</code> selects the gateway machine). The body has optional <code>set</code> (config-shaped values) and <code>unset</code> (JSON-pointer strings):</p>
+<pre><code class="language-json">{
+  &quot;set&quot;: { &quot;quietMode&quot;: true },
+  &quot;unset&quot;: [&quot;/defaultTheme&quot;, &quot;/defaultLocalization/timeZone&quot;, &quot;/plugins/git/settings/workspaceDiscoveryHooks&quot;]
+}
+</code></pre>
+<p><code>unset</code> accepts known leaf pointers such as <code>/sessionNaming/model</code>, <code>/uploads/defaultFolder</code>, and <code>/pathAccess/allowedPaths</code>, as well as container resets such as <code>/sessionNaming</code>. Atomic settings reset at their top-level pointer, such as <code>/defaultTheme</code>. UI container-group resets remove only unlocked saved leaves in one request. An API container reset overlapping any enforced leaf is rejected, preserving saved choices hidden by enforcement. Escape <code>~</code> as <code>~0</code> and <code>/</code> as <code>~1</code> within pointer segments: a plugin setting named <code>a/b~c</code> uses <code>/plugins/git/settings/a~1b~0c</code>. Conflicting set/unset targets and changes to enforced settings are rejected. There is no null reset sentinel: <code>null</code> retains its schema-defined meaning, such as disabling a shortcut. Existing <code>PUT</code> endpoints remain available. They retain replacement semantics for unenforced settings, but omitted enforced settings preserve their hidden saved values. Supplying a different saved value for an enforced setting is rejected; unchanged saved values may round-trip. This protection also applies when no saved override exists: a legacy save cannot create one for an enforced setting. Federated protection requires the target to report enforcement metadata; upgrade older peers before relying on it.</p>
+
+<h3 id="when-changes-apply">When changes apply</h3>
+<p>Process restarts depend on the key:</p>
+<ul>
+<li><code>host</code> / <code>port</code>: restart the gateway web/API service or process.</li>
+<li><code>maxUploadBytes</code>: restart both the web/API process and the session daemon on that machine.</li>
+<li><code>spawnSessions</code> / <code>subsessions</code> / <code>askUser</code> / <code>extensionDialogsTimeoutMs</code> / <code>environmentFacts</code>: restart the session daemon on that machine.</li>
+<li><code>sessionArchive.directory</code>: restart the session daemon on that machine; changes only the destination for new archives.</li>
+<li><code>sessionNaming</code>: saved model, token budget, thinking level, and timeout apply to the next naming request without a restart. Existing names and in-progress naming requests are unchanged.</li>
+<li><code>pathAccess</code>: applies on the next request; existing file views may need a browser refresh.</li>
+<li><code>uploads.defaultFolder</code>: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.</li>
+<li><code>attachments.defaultFolder</code>: applies to new prompt-attachment saves after config/workspace refresh.</li>
+<li><code>plugins</code>: browser-only changes need a tab reload. Server-backed enablement, settings, or package changes require a manual session-daemon restart, then a tab reload. See <a href="#project-plugin-settings">Project plugin settings</a>.</li>
+<li><code>serverPlugins.safeStart</code>: persistent offline recovery state applied before server-plugin discovery/import on the next sessiond start; use the <code>pi-web plugins safe-start ...</code> CLI rather than hand-editing it.</li>
+<li>Pi package changes: use <code>/reload</code> in each idle session for ordinary extensions, skills, templates, and themes. Packages containing server plugins require a manual session-daemon restart and browser reload. Global provider registration or connection changes also require a daemon restart; model-list-only updates do not. See <a href="#pi-extension-provider-baseline">Pi extension provider baseline</a>.</li>
+<li><code>shortcuts</code> / <code>defaultStreamingBehavior</code> / <code>quietMode</code>: saved settings apply in the browser after config refresh/save; no service restart.</li>
+<li><code>defaultTheme</code>: applies after settings save or browser config refresh when the browser inherits it or environment policy enforces it; no service restart.</li>
+</ul>
+
+<h3 id="localization-defaults">Localization defaults</h3>
+<p>Set <code>defaultLocalization</code> in the gateway&#39;s global config to supply browser defaults:</p>
+<pre><code class="language-json">{ &quot;defaultLocalization&quot;: { &quot;language&quot;: &quot;en&quot;, &quot;formatLocale&quot;: &quot;de-DE&quot;, &quot;timeZone&quot;: &quot;Europe/Berlin&quot;, &quot;hourCycle&quot;: &quot;h23&quot; } }
+</code></pre>
+<p>All fields are optional and independent. <code>language</code> requests installed translations, with English fallback. <code>formatLocale</code> is a standard locale tag. <code>timeZone</code> is validated by native <code>Intl</code>; omitted zones use the device zone. <code>hourCycle</code> accepts <code>h11</code>, <code>h12</code>, <code>h23</code>, or <code>h24</code>; omission uses regional conventions. In this fork, omitted UI language uses the bundled zh-cn language preference (English when that plugin is disabled); omitted format locale uses the browser language. No currency or zone is inferred from language. Development pseudo locales cannot be configured here.</p>
+<p>Saved browser preferences override defaults independently per field unless that field is enforced by <code>PI_WEB_DEFAULT_LOCALIZATION</code>. Settings → General → Language and region saves only explicit browser-local choices, not this server setting. Empty Regional format and Time zone fields inherit the configured gateway value, if any, otherwise the browser’s value; the source and value are shown below each field. Clear a field and apply to resume inheritance for that field, or choose <strong>Use defaults</strong> to clear all local overrides. Existing saved snapshots remain explicit overrides until cleared. Reload the tab after changing config defaults; no service restart is needed. This key is gateway-only, not selected-machine or project-local. Omitted fields inherit lower layers; <code>{}</code> adds no overrides, so use reset/unset to remove saved fields.</p>
+
+<h3 id="streaming-send-default">Streaming send default</h3>
+<p>In <strong>Settings → Keyboard shortcuts → Send while agent is running</strong>, choose <strong>Steer</strong> (the default) to deliver input before the next model call, or <strong>Follow-up</strong> to queue it until the current response finishes. This changes only the keyboard shortcut, not the chat buttons. During compaction, messages queue as follow-ups.</p>
+<p>The global gateway key is <code>defaultStreamingBehavior</code>: <code>steer</code> or <code>followUp</code>. It is not project-local and needs no service restart.</p>
+
+<h3 id="quiet-mode">Quiet mode</h3>
+<p>Quiet mode collapses agent activity in the transcript. Tool calls, thinking, results, and skill loads stay in the conversation but start inside one expandable <strong>live events</strong> / <strong>events</strong> summary line instead of being expanded while the agent works. Conversation text, question forms, and tool output images are unchanged.</p>
+<p>Turn it on in <strong>Settings → General → Chat display → Quiet mode</strong>. It is off by default. The global gateway key is <code>quietMode</code>; it is not project-local and needs no service restart. Devices share the gateway setting, so it is not a per-browser preference.</p>
+<pre><code class="language-json">{ &quot;quietMode&quot;: true }
+</code></pre>
+
+<h2 id="machine-name">Machine name</h2>
+<p>Set <code>installationName</code> in the machine&#39;s config, enforce it with <code>PI_WEB_INSTALLATION_NAME</code>, or edit <strong>Settings → General → Machine name</strong> for the selected machine:</p>
+<pre><code class="language-json">{ &quot;installationName&quot;: &quot;Build lab&quot; }
+</code></pre>
+<p>The name replaces the local machine&#39;s label and remains visible when there is only one machine, in browsers and installed PWAs. Empty or unset names use <strong>PI-WEB</strong>. Names are trimmed and limited to 120 characters without control characters. This setting is machine-global, not project-local, and needs no restart; reload other open windows to refresh their labels.</p>
+<p>Federated gateways use the remote machine&#39;s reported name unless you set a <strong>Local display name</strong>. Clear that field to use the remote machine&#39;s name again. Existing registry names remain overrides. An unavailable or older remote without a reported name uses <strong>PI-WEB</strong>; a previously discovered name is retained while the gateway process stays running.</p>
+<p>The PWA manifest uses the gateway&#39;s installation name, with <strong>(dev)</strong> appended for development deployments. Changing the selected remote machine does not rename the installed gateway app. Browsers control when existing launcher names update; reinstall the PWA if its old name remains.</p>
+
+<h3 id="file-icon-theme">File icon theme</h3>
+<p><strong>Settings → General → File icons</strong> selects a complete icon set for Files and Git in this browser, independently of the colour theme. Git uses filename colours and status labels to distinguish changes without tinting the file-type artwork. Material is included locally and selected by default. Its file-type shapes render in one muted grey supplied by the active colour theme, without separate light/dark assets. Choose generic file icons to disable themed icons, or reset the browser choice to return to Material. Unavailable saved themes temporarily fall back to Material without erasing the choice. If Material is unavailable too, Files uses generic icons. Directory expand/collapse indicators remain unchanged.</p>
+<p>This is a browser-only preference, with no gateway default, project setting, or environment override. See <a href="plugins.md#file-icon-themes">file icon contributions</a> for additional icon sets.</p>
+
+<h3 id="path-composition">Path composition</h3>
+<p><code>basePaths</code> supplies machine-wide roots. Without environment enforcement, <code>pathAccess.allowedPaths</code> adds global and supported project roots, deduplicated after base roots. <code>PI_WEB_PATH_ACCESS</code> with <code>allowedPaths</code> replaces those additions, not the base roots. <code>PI_WEB_UPLOADS</code>, <code>PI_WEB_ATTACHMENTS</code>, and <code>PI_WEB_PLUGINS</code> enforce supplied leaves over project values.</p>
+
+
 <div class="table-scroll" role="region" aria-label="项目行为" tabindex="0">
 <table class="reference-table ">
 <caption>项目行为</caption>
@@ -130,15 +213,15 @@
 <tbody>
 <tr>
 <th scope="row"><code>uploads.defaultFolder</code></th>
-<td>覆盖机器默认值。</td>
+<td>未被环境强制时覆盖机器默认值。</td>
 </tr>
 <tr>
 <th scope="row"><code>attachments.defaultFolder</code></th>
-<td>覆盖机器默认值。</td>
+<td>未被环境强制时覆盖机器默认值。</td>
 </tr>
 <tr>
 <th scope="row"><code>pathAccess.allowedPaths</code></th>
-<td>添加到机器列表并去重。</td>
+<td>在 basePaths 后添加全局和项目路径并去重；环境强制 allowedPaths 时替换添加项。</td>
 </tr>
 <tr>
 <th scope="row"><code>plugins.&lt;id&gt;.settings</code></th>
@@ -279,7 +362,7 @@
 <section>
 <p><a id="default-theme-and-streaming"></a></p>
 <h2>应用主题与发送默认值</h2>
-<p><code>defaultTheme</code> 是网关配置，形如 <code>{ &quot;themeId&quot;: &quot;plugin-id:theme-id&quot;, &quot;auto&quot;: true }</code>：<code>themeId</code> 必须为限定贡献 ID，<code>auto</code> 必须为布尔值。<code>auto: true</code> 在该主题有明暗配对时跟随系统明暗，否则使用所选主题。浏览器设备已保存的主题覆盖优先；主题暂不可用时使用回退，不删除原选择。主题属于整个应用，不保存到当前远端机器；保存/刷新配置后生效，无需重启 daemon。</p>
+<p><code>defaultTheme</code> 是网关配置，形如 <code>{ &quot;themeId&quot;: &quot;plugin-id:theme-id&quot;, &quot;auto&quot;: true }</code>：<code>themeId</code> 必须为限定贡献 ID，<code>auto</code> 必须为布尔值。<code>auto: true</code> 在该主题有明暗配对时跟随系统明暗，否则使用所选主题。除环境强制主题外，浏览器设备已保存的主题覆盖优先；主题暂不可用时使用回退，不删除原选择。主题属于整个应用，不保存到当前远端机器；保存/刷新配置后生效，无需重启 daemon。</p>
 <p>在 <strong>设置 → 通用 → 主题</strong> 中，“在此设备使用”保存浏览器覆盖，“设为默认”保存网关默认且不覆盖已有设备选择，“使用默认值”清除此浏览器覆盖并采用应用默认。设置页的“默认主题”说明与应用的默认选择一致；网关未显式配置 <code>defaultTheme</code> 时，也会反映 Custom UI Codex 可用时的隐式默认。读取默认值或清除设备覆盖均不写入网关配置。Auto 只在主题有明暗配对时跟随设备。</p>
 <p>内置 <strong>Custom UI Codex</strong> 展示插件默认启用，配置 ID 为 <code>pi-web.custom-ui-codex</code>。在网关的插件设置中禁用，或在网关有效机器配置设置 <code>plugins["pi-web.custom-ui-codex"].enabled: false</code>，刷新页面后恢复宿主默认布局；中文语言插件与权限模式不受影响，无需重启 daemon。远端机器不能替网关接管整个应用界面。</p>
 <p>该插件启用且设备、网关均未显式选择主题时，使用 Paper / Graphite 明暗配对并跟随系统。已有设备或网关主题选择仍优先。主题限定 ID 为 <code>pi-web.custom-ui-codex:paper</code>、<code>pi-web.custom-ui-codex:graphite</code>；旧的 <code>themes:paper</code>、<code>themes:graphite</code> 在插件可用时继续解析到对应主题，设置页的名称、选项及保存操作同样识别这些旧 ID。读取和显示不改写原有配置，只有显式保存才使用当前可用主题的限定 ID。插件不可用时按正常主题回退规则显示，保留原选择以便恢复；设置页仍标记原主题不可用，不允许把回退主题当作原选择保存。</p>
@@ -432,7 +515,7 @@
 <details class="config-details"><summary>独立会话与跟踪子会话</summary><ul><li><strong>独立：</strong> 在同项目工作区发起工作，不向父会话回传输出。</li><li><strong>跟踪：</strong> 在父工作目录运行；完成唤醒父会话并提供输出，无需轮询。</li><li><strong>模型：</strong> 两工具都接受精确 <code>provider/model-id</code>，否则继承父模型；思考等级继承并限制到模型能力。</li></ul></details>
 <details class="config-details"><summary>问题表单与扩展对话框不同</summary><ul><li><strong>问题表单：</strong> 最多 20 问，每问最多 12 选项，有自定义文本且可跳过。普通消息取消开放表单，新表单替代旧表单。</li><li><strong>持久性：</strong> 所属 daemon 活跃时开放表单跨浏览器/Web 重启保留。</li><li><strong>扩展对话框：</strong> 始终支持，不取决于 <code>askUser</code>；扩展与 daemon 超时取较早期限。</li><li><strong>超时结果：</strong> <code>false</code> 用于确认； <code>undefined</code> 用于选择 / 文本输入。</li></ul></details>
 </section>
-<section id="plugin-config"><h2>插件与包</h2>
+<section id="plugin-config"><h2>插件与包</h2><p><code>npm run dev:web</code> 默认设置 <code>PI_WEB_DEV_PLUGIN_PAIRING=1</code>，仅开发启动允许新 UI 连接旧后端；设置为 <code>0</code> 恢复严格配对。生产默认严格；后端代码仍需手动重启 daemon。</p>
 <p>使用 <strong>设置 → PI WEB 插件</strong> 管理启用状态/设置，使用 <strong>设置 → Pi 包</strong> 管理安装，两者独立。</p>
 <div class="table-scroll" role="region" aria-label="插件配置" tabindex="0">
 <table class="reference-table settings-table">
@@ -600,7 +683,7 @@
 </tbody></table></div>
 <p>仅 Docker 开发环境使用 <code>PI_WEB_DEV_SESSIOND_SOCKET</code>，默认 <code>/data/pi-web/sessiond-dev.sock</code>。生产 socket 和 systemd unit 不随此开发设置迁移。</p></section>
 <section id="storage"><h2>存储位置</h2>
-<p>这些是 <strong>环境变量</strong>，不是 JSON 配置键。改变路径不迁移已有数据。</p>
+<p>除归档目的地同时提供 JSON 配置键外，下表为运行时环境变量。改变路径不迁移已有数据。</p>
 <div class="table-scroll" role="region" aria-label="状态与存储路径" tabindex="0">
 <table class="reference-table settings-table">
 <caption>状态与存储路径</caption>
@@ -620,8 +703,8 @@
 <td>切换前停止服务，再重启</td>
 </tr>
 <tr>
-<th scope="row">归档目的地<br><code>sessionArchive.directory</code><br><code>PI_WEB_SESSION_ARCHIVE_DIR</code></th>
-<td>机器；无项目覆盖</td>
+<th scope="row">归档目的地<br><code>sessionArchive.directory</code><br><code>PI_WEB_SESSION_ARCHIVE</code> / <code>PI_WEB_SESSION_ARCHIVE_DIR</code></th>
+<td>所选机器；无项目覆盖</td>
 <td><code>$PI_WEB_DATA_DIR/archived-sessions</code></td>
 <td>仅影响新归档目的地，索引和已有记录路径不变。见<a href="#session-archive-directory">归档路径</a>。</td>
 <td>重启 daemon</td>
@@ -824,10 +907,10 @@
 <section>
 <p><a id="project-plugin-settings"></a></p>
 <h3>项目插件设置</h3>
-<p>支持项目设置的服务端插件可读取注册项目根目录的 <code>.pi-web/config.json</code> 中 <code>plugins.&lt;id&gt;.settings</code>，不是各 worktree 独立配置。项目顶层设置键覆盖机器值，嵌套对象整体替换而非深合并；<code>enabled</code> 仍只属于机器配置，项目声明会被拒绝。修改服务端插件的全局或项目设置后，手动重启目标 daemon。</p>
+<p>支持项目设置的服务端插件可读取注册项目根目录的 <code>.pi-web/config.json</code> 中 <code>plugins.&lt;id&gt;.settings</code>，不是各 worktree 独立配置。未被环境强制的项目顶层设置键覆盖机器值，嵌套对象整体替换而非深合并；<code>enabled</code> 仍只属于机器配置，项目声明会被拒绝。修改服务端插件的全局或项目设置后，手动重启目标 daemon。</p>
 <p><a id="git-worktree-discovery-hooks"></a></p>
 <h3>Git 工作树发现通知</h3>
-<p>Git 插件的 <code>plugins.git.settings.workspaceDiscoveryHooks</code> 为布尔值，默认 <code>true</code>，项目值覆盖机器值。支持命名 hooks 的 Git（2.54+）可安装自身命名通知，保留已有 hooks 且不修改 <code>core.hooksPath</code>；不支持时仍可按需刷新列表。通知仅提示宿主重新查询当前提供器，不直接注册工作区。修改后重启 daemon，浏览器刷新不能更新 hook 状态。</p>
+<p>Git 插件的 <code>plugins.git.settings.workspaceDiscoveryHooks</code> 为布尔值，默认 <code>true</code>，未被环境强制时项目值覆盖机器值。支持命名 hooks 的 Git（2.54+）可安装自身命名通知，保留已有 hooks 且不修改 <code>core.hooksPath</code>；不支持时仍可按需刷新列表。通知仅提示宿主重新查询当前提供器，不直接注册工作区。修改后重启 daemon，浏览器刷新不能更新 hook 状态。</p>
 <p><a id="git-instance-namespace"></a></p>
 <p>多实例可用 daemon 环境变量 <code>PI_WEB_INSTANCE_NAMESPACE</code> 区分通知身份：1–32 个字母、数字、下划线或连字符，首字符为字母或数字；生产默认留空，开发实例使用 <code>dev</code>。名称应保持稳定；退役旧名称时先在旧名称下禁用发现 hooks 并重启完成清理，再切换名称。不自动接管或迁移其他实例/旧名称的 hook。</p>
 </section>
@@ -872,9 +955,9 @@
       <section id="chinese-language-plugin" class="section">
         <div class="container">
           <h2>中文语言插件</h2>
-          <p>内置 <code>zh-cn</code> 默认启用；在有效机器配置设置 <code>"plugins": { "zh-cn": { "enabled": false } }</code> 可恢复英文。缺失词条回退英文，不新增语言选择器或配置文件。</p>
-          <p>浏览器使用网关机器的语言，不随所选远端机器切换。CLI 与服务端各自读取所属机器配置；远端提示原样保留，不翻译用户内容、模型回复、第三方输出、命令、错误码或协议字段。</p>
-          <p>修改后刷新网页、下次启动 CLI，并重启 <code>pi-web-sessiond.service</code> 及 Web 服务（开发安装为 <code>pi-web-ui-dev.service</code>），确保二者使用相同有效 <code>PI_WEB_CONFIG</code>。不支持运行中热切换。</p>
+          <p>内置 <code>zh-cn</code> 默认启用；在有效机器配置设置 <code>"plugins": { "zh-cn": { "enabled": false } }</code> 可恢复英文。缺失词条回退英文，语言与区域设置提供设备级界面语言、格式区域、时区和时制选择。</p>
+          <p>浏览器默认中文来自网关 zh-cn 插件，并服从语言默认值、设备选择及环境强制策略，不随所选远端机器切换。CLI 与服务端各自读取所属机器配置；远端提示原样保留，不翻译用户内容、模型回复、第三方输出、命令、错误码或协议字段。</p>
+          <p>修改后刷新网页、下次启动 CLI，并重启 <code>pi-web-sessiond.service</code> 及 Web 服务（开发安装为 <code>pi-web-ui-dev.service</code>），确保二者使用相同有效 <code>PI_WEB_CONFIG</code>。浏览器语言与区域选择可即时切换；插件启用及服务端词典仍按刷新/重启规则生效。</p>
         </div>
       </section>
       <section class="section">

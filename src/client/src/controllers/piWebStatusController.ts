@@ -1,4 +1,12 @@
-import { t } from "../i18n";
+import { localization } from "../localization/browser";
+import definitions from "./piWebStatus.messages";
+
+const messages = localization.registerMessages("core.piWebStatus", definitions);
+
+class UpdateCheckError extends Error {
+  constructor(private readonly displayMessage: () => string) { super(); }
+  override get message(): string { return this.displayMessage(); }
+}
 import { piWebApi, type PiWebStatusResponse } from "../api";
 import { selectedMachineId, type GetState, type SetState } from "./types";
 
@@ -64,6 +72,7 @@ export class PiWebStatusController {
 }
 
 function throwForUnsuccessfulReleaseCheck(status: PiWebStatusResponse): void {
-  if (status.release.error !== undefined) throw new Error(t("client.piWebStatusController.pi.web.update.check.failed.495ae6", "PI WEB update check failed: {value1}", { value1: status.release.error }));
-  if (status.release.skipped === true) throw new Error(t("client.piWebStatusController.pi.web.update.check.skipped.because.remote.checks.are.disabled.by.offl.e9da2f", "PI WEB update check skipped because remote checks are disabled by offline or version-check settings"));
+  const detail = status.release.error;
+  if (detail !== undefined) throw new UpdateCheckError(() => messages.t("checkFailed", { detail }));
+  if (status.release.skipped === true) throw new UpdateCheckError(() => messages.t("checkSkipped"));
 }

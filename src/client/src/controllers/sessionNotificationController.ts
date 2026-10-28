@@ -1,6 +1,8 @@
-import { t } from "../i18n";
+
 import { api as defaultApi, type Machine, type SessionInfo } from "../api";
 import type { AppState } from "../appState";
+import { BrowserErrorReporter, sessionBrowserErrorScope } from "../browserErrors";
+import { sessionNotificationMessages as messages } from "../sessionNotificationMessages";
 import {
   applySelectedNotificationEvent,
   installSelectedNotificationSnapshot,
@@ -47,6 +49,7 @@ interface SelectedRefreshOperation {
  */
 export class SessionNotificationController {
   private readonly api: SessionNotificationApi;
+  private readonly browserErrors: BrowserErrorReporter;
   private readonly onBackgroundError: (message: string, error: unknown) => void;
   private readonly acceptedSupportByMachine = new Set<string>();
   private selectedTarget: SessionNotificationTarget | undefined;
@@ -63,6 +66,7 @@ export class SessionNotificationController {
     dependencies: SessionNotificationControllerDependencies = {},
   ) {
     this.api = dependencies.api ?? defaultApi;
+    this.browserErrors = new BrowserErrorReporter(getState, setState);
     this.onBackgroundError = dependencies.onBackgroundError ?? ((message, error) => { console.warn(message, error); });
   }
 
@@ -183,7 +187,8 @@ export class SessionNotificationController {
           ...current,
           optimisticDismissedIds: current.optimisticDismissedIds.filter((id) => id !== notificationId),
         }));
-        this.setState({ error: t("client.sessionNotificationController.failed.to.dismiss.notification.080d8f", "Failed to dismiss notification: {value1}", { value1: errorMessage(error) }) });
+        const detail = errorMessage(error);
+        this.browserErrors.reportLocalized(sessionBrowserErrorScope(target.machineId, target.sessionId, { cwd: target.cwd }), () => messages.t("dismissFailed", { detail }));
         await this.refreshSelectedSession({ id: target.sessionId, cwd: target.cwd }, target.machineId);
       }
     } finally {
@@ -214,7 +219,8 @@ export class SessionNotificationController {
           delete next.optimisticDismissAllThrough;
           return next;
         });
-        this.setState({ error: t("client.sessionNotificationController.failed.to.dismiss.session.notifications.5621de", "Failed to dismiss session notifications: {value1}", { value1: errorMessage(error) }) });
+        const detail = errorMessage(error);
+        this.browserErrors.reportLocalized(sessionBrowserErrorScope(target.machineId, target.sessionId, { cwd: target.cwd }), () => messages.t("dismissAllFailed", { detail }));
         await this.refreshSelectedSession({ id: target.sessionId, cwd: target.cwd }, target.machineId);
       }
     } finally {

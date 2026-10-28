@@ -1,6 +1,6 @@
-import { t } from "./i18n.js";
 import type { StylesheetIntegrationCapabilityV1 } from "@chainingintention/pi-web-cn/plugin-api";
 import { css, html, LitElement } from "lit";
+import { TerminalLocalizationController, type TerminalContent } from "./terminalLocalization";
 import { property } from "lit/decorators.js";
 import { TERMINAL_SOFT_KEYS, terminalSoftKeySequence, type TerminalModesSnapshot, type TerminalSoftKeyDefinition } from "./terminalKeys";
 
@@ -12,6 +12,11 @@ export interface TerminalSoftKeyInputOptions {
 }
 
 export class TerminalSoftKeys extends LitElement {
+  private readonly text = new TerminalLocalizationController(this);
+  @property({ attribute: false })
+  get content(): TerminalContent | undefined { return this.text.content; }
+  set content(value: TerminalContent | undefined) { this.text.content = value; }
+
   private integration: StylesheetIntegrationCapabilityV1 | undefined;
   private releaseStyles: (() => void) | undefined;
 
@@ -86,14 +91,15 @@ export class TerminalSoftKeys extends LitElement {
   }
 
   override render() {
+    if (!this.isConnected || this.content === undefined) return null;
     return html`
-      <div class="terminal-soft-keys" role="toolbar" aria-label=${t("ui.terminalSoftKeys.terminalShortcuts", "Terminal shortcuts")}>
+      <div class="terminal-soft-keys" role="toolbar" aria-label=${this.text.messages.t("softKeys")}>
         ${TERMINAL_SOFT_KEYS.map((key) => html`
           <button
             type="button"
             class="soft-key"
-            title=${key.title}
-            aria-label=${key.ariaLabel}
+            title=${this.text.messages.t(`${key.id}.title`)}
+            aria-label=${this.text.messages.t(`${key.id}.aria`)}
             @pointerdown=${(event: PointerEvent) => { this.onSoftKeyPointerDown(event, key); }}
             @pointermove=${(event: PointerEvent) => { this.onSoftKeyPointerMove(event); }}
             @pointerup=${(event: PointerEvent) => { this.onSoftKeyPointerUp(event, key); }}

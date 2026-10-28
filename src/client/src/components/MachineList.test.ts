@@ -19,6 +19,23 @@ describe("canRemoveMachine", () => {
   });
 });
 
+it("offers name editing only for remote machines", async () => {
+  const remote = machine("remote-a", "remote");
+  const list = await mountMachineList([machine("local", "local"), remote]);
+  const edited: Machine[] = [];
+  list.onEdit = (machine) => { edited.push(machine); };
+  await list.updateComplete;
+  expect(rowFor(list, "local").querySelector(".action-menu-toggle")).toBeNull();
+  rowFor(list, "remote-a").querySelector<HTMLButtonElement>(".action-menu-toggle")?.click();
+  await list.updateComplete;
+  const edit = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".ui-menu-item") ?? [])].find((button) => button.textContent === "Edit display name");
+  expect(edit).toBeDefined();
+  edit?.click();
+  await list.updateComplete;
+  expect(edited).toEqual([remote]);
+  expect(list.shadowRoot?.querySelector(".action-menu-panel")).toBeNull();
+});
+
 it("shows native remote-machine actions and reconciles dismissal before reopening", async () => {
   const list = await mountMachineList([machine("local", "local"), machine("remote-a", "remote")]);
   list.onRemove = () => undefined; await list.updateComplete;

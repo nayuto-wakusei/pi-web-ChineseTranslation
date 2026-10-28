@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import chinesePlugin from "../../../../pi-web-plugins/zh-cn/pi-web-plugin";
+import { initializeClientLocalization } from "../localizationBootstrap";
+import { localization } from "../localization/browser";
 import componentMessages from "../../../../pi-web-plugins/zh-cn/components.json";
 import mainMessages from "../../../../pi-web-plugins/zh-cn/main.json";
 import type { SessionInfo } from "../api";
@@ -8,6 +11,8 @@ import { setClientTranslations } from "../i18n";
 import { SessionList } from "./SessionList";
 
 const dictionary = { ...componentMessages, ...mainMessages };
+beforeAll(() => initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }])));
+beforeEach(() => localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" }));
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -22,6 +27,7 @@ describe("SessionList bulk selection toolbar", () => {
     { locale: "zh-CN", archived: false, visible: "选择可见", clear: "清除所选（2）" },
     { locale: "zh-CN", archived: true, visible: "选择可见", clear: "清除所选（2）" },
   ])("keeps bulk counts and clear actions localized in $locale (archived=$archived)", async ({ locale, archived, visible, clear }) => {
+    await localization.setPreferences({ language: locale, formatLocale: locale });
     setClientTranslations(locale, locale === "en" ? {} : dictionary);
     const list = await renderSessionList([session("a", { archived }), session("b", { archived })]);
     if (archived) {

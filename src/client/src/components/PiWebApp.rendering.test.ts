@@ -1,3 +1,7 @@
+import { useDeferredContent } from "../formatting/deferredContent.testSupport";
+import { machineSessionKey } from "../machineKeys";
+import { saveDraft } from "../promptDraftStorage";
+import { clearStagedAttachments, saveStagedAttachments } from "../promptAttachmentStaging";
 // @vitest-environment happy-dom
 import { installNativeDialogFake } from "./nativeDialog.testSupport";
 installNativeDialogFake();
@@ -34,10 +38,18 @@ import { PromptEditor } from "./PromptEditor";
 import { t } from "../i18n";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsShortcutsPanel } from "./settings/SettingsShortcutsPanel";
+import { configResponse } from "./SettingsDialog.testSupport";
+import { localization } from "../localization/browser";
+import { appFeedbackMessages } from "../appFeedbackMessages";
 
 // Exercise the real shell and child rendering without starting API/socket
 // orchestration. The inherited Lit controllers and update lifecycle still run.
 class RenderOnlyApp extends PiWebApp {
+  constructor() {
+    super();
+    Reflect.set(this, "normalAuthStatus", { configured: true, authenticated: true });
+    Reflect.set(this, "normalAuthLoading", false);
+  }
   override connectedCallback(): void {
     LitElement.prototype.connectedCallback.call(this);
   }
@@ -57,8 +69,21 @@ beforeEach(() => {
   installDeferredContent();
 });
 
-afterEach(() => {
+useDeferredContent();
+
+function panelToggle(app: PiWebApp, label: string): HTMLButtonElement {
+  for (const host of app.renderRoot.querySelectorAll("app-navigation-panel, workspace-panel, app-mobile-main-tabs")) {
+    const button = host.shadowRoot?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    if (button !== undefined && button !== null) return button;
+  }
+  throw new Error(`Expected ${label}`);
+}
+
+afterEach(async () => {
   document.body.replaceChildren();
+  vi.useRealTimers();
+  await localization.setPreferences({ language: "en", formatLocale: "en" });
+  clearStagedAttachments(machineSessionKey("local", session.id));
   localStorage.clear();
   sessionStorage.clear();
   vi.restoreAllMocks();
@@ -88,6 +113,252 @@ describe("application rendering boundaries", () => {
     expect(ids.filter((id) => id === "composer.send.mobile")).toHaveLength(1);
   });
 
+  it("places sustained stale-chat feedback above the conversation, outside the composer, and hides it after recovery", async () => {
+    vi.useFakeTimers();
+    const app = await mountApp({ selectedWorkspace: workspace, selectedSession: session, sessions: [session], mainView: "chat", conversationSync: "stale" });
+    await settle(app);
+    const notice = app.shadowRoot?.querySelector("conversation-sync-notice");
+    const layout = app.shadowRoot?.querySelector("conversation-layout");
+    const composer = app.shadowRoot?.querySelector("prompt-editor");
+    if (!(notice instanceof LitElement) || layout === null || layout === undefined) throw new Error("Expected conversation and notice");
+    expect(notice.nextElementSibling).toBe(layout);
+    expect(notice.parentElement).toBe(layout.parentElement);
+    expect(app.shadowRoot?.querySelector(".composer-area conversation-sync-notice")).toBeNull();
+    expect(notice.shadowRoot?.querySelector("[role], button")).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await notice.updateComplete;
+    expect(notice.shadowRoot?.textContent).toContain("Chat may be out of date.");
+    patchState(app, { conversationSync: "checked" });
+    await settle(app);
+    expect(notice.shadowRoot?.querySelector("[role], button")).toBeNull();
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBe(composer);
+  });
+
+  it("does not mount a restored mobile transcript until Chat is opened, and retains an already displayed chat across tabs", async () => {
+    const app = new RenderOnlyApp();
+    const shell: unknown = Reflect.get(app, "appShell");
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(shell instanceof AppShellController) || !(controller instanceof SessionController)) throw new Error("Expected app controllers");
+    shell.isMobileNavigationLayout = true;
+    shell.isDesktopSideBySideLayout = false;
+    const load = vi.spyOn(controller, "loadSelectedSession").mockResolvedValue(undefined);
+    patchState(app, {
+      selectedWorkspace: workspace, workspaces: [workspace], selectedSession: session, sessions: [session],
+      mainView: "navigation", messages: [{ role: "assistant", parts: [{ type: "text", text: "Deferred transcript" }] }],
+    });
+    document.body.append(app);
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBeNull();
+    expect(load).not.toHaveBeenCalled();
+    expect(app.shadowRoot?.querySelector("app-navigation-panel")?.shadowRoot?.querySelector("session-list")?.shadowRoot?.textContent).toContain("Current chat");
+
+    const selectTab = async (title: string) => {
+      const tab = app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector<HTMLButtonElement>(`.mobile-tabs button[title="${title}"]`);
+      if (tab == null) throw new Error(`Expected ${title} tab`);
+      tab.click();
+      await settle(app);
+    };
+    await selectTab("Chat");
+    const chat = app.shadowRoot?.querySelector("chat-view");
+    expect(chat).toBeInstanceOf(ChatView);
+    const editor = app.shadowRoot?.querySelector("prompt-editor");
+    expect(editor).toBeInstanceOf(PromptEditor);
+    await selectTab("Sessions");
+    expect(app.shadowRoot?.querySelector("chat-view")).toBe(chat);
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBe(editor);
+    load.mockClear();
+
+    // Another workspace's remembered selection must not reuse the old chat's
+    // display permission while the user is still browsing the session list.
+    patchState(app, { selectedSession: { ...session, id: "another-session" } });
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("lets the list paint before loading visible restored Chat (initially mobile: %s)", async (mobile) => {
+    const runFrame = manualAnimationFrames();
+    const app = new RenderOnlyApp();
+    const shell: unknown = Reflect.get(app, "appShell");
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(shell instanceof AppShellController) || !(controller instanceof SessionController)) throw new Error("Expected app controllers");
+    shell.isMobileNavigationLayout = mobile;
+    shell.isDesktopSideBySideLayout = !mobile;
+    let deferred = true;
+    vi.spyOn(controller, "isChatLoadDeferred", "get").mockImplementation(() => deferred);
+    const load = vi.spyOn(controller, "loadSelectedSession").mockImplementation(() => {
+      deferred = false;
+      app.requestUpdate();
+      return Promise.resolve();
+    });
+    patchState(app, { selectedWorkspace: workspace, selectedSession: session, sessions: [session], mainView: "navigation" });
+    document.body.append(app);
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBeNull();
+    expect(app.shadowRoot?.querySelector("app-navigation-panel")?.shadowRoot?.querySelector("session-list")?.shadowRoot?.textContent).toContain("Current chat");
+    expect(load).not.toHaveBeenCalled();
+
+    if (mobile) {
+      runFrame();
+      runFrame();
+      expect(load).not.toHaveBeenCalled();
+      shell.isMobileNavigationLayout = false;
+      shell.isDesktopSideBySideLayout = true;
+      app.requestUpdate();
+      await settle(app);
+    }
+    expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe("Loading conversation…");
+    runFrame();
+    await settle(app);
+    // rAF callbacks run before paint: the first frame must not begin Chat work.
+    expect(load).not.toHaveBeenCalled();
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    runFrame();
+    await settle(app);
+    expect(load).toHaveBeenCalledOnce();
+    expect(app.shadowRoot?.querySelector("chat-view")).toBeInstanceOf(ChatView);
+  });
+
+  it("focuses the composer after its deferred mount without waiting for the transcript response", async () => {
+    const runFrame = manualAnimationFrames();
+    const app = new RenderOnlyApp();
+    const shell: unknown = Reflect.get(app, "appShell");
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(shell instanceof AppShellController) || !(controller instanceof SessionController)) throw new Error("Expected app controllers");
+    shell.isMobileNavigationLayout = true;
+    shell.isDesktopSideBySideLayout = false;
+    let deferred = true;
+    vi.spyOn(controller, "isChatLoadDeferred", "get").mockImplementation(() => deferred);
+    vi.spyOn(controller, "loadSelectedSession").mockImplementation(() => {
+      deferred = false;
+      app.requestUpdate();
+      return Promise.resolve();
+    });
+    patchState(app, { selectedWorkspace: workspace, selectedSession: session, mainView: "navigation" });
+    document.body.append(app);
+    await settle(app);
+    const focus: unknown = Reflect.get(app, "openChatAndFocusComposer");
+    if (typeof focus !== "function") throw new Error("Expected Chat navigation action");
+    const focusing: unknown = Reflect.apply(focus, app, []);
+    await settle(app);
+    runFrame();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBeNull();
+    runFrame();
+    await focusing;
+    await settle(app);
+    const editor = app.shadowRoot?.querySelector("prompt-editor");
+    expect(editor).toBeInstanceOf(PromptEditor);
+    expect(deepActiveElement(document)).toBe(editor?.shadowRoot?.querySelector(".cm-content"));
+  });
+
+  it.each(["hide", "disconnect"] as const)("cancels scheduled Chat loading when the shell changes before paint: %s", async (action) => {
+    const runFrame = manualAnimationFrames();
+    const app = new RenderOnlyApp();
+    const shell: unknown = Reflect.get(app, "appShell");
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(shell instanceof AppShellController) || !(controller instanceof SessionController)) throw new Error("Expected app controllers");
+    shell.isMobileNavigationLayout = true;
+    shell.isDesktopSideBySideLayout = false;
+    vi.spyOn(controller, "isChatLoadDeferred", "get").mockReturnValue(true);
+    const load = vi.spyOn(controller, "loadSelectedSession").mockResolvedValue(undefined);
+    patchState(app, { selectedWorkspace: workspace, selectedSession: session, mainView: "chat" });
+    document.body.append(app);
+    await settle(app);
+    runFrame();
+    if (action === "disconnect") app.remove();
+    else {
+      patchState(app, { mainView: "navigation" });
+      await settle(app);
+    }
+    runFrame();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it.each(["chat", "workspace"] as const)("collapses a wide workspace panel to Chat and restores three columns from %s", async (mainView) => {
+    const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView }, () => html`<p>Tool content</p>`);
+    const shell: unknown = Reflect.get(app, "appShell");
+    if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
+    shell.isDesktopSideBySideLayout = true;
+    shell.isMobileNavigationLayout = false;
+    app.requestUpdate();
+    await settle(app);
+    const layout = () => app.shadowRoot?.querySelector(".shell");
+    const panelButton = (label: string) => panelToggle(app, label);
+    const tabs = () => [...app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelectorAll<HTMLButtonElement>(".mobile-tabs button") ?? []];
+    expect(layout()?.classList.contains("two-column-layout")).toBe(false);
+    expect(tabs().map((button) => button.title)).not.toContain("Chat");
+    const collapse = panelButton("Collapse workspace panel");
+    expect(collapse.closest("header")).not.toBeNull();
+    collapse.focus();
+    collapse.click();
+    await settle(app);
+    expect(layout()?.classList.contains("two-column-layout")).toBe(true);
+    expect(deepActiveElement(document)).toBe(panelButton("Expand workspace panel"));
+    expect(tabs().find((button) => button.title === "Chat")?.classList.contains("selected")).toBe(true);
+    tabs().find((button) => button.title === "Test")?.click();
+    await settle(app);
+    expect(layout()?.classList.contains("workspace-view")).toBe(true);
+    expect(tabs().find((button) => button.title === "Test")?.classList.contains("selected")).toBe(true);
+    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.querySelector("header")).toBeNull();
+    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("Tool content");
+    tabs().find((button) => button.title === "Chat")?.click();
+    await settle(app);
+    expect(layout()?.classList.contains("chat-view")).toBe(true);
+    const expand = panelButton("Expand workspace panel");
+    expand.focus();
+    expand.click();
+    await settle(app);
+    expect(layout()?.classList.contains("two-column-layout")).toBe(false);
+    expect(tabs().map((button) => button.title)).not.toContain("Chat");
+    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("Tool content");
+    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.querySelector("header")).not.toBeNull();
+  });
+
+  it.each([false, true])("uses only the shared tool tabs in a narrow layout (mobile: %s)", async (mobile) => {
+    const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView: "workspace" }, () => html`<p>Tool content</p>`);
+    const shell: unknown = Reflect.get(app, "appShell");
+    if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
+    shell.isDesktopSideBySideLayout = false;
+    shell.isMobileNavigationLayout = mobile;
+    app.requestUpdate();
+    await settle(app);
+
+    expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector('button[title="Test"]')).not.toBeNull();
+    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.querySelector("header")).toBeNull();
+    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("Tool content");
+  });
+
+  it("moves navigation collapse and expand actions between top bars without leaving buttons in resize rails", async () => {
+    const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView: "chat" });
+    const shell: unknown = Reflect.get(app, "appShell");
+    if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
+    shell.isDesktopSideBySideLayout = true;
+    shell.isMobileNavigationLayout = false;
+    app.requestUpdate();
+    await settle(app);
+
+    const collapse = panelToggle(app, "Collapse navigation panel");
+    expect(collapse.closest("header")).not.toBeNull();
+    collapse.focus();
+    collapse.click();
+    await settle(app);
+    const expand = panelToggle(app, "Expand navigation panel");
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    expect(deepActiveElement(document)).toBe(expand);
+    expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")?.hasAttribute("panel-controls")).toBe(true);
+    expand.click();
+    await settle(app);
+    expect(deepActiveElement(document)).toBe(panelToggle(app, "Collapse navigation panel"));
+    expect(panelToggle(app, "Collapse navigation panel").getAttribute("aria-expanded")).toBe("true");
+    for (const edge of app.shadowRoot?.querySelectorAll("app-panel-edge-control") ?? []) {
+      expect(edge.shadowRoot?.querySelector("button")).toBeNull();
+      expect(edge.shadowRoot?.querySelector('[role="separator"]')).not.toBeNull();
+    }
+  });
+
   it("reactively filters navigation at both layout boundaries without losing hidden pins", async () => {
     let width = 1181;
     const originalMatchMedia = window.matchMedia.bind(window);
@@ -105,7 +376,7 @@ describe("application rendering boundaries", () => {
     });
     const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView: "chat" }, () => html`<p>Tool</p>`);
     await settle(app);
-    app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="打开导航"]')?.click();
+    app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Navigation"]')?.click();
     await settle(app);
     const dialog = app.shadowRoot?.querySelector<NavigationDialog>("navigation-dialog");
     if (dialog == null) throw new Error("Expected open navigation");
@@ -123,7 +394,7 @@ describe("application rendering boundaries", () => {
     expect(destinations()).toEqual(["render-test:panel"]);
     expect(dialog.selectedTab).toBe("render-test:panel");
     expect(dialog.shadowRoot?.querySelector('.destination-button[aria-pressed="true"]')?.textContent).toBe("Test");
-    expect(tabIds()).not.toContain("聊天");
+    expect(tabIds()).not.toContain("Chat");
     expect(dialog.pinUniverse).toEqual(["navigation", "chat", "render-test:panel"]);
     for (const [next, expected] of [
       [1180, ["chat", "render-test:panel"]],
@@ -135,8 +406,8 @@ describe("application rendering boundaries", () => {
       await resize(next);
       expect(destinations()).toEqual(expected);
       expect(dialog.selectedTab).toBe(next > 1180 ? "render-test:panel" : "chat");
-      const labels: Record<string, string> = { navigation: "会话", chat: "聊天", "render-test:panel": "Test" };
-      expect(tabIds()).toEqual([...expected.map((id) => labels[id]), "打开导航"]);
+      const labels: Record<string, string> = { navigation: "Sessions", chat: "Chat", "render-test:panel": "Test" };
+      expect(tabIds()).toEqual([...expected.map((id) => labels[id]), "Navigation"]);
       expect(loadNavigationPreferences().pinnedIds).toEqual([]);
     }
     const search = dialog.shadowRoot?.querySelector("input");
@@ -144,23 +415,23 @@ describe("application rendering boundaries", () => {
     search.value = "Test";
     search.dispatchEvent(new Event("input", { bubbles: true }));
     await settle(app);
-    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="取消固定：Test"]')?.click();
+    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Unpin Test"]')?.click();
     await settle(app);
     expect(loadNavigationPreferences().pinnedIds).toEqual(["navigation", "chat"]);
     await resize(760);
     expect(loadNavigationPreferences().pinnedIds).toEqual(["navigation", "chat"]);
-    expect(tabIds()).toEqual(["会话", "聊天", "打开导航"]);
+    expect(tabIds()).toEqual(["Sessions", "Chat", "Navigation"]);
     search.value = "";
     search.dispatchEvent(new Event("input", { bubbles: true }));
     await settle(app);
-    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="取消固定：聊天"]')?.click();
+    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Unpin Chat"]')?.click();
     await settle(app);
     await resize(1181);
-    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="固定：Test"]')?.click();
+    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Pin Test"]')?.click();
     await settle(app);
     expect(loadNavigationPreferences().pinnedIds).toEqual(["navigation", "render-test:panel"]);
     await resize(760);
-    expect(tabIds()).toEqual(["会话", "Test", "打开导航"]);
+    expect(tabIds()).toEqual(["Sessions", "Test", "Navigation"]);
   });
   it.each([
     { mobile: true, desktop: false, view: "chat", pins: ["navigation"], selected: true },
@@ -177,7 +448,7 @@ describe("application rendering boundaries", () => {
     shell.isDesktopSideBySideLayout = desktop;
     app.requestUpdate();
     await settle(app);
-    const menu = app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector('button[aria-label="打开导航"]');
+    const menu = app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector('button[aria-label="Navigation"]');
     expect(menu).not.toBeNull();
     expect(menu?.classList.contains("selected")).toBe(selected);
   });
@@ -198,10 +469,10 @@ describe("application rendering boundaries", () => {
       app.requestUpdate();
       await settle(app);
       const panel = app.shadowRoot?.querySelector("workspace-panel");
-      expect(panel?.shadowRoot?.textContent).toContain(`工作区面板不可用：${tool}`);
+      expect(panel?.shadowRoot?.textContent).toContain(`Workspace panel unavailable: ${tool}`);
       expect(panel?.shadowRoot?.querySelector(".panel-content")).toBeNull();
       const surface = app.shadowRoot?.querySelector(desktop ? "workspace-panel" : collapsed ? "app-context-bar" : "app-mobile-main-tabs");
-      const menu = surface?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="打开导航"]');
+      const menu = surface?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Navigation"]');
       expect(menu).not.toBeNull();
       expect(menu?.classList.contains("selected")).toBe(false);
       expect(surface?.shadowRoot?.querySelector('button[aria-pressed="true"]')).toBeNull();
@@ -225,19 +496,19 @@ describe("application rendering boundaries", () => {
     shell.isMobileNavigationLayout = true;
     app.requestUpdate();
     await settle(app);
-    const menu = app.shadowRoot?.querySelector("app-context-bar")?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="打开导航"]');
+    const menu = app.shadowRoot?.querySelector("app-context-bar")?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Navigation"]');
     expect(menu?.classList.contains("selected")).toBe(true);
     menu?.click();
     await settle(app);
     const dialog = app.shadowRoot?.querySelector<NavigationDialog>("navigation-dialog");
     expect(dialog?.selectedTab).toBe(mainView === "workspace" ? "render-test:panel" : "chat");
-    expect(dialog?.shadowRoot?.querySelector('.destination-button[aria-pressed="true"]')?.textContent).toBe(mainView === "workspace" ? "Test" : "聊天");
+    expect(dialog?.shadowRoot?.querySelector('.destination-button[aria-pressed="true"]')?.textContent).toBe(mainView === "workspace" ? "Test" : "Chat");
   });
 
   it("selects workspace tools from Navigation without confusing tool IDs with views", async () => {
     const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView: "chat" }, () => html`<p>Tool content</p>`);
     await settle(app);
-    app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="打开导航"]')?.click();
+    app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Navigation"]')?.click();
     await settle(app);
     const dialog = app.shadowRoot?.querySelector<NavigationDialog>("navigation-dialog");
     const tool = [...dialog?.shadowRoot?.querySelectorAll<HTMLButtonElement>(".destination-button") ?? []].find((button) => button.textContent === "Test");
@@ -258,9 +529,9 @@ describe("application rendering boundaries", () => {
     await settle(app);
     const palette = app.shadowRoot?.querySelector<ActionPalette>("action-palette");
     const action = palette?.actions.find((candidate) => candidate.id === "app.navigation.open");
-    expect(action?.title).toBe("打开导航");
+    expect(action?.title).toBe("Open Navigation");
     expect(action?.shortcut).toBe("mod+shift+n");
-    const button = [...palette?.shadowRoot?.querySelectorAll<HTMLButtonElement>(".options button") ?? []].find((candidate) => candidate.textContent.includes("打开导航"));
+    const button = [...palette?.shadowRoot?.querySelectorAll<HTMLButtonElement>(".options button") ?? []].find((candidate) => candidate.textContent.includes("Open Navigation"));
     expect(button).toBeDefined();
     button?.click();
     await settle(app);
@@ -275,35 +546,39 @@ describe("application rendering boundaries", () => {
   });
   it("updates both tab surfaces from pin controls without changing selected content, and reloads preferences", async () => {
     const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], workspaceTool: "render-test:panel", mainView: "workspace" }, () => html`<p>Selected tool content</p>`);
+    const shell: unknown = Reflect.get(app, "appShell");
+    if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
+    shell.isDesktopSideBySideLayout = true;
+    app.requestUpdate();
     await settle(app);
     const workspacePanel = app.shadowRoot?.querySelector("workspace-panel");
-    const open = workspacePanel?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="打开导航"]');
+    const open = workspacePanel?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Navigation"]');
     expect(open).not.toBeNull();
-    expect(workspacePanel?.shadowRoot?.querySelector("header > button:last-child")).toBe(open);
+    expect(open?.closest("header")).not.toBeNull();
     expect(open?.querySelector("svg")).not.toBeNull();
     expect(open?.classList.contains("selected")).toBe(false);
     const tabStrip = app.shadowRoot?.querySelector("app-mobile-main-tabs");
-    expect(tabStrip?.shadowRoot?.querySelector(".mobile-tabs > button:last-child")?.getAttribute("aria-label")).toBe("打开导航");
-    expect(tabStrip?.shadowRoot?.querySelector('button[aria-label="打开导航"]')?.classList.contains("selected")).toBe(false);
+    expect(tabStrip?.shadowRoot?.querySelector(".mobile-tabs > button:last-child")?.getAttribute("aria-label")).toBe("Navigation");
+    expect(tabStrip?.shadowRoot?.querySelector('button[aria-label="Navigation"]')?.classList.contains("selected")).toBe(false);
     open?.click();
     await settle(app);
     const dialog = app.shadowRoot?.querySelector("navigation-dialog");
     if (!(dialog instanceof NavigationDialog)) throw new Error("Expected Navigation dialog");
-    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="取消固定：Test"]')?.click();
+    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Unpin Test"]')?.click();
     await settle(app);
     expect(open?.classList.contains("selected")).toBe(true);
-    expect(tabStrip?.shadowRoot?.querySelector('button[aria-label="打开导航"]')?.classList.contains("selected")).toBe(true);
+    expect(tabStrip?.shadowRoot?.querySelector('button[aria-label="Navigation"]')?.classList.contains("selected")).toBe(true);
     expect(open?.hasAttribute("aria-expanded")).toBe(false);
-    expect(open?.getAttribute("aria-label")).toBe("打开导航");
+    expect(open?.getAttribute("aria-label")).toBe("Navigation");
     expect(workspacePanel?.shadowRoot?.querySelector('button[title="Test"]')).toBeNull();
     expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector('button[title="Test"]')).toBeNull();
     expect(workspacePanel?.shadowRoot?.querySelector(".panel-content")?.textContent).toContain("Selected tool content");
     expect(loadNavigationPreferences().pinnedIds).toEqual(["navigation", "chat"]);
-    expect(dialog.shadowRoot?.querySelector('button[aria-label="固定：Test"]')).not.toBeNull();
-    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="固定：Test"]')?.click();
+    expect(dialog.shadowRoot?.querySelector('button[aria-label="Pin Test"]')).not.toBeNull();
+    dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Pin Test"]')?.click();
     await settle(app);
     expect(open?.classList.contains("selected")).toBe(false);
-    expect(tabStrip?.shadowRoot?.querySelector('button[aria-label="打开导航"]')?.classList.contains("selected")).toBe(false);
+    expect(tabStrip?.shadowRoot?.querySelector('button[aria-label="Navigation"]')?.classList.contains("selected")).toBe(false);
     expect(workspacePanel?.shadowRoot?.querySelector('button[title="Test"]')?.classList.contains("selected")).toBe(true);
     expect(workspacePanel?.shadowRoot?.querySelector(".panel-content")?.textContent).toContain("Selected tool content");
     document.body.replaceChildren();
@@ -314,49 +589,74 @@ describe("application rendering boundaries", () => {
 
   it("collapses only the mobile tab bar, keeping breadcrumbs and separate Navigation and Actions controls", async () => {
     saveNavigationPreferences({ pinnedIds: [], mobileCollapsed: true });
-    const app = await mountApp({});
-    const shell: unknown = Reflect.get(app, "appShell");
-    if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
-    shell.isMobileNavigationLayout = true;
-    app.requestUpdate();
-    await settle(app);
+    const { app } = await mountMobileNavigationApp({
+      selectedProject: { id: "project", name: "Project", path: "/repo", createdAt: "now" },
+      selectedWorkspace: workspace, selectedSession: session, mainView: "navigation",
+    });
     expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).toBeNull();
     const context = app.shadowRoot?.querySelector("app-context-bar");
-    expect(context?.shadowRoot?.querySelectorAll(".context-item")).toHaveLength(4);
-    const controls = [...context?.shadowRoot?.querySelectorAll<HTMLButtonElement>(".context-actions button") ?? []];
-    expect(controls.map((button) => button.getAttribute("aria-label") ?? button.textContent.trim())).toEqual(["打开导航", "显示操作"]);
-    expect(controls[0]?.classList.contains("selected")).toBe(true);
-    controls[0]?.focus();
-    controls[0]?.click();
+    expect(context?.shadowRoot?.querySelector('nav[aria-label="Current location"]')).not.toBeNull();
+    for (const [kind, label] of [["Project", "Project"], ["Workspace", "main"], ["Session", "Current chat"]] as const) {
+      expect(context?.shadowRoot?.querySelector(`button[aria-label^="${kind}:"]`)?.textContent).toContain(label);
+    }
+    const navigation = namedButton(context?.shadowRoot, "Navigation");
+    const actions = namedButton(context?.shadowRoot, "Show Actions");
+    expect(navigation).not.toBe(actions);
+    expect(navigation.classList.contains("selected")).toBe(true);
+    navigation.click();
     await settle(app);
     const dialog = app.shadowRoot?.querySelector("navigation-dialog");
-    expect(dialog?.shadowRoot?.textContent).toContain("聊天");
-    dialog?.shadowRoot?.querySelector<HTMLButtonElement>(".mobile-navigation button:first-child")?.click();
+    expect(dialog).toBeInstanceOf(NavigationDialog);
+    namedButton(dialog?.shadowRoot, "Expanded").click();
     await settle(app);
-    expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).not.toBeNull();
-    expect(context?.shadowRoot?.querySelector('button[aria-label="打开导航"]')).toBeNull();
     const tabStrip = app.shadowRoot?.querySelector("app-mobile-main-tabs");
-    const hamburger = tabStrip?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="打开导航"]');
-    expect(hamburger?.querySelector("svg")).not.toBeNull();
-    expect(hamburger?.classList.contains("selected")).toBe(false);
-    expect(tabStrip?.shadowRoot?.querySelector(".mobile-tabs > button:last-child")).toBe(hamburger);
-    dialog?.shadowRoot?.querySelector<HTMLButtonElement>("header button")?.click();
-    await settle(app);
-    expect(deepActiveElement(document)).toBe(hamburger);
-    hamburger?.click();
-    await settle(app);
-    const reopenedDialog = app.shadowRoot?.querySelector("navigation-dialog");
-    expect(reopenedDialog).not.toBeNull();
+    expect(tabStrip).not.toBeNull();
+    expect(context?.shadowRoot?.querySelector('button[aria-label="Navigation"]')).toBeNull();
+    expect(namedButton(tabStrip?.shadowRoot, "Navigation").classList.contains("selected")).toBe(false);
     expect(loadNavigationPreferences()).toEqual({ pinnedIds: [], mobileCollapsed: false });
+  });
 
-    // A resize must invalidate the guarded tab surface even with collapse enabled.
-    reopenedDialog?.shadowRoot?.querySelector<HTMLButtonElement>(".mobile-navigation button:last-child")?.click();
+  it("restores focus to the replacement Navigation control after expanding mobile tabs", async () => {
+    saveNavigationPreferences({ pinnedIds: [], mobileCollapsed: true });
+    const { app } = await mountMobileNavigationApp();
+    const navigation = namedButton(app.shadowRoot?.querySelector("app-context-bar")?.shadowRoot, "Navigation");
+    navigation.focus();
+    navigation.click();
     await settle(app);
+    const dialog = app.shadowRoot?.querySelector("navigation-dialog");
+    namedButton(dialog?.shadowRoot, "Expanded").click();
+    await settle(app);
+    const replacement = namedButton(app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot, "Navigation");
+    expect(navigation.isConnected).toBe(false);
+    namedButton(dialog?.shadowRoot, "Close").click();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("navigation-dialog")).toBeNull();
+    expect(deepActiveElement(document)).toBe(replacement);
+    replacement.click();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("navigation-dialog")).toBeInstanceOf(NavigationDialog);
+  });
+
+  it("restores tabs outside the mobile layout without losing the mobile collapse preference", async () => {
+    saveNavigationPreferences({ pinnedIds: [], mobileCollapsed: false });
+    const { app, shell } = await mountMobileNavigationApp();
+    namedButton(app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot, "Navigation").click();
+    await settle(app);
+    namedButton(app.shadowRoot?.querySelector("navigation-dialog")?.shadowRoot, "Collapsed").click();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).toBeNull();
+    expect(loadNavigationPreferences().mobileCollapsed).toBe(true);
+
     shell.isMobileNavigationLayout = false;
     app.requestUpdate();
     await settle(app);
     expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).not.toBeNull();
     expect(loadNavigationPreferences().mobileCollapsed).toBe(true);
+
+    shell.isMobileNavigationLayout = true;
+    app.requestUpdate();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).toBeNull();
   });
 
   it("composes transcript, composer, and status under one conversation boundary", async () => {
@@ -370,12 +670,102 @@ describe("application rendering boundaries", () => {
     expect(layout?.querySelector('[slot="composer"] prompt-editor')).toBe(promptEditor(app));
     expect(layout?.querySelector('[slot="status"]')).toBeInstanceOf(StatusBar);
     await layout?.updateComplete;
-    expect(layout?.shadowRoot?.querySelector(".activity-text")?.textContent).toBe(t("ui.chatView.running", "Running"));
+    expect(layout?.shadowRoot?.querySelector(".activity-text")?.textContent).toBe("running");
   });
 
+  it("updates the cross-instance alert, accessible name and dismissal control live in both pseudo modes", async () => {
+    const app = await mountApp({ selectedSession: session, status: { ...sessionStatus(session.id), recentlyActiveElsewhere: true } });
+    await settle(app);
+    const editor = promptEditor(app);
+    const notice = app.shadowRoot?.querySelector(".composer-activity-notice");
+    if (notice == null) throw new Error("Missing activity alert");
+    const button = notice.querySelector("button");
+    if (button == null) throw new Error("Missing acknowledgement button");
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      await settle(app);
+      expect(notice.getAttribute("aria-label")).toBe(appFeedbackMessages.t("activityLabel"));
+      expect(notice.querySelector("p")?.textContent).toBe(appFeedbackMessages.t("activityNotice"));
+      expect(button.textContent).toBe(appFeedbackMessages.t("dismissActivity"));
+      expect(button.textContent).not.toBe("Dismiss and continue");
+      expect(editor.disabled).toBe(true);
+    }
+    button.click();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector(".composer-activity-notice")).toBeNull();
+    expect(editor.disabled).toBe(false);
+  });
 
+  it("updates deferred conversation-loading guidance live without mounting the transcript", async () => {
+    manualAnimationFrames();
+    const app = new RenderOnlyApp();
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(controller instanceof SessionController)) throw new Error("Missing sessions");
+    vi.spyOn(controller, "isChatLoadDeferred", "get").mockReturnValue(true);
+    patchState(app, { selectedWorkspace: workspace, selectedSession: session, mainView: "chat" });
+    document.body.append(app);
+    await settle(app);
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      await settle(app);
+      expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe(appFeedbackMessages.t("loadingConversation"));
+      expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).not.toBe("Loading conversation…");
+      expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    }
+  });
 
+  it("keeps the activity notice in the blocked composer until dismissal without losing drafts or attachments", async () => {
+    const send = vi.spyOn(SessionController.prototype, "send").mockResolvedValue(true);
+    const key = machineSessionKey("local", session.id);
+    saveDraft(key, "Unsent draft");
+    saveStagedAttachments(key, [{ id: "file", kind: "file", name: "notes.txt", mimeType: "text/plain", data: "aGk=", size: 2 }]);
+    const app = await mountApp({ selectedSession: session, status: sessionStatus(session.id) });
+    await settle(app);
+    const editor = promptEditor(app);
+    expect(editor.disabled).toBe(false);
 
+    patchState(app, { status: { ...sessionStatus(session.id, [{ severity: "warning", message: "Ordinary runtime warning" }]), recentlyActiveElsewhere: true } });
+    await settle(app);
+    const notice = app.shadowRoot?.querySelector(".composer-activity-notice");
+    expect(notice?.getAttribute("role")).toBe("alert");
+    expect(notice?.textContent).toContain("Recently active in another PI-WEB instance");
+    expect(notice?.parentElement).toBe(editor.parentElement);
+    expect(editor.parentElement?.classList.contains("composer-area")).toBe(true);
+    expect(notice?.previousElementSibling).toBe(editor);
+    expect(editor.hasAttribute("inert")).toBe(true);
+    expect(editor.disabled).toBe(true);
+    expect(editor.view?.contentDOM.getAttribute("contenteditable")).toBe("false");
+    const sendButton = editor.shadowRoot?.querySelector<HTMLButtonElement>(".send-button");
+    expect(sendButton?.disabled).toBe(true);
+    sendButton?.click();
+    editor.view?.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true, composed: true }));
+    expect(send).not.toHaveBeenCalled();
+
+    const chat = app.shadowRoot?.querySelector("chat-view");
+    expect(chat?.hasAttribute("inert")).toBe(false);
+    expect(chat?.shadowRoot?.textContent).not.toContain("Recently active in another PI-WEB instance");
+    expect(chat?.shadowRoot?.textContent).toContain("Ordinary runtime warning");
+    const statusBar = app.shadowRoot?.querySelector<StatusBar>("status-bar");
+    expect(statusBar?.warningCount).toBe(1);
+    statusBar?.shadowRoot?.querySelector<HTMLButtonElement>(".warning-toggle")?.click();
+    await settle(app);
+    expect(chat?.shadowRoot?.textContent).not.toContain("Ordinary runtime warning");
+    expect(app.shadowRoot?.querySelector(".composer-activity-notice")).toBe(notice);
+    expect(editor.disabled).toBe(true);
+
+    dismissActivityNotice(app);
+    await settle(app);
+    expect(app.shadowRoot?.querySelector(".composer-activity-notice")).toBeNull();
+    expect(promptEditor(app)).toBe(editor);
+    expect(editor.hasAttribute("inert")).toBe(false);
+    expect(editor.disabled).toBe(false);
+    expect(editor.view?.contentDOM.getAttribute("contenteditable")).toBe("true");
+    expect(editor.view?.state.doc.toString()).toBe("Unsent draft");
+    expect(editor.shadowRoot?.querySelector(".attachments")?.textContent).toContain("notes.txt");
+    expect(deepActiveElement(document)).toBe(editor.view?.contentDOM);
+    sendButton?.click();
+    expect(send).toHaveBeenCalledOnce();
+  });
 
   it("does not update the selected chat for unrelated shell state, but does update its transcript", async () => {
     const app = await mountApp({ selectedSession: session, sessions: [session], messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }] });
@@ -555,7 +945,7 @@ describe("application rendering boundaries", () => {
     await settle(app);
     const previousContext = context;
     const url = window.location.href;
-    const chat = app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector<HTMLButtonElement>('button[title="聊天"]');
+    const chat = app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot?.querySelector<HTMLButtonElement>('button[title="Chat"]');
     if (chat === undefined || chat === null) throw new Error("Expected Chat tab");
     chat.click();
     await settle(app);
@@ -664,10 +1054,10 @@ describe("application rendering boundaries", () => {
   it("updates the workspace empty state as project loading completes", async () => {
     const app = await mountApp({ isLoadingProjects: true });
     await settle(app);
-    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("正在加载项目");
+    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("Loading projects");
     patchState(app, { isLoadingProjects: false });
     await settle(app);
-    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("还没有项目");
+    expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("No projects");
   });
 });
 
@@ -700,11 +1090,8 @@ it.each([false, true])("hides only folder workspace UI and retains its workspace
   app.requestUpdate();
   await settle(app);
   const navigation = () => app.shadowRoot?.querySelector("app-navigation-panel");
-  const workspaceLabel = t("ui.appContextBar.workspaceOpenWorkspaceSelection", "Workspace: {workspaceLabel}. Open workspace selection.", {
-    workspaceLabel: `${workspace.label}${t("ui.appContextBar.mainWorkspace", " · Main workspace")} · /repo/subdir`,
-  });
   const workspaceChip = () => [...app.shadowRoot?.querySelector("app-context-bar")?.shadowRoot?.querySelectorAll("button") ?? []]
-    .find((button) => button.getAttribute("aria-label") === workspaceLabel);
+    .find((button) => button.querySelector(".context-kind")?.textContent === "Workspace");
   expect(navigation()?.shadowRoot?.querySelector("workspace-list")).toBeNull();
   if (mobile) expect(workspaceChip()).toBeUndefined();
   expect(app.shadowRoot?.querySelector("workspace-panel")?.shadowRoot?.textContent).toContain("/repo/subdir");
@@ -716,6 +1103,44 @@ it.each([false, true])("hides only folder workspace UI and retains its workspace
     if (mobile) expect(workspaceChip()).toBeDefined();
   }
 });
+
+it("applies the quiet-mode gateway setting to the rendered transcript", async () => {
+  const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], selectedSession: session, sessions: [session], mainView: "chat" });
+  await settle(app);
+  const chat = (): ChatView | null | undefined => app.shadowRoot?.querySelector("chat-view");
+  expect(chat()).toBeInstanceOf(ChatView);
+  expect(chat()?.quietMode).toBe(false);
+
+  vi.spyOn(configApi, "config").mockResolvedValue(configResponse({ quietMode: true }));
+  const loadConfig: unknown = Reflect.get(app, "loadClientConfig");
+  if (typeof loadConfig !== "function") throw new Error("Expected loadClientConfig");
+  await Reflect.apply(loadConfig, app, []);
+  await settle(app);
+  expect(chat()?.quietMode).toBe(true);
+
+  patchState(app, { selectedSession: { ...session, id: "another-session" } });
+  await settle(app);
+  expect(chat()?.quietMode).toBe(true);
+});
+
+function namedButton(root: ParentNode | null | undefined, name: string): HTMLButtonElement {
+  const button = [...root?.querySelectorAll<HTMLButtonElement>("button") ?? []]
+    .find((candidate) => (candidate.getAttribute("aria-label") ?? candidate.textContent.trim()) === name);
+  if (button === undefined) throw new Error(`Expected button: ${name}`);
+  return button;
+}
+
+async function mountMobileNavigationApp(patch: Partial<AppState> = {}) {
+  const app = new RenderOnlyApp();
+  patchState(app, patch);
+  const shell: unknown = Reflect.get(app, "appShell");
+  if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
+  shell.isDesktopSideBySideLayout = false;
+  shell.isMobileNavigationLayout = true;
+  document.body.append(app);
+  await settle(app);
+  return { app, shell };
+}
 
 async function mountApp(patch: Partial<AppState>, panelRender?: (context: WorkspacePanelContext) => ReturnType<typeof html>, label?: () => string): Promise<RenderOnlyApp> {
   const app = new RenderOnlyApp();
@@ -836,7 +1261,7 @@ it.each([true, false])("lets the list paint before loading visible restored Chat
       app.requestUpdate();
       await settle(app);
     }
-    expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe(t("ui.piWebApp.loadingConversation", "Loading conversation..."));
+    expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe(appFeedbackMessages.t("loadingConversation"));
     runFrame();
     await settle(app);
     // rAF callbacks run before paint: the first frame must not begin Chat work.
@@ -922,4 +1347,11 @@ function manualAnimationFrames(): () => void {
     frames.clear();
     for (const callback of pending) callback(0);
   };
+}
+
+function dismissActivityNotice(app: PiWebApp): void {
+  const button = app.shadowRoot?.querySelector<HTMLButtonElement>(".composer-activity-notice button");
+  if (button == null) throw new Error("Expected activity notice dismissal");
+  expect(button.textContent).toBe("Dismiss and continue");
+  button.click();
 }

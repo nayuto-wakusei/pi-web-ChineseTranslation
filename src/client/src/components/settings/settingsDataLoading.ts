@@ -10,11 +10,13 @@ export interface GatewaySettingsLoaders {
 export interface GatewaySettingsLoadResult {
   config?: PiWebConfigResponse;
   plugins?: PiWebPluginsResponse;
+  failure?: { config?: string; plugins?: string };
   error: string;
 }
 
 export interface PiPackagesLoadResult {
   packagesResponse?: PiPackagesResponse;
+  failure?: string;
   error: string;
   skipped?: boolean;
 }
@@ -25,10 +27,18 @@ export async function loadGatewaySettingsData(loaders: GatewaySettingsLoaders): 
   const errors: string[] = [];
 
   if (config.status === "fulfilled") result.config = config.value;
-  else errors.push(t("ui.settingsDataLoading.configuration", "Configuration: {reason}", { reason: errorMessage(config.reason) }));
+  else {
+    const diagnostic = errorMessage(config.reason);
+    result.failure = { config: diagnostic };
+    errors.push(`config: ${diagnostic}`);
+  }
 
   if (plugins.status === "fulfilled") result.plugins = plugins.value;
-  else errors.push(t("ui.settingsDataLoading.piWebPlugins", "PI WEB plugins: {reason}", { reason: errorMessage(plugins.reason) }));
+  else {
+    const diagnostic = errorMessage(plugins.reason);
+    result.failure = { ...result.failure, plugins: diagnostic };
+    errors.push(`PI WEB plugins: ${diagnostic}`);
+  }
 
   if (errors.length > 0) result.error = t("ui.settingsDataLoading.failedToLoadSettings", "Failed to load settings: {join}", { join: errors.join("；") });
   return result;
@@ -42,7 +52,8 @@ export async function loadPiPackagesData(target: PiPackageTargetContext, loadPac
   try {
     return { packagesResponse: await loadPackages(target.id), error: "" };
   } catch (error) {
-    return { error: t("ui.settingsDataLoading.failedToLoadPiPackagesFrom", "Failed to load Pi packages from {piPackageTargetLabeltarget}: {value2}", { piPackageTargetLabeltarget: piPackageTargetLabel(target), value2: friendlyPiPackageErrorMessage(errorMessage(error), target) }) };
+    const diagnostic = errorMessage(error);
+    return { failure: diagnostic, error: `Failed to load Pi packages from ${piPackageTargetLabel(target)}: ${friendlyPiPackageErrorMessage(diagnostic, target)}` };
   }
 }
 

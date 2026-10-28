@@ -125,11 +125,11 @@ describe("PiWebApp workspace deletion polling ownership", () => {
       .mockResolvedValue(undefined);
     const errors: unknown = Reflect.get(app, "browserErrors");
     if (!(errors instanceof BrowserErrorReporter)) throw new Error("Browser error reporter is unavailable");
-    const report = vi.spyOn(errors, "report").mockImplementation(() => undefined);
+    const report = vi.spyOn(errors, "reportLocalized").mockImplementation(() => undefined);
     vi.spyOn(errors, "discard").mockImplementation(() => undefined);
     await call(app, "refreshWorkspaceDeletionRuns");
     expect(reconcile).toHaveBeenCalledOnce();
-    expect(report.mock.calls[0]?.[1]).toContain("正在重试");
+    expect(report.mock.calls[0]?.[1]()).toContain("Retrying");
     expect(state(app).workspaceDeletionRuns["target"]).toEqual(complete);
     await vi.advanceTimersByTimeAsync(999);
     expect(reconcile).toHaveBeenCalledOnce();

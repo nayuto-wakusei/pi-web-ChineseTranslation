@@ -1,3 +1,4 @@
+import type { ArgumentSummaryPresentation, ChatTextPresentation } from "./chatPresentation";
 import type { AskUserOutcome, AskUserRequest } from "../../shared/apiTypes";
 import type { ImageDimensions, SessionMediaReference } from "../../shared/sessionMedia";
 
@@ -12,6 +13,7 @@ export interface ToolExecutionPart {
   toolCallId?: string;
   toolName: string;
   summary: string;
+  summaryPresentation?: ArgumentSummaryPresentation;
   args?: unknown;
   status: "pending" | "running" | "success" | "error";
   resultText?: string;
@@ -26,7 +28,7 @@ export type ChatImagePart =
   | (SessionMediaReference & { data?: never });
 
 export type ChatPart =
-  | { type: "text"; text: string; displayText?: string }
+  | { type: "text"; text: string; displayText?: string; presentation?: ChatTextPresentation }
   | ChatImagePart
   | { type: "thinking"; text: string; displayText?: string }
   | { type: "skillInvocation"; name: string; location: string; content: string }
@@ -35,7 +37,7 @@ export type ChatPart =
   | { type: "askUserRecord"; outcome: AskUserOutcome }
   /** Retain a coalesced result's conversation position without repeating its UI. */
   | { type: "toolResultBoundary"; toolCallId?: string }
-  | { type: "toolCall"; toolCallId?: string; toolName: string; summary: string; args?: unknown }
+  | { type: "toolCall"; toolCallId?: string; toolName: string; summary: string; summaryPresentation?: ArgumentSummaryPresentation; args?: unknown }
   | ToolExecutionPart
   | { type: "toolResult"; toolCallId?: string; toolName: string; text: string; isError: boolean; content?: unknown; details?: unknown }
   | { type: "empty" };

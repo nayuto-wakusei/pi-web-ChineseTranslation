@@ -58,7 +58,7 @@ describe("staged validation planning", () => {
 
   it("adds tests for repository assets that are read dynamically", () => {
     const plan = createValidationPlan([
-      "docker/internal/image/install-opensuse-base",
+      "docker/internal/image/install-ubuntu-base",
       "pi-web-plugins/updates/updatesLogic.ts",
     ], { pathExists: () => true });
 
@@ -86,7 +86,7 @@ describe("staged validation planning", () => {
     expect(plan.lint).toEqual({ mode: "skip", files: [] });
     expect(plan.tests).toEqual({ mode: "related", files: ["plugin-api.d.ts", "server-plugin-api.d.ts"] });
   });
-  it("runs only the affected full validator when its configuration changes", () => {
+  it("runs full validators for changed configuration or oversized source argument lists", () => {
     const eslintPlan = createValidationPlan(["eslint.config.js"], { pathExists: () => true });
     expect(eslintPlan.lint).toEqual({ mode: "full", files: [] });
     expect(eslintPlan.tests).toEqual({ mode: "skip", files: [] });
@@ -102,6 +102,10 @@ describe("staged validation planning", () => {
     const typescriptPlan = createValidationPlan(["tsconfig.json"], { pathExists: () => true });
     expect(typescriptPlan.lint).toEqual({ mode: "full", files: [] });
     expect(typescriptPlan.tests).toEqual({ mode: "full", files: [] });
+    const mergePlan = createValidationPlan(Array.from({ length: 800 }, (_, index) => `src/client/src/components/merged-${String(index)}.ts`), { pathExists: () => true });
+    expect(mergePlan.lint).toEqual({ mode: "full", files: [] });
+    expect(mergePlan.tests).toEqual({ mode: "full", files: [] });
+    expect(createValidationSteps(mergePlan).at(-1)?.npmArgs).toEqual(["test", "--", "--maxWorkers", "1"]);
   });
 
   it("always includes cached typechecking and Knip before scoped checks", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "./capabilities";
-import { parsePiWebComponentStatus, parsePiWebInstallationInfo, parsePiWebRuntimeResponse, parsePiWebVersionResponse } from "./piWebStatusParsing";
+import { parsePiWebComponentStatus, parsePiWebInstallationInfo, parsePiWebRuntimeComponent, parsePiWebRuntimeResponse, parsePiWebVersionResponse } from "./piWebStatusParsing";
 
 describe("PI WEB status parsing", () => {
   it("accepts the upstream v2 profile without local command metadata", () => {
@@ -24,6 +24,18 @@ describe("PI WEB status parsing", () => {
     expect(parsed?.components.web.deprecatedAgentInputs).toEqual([{ source: "config", name: "agent.command" }]);
     expect(parsed?.components.sessiond).not.toHaveProperty("deprecatedAgentInputs");
   });
+  it("preserves optional engine facts and accepts legacy or malformed optional metadata", () => {
+    const legacy = { component: "sessiond", label: "Session daemon", available: true, stale: false, capabilities: [] };
+    for (const parse of [parsePiWebComponentStatus, parsePiWebRuntimeComponent]) {
+      expect(parse(legacy)).not.toHaveProperty("runtime");
+      expect(parse({ ...legacy, runtime: { name: "bun", version: "1.3.0" } })?.runtime)
+        .toEqual({ name: "bun", version: "1.3.0" });
+      const malformed = parse({ ...legacy, runtime: { name: "future", version: false } });
+      expect(malformed).toBeDefined();
+      expect(malformed).not.toHaveProperty("runtime");
+    }
+  });
+
   it("parses known top-level and component capabilities while ignoring unknown strings", () => {
     expect(parsePiWebRuntimeResponse({
       packageName: "@chainingintention/pi-web-cn",

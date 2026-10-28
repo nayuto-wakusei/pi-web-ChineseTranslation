@@ -1,3 +1,5 @@
+import { initializeClientLocalization } from "../../src/client/src/localizationBootstrap";
+import { localization } from "../../src/client/src/localization/browser";
 import type { ManagedAgentsStatus, WorkspaceFilesCapabilityV1 } from "../../src/plugin-api";
 import { stylesheetIntegrationCapability } from "../../src/client/src/plugins/styles";
 import { createWorkspacePanelContext } from "../../src/testSupport/plugin";
@@ -6,12 +8,17 @@ import chinesePlugin from "../../pi-web-plugins/zh-cn/pi-web-plugin";
 import { setTranslator } from "../../pi-web-plugins/files/i18n";
 import { WorkspaceFilesPanel } from "../../pi-web-plugins/files/FilesPanel";
 import { FilesRuntime } from "../../pi-web-plugins/files/FilesRuntime";
+import { createFilesContent } from "../../pi-web-plugins/files/filesLocalization";
+import { createPluginLocalization } from "../../src/client/src/plugins/localization";
 import { html, svg } from "lit";
 import codexPlugin from "../../pi-web-plugins/custom-ui-codex/pi-web-plugin";
 import codexStyles from "../../pi-web-plugins/custom-ui-codex/codex.css?inline";
 import { UiPresentationRuntime } from "../../src/client/src/plugins/uiPresentationRuntime";
 
-const [catalog] = chinesePlugin.activate().contributions.localizations;
+await initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }]));
+await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
+const controller = new AbortController();
+const [catalog] = chinesePlugin.activate({ apiVersion: 5, pluginId: "zh-cn", runtimePluginId: "zh-cn", html, svg, signal: controller.signal, lifetimeSignal: controller.signal }).contributions.localizations;
 if (catalog === undefined) throw new Error("Missing Chinese catalog");
 setTranslator(createTranslator(catalog.locale, catalog.messages));
 customElements.define("fixture-files-panel", WorkspaceFilesPanel);
@@ -41,6 +48,7 @@ const files: WorkspaceFilesCapabilityV1 = {
   },
 };
 const panel = new WorkspaceFilesPanel();
+panel.content = createFilesContent(createPluginLocalization(localization, "files", "fixture-files", controller.signal));
 panel.context = createWorkspacePanelContext({ files, navigation: {
   version: 1, contributionId: "pi-web.files:workspace.files", query: {},
   set: () => undefined,

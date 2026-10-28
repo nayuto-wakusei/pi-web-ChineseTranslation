@@ -2,6 +2,10 @@
 import { html, render, svg } from "lit";
 import { afterEach, expect, it, vi } from "vitest";
 import type { JsonValue, WorkspacePanelContext } from "../../../src/plugin-api.js";
+import { chinesePluginLocalization } from "../../localization.testSupport.js";
+import { beforeEach } from "vitest";
+let localization: Awaited<ReturnType<typeof chinesePluginLocalization>>;
+beforeEach(async () => { localization = await chinesePluginLocalization("git"); });
 import { createGitBrowserContributions } from "./git-panel.js";
 
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); window.history.replaceState({}, "", "/"); });
@@ -12,7 +16,7 @@ it("counts directories in the 500-row budget and reveals a later selection from 
     ? { isGitRepo: true, hash: "large", truncated: true, submodules: [], files: Array.from({ length: 1001 }, (_, index) => ({ path: `dir-${String(index).padStart(4, "0")}/file.ts`, index: "unmodified", workingTree: "modified" })) }
     : { path: "dir-1000/file.ts", staged: false, hash: "diff", diff: "", truncated: false }));
   const mount = document.createElement("div");
-  const panel = createGitBrowserContributions("git", "git", html, svg).workspacePanels?.[0];
+  const panel = createGitBrowserContributions("git", "git", html, svg, () => undefined, localization, () => undefined).workspacePanels?.[0];
   if (panel === undefined) throw new Error("Missing Git panel");
   const context: WorkspacePanelContext = {
     machine: { id: "local", name: "Local", kind: "local" },

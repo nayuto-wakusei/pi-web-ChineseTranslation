@@ -45,7 +45,7 @@ describe("conversation-owned question readiness", () => {
 
     expect(chat(app).historyReady).toBe(true);
     expect(card(app).shadowRoot?.querySelector("form")).not.toBeNull();
-    expect(card(app).shadowRoot?.textContent).toContain("发送回答");
+    expect(card(app).shadowRoot?.textContent).toContain("Send answers");
   });
 
   it("does not reuse readiness for the same session ID on another machine", async () => {

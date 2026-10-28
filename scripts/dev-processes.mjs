@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 
 /** Each development child owns a process group so stopping a watcher also stops its runtime. */
-export function startDevelopmentProcess(entry, args, env, ipc = false, execArgv = []) {
+export function startDevelopmentProcess(entry, args, env, { ipc = false, execArgv = [], cwd } = {}) {
   return spawn(process.execPath, [...execArgv, entry, ...args], {
     env,
+    cwd,
     detached: process.platform !== "win32",
     stdio: ipc ? ["inherit", "inherit", "inherit", "ipc"] : "inherit",
   });

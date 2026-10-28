@@ -3,6 +3,11 @@ import { resolveAppUrl } from "./appUrl";
 import { clientLocale, setClientTranslations, t } from "./i18n";
 import { loadExternalPlugins } from "./plugins/external";
 import type { PiWebPluginRegistration } from "./plugins/types";
+import { localization } from "./localization/browser";
+import { createPluginLocalization } from "./plugins/localization";
+
+let localizationLifetime: AbortController | undefined;
+let unsubscribeLegacyLocale: (() => void) | undefined;
 
 export async function initializeClientLocalization(
   load: () => Promise<PiWebPluginRegistration[]> = async () => (await loadExternalPlugins(
@@ -10,15 +15,30 @@ export async function initializeClientLocalization(
     { shouldLoadPlugin: (entry) => entry.id === "zh-cn" },
   )).registrations,
 ): Promise<void> {
+  localizationLifetime?.abort();
+  unsubscribeLegacyLocale?.();
+  unsubscribeLegacyLocale = undefined;
   setClientTranslations("en", {});
   try {
     const registrations = await load();
     const registration = registrations.find((entry) => entry.id === "zh-cn" && entry.machineId === undefined);
     if (registration !== undefined) {
       const controller = new AbortController();
-      const result = await registration.plugin.activate({ apiVersion: 4, pluginId: registration.id, runtimePluginId: registration.id, html, svg, translate: t, signal: controller.signal, lifetimeSignal: controller.signal });
+      localizationLifetime = controller;
+      const result = await registration.plugin.activate({ apiVersion: 5, pluginId: registration.id, runtimePluginId: registration.id, html, svg, translate: t, localization: createPluginLocalization(localization, registration.id, registration.id, controller.signal), signal: controller.signal, lifetimeSignal: controller.signal });
       const chinese = result.contributions.localizations?.find((entry) => entry.locale === "zh-CN");
-      if (chinese !== undefined) setClientTranslations(chinese.locale, chinese.messages);
+      if (chinese !== undefined) {
+        setClientTranslations(chinese.locale, chinese.messages);
+        unsubscribeLegacyLocale = localization.subscribe(() => {
+          const language = localization.language.toLowerCase().startsWith("zh") ? chinese.locale : "en";
+          if (clientLocale() === language) return;
+          setClientTranslations(language, language === chinese.locale ? chinese.messages : {});
+          if (typeof document !== "undefined") {
+            applyDocumentLocalization(document);
+            document.documentElement.lang = localization.language;
+          }
+        });
+      }
     }
   } catch (error) {
     // An unavailable language pack must not prevent login or use of the application.

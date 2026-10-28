@@ -24,9 +24,8 @@ const codeHighlightOutputDir = resolve(bundledPluginsOutputDir, "code-highlight"
 // separate output roots so neither becomes a discovery root for the other.
 // Files, Terminal, Mermaid, and Code highlighting are exceptions to plain transpilation: each
 // browser entry is replaced below by a self-contained bundle. Terminal also
-// keeps a package-local transpiled server graph. Captain's Log likewise bundles
-// its browser entry after transpiling its standalone package graph. Workflows
-// bundles its server entry against the public host API for standalone delivery.
+// keeps a package-local transpiled server graph. Workflows bundles its server
+// entry against the public host API for standalone delivery.
 const buildTargets = [
   { rootDir: bundledPluginsSourceDir, outDir: bundledPluginsOutputDir, label: "plugin" },
   { rootDir: resolve("pi-packages"), outDir: resolve("dist/pi-packages"), label: "package" },
@@ -65,7 +64,6 @@ async function buildAll() {
       await buildMermaidPackage(mermaidPluginSourceDir, mermaidPluginOutputDir);
       await buildFilesBrowserPackage(codeHighlightSourceDir, codeHighlightOutputDir);
     } else {
-      await buildCaptainsLogBrowserPackage(resolve(target.rootDir, "captains-log"), resolve(target.outDir, "captains-log"));
       await buildWorkflowsServerPackage(resolve(target.rootDir, "workflows"), resolve(target.outDir, "workflows"));
     }
     const suffix = result.transpiled === 1 ? "file" : "files";
@@ -78,14 +76,6 @@ async function buildAll() {
 
 export function filesBrowserBuildConfig(sourceDir, targetDir) {
   return complexBrowserBuildConfig(sourceDir, targetDir);
-}
-
-export async function buildCaptainsLogBrowserPackage(sourceDir, targetDir, buildBrowser = viteBuild) {
-  await buildBrowser({
-    configFile: resolve(sourceDir, "vite.config.mjs"),
-    logLevel: "silent",
-    build: { outDir: resolve(targetDir, "dist/browser") },
-  });
 }
 
 export async function buildWorkflowsServerPackage(sourceDir, targetDir, buildServer = viteBuild) {

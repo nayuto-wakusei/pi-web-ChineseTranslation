@@ -1,3 +1,5 @@
+import { LocalizationController, localization } from "../localization/browser";
+import { projectWorkspaceMessages as messages } from "../projectWorkspaceMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { repeat } from "lit/directives/repeat.js";
@@ -10,7 +12,7 @@ import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { writeClipboardText } from "../clipboard";
 import type { WorkspaceLabelItem } from "../plugins/types";
 import { workspaceActivityFor, workspaceActivityIndicator } from "../workspaceActivity";
-import { canDeleteWorkspace } from "../workspaceDeletion";
+import { canDeleteWorkspace, workspaceRemovalActionLabel } from "../workspaceDeletion";
 import { AnchoredPopupController } from "./anchoredPopup";
 import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } from "./activityBadge";
 import type { KeyboardNavigableSection } from "./navigationFocus";
@@ -36,6 +38,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @property({ attribute: false }) workspaces: Workspace[] = [];
@@ -164,24 +167,24 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   }
 
   private renderHeading() {
-    if (!this.collapsible) return html`<span>${t("bundled.workspace-tasks.workspace.379798", "Workspace")}</span>`;
-    const selectedSummary = this.selected === undefined ? t("ui.workspaceList.noWorkspaceSelected", "No workspace selected") : `${this.selected.label}${this.selected.isMain ? " · main" : ""} · ${this.selected.path}`;
+    if (!this.collapsible) return html`<span>${messages.t("workspaces")}</span>`;
+    const selectedSummary = this.selected === undefined ? messages.t("noWorkspace") : messages.t("workspaceSummary", { label: workspacePrimaryLabel(this.selected), path: this.selected.path });
     const selectedTitle = this.selected?.path ?? selectedSummary;
-    return html`<button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${t("bundled.workspace-tasks.workspace.379798", "Workspace")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.workspaces.length}</small></button>`;
+    return html`<button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${messages.t("workspaces")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${localization.number(this.workspaces.length)}</small></button>`;
   }
 
   private renderActivity(workspace: Workspace): TemplateResult | undefined {
     const flags = this.statusSnapshot?.workspaces[workspace.id];
     const kind = this.statusSnapshot === undefined ? workspaceActivityIndicator(workspaceActivityFor(workspace, this.activities)) : statusActivityKind(flags);
-    const unreadLabel = this.statusSnapshot === undefined ? (this.unreadWorkspaceIds.has(workspace.id) ? t("ui.workspaceList.unreadSessionsInThisWorkspace", "Unread sessions in this workspace") : undefined) : (hasStatusUnread(flags) ? t("ui.workspaceList.unreadSessionsInThisWorkspace", "Unread sessions in this workspace") : undefined);
-    return renderActionActivityIndicator(kind, kind === "terminal" ? t("ui.workspaceList.workspaceTerminalActive", "Workspace terminal active") : t("ui.workspaceList.workspaceActive", "Workspace active"), unreadLabel);
+    const unreadLabel = this.statusSnapshot === undefined ? (this.unreadWorkspaceIds.has(workspace.id) ? messages.t("workspaceUnread") : undefined) : (hasStatusUnread(flags) ? messages.t("workspaceUnread") : undefined);
+    return renderActionActivityIndicator(kind, kind === "terminal" ? messages.t("workspaceTerminal") : messages.t("workspaceActive"), unreadLabel);
   }
 
   private renderWorkspaceMain(label: string, items: WorkspaceLabelItem[], workspace: Workspace): TemplateResult {
     return html`
       <span class="workspace-primary">
         <span class="workspace-primary-label">${label}</span>
-        ${this.isDeleting(workspace) ? html`<span class="workspace-status">${t("ui.workspaceList.deleting", "Deleting…")}</span>` : null}
+        ${this.isDeleting(workspace) ? html`<span class="workspace-status">${messages.t("deleting")}</span>` : null}
       </span>
       ${items.length === 0 ? null : html`
         <small class="workspace-secondary">
@@ -199,8 +202,8 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
       <div class="action-menu">
         <button
           class="ui-button ui-button--icon action-menu-toggle"
-          title="${t("ui.workspaceList.workspaceActionsAndDetails", "Workspace actions and details")}"
-          aria-label=${t("ui.workspaceList.actionsAndDetailsFor", "Actions and details for {label}", { label: label })}
+          title=${messages.t("workspaceActions")}
+          aria-label=${messages.t("detailsFor", { label })}
           aria-expanded=${String(open)}
           aria-controls=${menuId}
           @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(workspace.id, event.currentTarget); }}
@@ -217,15 +220,15 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
 
   private renderWorkspaceActions(workspace: Workspace): TemplateResult {
     const deleting = this.isDeleting(workspace);
-    const actionLabel = workspace.removal?.actionLabel ?? t("client.actions.delete.workspace.1bca7e", "Delete workspace");
+    const actionLabel = workspaceRemovalActionLabel(workspace);
     return html`
       <div class="workspace-menu-actions">
         ${this.onMove === undefined || this.managementMode ? null : html`
-          <button class="ui-button ui-menu-item" data-move ?disabled=${this.workspaces[0]?.id === workspace.id || deleting} @click=${() => { this.onMove?.(workspace, -1); }}>${t("ui.navigation.moveUp", "Move up")}</button>
-          <button class="ui-button ui-menu-item" data-move ?disabled=${this.workspaces.at(-1)?.id === workspace.id || deleting} @click=${() => { this.onMove?.(workspace, 1); }}>${t("ui.navigation.moveDown", "Move down")}</button>
+          <button class="ui-button ui-menu-item" data-move ?disabled=${this.workspaces[0]?.id === workspace.id || deleting} @click=${() => { this.onMove?.(workspace, -1); }}>${messages.t("moveUp")}</button>
+          <button class="ui-button ui-menu-item" data-move ?disabled=${this.workspaces.at(-1)?.id === workspace.id || deleting} @click=${() => { this.onMove?.(workspace, 1); }}>${messages.t("moveDown")}</button>
         `}
         ${this.renderTrustToggle(workspace)}
-        ${canDeleteWorkspace(workspace) ? html`<button class="ui-button ui-menu-item danger" title=${deleting ? t("ui.main.ebea1ecacc2f", "Workspace removal in progress") : actionLabel} ?disabled=${deleting} @click=${() => { this.delete(workspace); }}>${deleting ? t("ui.main.ce9fd54c50a3", "Removing…") : actionLabel}</button>` : null}
+        ${canDeleteWorkspace(workspace) ? html`<button class="ui-button ui-menu-item danger" title=${deleting ? messages.t("removalProgress") : actionLabel} ?disabled=${deleting} @click=${() => { this.delete(workspace); }}>${deleting ? messages.t("removing") : actionLabel}</button>` : null}
       </div>
     `;
   }
@@ -249,9 +252,9 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
               ?disabled=${busy || trust?.trusted === undefined}
               @change=${(event: Event) => { if (event.target instanceof HTMLInputElement) void this.setTrust(workspace, event.target.checked); }}
             />
-            <span>${t("ui.main.28dc9ba9fe2f", "Trusted")}${busy ? "…" : ""}</span>
+            <span>${messages.t("trusted")}${busy ? "…" : ""}</span>
           </label>
-          <a class="workspace-trust-link" id=${helpId} href="https://pi.dev/docs/latest/security" target="_blank" rel="noreferrer">${t("ui.main.4a0d54a22e9b", "Learn about project trust")}</a>
+          <a class="workspace-trust-link" id=${helpId} href="https://pi.dev/docs/latest/security" target="_blank" rel="noreferrer">${messages.t("learnTrust")}</a>
         </div>
         ${trust?.error === undefined ? null : html`<small class="workspace-trust-error" id=${errorId} role="alert">${trust.error}</small>`}
       </div>
@@ -303,20 +306,20 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   }
 
   private renderWorkspaceDetails(label: string, items: WorkspaceLabelItem[], workspace: Workspace): TemplateResult {
-    const branchCopyAction = workspace.branch === undefined ? t("ui.workspaceList.copyWorkspaceLabel", "Copy workspace label") : t("ui.workspaceList.copyBranch", "Copy branch");
+    const branchCopyAction = workspace.branch === undefined ? messages.t("copyLabel") : t("ui.workspaceList.copyBranch", "Copy branch");
     return html`
       <dl class="workspace-menu-details">
         <div class="workspace-detail-row">
-          <dt>${workspace.branch === undefined ? t("bundled.workspace-tasks.workspace.379798", "Workspace") : t("ui.workspaceList.branch", "Branch")}</dt>
+          <dt>${workspace.branch === undefined ? messages.t("workspace") : t("ui.workspaceList.branch", "Branch")}</dt>
           <dd>${label}${this.renderDetailCopyButton(`${workspace.id}:branch`, workspace.branch ?? workspace.label, branchCopyAction)}</dd>
         </div>
         <div class="workspace-detail-row">
-          <dt>${t("bundled.info.path.77e1ea", "Path")}</dt>
-          <dd title=${workspace.path}>${workspace.path}${this.renderDetailCopyButton(`${workspace.id}:path`, workspace.path, t("ui.workspaceList.copyPath", "Copy path"))}</dd>
+          <dt>${messages.t("path")}</dt>
+          <dd title=${workspace.path}><bdi dir="ltr">${workspace.path}</bdi>${this.renderDetailCopyButton(`${workspace.id}:path`, workspace.path, messages.t("copyPath"))}</dd>
         </div>
         ${items.length === 0 ? null : html`
           <div class="workspace-detail-row">
-            <dt>${t("ui.toolExecutionView.details", "Details")}</dt>
+            <dt>${messages.t("details")}</dt>
             <dd><span class="workspace-label">${renderWorkspaceLabelInlineItems(items)}</span></dd>
           </div>
         `}
@@ -326,7 +329,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
 
   private renderDetailCopyButton(key: string, value: string, action: string): TemplateResult {
     const copied = this.copiedDetailKey === key;
-    const label = copied ? t("ui.toolExecutionView.copied", "Copied") : action;
+    const label = copied ? messages.t("copied") : action;
     return html`
       <button type="button" class="ui-button ui-button--compact ui-button--icon detail-copy" title=${label} aria-label=${label} @click=${() => { void this.copyDetail(key, value); }}>
         <span aria-hidden="true">${copied ? "✓" : "⧉"}</span>
@@ -417,7 +420,8 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
 }
 
 function workspacePrimaryLabel(workspace: Workspace): string {
-  return `${workspace.branch ?? workspace.label}${workspace.isMain ? " · main" : ""}`;
+  const label = workspace.branch ?? workspace.label;
+  return workspace.isMain ? messages.t("mainLabel", { label }) : label;
 }
 
 function workspaceMenuId(workspaceId: string): string {

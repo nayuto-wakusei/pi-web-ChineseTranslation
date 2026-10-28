@@ -4,9 +4,6 @@ import { join } from "node:path";
 import { createAssistantMessageEventStream, type AssistantMessage } from "../../piAi.js";
 import { createAgentSession, createEventBus, DefaultResourceLoader, SessionManager, SettingsManager } from "../../piSdk.js";
 import { describe, expect, it, vi } from "vitest";
-import companion from "../../../examples/session-bridge-plugin/src/companion.js";
-import { collectReview } from "../../../examples/session-bridge-plugin/src/reviewRun.js";
-import { reviewPrompt } from "../../../examples/session-bridge-plugin/src/browser/protocol.js";
 import { PI_WEB_HOST_PI_SESSIONS_CAPABILITY } from "../../server-plugin-api.js";
 import { createServerPluginPiSessionsCapabilityFactory } from "../plugins/serverPluginPiSessionsCapability.js";
 import { PiSessionService, type PiSessionRuntime } from "./piSessionService.js";
@@ -65,7 +62,7 @@ describe("hosted package messaging with native Pi", () => {
       cwd: directory, agentDir: directory, settingsManager, eventBus: bus,
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
       agentsFilesOverride: () => ({ agentsFiles: [] }),
-      extensionFactories: [companion, (pi) => {
+      extensionFactories: [(pi) => {
         const current = ++generation;
         pi.on("session_start", () => { pi.events.emit("startup", current); });
         pi.events.on("request", (data) => { pi.events.emit("reply", { data, generation: current }); });
@@ -148,13 +145,9 @@ describe("hosted package messaging with native Pi", () => {
       expect(hub.sessionEvents.flatMap(({ event }) => event.type === "message.end" ? [event.message] : []))
         .toContainEqual(expect.objectContaining({ role: "user" }));
       expect(session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
-      // Exercise the shipped companion after /reload, through a hosted connection.
-      // Completion is captured through native hooks, not inferred from a receipt.
-      const requestId = "11111111-1111-4111-8111-111111111111";
-      await expect(collectReview(connection, requestId, lifetime.signal)).resolves.toBe("Companion work observed");
       connection.close();
       expect(session.messages).toContainEqual(expect.objectContaining({ role: "user", content: [
-        { type: "text", text: reviewPrompt(requestId) },
+        { type: "text", text: "companion work" },
       ] }));
       expect(service.activeCount()).toBe(1);
       await service.prompt(ref, "ordinary user work");

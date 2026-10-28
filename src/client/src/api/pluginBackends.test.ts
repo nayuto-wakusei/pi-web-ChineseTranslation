@@ -3,7 +3,7 @@ import { setApiScope } from "./http";
 import { openPairedPluginBackendChannel as openPluginBackendChannel, requestPairedPluginBackend as requestPluginBackend } from "./pluginBackends";
 import type { PluginPeerChannel } from "../../../plugin-api";
 import { PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES } from "../../../shared/pluginBackendProtocol";
-import { pairedPluginBackendRequestPath, pairedPluginBackendRequestUrl, requestPairedPluginBackend, type PluginBackendRequestTarget } from "./pluginBackends";
+import { pairedPluginBackendRequestPath, pairedPluginBackendRequestUrl, pairedPluginBackendResourceUrl, requestPairedPluginBackend, type PluginBackendRequestTarget } from "./pluginBackends";
 
 const target: PluginBackendRequestTarget = {
   pluginId: "board.tools",
@@ -83,6 +83,9 @@ describe("plugin backend API scope", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://pi.example.test/api/paired-plugin-backends/git/projects/managed/workspaces/main/status?embed=management&token=launch-token",
     );
+    const resource = new URL(pairedPluginBackendResourceUrl({ ...target, scope: "workspace" }, "preview", null));
+    expect(resource.searchParams.get("embed")).toBe("management");
+    expect(resource.searchParams.get("token")).toBe("launch-token");
   });
 });
 

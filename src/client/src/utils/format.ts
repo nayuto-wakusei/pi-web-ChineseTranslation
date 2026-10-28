@@ -1,10 +1,9 @@
+import { localization } from "../localization/browser";
+
 export function formatTokenCount(count: number): string {
-  if (!Number.isFinite(count)) return "0";
-  if (count < 1000) return Math.round(count).toString();
-  if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1_000_000) return `${String(Math.round(count / 1000))}k`;
-  if (count < 10_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  return `${String(Math.round(count / 1_000_000))}M`;
+  return localization.number(Number.isFinite(count) ? count : 0, {
+    notation: "compact", maximumFractionDigits: count >= 1000 && count < 10_000 || count >= 1_000_000 && count < 10_000_000 ? 1 : 0,
+  });
 }
 
 /** Human-readable byte size shared by every workspace file surface. */
@@ -23,7 +22,8 @@ function formatScaledFileSize(value: number): string {
 }
 
 export function formatCost(cost: number): string {
-  if (!Number.isFinite(cost) || cost === 0) return "$0";
-  if (cost < 0.01) return `$${cost.toFixed(4)}`;
-  return `$${cost.toFixed(2)}`;
+  const value = Number.isFinite(cost) ? cost : 0;
+  const digits = value === 0 ? 0 : value < 0.01 ? 4 : 2;
+  // Pi SDK costs are denominated in USD; formatting locale never selects currency.
+  return localization.number(value, { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits });
 }

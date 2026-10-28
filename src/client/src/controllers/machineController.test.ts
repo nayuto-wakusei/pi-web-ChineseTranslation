@@ -5,6 +5,8 @@ import { api, type Machine, type MachineHealth } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { MachineController } from "./machineController";
 import { deferred } from "./sessionController.testSupport";
+import { localization } from "../localization/browser";
+import { machineMessages } from "../machineMessages";
 
 const localMachine: Machine = {
   id: "local",
@@ -76,6 +78,139 @@ describe("MachineController", () => {
     expect(navigateToMachine).not.toHaveBeenCalled();
     expect(state.selectedMachine?.id).toBe(addedMachine.id);
     expect(state.machines).toEqual([localMachine, addedMachine]);
+  });
+
+  it("retains localized machine notices with unchanged remote details and stable dismissal identity", async () => {
+    let state: AppState = { ...initialAppState(), machines: [localMachine, remoteMachine], selectedMachine: remoteMachine };
+    const controller = new MachineController(() => state, (next) => { state = { ...state, ...next }; }, vi.fn(), { loadProjects: vi.fn() });
+    vi.spyOn(api, "machine").mockRejectedValue(new Error("Unchanged remote detail"));
+    await controller.refreshMachineIdentity(remoteMachine.id);
+    const scope = machineBrowserErrorScope(remoteMachine.id);
+    const notice = state.browserErrors[browserErrorScopeKey(scope)];
+    expect(notice?.message).toContain("Unchanged remote detail");
+    const identity = notice?.message;
+    try {
+      await localization.setPreferences({ language: "ar-XB", formatLocale: "en" });
+      expect(notice?.displayMessage?.()).toBe(machineMessages.t("refreshFailed", { error: "Error: Unchanged remote detail" }));
+      expect(notice?.message).toBe(identity);
+      await controller.deleteMachine(localMachine);
+      const blocked = state.browserErrors[browserErrorScopeKey(machineBrowserErrorScope(localMachine.id))];
+      await localization.setPreferences({ language: "en-XA", formatLocale: "en" });
+      expect(blocked?.displayMessage?.()).toBe(machineMessages.t("cannotRemove"));
+    } finally {
+      await localization.setPreferences({ language: "en", formatLocale: "en" });
+    }
+  });
+
+  it("updates or clears a name override without resetting navigation", async () => {
+    const aliased = { ...remoteMachine, nameOverride: "Alias", reportedName: "Old report" };
+    let state: AppState = { ...initialAppState(), machines: [localMachine, aliased], selectedMachine: aliased };
+    const projects = { loadProjects: vi.fn() };
+    const controller = new MachineController(() => state, (patch) => { state = { ...state, ...patch }; }, vi.fn(), projects);
+    const updated = { ...remoteMachine, name: "Reported name" };
+    const response = { ...updated, baseUrl: "https://changed-elsewhere.test", updatedAt: "newer registry revision" };
+    const update = vi.spyOn(api, "updateMachine").mockResolvedValue(response);
+    expect(await controller.updateMachine(remoteMachine.id, "")).toEqual(response);
+    expect(update).toHaveBeenCalledWith(remoteMachine.id, { name: "" });
+    expect(state.selectedMachine).toEqual(updated);
+    expect(state.machines).toEqual([localMachine, updated]);
+    expect(projects.loadProjects).not.toHaveBeenCalled();
+    update.mockRejectedValue(new Error("Could not save"));
+    expect(await controller.updateMachine(remoteMachine.id, "Alias")).toBeUndefined();
+    expect(state.error).toContain("Could not save");
+    expect(state.selectedMachine).toEqual(updated);
+  });
+
+  it("refreshes only the saved machine's identity without navigating", async () => {
+    let state: AppState = { ...initialAppState(), machines: [localMachine, remoteMachine], selectedMachine: localMachine };
+    const renamed = { ...localMachine, name: "Studio" };
+    const read = vi.spyOn(api, "machine").mockResolvedValue(renamed);
+    const projects = { loadProjects: vi.fn() };
+    const controller = new MachineController(() => state, (patch) => { state = { ...state, ...patch }; }, vi.fn(), projects);
+    await controller.refreshMachineIdentity(localMachine.id);
+    expect(read).toHaveBeenCalledExactlyOnceWith(localMachine.id);
+    expect(state.selectedMachine).toEqual(renamed);
+    expect(state.machines).toEqual([renamed, remoteMachine]);
+    expect(projects.loadProjects).not.toHaveBeenCalled();
+  });
+
+  it("refreshes only existing identities and preserves the current selection and connection data", async () => {
+    let state: AppState = { ...initialAppState(), machines: [localMachine, remoteMachine], selectedMachine: localMachine };
+    let resolve!: (machine: Machine) => void;
+    vi.spyOn(api, "machine").mockReturnValue(new Promise((done) => { resolve = done; }));
+    const controller = new MachineController(() => state, (patch) => { state = { ...state, ...patch }; }, vi.fn(), { loadProjects: vi.fn() });
+    const refresh = controller.refreshMachineIdentity(remoteMachine.id);
+    state = { ...state, machines: [localMachine, remoteMachine, addedMachine], selectedMachine: addedMachine };
+    resolve({ ...remoteMachine, name: "Lab", baseUrl: "http://stale.test", updatedAt: "newer registry revision" });
+    await refresh;
+    expect(state.machines).toEqual([localMachine, { ...remoteMachine, name: "Lab" }, addedMachine]);
+    expect(state.selectedMachine).toBe(addedMachine);
+  });
+
+  it("ignores older refresh results and refreshes that overlap a name edit", async () => {
+    let state: AppState = { ...initialAppState(), machines: [remoteMachine], selectedMachine: remoteMachine };
+    let resolveFirst!: (machine: Machine) => void;
+    let resolveSecond!: (machine: Machine) => void;
+    const read = vi.spyOn(api, "machine")
+      .mockReturnValueOnce(new Promise((done) => { resolveFirst = done; }))
+      .mockReturnValueOnce(new Promise((done) => { resolveSecond = done; }));
+    const controller = new MachineController(() => state, (patch) => { state = { ...state, ...patch }; }, vi.fn(), { loadProjects: vi.fn() });
+    const first = controller.refreshMachineIdentity(remoteMachine.id);
+    const second = controller.refreshMachineIdentity(remoteMachine.id);
+    const newer = { ...remoteMachine, name: "Newer" };
+    resolveSecond(newer);
+    await second;
+    resolveFirst(remoteMachine);
+    await first;
+    expect(state.selectedMachine?.name).toBe("Newer");
+
+    let resolveEdit!: (machine: Machine) => void;
+    vi.spyOn(api, "updateMachine").mockReturnValue(new Promise((done) => { resolveEdit = done; }));
+    const edit = controller.updateMachine(remoteMachine.id, "Override");
+    await controller.refreshMachineIdentity(remoteMachine.id);
+    expect(read).toHaveBeenCalledTimes(2);
+    resolveEdit({ ...remoteMachine, name: "Override", nameOverride: "Override" });
+    await edit;
+    expect(state.selectedMachine?.name).toBe("Override");
+  });
+
+  it.each(["response", "failure"])("ignores an older edit %s after a newer edit", async (outcome) => {
+    let state: AppState = { ...initialAppState(), machines: [remoteMachine], selectedMachine: remoteMachine };
+    let rejectFirst!: (error: Error) => void;
+    let resolveFirst!: (machine: Machine) => void;
+    let resolveSecond!: (machine: Machine) => void;
+    vi.spyOn(api, "updateMachine")
+      .mockReturnValueOnce(new Promise((done, reject) => { resolveFirst = done; rejectFirst = reject; }))
+      .mockReturnValueOnce(new Promise((done) => { resolveSecond = done; }));
+    const controller = new MachineController(() => state, (patch) => { state = { ...state, ...patch }; }, vi.fn(), { loadProjects: vi.fn() });
+    const first = controller.updateMachine(remoteMachine.id, "Old");
+    const second = controller.updateMachine(remoteMachine.id, "New");
+    resolveSecond({ ...remoteMachine, name: "New" });
+    await second;
+    if (outcome === "failure") rejectFirst(new Error("stale failure"));
+    else resolveFirst({ ...remoteMachine, name: "Old" });
+    expect(await first).toBeUndefined();
+    expect(state.selectedMachine?.name).toBe("New");
+    expect(state.error).toBe("");
+  });
+
+  it("does not resurrect a deleted machine from an outstanding refresh or edit", async () => {
+    let state: AppState = { ...initialAppState(), machines: [localMachine, remoteMachine], selectedMachine: localMachine };
+    let resolveRefresh!: (machine: Machine) => void;
+    let resolveEdit!: (machine: Machine) => void;
+    vi.spyOn(api, "machine").mockReturnValue(new Promise((done) => { resolveRefresh = done; }));
+    vi.spyOn(api, "updateMachine").mockReturnValue(new Promise((done) => { resolveEdit = done; }));
+    vi.spyOn(api, "deleteMachine").mockResolvedValue({ ok: true });
+    const controller = new MachineController(() => state, (patch) => { state = { ...state, ...patch }; }, vi.fn(), { loadProjects: vi.fn() });
+    const refresh = controller.refreshMachineIdentity(remoteMachine.id);
+    const edit = controller.updateMachine(remoteMachine.id, "Old");
+    await controller.deleteMachine(remoteMachine);
+    resolveRefresh(remoteMachine);
+    resolveEdit({ ...remoteMachine, name: "Old" });
+    await refresh;
+    expect(await edit).toBeUndefined();
+    expect(state.machines).toEqual([localMachine]);
+    expect(state.selectedMachine).toEqual(localMachine);
   });
 
   it("selects a newly added machine and clears stale workspace state", async () => {
@@ -387,7 +522,7 @@ describe("Upstream transport and navigation contracts", () => {
     await controller.deleteMachine(localMachine);
 
     expect(state.error).toBe("A global failure");
-    expect(state.browserErrors[browserErrorScopeKey(machineBrowserErrorScope(localMachine.id))]?.message).toBe("无法移除本地机器。");
+    expect(state.browserErrors[browserErrorScopeKey(machineBrowserErrorScope(localMachine.id))]?.message).toBe("The local machine cannot be removed.");
   });
 
   it("reports refresh failures under the affected machine without overwriting a global error", async () => {

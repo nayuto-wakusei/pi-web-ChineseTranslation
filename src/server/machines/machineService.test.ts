@@ -14,7 +14,7 @@ let service: MachineService;
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "pi-web-machines-test-"));
   storePath = join(tempDir, "machines.json");
-  service = new MachineService(new MachineStore(storePath));
+  service = new MachineService(new MachineStore(storePath), { localName: () => undefined });
 });
 
 afterEach(async () => {
@@ -24,9 +24,121 @@ afterEach(async () => {
 describe("MachineService", () => {
   it("synthesizes local machine without persisting it", async () => {
     expect(await service.list()).toEqual([
-      { id: "local", name: "Local", kind: "local", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: "1970-01-01T00:00:00.000Z" },
+      { id: "local", name: "PI-WEB", kind: "local", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: "1970-01-01T00:00:00.000Z" },
     ]);
     await expect(stat(storePath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reads the local installation name on each request and trims it", async () => {
+    let name = "  Workstation  ";
+    const named = new MachineService(new MachineStore(storePath), { localName: () => name });
+    expect(await named.get("local")).toMatchObject({ name: "Workstation" });
+    name = "   ";
+    expect((await named.list())[0]).toMatchObject({ name: "PI-WEB" });
+  });
+
+  it("discovers names before responding, caches them, and retains them offline", async () => {
+    let now = 0;
+    let respond!: (value: Awaited<ReturnType<MachineClient["requestJson"]>>) => void;
+    const requestJson = vi.fn<MachineClient["requestJson"]>(() => new Promise((resolve) => { respond = resolve; }));
+    const named = new MachineService(new MachineStore(storePath), {
+      localName: () => undefined,
+      now: () => new Date(now),
+      nameCacheTtlMs: 100,
+      remoteClientFactory: () => fakeRemoteClient({ requestJson }),
+    });
+    const storedMachine = await new MachineStore(storePath).add({ name: "", baseUrl: "https://remote.example.test" });
+    const pendingMachine = named.get(storedMachine.id);
+    await vi.waitFor(() => { expect(requestJson).toHaveBeenCalledTimes(1); });
+    expect(requestJson).toHaveBeenCalledWith("GET", "/api/pi-web/identity", undefined, { timeoutMs: 1000 });
+    respond({ statusCode: 200, headers: {}, body: { name: " Reported " } });
+    const machine = await pendingMachine;
+    expect(machine?.name).toBe("Reported");
+    if (machine === undefined) throw new Error("Expected machine");
+    expect(await named.get(machine.id)).toMatchObject({ name: "Reported", reportedName: "Reported" });
+    expect(requestJson).toHaveBeenCalledTimes(1);
+    now = 101;
+    requestJson.mockRejectedValue(new Error("offline"));
+    expect(await named.get(machine.id)).toMatchObject({ name: "Reported" });
+    expect(await named.get(machine.id)).toMatchObject({ name: "Reported" });
+    expect(requestJson).toHaveBeenCalledTimes(2);
+
+    expect(await named.update(machine.id, { name: " Override " })).toMatchObject({ name: "Override", nameOverride: "Override" });
+    now = 202;
+    await named.list();
+    expect(requestJson).toHaveBeenCalledTimes(2);
+    const cleared = await named.update(machine.id, { name: "" });
+    expect(cleared).toMatchObject({ name: "Reported" });
+    expect(cleared).not.toHaveProperty("nameOverride");
+    const stored = await new MachineStore(storePath).list();
+    expect(stored[0]?.name).toBe("");
+  });
+
+  it.each([
+    { statusCode: 404, body: {} },
+    { statusCode: 401, body: {} },
+    { statusCode: 500, body: {} },
+    { statusCode: 200, body: { name: "  " } },
+    { statusCode: 200, body: { name: 123 } },
+    { statusCode: 200, body: null },
+  ])("reports discovery failures while falling back, except expected legacy 404s: %j", async ({ statusCode, body }) => {
+    const requestJson = vi.fn<MachineClient["requestJson"]>(() => Promise.resolve({ statusCode, headers: {}, body }));
+    const onNameDiscoveryError = vi.fn();
+    const named = new MachineService(new MachineStore(storePath), {
+      remoteClientFactory: () => fakeRemoteClient({ requestJson }),
+      onNameDiscoveryError,
+    });
+    const machine = await named.add({ name: " ", baseUrl: "https://remote.example.test" });
+    expect(await named.get(machine.id)).toMatchObject({ name: "PI-WEB" });
+    expect(await named.get(machine.id)).toMatchObject({ name: "PI-WEB" });
+    expect(requestJson).toHaveBeenCalledTimes(1);
+    if (statusCode === 404) expect(onNameDiscoveryError).not.toHaveBeenCalled();
+    else expect(onNameDiscoveryError).toHaveBeenCalledWith(machine.id, expect.any(Error));
+  });
+
+  it.each(["Local", "PI-WEB", "Office"])("accepts the reported installation name %s without guessing its meaning", async (name) => {
+    const named = new MachineService(new MachineStore(storePath), {
+      remoteClientFactory: () => fakeRemoteClient({ requestJson: () => Promise.resolve({ statusCode: 200, headers: {}, body: { name } }) }),
+    });
+    expect(await named.add({ baseUrl: "https://remote.example.test" })).toMatchObject({ name, reportedName: name });
+  });
+
+  it("refreshes a reported name after a settings write invalidates discovery", async () => {
+    let name = "Office";
+    const requestJson = vi.fn<MachineClient["requestJson"]>(() => Promise.resolve({ statusCode: 200, headers: {}, body: { name } }));
+    const named = new MachineService(new MachineStore(storePath), { remoteClientFactory: () => fakeRemoteClient({ requestJson }) });
+    const machine = await named.add({ baseUrl: "https://remote.example.test" });
+    expect(machine.name).toBe("Office");
+    name = "Build lab";
+    expect(await named.get(machine.id)).toMatchObject({ name: "Office" });
+    named.invalidateReportedName(machine.id);
+    expect(await named.get(machine.id)).toMatchObject({ name: "Build lab" });
+  });
+
+  it("does not let an in-flight discovery refill a cache invalidated by a settings write", async () => {
+    const completions: ((response: Awaited<ReturnType<MachineClient["requestJson"]>>) => void)[] = [];
+    const requestJson = vi.fn<MachineClient["requestJson"]>(() => new Promise((resolve) => { completions.push(resolve); }));
+    const named = new MachineService(new MachineStore(storePath), { remoteClientFactory: () => fakeRemoteClient({ requestJson }) });
+    const stored = await new MachineStore(storePath).add({ name: "", baseUrl: "https://remote.example.test" });
+    const beforeWrite = named.get(stored.id);
+    await vi.waitFor(() => { expect(completions).toHaveLength(1); });
+    named.invalidateReportedName(stored.id);
+    const afterWrite = named.get(stored.id);
+    await vi.waitFor(() => { expect(completions).toHaveLength(2); });
+    completions[1]?.({ statusCode: 200, headers: {}, body: { name: "New name" } });
+    expect(await afterWrite).toMatchObject({ name: "New name" });
+    completions[0]?.({ statusCode: 200, headers: {}, body: { name: "Old name" } });
+    await beforeWrite;
+    expect(await named.get(stored.id)).toMatchObject({ name: "New name" });
+  });
+
+  it("keeps existing names as overrides without discovery, including after restart", async () => {
+    const requestJson = vi.fn<MachineClient["requestJson"]>();
+    const named = new MachineService(new MachineStore(storePath), { remoteClientFactory: () => fakeRemoteClient({ requestJson }) });
+    const stored = await new MachineStore(storePath).add({ name: "Existing", baseUrl: "https://remote.example.test" });
+    expect(await named.get(stored.id)).toMatchObject({ name: "Existing", nameOverride: "Existing" });
+    await named.list();
+    expect(requestJson).not.toHaveBeenCalled();
   });
 
   it("adds remote machines and omits secrets from public responses", async () => {

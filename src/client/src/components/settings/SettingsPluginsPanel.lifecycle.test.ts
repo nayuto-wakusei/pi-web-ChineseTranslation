@@ -20,8 +20,8 @@ describe("plugin lifecycle settings interactions", () => {
     checkbox.checked = false;
     checkbox.dispatchEvent(new Event("change", { bubbles: true }));
     expect(panel.onTogglePlugin).not.toHaveBeenCalled();
-    expect(panel.shadowRoot?.textContent).toContain("必需插件 · 普通配置无法禁用");
-    expect(panel.shadowRoot?.textContent).not.toContain("离线禁用：");
+    expect(panel.shadowRoot?.textContent).toContain("Required · cannot be disabled here");
+    expect(panel.shadowRoot?.textContent).not.toContain("Offline disable:");
   });
 
   it("keeps config-only Terminal locked even when the runtime catalog failed", () => {
@@ -43,11 +43,11 @@ describe("plugin lifecycle settings interactions", () => {
     const frame = panel.shadowRoot?.querySelector("settings-panel-frame");
     if (frame === null || frame === undefined) throw new Error("Missing panel frame");
     await frame.updateComplete;
-    expect(frame.shadowRoot?.textContent).toContain("终端不可用");
-    expect(frame.shadowRoot?.textContent).toContain("安全启动模式等待重启");
-    expect(frame.shadowRoot?.textContent).toContain("需要重启会话守护进程");
-    expect(frame.shadowRoot?.textContent).toContain("插件 ID 冲突");
+    expect(frame.shadowRoot?.textContent).toContain("Terminal is unavailable");
+    expect(frame.shadowRoot?.textContent).toContain("Safe-mode restart pending");
+    expect(frame.shadowRoot?.textContent).toContain("Saved changes aren’t active yet");
+    expect(frame.shadowRoot?.textContent).toContain("Plugin id conflict");
     expect(panel.shadowRoot?.textContent).toContain("pi-web plugins safe-start set none --restart");
-    expect(panel.shadowRoot?.textContent).toContain("命令中不包含机器凭据");
+    expect(panel.shadowRoot?.textContent).toContain("They never include machine credentials.");
   });
 });

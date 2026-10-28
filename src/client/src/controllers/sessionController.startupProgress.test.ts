@@ -53,6 +53,28 @@ function pendingStartController(state: { current: AppState }, api: Partial<typeo
 }
 
 describe("SessionController session startup progress", () => {
+  it("retains structured startup presentation when forwarding onto its pending row", async () => {
+    const state = { current: { ...initialAppState(), selectedWorkspace: workspace, sessions: [] } };
+    const { controller, startRequest } = pendingStartController(state);
+    const start = controller.startSession();
+    const temporaryId = state.current.selectedSession?.id;
+    if (temporaryId === undefined) throw new Error("Expected temporary session id");
+    const activity = startupActivity({ startupPresentation: { intent: "create", stage: "extensions", catalogRefreshing: true } });
+    controller.applyGlobalEvent({ type: "session.startup", startupToken: temporaryId, activity });
+    runPendingAnimationFrames();
+
+    expect(state.current.activity?.startupPresentation).toEqual(activity.startupPresentation);
+    expect(state.current.sessionActivities[temporaryId]?.startupPresentation).toEqual(activity.startupPresentation);
+    expect(state.current.activity?.startup).toBeUndefined();
+    expect(isSessionActive(state.current.status, state.current.activity)).toBe(true);
+
+    controller.applyGlobalEvent({ type: "session.startup", startupToken: temporaryId, activity: idleStartupActivity() });
+    runPendingAnimationFrames();
+    expect(state.current.activity?.startupPresentation).toBeUndefined();
+    startRequest.resolve({ ...oldSession, id: "backend-session", path: "/tmp/backend-session.jsonl" });
+    await start;
+  });
+
   it("shows the daemon's startup phase on a pending row while its start request is still open", async () => {
     const state = { current: { ...initialAppState(), selectedWorkspace: workspace, sessions: [] } };
     const { controller, startRequest } = pendingStartController(state);
@@ -116,8 +138,8 @@ describe("SessionController session startup progress", () => {
     expect(state.current.activity).toMatchObject({
       sessionId: temporaryId,
       phase: "active",
-      label: "正在创建会话",
-      detail: "正在等待后端会话准备就绪",
+      label: "Creating session",
+      detail: "Waiting for the backend session to be ready",
     });
 
     startRequest.resolve({ ...oldSession, id: "backend-session", path: "/tmp/backend-session.jsonl" });
@@ -135,7 +157,7 @@ describe("SessionController session startup progress", () => {
     controller.applyGlobalEvent({ type: "session.startup", startupToken: temporaryId, activity: idleStartupActivity() });
     runPendingAnimationFrames();
 
-    expect(state.current.activity?.detail).toBe("后端会话准备好后将发送 1 条排队消息");
+    expect(state.current.activity?.detail).toBe("1 queued message will send when the backend session is ready");
 
     startRequest.resolve({ ...oldSession, id: "backend-session", path: "/tmp/backend-session.jsonl" });
     await start;
@@ -202,7 +224,7 @@ describe("SessionController session startup progress", () => {
     runPendingAnimationFrames();
 
     expect(state.current.sessionActivities[existing.id]).toMatchObject({ label: "Opening session", detail: "Starting the Pi session" });
-    expect(state.current.sessionActivities[temporaryId]?.detail).toBe("正在等待后端会话准备就绪");
+    expect(state.current.sessionActivities[temporaryId]?.detail).toBe("Waiting for the backend session to be ready");
 
     startRequest.resolve({ ...oldSession, id: "backend-session", path: "/tmp/backend-session.jsonl" });
     await start;
@@ -225,8 +247,8 @@ describe("SessionController session startup progress", () => {
     controller.applyGlobalEvent({ type: "session.startup", activity: startupActivity({ sessionId: "foreign-session", label: "Opening session", detail: "Loading session extensions" }) });
     runPendingAnimationFrames();
 
-    expect(state.current.activity?.detail).toBe("正在等待后端会话准备就绪");
-    expect(state.current.activity?.label).toBe("正在创建会话");
+    expect(state.current.activity?.detail).toBe("Waiting for the backend session to be ready");
+    expect(state.current.activity?.label).toBe("Creating session");
 
     startRequest.resolve({ ...oldSession, id: "backend-session", path: "/tmp/backend-session.jsonl" });
     await start;
@@ -248,7 +270,7 @@ describe("SessionController session startup progress", () => {
     runPendingAnimationFrames();
 
     expect(state.current.sessionActivities[secondId]).toMatchObject({ sessionId: secondId, detail: "Loading session extensions" });
-    expect(state.current.sessionActivities[firstId]?.detail).toBe("正在等待后端会话准备就绪");
+    expect(state.current.sessionActivities[firstId]?.detail).toBe("Waiting for the backend session to be ready");
 
     startRequest.resolve({ ...oldSession, id: "backend-session", path: "/tmp/backend-session.jsonl" });
     await Promise.all([start, secondStart]);

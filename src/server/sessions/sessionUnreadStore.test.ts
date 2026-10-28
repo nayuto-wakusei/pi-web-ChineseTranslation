@@ -53,6 +53,30 @@ describe("SessionUnreadStore", () => {
     await restored.flush();
   });
 
+  it("manual unread creates new durable orders without consuming active work or tracking excluded children", async () => {
+    let saved: SessionUnreadPersistedState | undefined;
+    const persistence: SessionUnreadPersistence = {
+      load: () => Promise.resolve(saved),
+      save: (state) => { saved = structuredClone(state); return Promise.resolve(); },
+    };
+    const store = new SessionUnreadStore({ persistence, createCatalogId: () => "catalog-a" });
+    await store.load();
+    store.observeActivityState("session-1", "/repo", true);
+    store.markUnread("session-1", "/repo");
+    store.markUnread("session-1", "/repo");
+    store.acknowledge("session-1", { cwd: "/repo", catalogId: "catalog-a", throughCompletionOrder: 1 });
+    expect(store.catalogSnapshot().sessions[0]?.completionOrder).toBe(2);
+    store.observeActivityState("session-1", "/repo", false);
+    expect(store.catalogSnapshot().sessions[0]?.completionOrder).toBe(3);
+    store.excludeSession("child", "/repo");
+    expect(store.markUnread("child", "/repo")).toEqual([]);
+    await store.flush();
+    const restored = new SessionUnreadStore({ persistence });
+    await restored.load();
+    expect(restored.catalogSnapshot()).toEqual(store.catalogSnapshot());
+    expect(restored.markUnread("session-1", "/repo")[0]?.event.unread?.completionOrder).toBe(4);
+  });
+
   it("marks only known active-to-idle transitions unread", () => {
     const store = storeAt("2026-07-20T00:00:00.000Z", "catalog-a");
 

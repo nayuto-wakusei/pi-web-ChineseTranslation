@@ -76,17 +76,23 @@ async function settle(view: ChatView) {
 
 describe("plugin-defined transcript message actions", () => {
   it.each([
-    ["分叉", "fork", "从这条消息分叉出一个新会话？当前会话保持不变。"],
-    ["回退", "goBack", "回退到这条消息？之后的对话会离开当前分支，未保存的输入不会保留。"],
-  ] as const)("preserves core confirmation for %s through the public callback", async (label, action, copy) => {
+    ["Clone session from this message", "fork", "Are you sure you want to fork this session?"],
+    ["Go back to this message", "goBack", undefined],
+  ] as const)("preserves the confirmation owner for %s through the public callback", async (label, action, copy) => {
     const { view, context } = await mount();
     expect(buttons(view).map((button) => button.getAttribute("aria-label"))).toEqual([
-      "分叉", "回退", "复制用户消息",
+      "Clone session from this message", "Go back to this message", "Copy user message",
     ]);
     const confirm = vi.fn(() => false);
     vi.stubGlobal("confirm", confirm);
     button(view, label).click();
     await settle(view);
+    if (copy === undefined) {
+      // The host knows whether going back would replace an unsent draft.
+      expect(confirm).not.toHaveBeenCalled();
+      expect(context.history.goBack).toHaveBeenCalledOnce();
+      return;
+    }
     expect(confirm).toHaveBeenCalledWith(copy);
     expect(context.history[action]).not.toHaveBeenCalled();
     await vi.waitFor(() => { expect(button(view, label).disabled).toBe(false); });
@@ -139,7 +145,7 @@ describe("plugin-defined transcript message actions", () => {
     const { view } = await mount();
     view.messages = [{ role: "assistant", parts: [{ type: "text", text: "Streaming" }] }];
     await view.updateComplete;
-    expect(buttons(view).map((button) => button.title)).toEqual(["复制消息"]);
+    expect(buttons(view).map((button) => button.title)).toEqual(["Copy message"]);
   });
 
   it("copies through the plugin registry, preserves original text and renews transient feedback", async () => {
@@ -153,27 +159,27 @@ describe("plugin-defined transcript message actions", () => {
       { type: "text", text: " Second\n" },
     ] }];
     await settle(view);
-    expect(buttons(view).map((button) => button.title)).toEqual(["复制消息"]);
-    button(view, "复制助手消息").click();
+    expect(buttons(view).map((button) => button.title)).toEqual(["Copy message"]);
+    button(view, "Copy assistant message").click();
     await settle(view);
     expect(writeText).toHaveBeenCalledExactlyOnceWith("First\n\nSecond");
-    await vi.waitFor(() => { expect(button(view, "已复制助手消息").title).toBe("已复制"); });
-    expect(button(view, "已复制助手消息").textContent).toContain("✓");
+    await vi.waitFor(() => { expect(button(view, "Copied assistant message").title).toBe("Copied"); });
+    expect(button(view, "Copied assistant message").textContent).toContain("✓");
     await vi.advanceTimersByTimeAsync(800);
-    button(view, "已复制助手消息").click();
-    await vi.waitFor(() => { expect(button(view, "已复制助手消息").disabled).toBe(false); });
+    button(view, "Copied assistant message").click();
+    await vi.waitFor(() => { expect(button(view, "Copied assistant message").disabled).toBe(false); });
     await vi.advanceTimersByTimeAsync(800);
-    expect(button(view, "已复制助手消息").title).toBe("已复制");
+    expect(button(view, "Copied assistant message").title).toBe("Copied");
     await vi.advanceTimersByTimeAsync(400);
     await settle(view);
-    expect(button(view, "复制助手消息").title).toBe("复制消息");
+    expect(button(view, "Copy assistant message").title).toBe("Copy message");
   });
 
   it("has no built-in Copy fallback when the contribution is absent", async () => {
     const { view } = await mount();
     view.messageActions = view.messageActions.filter((action) => action.id !== "core:message.copy");
     await settle(view);
-    expect(buttons(view).map((button) => button.title)).toEqual(["从这条消息分叉", "回退到这条消息"]);
+    expect(buttons(view).map((button) => button.title)).toEqual(["Clone session from this message", "Go back to this message"]);
   });
 
   it("lets Copy run while an entry workflow is pending and reports clipboard failure without success feedback", async () => {
@@ -181,15 +187,15 @@ describe("plugin-defined transcript message actions", () => {
     const { view } = await mount();
     let finish: (() => void) | undefined;
     view.onMessageAction = () => new Promise<void>((resolve) => { finish = resolve; });
-    button(view, "回退").click();
+    button(view, "Go back to this message").click();
     await settle(view);
-    expect(button(view, "回退").disabled).toBe(true);
-    expect(button(view, "复制用户消息").disabled).toBe(false);
-    button(view, "复制用户消息").click();
+    expect(button(view, "Go back to this message").disabled).toBe(true);
+    expect(button(view, "Copy user message").disabled).toBe(false);
+    button(view, "Copy user message").click();
     await settle(view);
     expect(writeText).toHaveBeenCalledWith("Hello");
-    expect(button(view, "复制用户消息").title).toBe("复制消息");
-    await vi.waitFor(() => { expect(view.renderRoot.querySelector('[role="alert"]')?.textContent).toBe("无法复制消息到剪贴板。"); });
+    expect(button(view, "Copy user message").title).toBe("Copy message");
+    await vi.waitFor(() => { expect(view.renderRoot.querySelector('[role="alert"]')?.textContent).toBe("Unable to copy message to the clipboard."); });
     finish?.();
     await settle(view);
   });
@@ -248,14 +254,14 @@ describe("plugin-defined transcript message actions", () => {
     vi.stubGlobal("confirm", confirm);
     view.messageActionContext = { ...base, session: { ...base.session, busy: true } };
     await settle(view);
-    button(view, "分叉").click();
+    button(view, "Clone session from this message").click();
     expect(confirm).not.toHaveBeenCalled();
-    expect(button(view, "复制用户消息").disabled).toBe(false);
+    expect(button(view, "Copy user message").disabled).toBe(false);
     expect(button(view, "Note").disabled).toBe(false);
     view.messageActionContext = base;
     view.onMessageAction = vi.fn(() => Promise.reject(new Error("History changed")));
     await settle(view);
-    button(view, "回退").click();
+    button(view, "Go back to this message").click();
     await settle(view);
     expect(view.renderRoot.querySelector('[role="alert"]')?.textContent).toBe("History changed");
   });
@@ -288,7 +294,7 @@ describe("plugin-defined transcript message actions", () => {
     view.messageActionContext = { ...base, session: { ...base.session, archived: true } };
     await settle(view);
     expect(enabled).toHaveBeenCalledTimes(3);
-    expect(button(view, "分叉").disabled).toBe(true);
+    expect(button(view, "Clone session from this message").disabled).toBe(true);
   });
 });
 
@@ -316,12 +322,12 @@ it.each([false, true])("offers existing history actions on question requests (an
     expect(card?.classList.contains(answered ? "closed-question-card" : "open-question-card")).toBe(true);
     expect(card?.closest(".event-group")).toBeNull();
     expect(buttons(view).map((button) => button.getAttribute("aria-label"))).toEqual([
-      "分叉", "回退",
+      "Clone session from this message", "Go back to this message",
     ]);
     expect(card?.parentElement?.querySelectorAll(".msg-action")).toHaveLength(2);
-    button(view, "回退").click();
+    button(view, "Go back to this message").click();
     await settle(view);
-    button(view, "分叉").click();
+    button(view, "Clone session from this message").click();
     await settle(view);
     const expected = { ...base, message: { entryId: "question-result", role: "tool", text: "", isQuestion: true } };
     expect(onAction.mock.calls).toEqual([[expected, "core:message.back"], [expected, "core:message.fork"]]);

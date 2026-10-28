@@ -1,7 +1,8 @@
 import type { PluginRuntimeState, PluginSelectedSession, PluginSelectionSnapshot } from "../../../plugin-api";
 import type { AppState } from "../appState";
 import type { SessionInfo } from "../api";
-import type { PiWebPlugin } from "./types";
+import type { ApplicationPanelContribution, PiWebPlugin, PluginAction, WorkspacePanelContribution } from "./types";
+import { snapshotDisplayMetadata } from "./displayMetadata";
 
 /** The public row/selection projection never exposes private session paths or message text. */
 export function publicPluginSession(session: SessionInfo): PluginSelectedSession {
@@ -66,26 +67,36 @@ export function adaptPublicPlugin(plugin: PiWebPlugin): PiWebPlugin {
         ...(activation.dispose === undefined ? {} : { dispose: activation.dispose.bind(activation) }),
         contributions: {
           ...activation.contributions,
-          ...(actions === undefined ? {} : { actions: actions.map(({ enabled, disabledReason, run, ...action }) => ({
-            ...action,
-            ...(enabled === undefined ? {} : { enabled: (context) => enabled(publicContext(context)) }),
-            ...(disabledReason === undefined ? {} : { disabledReason: (context) => disabledReason(publicContext(context)) }),
-            run: (context) => run(publicContext(context)),
-          })) }),
-          ...(applicationPanels === undefined ? {} : { applicationPanels: applicationPanels.map(({ visible, badge, render, ...panel }) => ({
-            ...panel,
-            ...(visible === undefined ? {} : { visible: (context) => visible(publicContext(context)) }),
-            ...(badge === undefined ? {} : { badge: (context) => badge(publicContext(context)) }),
-            render: (context) => render(publicContext(context)),
-          })) }),
-          ...(workspacePanels === undefined ? {} : { workspacePanels: workspacePanels.map(({ visible, fileOpenQuery, badge, onInvalidate, render, ...panel }) => ({
-            ...panel,
-            ...(visible === undefined ? {} : { visible: (context) => visible(publicContext(context)) }),
-            ...(fileOpenQuery === undefined ? {} : { fileOpenQuery: (context, path) => fileOpenQuery(publicContext(context), path) }),
-            ...(badge === undefined ? {} : { badge: (context) => badge(publicContext(context)) }),
-            ...(onInvalidate === undefined ? {} : { onInvalidate: (context, invalidation) => onInvalidate(publicContext(context), invalidation) }),
-            render: (context) => render(publicContext(context)),
-          })) }),
+          ...(actions === undefined ? {} : { actions: actions.map((action) => {
+            const { enabled, disabledReason, run } = action;
+            return snapshotDisplayMetadata<PluginAction>(action, {
+              ...action,
+              ...(enabled === undefined ? {} : { enabled: (context) => enabled(publicContext(context)) }),
+              ...(disabledReason === undefined ? {} : { disabledReason: (context) => disabledReason(publicContext(context)) }),
+              run: (context) => run(publicContext(context)),
+            });
+          }) }),
+          ...(applicationPanels === undefined ? {} : { applicationPanels: applicationPanels.map((panel) => {
+            const { visible, badge, onInvalidate, render } = panel;
+            return snapshotDisplayMetadata<ApplicationPanelContribution>(panel, {
+              ...panel,
+              ...(visible === undefined ? {} : { visible: (context) => visible(publicContext(context)) }),
+              ...(badge === undefined ? {} : { badge: (context) => badge(publicContext(context)) }),
+              ...(onInvalidate === undefined ? {} : { onInvalidate: (context) => onInvalidate(publicContext(context)) }),
+              render: (context) => render(publicContext(context)),
+            });
+          }) }),
+          ...(workspacePanels === undefined ? {} : { workspacePanels: workspacePanels.map((panel) => {
+            const { visible, fileOpenQuery, badge, onInvalidate, render } = panel;
+            return snapshotDisplayMetadata<WorkspacePanelContribution>(panel, {
+              ...panel,
+              ...(visible === undefined ? {} : { visible: (context) => visible(publicContext(context)) }),
+              ...(fileOpenQuery === undefined ? {} : { fileOpenQuery: (context, path) => fileOpenQuery(publicContext(context), path) }),
+              ...(badge === undefined ? {} : { badge: (context) => badge(publicContext(context)) }),
+              ...(onInvalidate === undefined ? {} : { onInvalidate: (context, invalidation) => onInvalidate(publicContext(context), invalidation) }),
+              render: (context) => render(publicContext(context)),
+            });
+          }) }),
           ...(workspaceLabels === undefined ? {} : { workspaceLabels: workspaceLabels.map(({ visible, items, ...label }) => ({
             ...label,
             ...(visible === undefined ? {} : { visible: (context) => visible(publicContext(context)) }),

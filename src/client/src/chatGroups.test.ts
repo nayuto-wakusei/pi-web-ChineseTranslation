@@ -161,11 +161,11 @@ describe("groupChatMessages", () => {
 
 describe("summarizeChatGroup", () => {
   it("summarizes special event groups", () => {
-    expect(summarizeChatGroup([{ ...text("assistant", "a"), source: "compaction" }])).toBe("1 条历史压缩摘要");
+    expect(summarizeChatGroup([{ ...text("assistant", "a"), source: "compaction" }])).toBe("1 history compaction summary");
     expect(summarizeChatGroup([
       { ...text("assistant", "a"), source: "branch_summary" },
       { ...text("assistant", "b"), source: "branch_summary" },
-    ])).toBe("2 条分支摘要");
+    ])).toBe("2 branch summaries");
   });
 
   it("summarizes mixed groups by role counts", () => {

@@ -3,7 +3,7 @@ import { canOpenTransientPopup, registerTransientPopup } from "./popupScope";
 
 export interface AnchoredPopupOptions {
   /** Defaults to the panel's --ui-popup-placement token, then below-end. */
-  placement?: "below-end" | "below-start" | "above-start" | "left-end";
+  placement?: "below-end" | "below-start" | "above-start" | "left-end" | "inline-start-end";
   gap?: number;
   padding?: number;
   width?: number | "anchor";
@@ -154,12 +154,14 @@ export function anchoredPopupStyle(anchor: HTMLElement, options: AnchoredPopupOp
   const anchorLeft = clamp(trigger.left, left, right);
   const placement = options.placement ?? (panel === undefined ? undefined : window.getComputedStyle(panel).getPropertyValue("--ui-popup-placement").trim());
   const style: Record<string, string> = { top: "auto", bottom: "auto", left: "auto", right: "auto", width: "max-content" };
-  if (placement === "left-end") {
-    const maxWidth = Math.max(0, anchorLeft - left - gap);
+  if (placement === "left-end" || placement === "inline-start-end") {
+    const openRight = placement === "inline-start-end" && getComputedStyle(anchor).direction === "rtl";
+    const maxWidth = Math.max(0, openRight ? right - anchorRight - gap : anchorLeft - left - gap);
     style["max-width"] = px(maxWidth);
     style["min-width"] = px(Math.min(options.minWidth ?? 0, maxWidth));
     style["max-height"] = px(bottom - top);
-    style["right"] = px(window.innerWidth - anchorLeft + gap);
+    if (openRight) style["left"] = px(anchorRight + gap);
+    else style["right"] = px(window.innerWidth - anchorLeft + gap);
     style["top"] = px(clamp(trigger.bottom - (panel?.getBoundingClientRect().height ?? 0), top, bottom - (panel?.getBoundingClientRect().height ?? 0)));
     return style;
   }
@@ -171,7 +173,10 @@ export function anchoredPopupStyle(anchor: HTMLElement, options: AnchoredPopupOp
   const useAbove = preferAbove ? !(above < needed && below > above) : below < needed && above > below;
   style[useAbove ? "bottom" : "top"] = px(useAbove ? window.innerHeight - anchorTop + gap : anchorBottom + gap);
   style["max-height"] = px(Math.min(options.maxHeight ?? Infinity, useAbove ? above : below));
-  const start = placement === "below-start" || preferAbove;
+  // Start/end are logical edges; otherwise an RTL action anchor at the left
+  // edge constrains its menu to the trigger's width rather than the viewport.
+  const logicalStart = placement === "below-start" || preferAbove;
+  const start = getComputedStyle(anchor).direction === "rtl" ? !logicalStart : logicalStart;
   const width = options.width === "anchor" ? trigger.width : options.width;
   if (start) {
     const x = clamp(anchorLeft, left, width === undefined ? right : Math.max(left, right - width));

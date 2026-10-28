@@ -1,4 +1,5 @@
 import type { PiWebInstallationInfo } from "../shared/apiTypes.js";
+import { installationDisplayName } from "../shared/installationName.js";
 
 /**
  * Deployment identity: how a PI WEB instance presents itself in browser chrome
@@ -52,7 +53,6 @@ export const DEPLOYMENT_IDENTITY_ASSET_PATHS: readonly string[] = Object.keys(DE
 export const DEPLOYMENT_MANIFEST_PATH = "/manifest.webmanifest";
 export const DEPLOYMENT_MANIFEST_CONTENT_TYPE = "application/manifest+json";
 
-const DEV_MANIFEST_NAME = "PI WEB (dev)";
 /** A dark purple tint (the dark theme's purple surface) for the PWA title bar. */
 const DEV_MANIFEST_THEME_COLOR = "#21132f";
 
@@ -70,18 +70,17 @@ export function isDeploymentIdentityAssetPath(pathname: string): boolean {
 }
 
 /**
- * Rewrite the PWA manifest for a dev deployment so an installed PWA is labeled
- * and tinted differently from a stable install. Icon URLs stay untouched: the
- * dev artwork is served in place of the stock icon files.
+ * Apply the installation identity and retain the development marker and tint.
+ * Icon URLs stay untouched: dev artwork is served in place of stock files.
  */
-export function deploymentManifestForFlavor(manifestJson: string, flavor: PiWebDeploymentFlavor): string {
-  if (flavor !== "dev") return manifestJson;
+export function deploymentManifestForFlavor(manifestJson: string, flavor: PiWebDeploymentFlavor, installationName?: string): string {
   const manifest: unknown = JSON.parse(manifestJson);
   if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) return manifestJson;
+  const name = `${installationDisplayName(installationName)}${flavor === "dev" ? " (dev)" : ""}`;
   return JSON.stringify({
     ...manifest,
-    name: DEV_MANIFEST_NAME,
-    short_name: DEV_MANIFEST_NAME,
-    theme_color: DEV_MANIFEST_THEME_COLOR,
+    name,
+    short_name: name,
+    ...(flavor === "dev" ? { theme_color: DEV_MANIFEST_THEME_COLOR } : {}),
   });
 }

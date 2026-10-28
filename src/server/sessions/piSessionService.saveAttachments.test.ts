@@ -22,13 +22,14 @@ afterEach(async () => {
   await rm(workspace, { recursive: true, force: true });
 });
 
-function fakeConfigRead(effectiveConfig: PiWebConfigValues): Pick<PiWebConfigService, "read"> {
+function fakeConfigRead(effectiveConfig: PiWebConfigValues, enforcedSettings: Record<string, string> = {}): Pick<PiWebConfigService, "read"> {
   return {
     read: () => ({
       path: "/tmp/pi-web-test-config.json",
       exists: true,
       config: effectiveConfig,
       effectiveConfig,
+      enforcedSettings,
       envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
     }),
   };
@@ -75,6 +76,13 @@ describe("PiSessionService saveAttachments", () => {
     await writeFile(join(workspace, ".pi-web", "config.json"), `${JSON.stringify({ version: 1, attachments: { defaultFolder: "project-attachments" } }, null, 2)}\n`);
 
     await expectSavedPath(service, undefined, "project-attachments");
+  });
+
+  it("keeps the environment-enforced default ahead of the session project's default", async () => {
+    const service = createService(fakeConfigRead({ attachments: { defaultFolder: "enforced-attachments" } }, { "/attachments": "PI_WEB_ATTACHMENTS" }));
+    await mkdir(join(workspace, ".pi-web"), { recursive: true });
+    await writeFile(join(workspace, ".pi-web", "config.json"), JSON.stringify({ attachments: { defaultFolder: "project-attachments" } }));
+    await expectSavedPath(service, undefined, "enforced-attachments");
   });
 
   it("lets an explicit request folder win over the configured default", async () => {

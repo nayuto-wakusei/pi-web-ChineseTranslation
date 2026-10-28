@@ -2,6 +2,7 @@ import type { NavigationFreshness, NavigationScope } from "./types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppState } from "../appState";
 import { initialAppState } from "../appState";
+import { localization } from "../localization/browser";
 import type { Machine, Project, SessionInfo, Workspace, WorkspaceProviderResolution } from "../api";
 import { browserErrorScopeKey, projectBrowserErrorScope, workspaceBrowserErrorScope } from "../browserErrors";
 import type { SessionController } from "./sessionController";
@@ -82,6 +83,72 @@ function harness(initial: Partial<AppState>, loadWorkspaces: LoadWorkspaces, loa
   return { controller, state: () => state, clearActiveSession, updateUrl, backgroundErrors, setState };
 }
 
+afterEach(async () => {
+  vi.useRealTimers();
+  await localization.setPreferences({ language: "en", formatLocale: "en" });
+});
+
+describe("WorkspaceController localized feedback", () => {
+  it.each(["workspace", "session"] as const)("retains live missing %s feedback with raw identifiers", async (kind) => {
+    const repo = project("p1", "/repo");
+    const main = workspace(repo.id, repo.path, { isMain: true });
+    const test = harness({ projects: [repo], selectedProject: repo }, () => Promise.resolve(kind === "workspace" ? [] : [main]));
+    const id = "raw-id/日本語";
+    const result = kind === "workspace"
+      ? await test.controller.selectProject(repo, { workspaceId: id })
+      : await test.controller.selectWorkspace(main, { sessionId: id });
+    const notice = Object.values(test.state().browserErrors)[0];
+    if (notice === undefined) throw new Error("Expected missing target banner");
+    expect(typeof result === "function" ? result() : result).toBe(`${kind === "workspace" ? "Workspace" : "Session"} not found: ${id}`);
+    expect(notice.scope.kind).toBe(kind === "workspace" ? "project" : "workspace");
+    const identity = notice.message;
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(notice.message).toBe(identity);
+      expect(notice.displayMessage?.()).not.toBe(identity);
+      expect(notice.displayMessage?.()).toContain(id);
+      expect(typeof result).toBe("function");
+      expect(typeof result === "function" ? result() : result).toBe(notice.displayMessage?.());
+    }
+  });
+
+  it.each([false, true])("localizes only the empty degraded fallback (provider detail: %s)", async (hasDetail) => {
+    const repo = project("p1", "/repo");
+    // Identical text must not make a provider diagnostic opt in to translation.
+    const diagnostic = "Workspace authority is degraded";
+    const test = harness({ projects: [repo] }, () => Promise.resolve([]), {
+      loadWorkspaceResolution: () => Promise.resolve({
+        projectId: repo.id, status: "degraded", workspaces: [],
+        diagnostics: hasDetail ? [{ code: "list-failed", tier: "primary", pluginId: "git", message: diagnostic }] : [],
+      }),
+    });
+    const result = await test.controller.selectProject(repo);
+    expect(typeof result === "function" ? result() : result).toBe(`Error: ${diagnostic}`);
+    const notice = Object.values(test.state().browserErrors)[0];
+    if (notice === undefined) throw new Error("Expected provider failure banner");
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      if (hasDetail) {
+        expect(notice.displayMessage).toBeUndefined();
+        expect(notice.message).toBe(`Error: ${diagnostic}`);
+      } else {
+        expect(notice.displayMessage?.()).not.toBe(notice.message);
+        expect(typeof result === "function" ? result() : result).toBe(notice.displayMessage?.());
+      }
+    }
+  });
+
+  it("exposes a live browser-owned error when refresh cannot find a project", async () => {
+    const test = harness({}, () => Promise.resolve([]));
+    const error: unknown = await test.controller.refreshProjectWorkspaces("missing").catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toBe("Error: Project not found");
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(String(error)).not.toBe("Error: Project not found");
+    }
+  });
+});
 describe("WorkspaceController.refreshSelectedProjectTopology", () => {
   afterEach(() => { vi.useRealTimers(); });
 
@@ -545,7 +612,7 @@ describe("WorkspaceController route targets", () => {
     expect(test.state().selectedWorkspace).toBeUndefined();
     expect(test.clearActiveSession).toHaveBeenCalledOnce();
     expect(test.updateUrl).not.toHaveBeenCalled();
-    expect(test.state().browserErrors[browserErrorScopeKey(projectBrowserErrorScope("local", repo.id))]?.message).toBe("找不到工作区：missing-workspace");
+    expect(test.state().browserErrors[browserErrorScopeKey(projectBrowserErrorScope("local", repo.id))]?.message).toBe("Workspace not found: missing-workspace");
   });
 
   it("keeps a missing session target instead of selecting another session", async () => {
@@ -564,7 +631,7 @@ describe("WorkspaceController route targets", () => {
     expect(test.state().sessions.map((item) => item.id)).toEqual([available.id]);
     expect(test.state().selectedSession).toBeUndefined();
     expect(test.updateUrl).not.toHaveBeenCalled();
-    expect(test.state().browserErrors[browserErrorScopeKey(workspaceBrowserErrorScope("local", repo.id, main.id))]?.message).toBe("找不到会话：missing-session");
+    expect(test.state().browserErrors[browserErrorScopeKey(workspaceBrowserErrorScope("local", repo.id, main.id))]?.message).toBe("Session not found: missing-session");
   });
 });
 

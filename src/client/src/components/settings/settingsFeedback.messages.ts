@@ -1,0 +1,7 @@
+import { message } from "../../localization/service";
+
+export default {
+  target: message<{ name: string; kind: string }>("{kind, select, local {{name} (local gateway)} other {{name} (remote machine)}}", "Complete settings target label; machine name remains unchanged"),
+  lifecycleUnavailable: message<{ name: string }>("Plugin lifecycle diagnostics are not available on {name}. Update and restart PI WEB on that machine before loading server-backed plugins.", "Unavailable selected-machine plugin lifecycle guidance; raw machine name"),
+  packageFollowUp: message<{ action: string; kind: string; name: string; reload: string }>("{kind, select, local {Pi package {action, select, install {installed} remove {removed} other {updated}}. Type {reload} in each idle PI WEB session to refresh extensions, skills, prompts, and themes. Reload this browser tab for PI WEB browser plugin changes. Server-plugin changes may also need a session daemon restart; restarting interrupts active sessions.} other {Pi package {action, select, install {installed} remove {removed} other {updated}} on {name}. Type {reload} in each idle PI WEB session on {name} to refresh extensions, skills, prompts, and themes. Reload this browser tab for PI WEB browser plugin changes served by {name}. Server-plugin changes may also need a session daemon restart; restarting interrupts active sessions.}}", "Complete package mutation follow-up by action and target; preserve raw machine name and reload command; restart interrupts active sessions"),
+};

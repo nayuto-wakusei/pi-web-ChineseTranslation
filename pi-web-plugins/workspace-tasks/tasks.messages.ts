@@ -1,0 +1,47 @@
+import type { MessageDefinition } from "@chainingintention/pi-web-cn/plugin-api";
+
+function text<Values extends Record<string, string | number> = Record<string, never>>(message: string, description: string): MessageDefinition<Values> {
+  return { message, description };
+}
+
+export default {
+  workspaceTasks: text("Workspace Tasks", "Tasks toolbar title"),
+  tasks: text("Tasks", "Workspace panel tab title"),
+  workspace: text("Workspace", "Action palette group"),
+  openTasks: text("Open Workspace Tasks", "Action that opens the Tasks tab"),
+  openDescription: text<{ path: string }>("Open the workspace Tasks tab. Configure tasks in {path}.", "Action description; path is a config file path"),
+  selectWorkspace: text("Select a workspace.", "Empty panel with no selected workspace"),
+  refresh: text("Refresh", "Reload task configuration"),
+  openTerminal: text("Open Terminal", "Open the workspace terminal"),
+  loading: text<{ path: string }>("Loading {path}…", "Task configuration loading state"),
+  missing: text("No workspace tasks configured here.", "Missing optional tasks configuration"),
+  missingHint: text<{ path: string }>("{path} is optional. Create it in this workspace if you want custom tasks.", "Help for a missing tasks file"),
+  unavailable: text("Could not load workspace tasks.", "Task configuration failure heading"),
+  refreshHint: text<{ path: string }>("Fix {path}, then click Refresh.", "Recovery instruction for invalid tasks configuration"),
+  empty: text<{ path: string }>("No tasks are defined in {path}. Add tasks to the file, then click Refresh.", "Loaded configuration with no tasks"),
+  instructions: text<{ path: string }>("Tasks run in a dedicated workspace terminal, then switch to that terminal. Edit {path} and click Refresh to reload.", "Instructions above task list"),
+  taskGone: text("That task is no longer available. Click Refresh, then try again.", "Task disappeared before dispatch"),
+  refreshing: text<{ path: string }>("Refreshing {path}…", "Refresh operation status"),
+  loaded: text<{ count: number }>("Loaded {count, plural, one {# task} other {# tasks}}.", "Refresh success with task count"),
+  busy: text("Another task is already starting. Wait for it to finish dispatching, then try again.", "Concurrent task dispatch blocked"),
+  confirm: text<{ title: string; command: string }>("Run {title}?\n\n{command}", "Native task confirmation; title and command are unmodified user content"),
+  cancelled: text<{ title: string }>("Cancelled {title}.", "Task confirmation cancelled"),
+  starting: text<{ title: string }>("Starting {title}…", "Task dispatch in progress"),
+  started: text<{ title: string }>("Started terminal command “{title}”.", "Terminal command dispatch success"),
+  selectTerminal: text("Select a workspace before opening a terminal.", "Terminal action without workspace"),
+  dispatching: text("Dispatching…", "Task button while dispatching"),
+  run: text("Run", "Dispatch a task"),
+  readError: text<{ path: string; error: string }>("Unable to read {path}: {error}", "Read failure; backend error is unmodified"),
+  binary: text<{ path: string }>("{path} must be a text file", "Binary task configuration rejected"),
+  truncated: text<{ path: string }>("{path} is too large and was truncated", "Truncated task configuration rejected"),
+  invalidJson: text<{ error: string }>("Invalid JSON: {error}", "JSON parse failure; native parser diagnostic is unmodified"),
+  configObject: text("Config must be an object", "Task configuration validation failure"),
+  configVersion: text<{ version: number }>("Config version must be {version, number}", "Required tasks schema version; field name version is an identifier"),
+  configTasks: text("Config tasks must be an array", "Tasks field validation; tasks is a field identifier"),
+  duplicate: text<{ id: string }>("Duplicate task id: {id}", "Duplicate user-specified task identifier"),
+  taskObject: text<{ index: number }>("Task {index, number} must be an object", "Invalid task at one-based array index"),
+  taskId: text<{ index: number; pattern: string }>("Task {index, number} id must match {pattern}", "Invalid task id; pattern is a regular expression"),
+  requiredField: text<{ index: number; field: string }>("Task {index, number} {field} must be a non-empty string", "Required task field validation; field is a schema identifier"),
+  optionalField: text<{ index: number; field: string }>("Task {index, number} {field} must be a non-empty string when provided", "Optional task field validation; field is a schema identifier"),
+  taskConfirm: text<{ index: number }>("Task {index, number} confirm must be a boolean", "Invalid confirm field at one-based task index"),
+};

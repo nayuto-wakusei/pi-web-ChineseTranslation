@@ -12,7 +12,7 @@ it("offers an independent retry command only for an explicitly recoverable banne
   const dismiss = vi.fn();
   render(errorBanner("Conversation unavailable", dismiss, "error", retry), host);
   const button = host.querySelector<HTMLButtonElement>(".error-retry");
-  expect(button?.textContent).toBe("重试");
+  expect(button?.textContent).toBe("Retry");
   expect(button?.type).toBe("button");
   button?.click();
   expect(retry).toHaveBeenCalledOnce();

@@ -1,3 +1,4 @@
+import { parseServerNoticePresentation } from "../../shared/serverNoticePresentation.js";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { isPiWebPluginId } from "../../shared/pluginIds.js";
@@ -9,6 +10,8 @@ import type {
   PluginCapabilityProvision,
   ServerPluginPeerV5 as ServerPluginPeer,
   ServerPluginPeerChannel,
+  ServerPluginPeerResourceContextV5,
+  ServerPluginResourceResponse,
   ServerPluginPeerChannelCloseContext,
   ServerPluginPeerChannelOpenContextV5 as ServerPluginPeerChannelOpenContext,
   ServerPluginPeerRequestContextV5 as ServerPluginPeerRequestContext,
@@ -65,6 +68,8 @@ export interface ServerPluginRuntimeRecord {
   pairedRequestVersion?: 1;
   /** Additive browser feature detection for package-paired channels. */
   pairedChannelVersion?: 1;
+  /** Additive browser feature detection for package-paired binary resources. */
+  pairedResourceVersion?: 1;
   state: ServerPluginRuntimeState;
   name?: string;
   phase?: ServerPluginLifecyclePhase;
@@ -764,6 +769,7 @@ export class ServerPluginRuntime {
       name: staged.plugin.name,
       ...(pairedBackendContribution?.backend.request === undefined ? {} : { pairedRequestVersion: 1 }),
       ...(pairedBackendContribution?.backend.openChannel === undefined ? {} : { pairedChannelVersion: 1 }),
+      ...(pairedBackendContribution?.backend.resource === undefined ? {} : { pairedResourceVersion: 1 }),
     }));
     this.logger.info({ pluginId: staged.entry.id, pluginName: staged.plugin.name }, "server plugin activated");
   }
@@ -831,6 +837,7 @@ export class ServerPluginRuntime {
       message: errorMessage(error),
       ...(plugin.activation.peer?.request === undefined ? {} : { pairedRequestVersion: 1 }),
       ...(plugin.activation.peer?.openChannel === undefined ? {} : { pairedChannelVersion: 1 }),
+      ...(plugin.activation.peer?.resource === undefined ? {} : { pairedResourceVersion: 1 }),
     }));
     this.logger.error(
       {
@@ -917,7 +924,7 @@ function disabledReason(entry: PiWebPluginCatalogEntry, safeStart: ServerPluginS
 
 function recordFor(
   entry: PiWebPluginCatalogEntry,
-  status: Pick<ServerPluginRuntimeRecord, "state"> & Partial<Pick<ServerPluginRuntimeRecord, "name" | "phase" | "message" | "pairedRequestVersion" | "pairedChannelVersion">>,
+  status: Pick<ServerPluginRuntimeRecord, "state"> & Partial<Pick<ServerPluginRuntimeRecord, "name" | "phase" | "message" | "pairedRequestVersion" | "pairedChannelVersion" | "pairedResourceVersion">>,
 ): ServerPluginRuntimeRecord {
   return Object.freeze({
     pluginId: entry.id,
@@ -929,6 +936,7 @@ function recordFor(
     machineSpecific: entry.machineSpecific,
     ...(status.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: status.pairedRequestVersion }),
     ...(status.pairedChannelVersion === undefined ? {} : { pairedChannelVersion: status.pairedChannelVersion }),
+    ...(status.pairedResourceVersion === undefined ? {} : { pairedResourceVersion: status.pairedResourceVersion }),
     state: status.state,
     ...(status.name === undefined ? {} : { name: status.name }),
     ...(status.phase === undefined ? {} : { phase: status.phase }),
@@ -1349,9 +1357,15 @@ function combinedDisposalError(pluginError: unknown, hostCleanupError: unknown):
 }
 
 function snapshotPluginPeer(value: unknown, apiVersion: 3 | 5): ServerPluginPeer {
-  if (!isPluginPeer(value)) {
-    throw new IncompatibleServerPluginError("Server plugin peer must include a request or channel handler");
+  if (!isPluginPeer(value) || (apiVersion === 3 && value.resource !== undefined)) {
+    throw new IncompatibleServerPluginError(apiVersion === 3
+      ? "Server plugin peer must include a request or channel handler (resources require API v5)"
+      : "Server plugin peer must include a valid request, channel, or resource handler");
   }
+  const resource = value.resource?.bind(value);
+  const snapshotResource = resource === undefined ? {} : {
+    resource: (context: ServerPluginPeerResourceContextV5) => resource(context),
+  };
   const request = value.request?.bind(value);
   const openChannel = value.openChannel?.bind(value);
   const snapshotRequest = request === undefined
@@ -1363,10 +1377,11 @@ function snapshotPluginPeer(value: unknown, apiVersion: 3 | 5): ServerPluginPeer
         snapshotPluginPeerChannel(await openChannel(peerContextForVersion(context, apiVersion)))
       );
   if (snapshotRequest !== undefined && snapshotOpenChannel !== undefined) {
-    return Object.freeze({ request: snapshotRequest, openChannel: snapshotOpenChannel });
+    return Object.freeze({ request: snapshotRequest, openChannel: snapshotOpenChannel, ...snapshotResource });
   }
-  if (snapshotRequest !== undefined) return Object.freeze({ request: snapshotRequest });
-  if (snapshotOpenChannel !== undefined) return Object.freeze({ openChannel: snapshotOpenChannel });
+  if (snapshotRequest !== undefined) return Object.freeze({ request: snapshotRequest, ...snapshotResource });
+  if (snapshotOpenChannel !== undefined) return Object.freeze({ openChannel: snapshotOpenChannel, ...snapshotResource });
+  if (resource !== undefined) return Object.freeze({ resource: (context: ServerPluginPeerResourceContextV5) => resource(context) });
   throw new IncompatibleServerPluginError("Server plugin peer must include a request or channel handler");
 }
 
@@ -1380,13 +1395,16 @@ function peerContextForVersion(context: ServerPluginPeerRequestContext | ServerP
 function isPluginPeer(value: unknown): value is {
   request?: (context: unknown) => JsonValue | Promise<JsonValue>;
   openChannel?: (context: unknown) => unknown;
+  resource?: (context: ServerPluginPeerResourceContextV5) => ServerPluginResourceResponse | Promise<ServerPluginResourceResponse>;
 } {
   if (!isRecord(value)) return false;
   const request = value["request"];
   const openChannel = value["openChannel"];
-  return (typeof request === "function" || typeof openChannel === "function")
+  const resource = value["resource"];
+  return (typeof request === "function" || typeof openChannel === "function" || typeof resource === "function")
     && (request === undefined || typeof request === "function")
-    && (openChannel === undefined || typeof openChannel === "function");
+    && (openChannel === undefined || typeof openChannel === "function")
+    && (resource === undefined || typeof resource === "function");
 }
 
 function snapshotPluginPeerChannel(value: unknown): ServerPluginPeerChannel {
@@ -1508,10 +1526,11 @@ function parseServerPluginNoticeInput(value: unknown): ServerPluginNoticeInput {
   if ("source" in value) throw new Error("Server plugin notices cannot set their source");
   for (const key in value) {
     if (!Object.hasOwn(value, key)) continue;
-    if (key !== "severity" && key !== "message" && key !== "scope" && key !== "context") {
+    if (key !== "severity" && key !== "message" && key !== "scope" && key !== "context" && key !== "presentation") {
       throw new Error(`Unsupported server plugin notice field: ${key}`);
     }
   }
+  const presentation = parseServerNoticePresentation(value["presentation"]);
   const severity = value["severity"];
   if (severity !== "info" && severity !== "warning" && severity !== "error") {
     throw new Error("Server plugin notice severity must be info, warning, or error");
@@ -1539,6 +1558,7 @@ function parseServerPluginNoticeInput(value: unknown): ServerPluginNoticeInput {
   return Object.freeze({
     severity,
     message,
+    ...(presentation === undefined ? {} : { presentation: Object.freeze(presentation) }),
     ...(scope === undefined ? {} : { scope }),
     ...(context === undefined ? {} : { context }),
   });

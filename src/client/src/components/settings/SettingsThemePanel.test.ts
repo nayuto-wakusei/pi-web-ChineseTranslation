@@ -6,8 +6,10 @@ import { PluginRegistry } from "../../plugins/registry";
 import { SettingsThemePanel } from "./SettingsThemePanel";
 import type { QualifiedThemeContribution } from "../../plugins/types";
 
-afterEach(() => {
+const registries: PluginRegistry[] = [];
+afterEach(async () => {
   document.body.replaceChildren();
+  for (const registry of registries.splice(0)) await registry.dispose();
   localStorage.clear();
 });
 
@@ -28,8 +30,8 @@ describe("theme settings controls", () => {
     await panel.updateComplete;
 
     expect(required(panel.shadowRoot?.querySelector("select")).value).toBe(palette.id);
-    expect(panel.shadowRoot?.textContent).toContain(`当前：${palette.name}`);
-    expect(panel.shadowRoot?.textContent).toContain(`默认：${palette.name}`);
+    expect(panel.shadowRoot?.textContent).toContain(`Current: ${palette.name}`);
+    expect(panel.shadowRoot?.textContent).toContain(`Default: ${palette.name}`);
     expect(panel.shadowRoot?.getElementById("theme-unavailable-help")).toBeNull();
     const auto = required(panel.shadowRoot?.querySelector<HTMLInputElement>('input[type="checkbox"]'));
     auto.click();
@@ -37,8 +39,8 @@ describe("theme settings controls", () => {
     expect(useLocal).not.toHaveBeenCalled();
     expect(setDefault).not.toHaveBeenCalled();
     expect(preference).toEqual({ themeId: `themes:${name}`, auto: true });
-    button(panel, "在此浏览器使用").click();
-    button(panel, "设为网关默认主题").click();
+    button(panel, "Use in this browser").click();
+    button(panel, "Set gateway default").click();
     expect(useLocal).toHaveBeenCalledWith({ themeId: palette.id, auto: false });
     expect(setDefault).toHaveBeenCalledWith({ themeId: palette.id, auto: false });
     expect(panel.preference).toBe(preference);
@@ -53,12 +55,12 @@ describe("theme settings controls", () => {
     await panel.updateComplete;
     const select = required(panel.shadowRoot?.querySelector("select"));
     expect(select.value).toBe(preference.themeId);
-    expect(button(panel, "在此浏览器使用").disabled).toBe(true);
+    expect(button(panel, "Use in this browser").disabled).toBe(true);
 
     panel.themes = [...coreThemes, palette];
     await panel.updateComplete;
     expect(select.value).toBe(palette.id);
-    expect(button(panel, "在此浏览器使用").disabled).toBe(false);
+    expect(button(panel, "Use in this browser").disabled).toBe(false);
     const auto = required(panel.shadowRoot?.querySelector<HTMLInputElement>('input[type="checkbox"]'));
     auto.click();
     await panel.updateComplete;
@@ -66,14 +68,14 @@ describe("theme settings controls", () => {
     await panel.updateComplete;
     expect(select.value).toBe(preference.themeId);
     expect(auto.checked).toBe(false);
-    expect(button(panel, "在此浏览器使用").disabled).toBe(true);
-    expect(button(panel, "设为网关默认主题").disabled).toBe(true);
+    expect(button(panel, "Use in this browser").disabled).toBe(true);
+    expect(button(panel, "Set gateway default").disabled).toBe(true);
 
     panel.themes = [...coreThemes, palette];
     await panel.updateComplete;
     expect(select.value).toBe(palette.id);
     expect(auto.checked).toBe(false);
-    expect(button(panel, "在此浏览器使用").disabled).toBe(false);
+    expect(button(panel, "Use in this browser").disabled).toBe(false);
     expect(preference).toEqual({ themeId: "themes:graphite", auto: true });
   });
 
@@ -121,9 +123,9 @@ describe("theme settings controls", () => {
     expect(useLocal).not.toHaveBeenCalled();
     expect(setDefault).not.toHaveBeenCalled();
 
-    button(panel, "在此浏览器使用").click();
-    button(panel, "设为网关默认主题").click();
-    button(panel, "使用默认主题").click();
+    button(panel, "Use in this browser").click();
+    button(panel, "Set gateway default").click();
+    button(panel, "Use the default").click();
     expect(useLocal).toHaveBeenCalledWith({ themeId: "themes:pi-web-light", auto: false });
     expect(setDefault).toHaveBeenCalledWith({ themeId: "themes:pi-web-light", auto: false });
     expect(useDefault).toHaveBeenCalledOnce();
@@ -136,11 +138,11 @@ describe("theme settings controls", () => {
     panel.defaultPreference = { themeId: "themes:pi-web-light", auto: true };
     panel.hasLocalOverride = true;
     await panel.updateComplete;
-    expect(panel.shadowRoot?.textContent).toContain("正在使用此浏览器保存的主题");
-    expect(panel.shadowRoot?.textContent).toContain("默认：PI WEB 浅色 · 跟随系统外观");
+    expect(panel.shadowRoot?.textContent).toContain("Using a theme saved in this browser");
+    expect(panel.shadowRoot?.textContent).toContain("Default: PI WEB Light · Follows system appearance");
     panel.hasLocalOverride = false;
     await panel.updateComplete;
-    expect(panel.shadowRoot?.textContent).toContain("正在使用默认主题");
+    expect(panel.shadowRoot?.textContent).toContain("Using the default theme");
   });
 
   it("keeps an unavailable requested theme visible rather than saving its fallback", async () => {
@@ -148,18 +150,18 @@ describe("theme settings controls", () => {
     panel.preference = { themeId: "custom:missing", auto: false };
     panel.hasLocalOverride = true;
     await panel.updateComplete;
-    expect(panel.shadowRoot?.textContent).toContain("custom:missing（不可用）");
-    expect(button(panel, "在此浏览器使用").disabled).toBe(true);
+    expect(panel.shadowRoot?.textContent).toContain("custom:missing (unavailable)");
+    expect(button(panel, "Use in this browser").disabled).toBe(true);
     const select = required(panel.shadowRoot?.querySelector("select"));
     const guidance = required(panel.shadowRoot?.getElementById("theme-unavailable-help"));
     expect(select.getAttribute("aria-describedby")).toContain(guidance.id);
-    expect(guidance.textContent).toContain("请选择可用主题");
-    expect(button(panel, "设为网关默认主题").disabled).toBe(true);
-    expect(button(panel, "使用默认主题").disabled).toBe(false);
+    expect(guidance.textContent).toContain("Choose an available theme");
+    expect(button(panel, "Set gateway default").disabled).toBe(true);
+    expect(button(panel, "Use the default").disabled).toBe(false);
     selectTheme(panel, "themes:pi-web-light");
     await panel.updateComplete;
     expect(panel.shadowRoot?.getElementById("theme-unavailable-help")).toBeNull();
-    expect(button(panel, "在此浏览器使用").disabled).toBe(false);
+    expect(button(panel, "Use in this browser").disabled).toBe(false);
   });
 
   it("disables edits while config is loading or saving", async () => {
@@ -180,12 +182,12 @@ function customTheme(name: string): QualifiedThemeContribution {
 
 async function mountPanel(): Promise<SettingsThemePanel> {
   const registry = new PluginRegistry();
+  registries.push(registry);
   await registry.registerBatch([{ id: "themes", plugin: themePackPlugin }]);
   const panel = new SettingsThemePanel();
   panel.themes = registry.getThemes();
   document.body.append(panel);
   await panel.updateComplete;
-  await registry.dispose();
   return panel;
 }
 

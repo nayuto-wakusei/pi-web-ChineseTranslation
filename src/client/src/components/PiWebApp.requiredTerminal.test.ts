@@ -87,7 +87,7 @@ describe("required Terminal host cutover", () => {
     expect(result).toBe(false);
     expect(ordinaryActivate).not.toHaveBeenCalled();
     expect(registry(app).hasPlugin("pi-web.terminal")).toBe(false);
-    expect(call(app, "displayedError")).toContain("必需的终端插件");
+    expect(call(app, "displayedError")).toContain("Required Terminal plugin");
     await registry(app).dispose();
   });
 

@@ -1,4 +1,6 @@
 import { expect, test, type Locator } from "@playwright/test";
+import type { ChatView } from "../../src/client/src/components/ChatView";
+import type { PromptEditor } from "../../src/client/src/components/PromptEditor";
 
 async function typePrompt(input: Locator, text: string): Promise<void> {
   // CodeMirror needs native keyboard input; WebKit's contenteditable fill can
@@ -36,6 +38,66 @@ test("completions escape layout clipping, preserve editor focus, and disappear o
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
 });
 
+test("shared toolbars own one bottom separator while embedded strips stay borderless", async ({ page }) => {
+  const toolbar = page.locator("#shared-toolbars .ui-toolbar").first();
+  const embedded = page.locator("#shared-toolbars .ui-toolbar--borderless");
+  await expect(toolbar).toHaveCSS("border-bottom-width", "1px");
+  await expect(toolbar).toHaveCSS("border-bottom-style", "solid");
+  await expect(toolbar).toHaveCSS("border-bottom-color", "rgb(85, 85, 85)");
+  await expect(toolbar.locator("button")).toHaveCSS("height", "32px");
+  await expect(embedded).toHaveCSS("border-bottom-width", "0px");
+  await expect(embedded.locator("button")).toHaveCSS("height", "32px");
+  await expect(page.locator("prompt-editor .actions")).toHaveCSS("border-bottom-width", "0px");
+});
+
+test("attachment control stays compact before and after chat navigation arrives", async ({ page }) => {
+  const editor = page.locator("prompt-editor");
+  const attach = editor.getByRole("button", { name: "Attach files", exact: true });
+  const icon = attach.locator("svg");
+  const expectCompact = async (): Promise<void> => {
+    await expect(attach).toHaveCSS("width", "28px");
+    await expect(attach).toHaveCSS("height", "28px");
+    await expect(icon).toHaveCSS("width", "14px");
+    await expect(icon).toHaveCSS("height", "14px");
+  };
+  await expect(editor.locator(".editor-chat-navigation")).toHaveCount(0);
+  await expectCompact();
+  await page.evaluate(async () => {
+    const chat = document.querySelector<ChatView>("chat-view");
+    const prompt = document.querySelector<PromptEditor>("prompt-editor");
+    if (!chat || !prompt) throw new Error("Missing conversation fixture");
+    chat.onNavigationChange = (controls) => { prompt.chatNavigation = controls; };
+    await chat.updateComplete;
+    await prompt.updateComplete;
+  });
+  await expect(editor.locator(".editor-chat-navigation")).toHaveCount(1);
+  await expectCompact();
+  await page.evaluate(async () => {
+    const prompt = document.querySelector<PromptEditor>("prompt-editor");
+    if (!prompt) throw new Error("Missing composer fixture");
+    prompt.chatNavigation = undefined;
+    await prompt.updateComplete;
+  });
+  await expectCompact();
+});
+
+test("activity belongs to the boundary without changing transcript or composer geometry", async ({ page }) => {
+  const chat = page.locator("chat-view");
+  const input = page.locator("prompt-editor");
+  const chatBefore = await chat.boundingBox();
+  const inputBefore = await input.boundingBox();
+  const dock = page.locator("conversation-layout .activity-dock");
+  await expect(dock).toBeVisible();
+  const dockBox = await dock.boundingBox();
+  expect(inputBefore).not.toBeNull();
+  expect(dockBox).not.toBeNull();
+  if (inputBefore === null || dockBox === null) throw new Error("Missing conversation geometry");
+  expect(Math.abs(dockBox.y + dockBox.height / 2 - inputBefore.y)).toBeLessThanOrEqual(1);
+  await page.getByRole("button", { name: "Toggle activity" }).click();
+  await expect(dock).toHaveCount(0);
+  expect(await chat.boundingBox()).toEqual(chatBefore);
+  expect(await input.boundingBox()).toEqual(inputBefore);
+});
 
 test("nested anchored menus escape transformed clipping and Escape closes only the child", async ({ page }) => {
   const switcher = page.locator(".clip machine-switcher");
@@ -84,7 +146,7 @@ test("modal ownership dismisses background suggestions, allows owned menus, and 
   // establishes the same focus-restoration precondition in every browser.
   await opener.focus();
   await opener.press("Enter");
-  const dialog = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 1", exact: true }) });
+  const dialog = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 1", exact: true, includeHidden: true }) });
   await expect(page.getByRole("dialog", { name: "Dialog 1", exact: true })).toHaveCount(1);
   await expect(dialog.locator("dialog")).toBeVisible();
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
@@ -104,9 +166,14 @@ test("modal ownership dismisses background suggestions, allows owned menus, and 
   await nestedOpener.press("Enter");
   const nested = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 2", exact: true }) });
   await expect(nested.getByRole("textbox", { name: "Dialog input" })).toBeFocused();
+  await expect(nested.locator("dialog")).toHaveAttribute("aria-modal", "true");
+  await expect(dialog.locator("dialog")).toHaveAttribute("aria-modal", "false");
+  await expect(dialog.locator("dialog")).toHaveAttribute("aria-hidden", "true");
   await page.keyboard.press("Escape");
   await expect(nested).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Open nested dialog" })).toBeFocused();
+  await expect(dialog.locator("dialog")).toHaveAttribute("aria-modal", "true");
+  await expect(dialog.locator("dialog")).not.toHaveAttribute("aria-hidden");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(opener).toBeFocused();
@@ -120,6 +187,61 @@ test("unmanaged plugin dialogs share the modality boundary", async ({ page }) =>
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
   await page.locator("dialog").getByRole("button", { name: /Switch machine/ }).click();
   await expect(page.locator("dialog .machine-switcher-menu")).toBeVisible();
+});
+
+test("modal accessibility follows unmanaged plugin dialogs and survives property renders", async ({ page }) => {
+  await page.getByRole("button", { name: "Open dialog", exact: true }).click();
+  const dialog = page.locator("modal-surface dialog");
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+
+  await page.evaluate(() => { window.overlayFixture.openPluginModal(); });
+  await expect(dialog).toHaveAttribute("aria-modal", "false");
+  await expect(dialog).toHaveAttribute("aria-hidden", "true");
+  await page.locator("modal-surface").evaluate((surface: HTMLElement & { busy: boolean }) => { surface.busy = true; });
+  await expect(dialog).toHaveAttribute("aria-busy", "true");
+  await expect(dialog).toHaveAttribute("aria-hidden", "true");
+
+  await page.getByRole("button", { name: "Close plugin dialog", exact: true }).click();
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(dialog).not.toHaveAttribute("aria-hidden");
+  await expect(page.getByRole("textbox", { name: "Dialog input" })).toBeFocused();
+});
+
+test("attachment sources stay hidden until requested and activate their native inputs", async ({ page }) => {
+  const editor = page.locator("prompt-editor");
+  const attach = editor.getByRole("button", { name: "Attach files", exact: true });
+  const panel = editor.locator(".attach-source-panel");
+  await expect(panel).toBeHidden();
+  if (test.info().project.name !== "touch") {
+    const chooser = page.waitForEvent("filechooser");
+    await attach.click();
+    const picker = await chooser;
+    expect(await picker.element().getAttribute("class")).toBe("attachment-input");
+    expect(picker.isMultiple()).toBe(true);
+    await expect(panel).toBeHidden();
+    return;
+  }
+  for (const [name, input] of [["Photos", "attachment-image-input"], ["Camera", "attachment-camera-input"], ["Files", "attachment-input"]] as const) {
+    await attach.tap();
+    await expect(panel).toBeVisible();
+    const box = await panel.boundingBox();
+    const viewport = page.viewportSize();
+    if (!box || !viewport) throw new Error("Missing attachment popup geometry");
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    const chooser = page.waitForEvent("filechooser");
+    await panel.getByRole("button", { name, exact: true }).tap();
+    expect(await (await chooser).element().getAttribute("class")).toBe(input);
+    await expect(panel).toBeHidden();
+    await expect(attach).toHaveAttribute("aria-expanded", "false");
+  }
+  await attach.tap();
+  await expect(panel).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+  await expect(attach).toBeFocused();
 });
 
 test("hiding the conversation closes its suggestions", async ({ page }) => {

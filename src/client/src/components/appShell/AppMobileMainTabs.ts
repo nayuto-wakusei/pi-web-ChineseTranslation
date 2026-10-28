@@ -1,5 +1,8 @@
+import { LocalizationController, localization } from "../../localization/browser";
+import { horizontalScrollEdges } from "./scrollEdges";
+import { appShellMessages as m } from "../../appShellMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
-import { t } from "../../i18n";
+
 import { LitElement, css, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { QualifiedContributionId } from "../../plugins/types";
@@ -24,10 +27,14 @@ export interface AppMobileMainTab {
 export class AppMobileMainTabs extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
   @property({ attribute: false }) tabs: AppMobileMainTab[] = [];
+  @property({ attribute: false }) leadingControl: TemplateResult | null = null;
+  @property({ attribute: false }) trailingControl: TemplateResult | null = null;
+  @property({ type: Boolean }) controlsOnly = false;
   @property({ attribute: false }) onShowNavigation?: () => void;
   @property({ type: Boolean }) hiddenActiveDestination = false;
   @property({ attribute: false }) selectedTab: AppMobileMainTabId | undefined = "chat";
@@ -59,6 +66,7 @@ export class AppMobileMainTabs extends LitElement {
     const fallbackLabels = this.fallbackLabels();
     return html`
       <div class=${this.frameClass()}>
+        ${this.leadingControl}
         <div class="mobile-tabs" @scroll=${this.onMobileTabsScroll}>
           ${this.tabs.map((tab) => {
             const selected = this.selectedTab === tab.id;
@@ -70,14 +78,15 @@ export class AppMobileMainTabs extends LitElement {
               </button>
             `;
           })}
-          ${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`navigation-menu-button${this.hiddenActiveDestination ? " selected" : ""}`} title="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-label="${t("ui.main.99aaea15ca9e", "Open Navigation")}" aria-haspopup="dialog" aria-pressed=${String(this.hiddenActiveDestination)} @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}
+          ${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`ui-button ui-button--icon ui-tab navigation-menu-button${this.hiddenActiveDestination ? " selected" : ""}`} aria-pressed=${String(this.hiddenActiveDestination)} data-navigation-trigger title=${m.t("navigation")} aria-label=${m.t("navigation")} aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}
         </div>
+        ${this.trailingControl}
       </div>
     `;
   }
 
   private frameClass(): string {
-    return `mobile-tabs-frame${this.canScrollLeft ? " can-scroll-left" : ""}${this.canScrollRight ? " can-scroll-right" : ""}`;
+    return `mobile-tabs-frame${this.controlsOnly ? " controls-only" : ""}${this.canScrollLeft ? " can-scroll-left" : ""}${this.canScrollRight ? " can-scroll-right" : ""}`;
   }
 
   private tabClass(tab: AppMobileMainTab): string {
@@ -88,13 +97,13 @@ export class AppMobileMainTabs extends LitElement {
   }
 
   private tabAriaLabel(tab: AppMobileMainTab): string {
-    const badge = tab.badgeLabel ?? (typeof tab.badge === "string" || typeof tab.badge === "number" ? String(tab.badge).trim() : "");
-    return badge === "" ? tab.label : `${tab.label}, ${badge}`;
+    const badge = tab.badgeLabel ?? (typeof tab.badge === "string" || typeof tab.badge === "number" ? (typeof tab.badge === "number" ? localization.number(tab.badge) : tab.badge).trim() : "");
+    return badge === "" ? tab.label : m.t("badge", { label: tab.label, badge });
   }
 
   private renderBadge(badge: unknown, tone: AppMobileMainTab["badgeTone"]) {
     if (badge === undefined || badge === "") return null;
-    return html`<span class=${`tab-badge${tone === undefined ? "" : ` ${tone}`}`}>${badge}</span>`;
+    return html`<span class=${`tab-badge${tone === undefined ? "" : ` ${tone}`}`}>${typeof badge === "number" ? localization.number(badge) : badge}</span>`;
   }
 
   private renderTabMark(tab: AppMobileMainTab, fallbackLabels: Map<AppMobileMainTabId, string>) {
@@ -121,7 +130,7 @@ export class AppMobileMainTabs extends LitElement {
 
   private initialsLabel(label: string): string {
     const words = label.match(/[\p{L}\p{N}]+/gu) ?? [];
-    const initials = words.map((word) => Array.from(word)[0] ?? "").join("").toLocaleUpperCase();
+    const initials = words.map((word) => Array.from(word)[0] ?? "").join("").toLocaleUpperCase(localization.language);
     return initials === "" ? "?" : initials;
   }
 
@@ -146,8 +155,9 @@ export class AppMobileMainTabs extends LitElement {
   private updateScrollState(): void {
     const mobileTabs = this.mobileTabsElement();
     const maxScrollLeft = mobileTabs === undefined ? 0 : Math.max(0, mobileTabs.scrollWidth - mobileTabs.clientWidth);
-    const canScrollLeft = mobileTabs !== undefined && mobileTabs.scrollLeft > 1;
-    const canScrollRight = mobileTabs !== undefined && maxScrollLeft - mobileTabs.scrollLeft > 1;
+    const edges = horizontalScrollEdges(mobileTabs?.scrollLeft ?? 0, maxScrollLeft, localization.direction);
+    const canScrollLeft = mobileTabs !== undefined && edges.left;
+    const canScrollRight = mobileTabs !== undefined && edges.right;
     if (this.canScrollLeft !== canScrollLeft) this.canScrollLeft = canScrollLeft;
     if (this.canScrollRight !== canScrollRight) this.canScrollRight = canScrollRight;
   }
@@ -173,6 +183,9 @@ export class AppMobileMainTabs extends LitElement {
     .mobile-tabs-frame button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     .mobile-tabs-frame button + button { border-inline-start: 1px solid var(--pi-border-muted); }
     .mobile-tabs .navigation-tab { display: none; }
+    .controls-only .mobile-tabs { display: none; }
+    .panel-toggle { border-inline-end: 1px solid var(--pi-border-muted); }
+    .panel-toggle[data-panel-toggle="workspace"] { margin-inline-start: auto; border-inline-start: 1px solid var(--pi-border-muted); border-inline-end: 0; }
     .mobile-tabs-frame button.selected { box-shadow: inset 0 -2px var(--pi-accent); background: var(--pi-selection-bg); }
     button:hover { background: var(--pi-surface-hover); }
     button.selected:hover { background: var(--pi-selection-bg); }

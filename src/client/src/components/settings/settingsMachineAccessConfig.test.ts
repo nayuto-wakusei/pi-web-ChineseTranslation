@@ -1,8 +1,54 @@
 import { describe, expect, it } from "vitest";
+import type { PiWebConfigResponse } from "../../api";
 import { mergeSelectedMachineAccessConfig } from "./settingsMachineAccessConfig";
 import { configResponse } from "../SettingsDialog.testSupport";
 
 describe("selected-machine access config helpers", () => {
+  it("replaces base roots and their defaults, source and enforcement metadata", () => {
+    const gateway: PiWebConfigResponse = {
+      ...configResponse({ host: "gateway.local", basePaths: ["/old"] }),
+      defaultsConfig: { host: "default.local", basePaths: ["/old-default"] },
+      enforcedSettings: { "/host": "PI_WEB_HOST", "/basePaths": "OLD_BASE_PATHS" },
+      configSources: { "/host": "environment", "/basePaths": "old source" },
+    };
+    const selected: PiWebConfigResponse = {
+      ...configResponse({ basePaths: ["/new"] }),
+      effectiveConfig: { basePaths: ["/enforced"] },
+      defaultsConfig: { basePaths: ["/new-default"] },
+      enforcedSettings: { "/basePaths": "NEW_BASE_PATHS" },
+      configSources: { "/basePaths": "new source" },
+    };
+    const merged = mergeSelectedMachineAccessConfig(gateway, selected);
+    expect(merged.config.basePaths).toEqual(["/new"]);
+    expect(merged.effectiveConfig.basePaths).toEqual(["/enforced"]);
+    expect(merged.defaultsConfig).toEqual({ host: "default.local", basePaths: ["/new-default"] });
+    expect(merged.enforcedSettings).toEqual({ "/host": "PI_WEB_HOST", "/basePaths": "NEW_BASE_PATHS" });
+    expect(merged.configSources).toEqual({ "/host": "environment", "/basePaths": "new source" });
+
+    const reset = mergeSelectedMachineAccessConfig(merged, configResponse({}));
+    expect(reset.config).toEqual({ host: "gateway.local" });
+    expect(reset.effectiveConfig).toEqual({ host: "gateway.local" });
+    expect(reset.defaultsConfig).toEqual({ host: "default.local" });
+    expect(reset.enforcedSettings).toEqual({ "/host": "PI_WEB_HOST" });
+    expect(reset.configSources).toEqual({ "/host": "environment" });
+  });
+
+  it("preserves explicitly empty base roots instead of restoring old roots", () => {
+    const merged = mergeSelectedMachineAccessConfig(configResponse({ basePaths: ["/old"] }), configResponse({ basePaths: [] }));
+    expect(merged.config.basePaths).toEqual([]);
+    expect(merged.effectiveConfig.basePaths).toEqual([]);
+  });
+
+  it("replaces and clears the installation name so later gateway saves cannot restore it", () => {
+    const gateway = configResponse({ host: "gateway.local", installationName: "Old name" });
+    const renamed = mergeSelectedMachineAccessConfig(gateway, configResponse({ installationName: "New name" }));
+    expect(renamed.config.installationName).toBe("New name");
+    const cleared = mergeSelectedMachineAccessConfig(renamed, configResponse({}));
+    expect(cleared.config).not.toHaveProperty("installationName");
+    expect(cleared.effectiveConfig).not.toHaveProperty("installationName");
+    expect(cleared.config.host).toBe("gateway.local");
+  });
+
   it("merges local selected-machine file/upload config into gateway config without dropping gateway-only values", () => {
     const gateway = configResponse({
       host: "127.0.0.1",

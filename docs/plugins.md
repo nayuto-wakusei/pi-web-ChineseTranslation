@@ -6,7 +6,7 @@
 
 ## 内置中文语言插件
 
-`zh-cn` 随包提供且默认启用；在机器配置设置 `plugins["zh-cn"].enabled: false` 后恢复英文，无需额外语言文件。刷新网页、下次启动 CLI、重启服务后生效，详见[配置参考](config.md#chinese-language-plugin)。浏览器使用网关的语言，远端提示保持远端语言。
+`zh-cn` 随包提供且默认启用；在机器配置设置 `plugins["zh-cn"].enabled: false` 后恢复英文，无需额外语言文件。刷新网页、下次启动 CLI、重启服务后生效，详见[配置参考](config.md#chinese-language-plugin)。浏览器默认中文来自网关，设备可在语言与区域设置选择其他界面语言；远端提示保持远端语言。
 
 浏览器插件可通过激活上下文的可选 `translate(key, englishFallback, params)` 使用稳定消息键和命名参数；未提供翻译器或词条缺失时使用英文。语言插件以 `localizations` 贡献纯文本词典，不扫描 DOM 或注入 HTML。服务端激活上下文也可提供 `translate`，按所属机器配置格式化自有提示。旧插件 API 仍兼容；不要翻译用户输入、模型回复或代理转发的远端响应。Node 端只读取随包的 JSON 词典，不执行浏览器入口。
 
@@ -145,7 +145,7 @@ await context.navigate({
 
 所有字段都可省略：`machineId`、`projectId`、`workspaceId`、`sessionId`、`view` 及完整贡献 ID 的 `tool`。省略机器意味着调用时选中的机器。这不是路由补丁：省略字段使用宿主普通恢复默认值，不复制当前会话、工具或贡献查询；默认值可以恢复记忆中的会话。打开已知会话时提供项目和工作区作用域。宿主不会遍历查找 ID，也不会创建不存在的目的地。
 
-Promise 在恢复完成时结束，也可在被较新导航取代时正常结束。缺失或不可用的目的地使用普通宿主 UI，不再额外拒绝 Promise。参数类型错误或无效 `view` 会在改变 URL/UI 前以 `TypeError` 拒绝。Captain's Log 用此接口打开结果记录的源会话。
+Promise 在恢复完成时结束，也可在被较新导航取代时正常结束。缺失或不可用的目的地使用普通宿主 UI，不再额外拒绝 Promise。参数类型错误或无效 `view` 会在改变 URL/UI 前以 `TypeError` 拒绝。
 
 ### 聊天与文件内容预览
 
@@ -216,6 +216,9 @@ systemctl --user restart pi-web-sessiond
 多数插件默认启用，包可以默认关闭，设置可以覆盖。插件配置保存在普通 [PI WEB 配置](https://pi-web.dev/config)，不是安装文件里。
 
 ### 本地开发
+
+`npm run dev:web` 默认启用 `PI_WEB_DEV_PLUGIN_PAIRING=1`，允许开发浏览器 UI 连接尚未重启的后端；设为 `0` 恢复严格配对。生产与其他启动路径默认严格。此开关不热替换后端，服务端变化仍需手动重启 daemon。
+
 
 代理可在任意目录开发包，再链接到本地插件目录：
 
@@ -289,19 +292,6 @@ Workflows 随包提供 Pi 工作流提示词和工作树操作。普通 profile 
 
 工作树操作选择 base 与用途后，由目标机器重验项目、工作区和 Git base 再派发；仅在普通模式及所需能力可用时提供。创建工作树、发布会话与打开页面是独立结果，派发结果不确定或导航失败时不自动重试，先查看目标机器已有结果，避免重复工作树。实现示例见 [Workflows 包](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-packages/workflows)。
 
-### 试用 Captain's Log
-
-Captain's Log 是可选示例，将会话最近的助手回复改写为海盗风格简报，演示浏览器面板、后端和 Pi 配套扩展协作。
-
-1. 在目标机器的 **设置 → Pi 包 → 可用包** 安装 **船长日志**。
-2. 在 **设置 → PI WEB 插件** 启用它。
-3. 安全时重启目标机器会话守护进程，再刷新浏览器。
-4. 选择会话，打开“船长日志”，点击“让船长来讲述”。
-
-它随主包预构建发布，**默认不安装、不启用**，无需现场编译。读取源回复但不修改源会话，另建海盗会话；需要模型凭据，源文本会发给海盗会话的模型提供器，可能产生模型费用。已有结果会保存。守护进程重启后，可从“会话”打开已有海盗会话继续上下文。
-
-详见[船长日志使用指南](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/pi-packages/captains-log/docs/usage.md)。
-
 <a id="pi-extension-dialogs"></a>
 ## Pi 扩展对话框
 
@@ -310,6 +300,169 @@ Pi 扩展可请求确认、选择或文本输入；问题以内联方式展示�
 有效期限取扩展超时和[宿主超时](https://pi-web.dev/config#extension-dialogs)中较早者。中止工作或替换运行时关闭相关问题。已回答卡片属于浏览器本地状态，不保证刷新后保留。新会话尚在创建时刷新可临时丢失卡片，但守护进程中的问题仍有期限。
 
 仅支持这三种对话框，不支持自定义编辑器或组件等其他 Pi UI；不要因为 `hasUI` 为真就假定所有 UI 可用。
+
+## V5 display and transport
+
+### Contribute file previewers
+
+Browser v5 plugins can contribute `filePreviewers` to the existing Files panel. Use these for file-specific views, including binary formats; use `contentRenderers` for text presentations shared with chat code blocks. A previewer does not need its own file browser or companion backend.
+
+Each previewer declares an `id`, a human-readable `title`, and `fileExtensions` (without leading dots), `mimeTypes` (exact types or `audio/*`-style wildcards), or a synchronous `supports(request)` callback. Extension and MIME selectors are alternatives; `supports`, when supplied, further restricts them. With only `supports`, it decides eligibility. Matching is case-insensitive. Unknown formats may have no MIME metadata, so extension matching is useful.
+
+```ts
+export default {
+  apiVersion: 5,
+  name: "Custom file views",
+  activate({ html }) {
+    return {
+      contributions: {
+        filePreviewers: [{
+          id: "model",
+          title: "3D model",
+          fileExtensions: ["mesh"],
+          supports: ({ file }) => file.size <= 20 * 1024 * 1024,
+          // Manual by default: no rendering or file fetch until selected.
+          render({ file, files, signal, fail }) {
+            return html`<my-model-viewer .path=${file.path}
+              .files=${files} .signal=${signal} .fail=${fail}></my-model-viewer>`;
+          },
+        }],
+      },
+    };
+  },
+};
+```
+
+The plugin owns `my-model-viewer` in this example. Its component can fetch existing workspace bytes using the supplied file helpers:
+
+```ts
+if (files.capabilityVersion !== 1) throw new Error("Workspace download URLs are unavailable");
+const response = await fetch(files.downloadUrl(path), { signal });
+if (!response.ok) throw new Error(`File load failed: HTTP ${response.status}`);
+const bytes = await response.arrayBuffer();
+```
+
+This uses the same authenticated file-serving path as downloads, including remote machines. `Content-Disposition: attachment` does not trigger a download when using `fetch()`. For browser media, construct a `Blob` with the appropriate MIME type and revoke its object URL during cleanup. Fetching into a blob loads the whole file; apply a suitable size limit. A companion backend is optional for processing, generated resources, or plugin-managed range streaming; see [binary resources](#binary-resources-and-media-delivery).
+
+Files shows all eligible previewers as named view buttons and keeps **Download** available. Images, SVG, PDF, HTML, and Markdown are contributions from the bundled Files plugin, using the same discovery, selection, and lifecycle API as Audio and third-party previews. Existing text `contentRenderers` are adapted into this file-preview pipeline; their chat behavior and public contribution API remain unchanged. Files itself owns only selection, Raw source, and download fallback. `renderMode: "automatic"` opts into automatic rendering; otherwise selection is explicit. Later matching automatic previewers take precedence over earlier defaults, but an explicit view choice takes priority. Raster images and PDF opt into automatic rendering. SVG, HTML, and Markdown keep Raw as their fresh-browser default; a saved or linked Preview preference activates their registered previewer. Built-in document previewers retain the core size limits, safe file URLs, HTML sandboxing, and native PDF policy. Previewers can handle large files without inheriting the core inline-preview size cap; they must enforce their own limits.
+
+`render` receives a frozen file snapshot, `machineId`, `projectId`, `workspaceId`, workspace `files`, and—when this package has one—its own paired `backend`. It never receives another plugin's backend. The host aborts `signal` when the file, selected view, mounting, or plugin lifetime changes. Stop requests and release media, object URLs, observers, and workers when aborted or disconnected. Report asynchronous failures through `fail(error)`; synchronous failures are caught by the host. Files displays the failure and retains a source/download fallback; failures from obsolete previews cannot replace a newer selection.
+
+For another file-view consumer, require the host capability `{ pluginId: "pi-web", id: "file-previewing", version: 1 }`. Its `listPreviewers(request)` discovers matching views and `renderPreview({ ...request, previewerId, files, fail })` mounts one selected view with the same lifecycle handling. Supply the actual machine and authoritative project/workspace IDs. Require this capability when your plugin must fail explicitly on older hosts rather than run without file-preview support.
+
+The bundled [Audio plugin](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/audio) is a complete consumer example. No DOCX conversion is included.
+
+### Highlight additional languages
+
+The bundled **Code highlighting** plugin supplies one **Highlighted** renderer, offered only for languages it supports. Browser v5 plugins can extend it with `syntaxHighlighters` for any language, including languages that PI WEB does not recognize on the server. Match chat fences with `languages` (including aliases) and files with `fileExtensions` (without a leading dot). Adding a grammar expands this renderer's coverage; it does not add a separate renderer choice. Highlighting is available in completed chat fences, Markdown files, and standalone Files previews. **Raw** stays unhighlighted.
+
+Use any tokenizer or grammar bundled with your plugin. The `highlight({ text, signal })` callback returns tokens synchronously or asynchronously: `{ from, to, kind }`, with UTF-16 offsets into the unchanged source. Ranges must be ordered, non-overlapping, non-empty, and within the source. Unmarked text remains plain. Kinds are `keyword`, `string`, `number`, `comment`, `type`, `function`, `variable`, `operator`, `punctuation`, `property`, `literal`, or `meta`; PI WEB supplies theme-aware colours. Return tokens, not HTML or CodeMirror extensions, so independently bundled parsers do not need to share an editor-library instance with the host.
+
+Plugins should stop asynchronous work when `signal` is aborted. Oversized input is not sent to highlighters. A failed highlighter leaves source readable and reports the failure. If several grammar contributions match, the last discovered one wins. Highlighting adds no editing, completion, language-server support, or plugin-defined styling.
+
+A plugin can instead provide an independent highlighting system as a `contentRenderers` contribution. Both highlighting renderers remain separate choices when they support the source; the same last-automatic-renderer rule chooses the default. A v5 renderer's `supports(request)` callback can determine eligibility dynamically, and `title` names its view button—for example, **Highlighted** or **Diagram**. Without a title, the host uses the plugin and contribution IDs. V5 rendering receives the source language, file path, and machine as well as the text; v4 renderer inputs retain their original text, signal, and failure callback. The bundled highlighting plugin demonstrates this pattern.
+
+The bundled Mermaid plugin contributes both a **Diagram** renderer and a source grammar for `mermaid` fences and `.mmd`/`.mermaid` files. Its grammar adds **Highlighted** to those sources without loading the diagram engine. Diagram rendering stays manual; **Raw**, **Highlighted**, and **Diagram** retain the same source text. The lightweight grammar colours common Mermaid syntax; it does not validate diagrams.
+
+Older hosts ignore syntax-highlighter contributions; require the host capability `{ pluginId: "pi-web", id: "syntax-highlighting", version: 1 }` when your plugin depends on this feature. This capability exposes `supports()` and `highlight()` for renderers that consume semantic token contributions. See `SyntaxHighlighterContribution`, `SyntaxHighlightingCapability`, and `ContentRendererContributionV5` in the [public browser contract](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/plugin-api.ts).
+
+### Binary resources and media delivery
+
+Use a **resource** to deliver bytes from a plugin's server entry to its browser entry. Resources are general-purpose: generated reports, audio, converted documents, and other binary results use the same transport. Resources provide transport, not viewer registration: pair them with [file previewers](#contribute-file-previewers) when the result belongs in Files. They do not change the core file-preview allowlist.
+
+A server v5 peer can implement `resource` alongside `request` and `openChannel`, or by itself. The callback receives the operation, JSON input, cancellation signal, and host-resolved machine/project/workspace scope. It returns `ServerPluginResourceResponse`: a `Uint8Array` or asynchronous iterable of byte chunks, a `contentType`, and optional `contentLength`. Node readable streams can be used as asynchronous iterables.
+
+```ts
+// Server entry: no separate HTTP listener or public port.
+export default {
+  apiVersion: 5,
+  name: "Generated reports",
+  activate() {
+    return {
+      peer: {
+        resource({ operation, scope, signal }) {
+          signal.throwIfAborted();
+          if (operation !== "summary" || scope.kind !== "workspace") {
+            throw new Error("A workspace summary was requested outside its scope");
+          }
+          const body = new TextEncoder().encode(`Workspace: ${scope.workspace.label}\n`);
+          return { body, contentType: "text/plain; charset=utf-8", contentLength: body.byteLength };
+        },
+      },
+    };
+  },
+};
+```
+
+In a browser v5 panel or action, capture the desired scope and feature-detect `resourceUrl`:
+
+```ts
+const peer = context.backend?.forScope({
+  kind: "workspace",
+  projectId: context.workspace.projectId,
+  workspaceId: context.workspace.id,
+});
+if (peer?.resourceUrl === undefined) throw new Error("Update PI WEB and restart its session daemon to use resources");
+const url = peer.resourceUrl("summary", null);
+const response = await fetch(url, { signal });
+if (!response.ok) throw new Error(`Summary failed: HTTP ${response.status}`);
+const summary = await response.text();
+```
+
+`resourceUrl()` returns an absolute, browser-ready URL. Use it directly with browser APIs or media elements; do not resolve it again or construct private routes. The URL captures the package revision, machine, and scope. Every load uses normal PI WEB authentication and re-resolves authority on the owning machine, including remote machines. A URL is not a public share link or a bearer credential. Resource URLs from older revisions fail rather than silently invoking new plugin code.
+
+Resource selectors are JSON of at most **4 KiB UTF-8** and appear in the URL. Keep them short and non-secret; URLs can appear in history and logs. Use a normal backend request for large or private inputs, then select a plugin-owned result by a short opaque identifier. Resource callbacks serve GET requests and should not start mutating jobs; browsers may repeat loads or request ranges.
+
+For seeking or partial downloads, the callback receives the optional HTTP `range` string. A plugin may ignore it and return a full `200` response, or implement range handling with `statusCode: 206`, `contentRange`, `contentLength`, and `acceptRanges: "bytes"`. Unsatisfiable ranges use `statusCode: 416` and `contentRange: "bytes */TOTAL"`. PI WEB forwards these fields; it does not seek or slice plugin-owned data. Plugins must validate range requests against their actual resource.
+
+The host streams bytes with backpressure rather than wrapping them in JSON/base64. It validates response metadata and any declared length, cancels work on disconnect or daemon shutdown, and limits resource lifetimes and concurrency. Plugins must honor `signal`, release their own resources, and apply format-specific size and conversion limits. File reads and conversions belong to the plugin: resolve file inputs against the host-provided scope and validate browser-supplied selectors.
+
+Responses are private, uncached, and protected by host-owned MIME and sandbox policies; plugins cannot supply arbitrary HTTP headers, cookies, or redirects. HTML and SVG documents remain sandboxed. Native PDF responses omit the sandbox restriction but retain restrictive CSP and `nosniff`. Inserting fetched HTML into a panel bypasses document isolation: sanitize it before rendering, and never execute untrusted document content.
+
+After upgrading PI WEB for this API, restart the affected session daemon when safe, then reload the browser. Gateways and remote machines must both support resources. This transport does not add resource methods to companion Pi extensions; those continue to use requests and channels.
+
+### File icon themes
+
+Files and Git display extension-specific shapes from one selected icon theme in a single muted tone. The active colour theme supplies the grey for both light and dark appearances. Git shows change status through filename colours and status labels in both list and tree views. Material icons are bundled locally by default, using the pinned npm package at build time rather than a tracked SVG collection. Choose an icon theme or generic file icons in **Settings → General → File icons**. This choice belongs to the current browser, not the gateway configuration.
+
+Browser API v5 plugins can contribute complete sets through `fileIconThemes`:
+
+```ts
+fileIconThemes: [{
+  id: "my-icons",
+  name: "My icons",
+  file: { url: new URL("./file.svg", import.meta.url).href },
+  files: [{
+    filenames: ["Dockerfile"],
+    icon: { url: new URL("./docker.svg", import.meta.url).href },
+  }, {
+    extensions: [".ts", ".tsx"],
+    icon: {
+      url: new URL("./typescript.svg", import.meta.url).href,
+    },
+  }],
+}]
+```
+
+`file` is the fallback asset. Matching uses only the basename, without reading file contents: exact filenames win over extensions, longer extensions win over shorter ones (such as `.d.ts` before `.ts`), and declaration order breaks ties. Matching is case-insensitive. Directory disclosure arrows are unchanged. Asset URLs must be absolute HTTP(S) URLs. Use SVGs with transparent backgrounds and recognisable alpha silhouettes; other transparent browser image formats work too. Opaque fills become solid shapes, regardless of their original colours. Bundle assets under the plugin's browser-public root and use module-relative URLs; with Vite, prevent small assets becoming data URLs. Icons render as decorative CSS alpha masks, never injected SVG markup, and failed image loads fall back to the generic file icon. Remote assets require CORS and depend on network access and the deployment's content security policy; bundled assets avoid third-party requests.
+
+Like colour themes, icon themes are app-wide and only gateway contributions are used. A missing selected theme temporarily falls back to Material without erasing the browser choice. Plugins consuming the selected icons can require `{ pluginId: "pi-web", id: "file-icons", version: 1 }` and use its `FileIconsCapability`: `resolveIcon(path)` returns the current mask asset URL or `undefined` for generic icons, and `subscribe(listener)` reports selection, colour-scheme, and contribution changes. Unsubscribe on disconnect and subscribe again on reconnect or capability replacement.
+
+
+### Maintenance terminals
+
+The Terminal plugin provides machine-scoped `maintenanceTerminal` in contexts where that optional helper is available. Maintenance commands start in `$PI_WEB_DATA_DIR/maintenance`, independently of workspace selection, and do not acquire project/workspace identity. Feature-detect the helper on older hosts. Ordinary workspace commands keep their workspace scope; management-mode authorization remains separate.
+
+### Language packs and compatibility
+
+Feature-detect the optional activation-context `localization` service. Register ICU messages with `localization.registerMessages`, use stable IDs and English fallback messages, and dispose registrations with the plugin lifecycle. Language packs contribute catalogs instead of scanning DOM or injecting HTML. UI language, formatting locale, time zone, and hour cycle are independent; see [Localization](localization.md). The bundled `zh-cn` plugin supplies Chinese ICU catalogs and the legacy `translate` dictionaries. The legacy browser bridge follows the selected UI language, while CLI/server text follows the owning machine's language configuration. Do not translate user/model text, protocol identifiers, or remote-owned payloads.
+
+### Managed package sources
+
+Bundled Relays and Workflows registrations follow the running installation's shipped package paths. Source migration preserves package resource filters and remembered explicit removals. Missing historical global-install sources from either `@jmfederico/pi-web` or `@chainingintention/pi-web-cn` can be repaired to the current installation; unrelated user package sources are not rewritten.
+
+Management resource requests retain management context and authorized workspace scope; a resource URL never grants access beyond that context or falls back to the gateway's ordinary workspace.
+
 
 <a id="agent-development"></a>
 ## 代理开发
@@ -337,8 +490,6 @@ Pi 扩展可请求确认、选择或文本输入；问题以内联方式展示�
 | 小型浏览器插件 | [信息](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/info) |
 | 独立浏览器/服务端包 | [工作区提供器示例](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/examples/workspace-provider-plugin) |
 | 生产工作区提供器与配套 UI | [Git](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-web-plugins/git) |
-| 已托管会话、实时更新与 Pi 配套扩展 | [Captain's Log](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-packages/captains-log) |
-| 简单初始提示词工作流 | [工作区审查示例](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/examples/session-bridge-plugin) |
 | 发现规则与诊断 | [插件目录](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/src/server/piWebPluginCatalog.ts) |
 
 当前浏览器与服务端契约均为 **API v5**；宿主继续支持浏览器 **API v4** 和服务端 **API v3**，旧类型名兼容保留。catalog、作用域 backend 及 v5 贡献需使用对应 v5 入口，不将新功能直接塞进旧版本贡献。公开源码契约和已安装声明是签名、验证、限制与生命周期的依据。

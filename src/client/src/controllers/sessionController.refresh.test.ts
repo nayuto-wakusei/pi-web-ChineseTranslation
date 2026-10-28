@@ -321,7 +321,7 @@ describe("SessionController unchanged selected-session refresh", () => {
     };
   }
 
-  it("skips the merge, cache rewrite, and state update when a poll changes nothing", async () => {
+  it("updates freshness without merging or rewriting an unchanged poll", async () => {
     const harness = controllerWithPolls([idlePoll()]);
 
     await harness.controller.refreshSelectedSession();
@@ -333,7 +333,7 @@ describe("SessionController unchanged selected-session refresh", () => {
     await harness.controller.refreshSelectedSession();
 
     expect(harness.appliedRefreshes()).toBe(1);
-    expect(harness.setStateCalls()).toBe(setStateCallsAfterFirst);
+    expect(harness.setStateCalls()).toBe(setStateCallsAfterFirst + 1);
     expect(harness.getState().messages).toBe(messagesAfterFirst);
   });
 
@@ -473,6 +473,196 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     expect(state.selectedSession).toBe(replacementSession);
   });
 
+  it("shares same-turn requests and runs one trailing refresh requested during the active fetch", async () => {
+    const firstPage = deferred<MessagePage>();
+    const firstStatus = deferred<SessionStatus>();
+    const trailingPage = deferred<MessagePage>();
+    const trailingStatus = deferred<SessionStatus>();
+    const trailingStarted = deferred<undefined>();
+    let snapshotCalls = 0;
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      transcriptSnapshot: () => {
+        snapshotCalls += 1;
+        if (snapshotCalls === 2) trailingStarted.resolve(undefined);
+        return transcriptSnapshotFixture(
+          snapshotCalls === 1 ? firstPage.promise : trailingPage.promise,
+          snapshotCalls === 1 ? firstStatus.promise : trailingStatus.promise,
+        );
+      },
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    const first = controller.refreshSelectedSession();
+    const duplicate = controller.refreshSelectedSession();
+    await Promise.resolve();
+
+    expect(snapshotCalls).toBe(1);
+
+    const later = controller.refreshSelectedSession();
+    const laterDuplicate = controller.refreshSelectedSession();
+    firstPage.resolve(page("stale", 1));
+    firstStatus.resolve({ ...status(oldSession.id), messageCount: 1 });
+    await trailingStarted.promise;
+
+    expect(snapshotCalls).toBe(2);
+
+    trailingPage.resolve(page("fresh", 2));
+    trailingStatus.resolve({ ...status(oldSession.id), messageCount: 2 });
+    await Promise.all([first, duplicate, later, laterDuplicate]);
+
+    expect(snapshotCalls).toBe(2);
+    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "fresh" }], transcriptIndex: 0 }]);
+    expect(state.status?.messageCount).toBe(2);
+  });
+
+  it("does not apply an older refresh after the user selects another session", async () => {
+    const stalePage = deferred<MessagePage>();
+    const staleStatus = deferred<SessionStatus>();
+    const replacementPage = page("replacement", 1);
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession, replacementSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      transcriptSnapshot: (session) => transcriptSnapshotFixture(
+        sessionLookupId(session) === oldSession.id ? stalePage.promise : replacementPage,
+        sessionLookupId(session) === oldSession.id ? staleStatus.promise : status(replacementSession.id),
+      ),
+      thinkingLevels: () => Promise.resolve({ levels: [] }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    const staleRefresh = controller.refreshSelectedSession();
+    await Promise.resolve();
+    await controller.selectSession(replacementSession, { updateUrl: false });
+    stalePage.resolve(page("old response", 1));
+    staleStatus.resolve({ ...status(oldSession.id), messageCount: 1 });
+    await staleRefresh;
+
+    expect(state.selectedSession?.id).toBe(replacementSession.id);
+    expect(state.messages).toEqual([{ role: "assistant", parts: [{ type: "text", text: "replacement" }], transcriptIndex: 0 }]);
+    expect(state.status?.sessionId).toBe(replacementSession.id);
+  });
+
+  it("fetches one combined transcript snapshot for the selected session on refresh", async () => {
+    const transcriptSnapshot = vi.fn<typeof defaultApi.transcriptSnapshot>(() => transcriptSnapshotFixture(
+      page("live", 1), { ...status(oldSession.id), isStreaming: true },
+      { seq: 5, partial: { role: "assistant", content: [{ type: "text", text: "partial" }] } },
+    ));
+    const messages = vi.fn<typeof defaultApi.messages>();
+    const selectedStatus = vi.fn<typeof defaultApi.status>();
+    const streamSnapshot = vi.fn<typeof defaultApi.streamSnapshot>();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      transcriptSnapshot,
+      messages,
+      status: selectedStatus,
+      streamSnapshot,
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.refreshSelectedSession();
+
+    expect(transcriptSnapshot).toHaveBeenCalledExactlyOnceWith(oldSession, expect.objectContaining({ limit: 100, timeoutMs: 10_000 }), "local");
+    expect(messages).not.toHaveBeenCalled();
+    expect(selectedStatus).not.toHaveBeenCalled();
+    expect(streamSnapshot).not.toHaveBeenCalled();
+  });
+});
+
+describe("SessionController selected-session refresh errors", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function failingRefreshSetup() {
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      transcriptSnapshot: () => Promise.reject(new Error("poll boom")),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+    return { controller, getState: () => state };
+  }
+
+  it("logs a silent background refresh failure without touching the global error state", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const harness = failingRefreshSetup();
+
+    await harness.controller.refreshSelectedSession(oldSession.id, { silent: true });
+
+    expect(harness.getState().error).toBe("");
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces a user-triggered refresh failure in the selected session scope", async () => {
+    const harness = failingRefreshSetup();
+
+    await harness.controller.refreshSelectedSession();
+
+    expect(harness.getState().error).toBe("");
+    expect(visibleBrowserErrors(harness.getState().browserErrors, {
+      machineId: "local",
+      projectId: workspace.projectId,
+      workspaceId: workspace.id,
+      sessionId: oldSession.id,
+      cwd: oldSession.cwd,
+    }).map((entry) => entry.message)).toContain("poll boom");
+  });
+});
+
+describe("SessionController scoped refresh errors", () => {
+  it("retains a late failure under its originating session instead of the newer selection", async () => {
+    const messages = deferred<MessagePage>();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession, replacementSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      transcriptSnapshot: () => transcriptSnapshotFixture(messages.promise, status(oldSession.id)),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    const refresh = controller.refreshSelectedSession(oldSession.id);
+    await Promise.resolve();
+    state = { ...state, selectedSession: replacementSession };
+    messages.reject(new Error("old transcript unavailable"));
+    await refresh;
+
+    const oldScope = sessionBrowserErrorScope("local", oldSession.id, { cwd: oldSession.cwd, projectId: workspace.projectId, workspaceId: workspace.id });
+    expect(state.error).toBe("");
+    expect(state.browserErrors[browserErrorScopeKey(oldScope)]?.message).toBe("old transcript unavailable");
+    expect(state.browserErrors[browserErrorScopeKey(sessionBrowserErrorScope("local", replacementSession.id, { cwd: replacementSession.cwd }))]).toBeUndefined();
+  });
 
   it("captures session workspace ownership before a machine switch", async () => {
     const machineA: NonNullable<AppState["selectedMachine"]> = {

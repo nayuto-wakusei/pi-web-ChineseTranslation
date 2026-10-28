@@ -160,6 +160,32 @@ describe("WorkspaceProviderRegistry", () => {
     await pendingResolution;
   });
 
+  it("preserves removal provenance and binds it to the destructive confirmation precondition", async () => {
+    const resolveRemoval = async (localization: unknown) => {
+      const linked = workspace("linked", hostPath("/linked"), false, {
+        removal: { actionLabel: "Delete workspace", confirmation: "Raw confirmation" },
+      });
+      // Exercise untyped plugin output at the provider validation boundary.
+      Object.defineProperty(linked.removal, "localization", { value: localization, enumerable: true });
+      const registry = registryFor([contribution("owner", provider({
+        probe: () => Promise.resolve("claim"),
+        list: () => Promise.resolve([
+          workspace("main", hostPath("/repo"), true), linked,
+        ]),
+        prepareRemove: () => Promise.resolve({ title: "Remove", command: "tool remove" }),
+      }))]);
+      return (await registry.resolve(project)).workspaces.find(({ isMain }) => !isMain)?.removal;
+    };
+    const metadata = { kind: "gitWorktree", label: "review", path: hostPath("/linked") };
+    const first = await resolveRemoval(metadata);
+    expect(first?.localization).toEqual(metadata);
+    expect(Object.isFrozen(first?.localization)).toBe(true);
+    expect((await resolveRemoval({ ...metadata }))?.precondition).toBe(first?.precondition);
+    expect((await resolveRemoval({ ...metadata, label: "changed" }))?.precondition).not.toBe(first?.precondition);
+    expect(await resolveRemoval({ kind: "future" })).not.toHaveProperty("localization");
+    expect(await resolveRemoval({ ...metadata, path: 42 })).not.toHaveProperty("localization");
+  });
+
   it("keeps workspace ids stable while opaque removal preconditions bind owner snapshot drift", async () => {
     const resolveTarget = async (
       pluginId: string,
@@ -542,6 +568,33 @@ describe("WorkspaceProviderRegistry", () => {
     prepareController.abort(new DOMException("Removal request cancelled", "AbortError"));
     await planExpectation;
     expect(preparedSignal?.aborted).toBe(true);
+  });
+
+  it.each([
+    { kind: "workspaceRemoval", label: "feature/<img>" }, null, {}, { kind: "future", label: "x" },
+    { kind: "workspaceRemoval", label: "x".repeat(4097) },
+  ])("snapshots optional removal-plan title provenance or retains raw fallback (%j)", async (metadata) => {
+    const plan = { title: "Provider title", command: "tool remove" };
+    Object.defineProperty(plan, "titlePresentation", { value: metadata });
+    const registry = registryFor([contribution("provider", provider({
+      probe: () => Promise.resolve("claim"),
+      list: () => Promise.resolve([
+        workspace("main", hostPath("/repo"), true),
+        workspace("view", hostPath("/view"), false, { removal: { actionLabel: "Remove", confirmation: "Remove?" } }),
+      ]),
+      prepareRemove: () => Promise.resolve(plan),
+    }))]);
+    const id = (await registry.resolve(project)).workspaces.find(({ isMain }) => !isMain)?.id;
+    if (id === undefined) throw new Error("Expected removal target");
+    const parsed = await (await registry.resolveRemoval(project, id)).prepare();
+    expect(parsed.title).toBe(plan.title);
+    expect(parsed.command).toBe(plan.command);
+    if (metadata?.kind === "workspaceRemoval" && metadata.label.length <= 4096) {
+      expect(parsed.titlePresentation).toEqual(metadata);
+      expect(Object.isFrozen(parsed.titlePresentation)).toBe(true);
+      metadata.label = "mutated";
+      expect(parsed.titlePresentation?.label).toBe("feature/<img>");
+    } else expect(parsed).not.toHaveProperty("titlePresentation");
   });
 
   it("re-resolves removal targets and contains stale, invalid, and timed-out provider plans", async () => {

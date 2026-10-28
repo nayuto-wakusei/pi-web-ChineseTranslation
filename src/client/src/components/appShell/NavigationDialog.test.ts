@@ -30,7 +30,7 @@ it("focuses search, supports button navigation and traps Tab, then restores focu
   const surface = dialog.shadowRoot?.querySelector<ModalSurface>("modal-surface");
   if (surface == null) throw new Error("Expected shared modal surface");
   await surface.updateComplete;
-  expect(surface.shadowRoot?.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("导航");
+  expect(surface.shadowRoot?.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("Navigation");
   const input = dialog.shadowRoot?.querySelector("input");
   expect(deepActiveElement(document)).toBe(input);
   dialog.shadowRoot?.querySelector<HTMLButtonElement>('.destination-button[aria-pressed="true"]')?.focus();
@@ -48,7 +48,7 @@ it("focuses search, supports button navigation and traps Tab, then restores focu
   expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
   input?.focus();
   expect(key("Tab", true).defaultPrevented).toBe(true);
-  expect(deepActiveElement(document)?.textContent).toBe("折叠");
+  expect(deepActiveElement(document)?.textContent).toBe("Collapsed");
   expect(key("Tab").defaultPrevented).toBe(true);
   expect(deepActiveElement(document)).toBe(input);
   const composingEscape = new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true, composed: true, cancelable: true });
@@ -85,10 +85,10 @@ it("filters destinations and navigates results from search without changing pins
   expect(dialog.shadowRoot?.querySelectorAll(".destination-button")).toHaveLength(2);
   expect(selected()).toBe("Files");
   expect(input.getAttribute("aria-describedby")).toBe("navigation-selection");
-  expect(announcement()).toBe("Files，第 1 项，共 2 项");
+  expect(announcement()).toBe("Files, 1 of 2");
   await key("ArrowUp");
   expect(selected()).toBe("Find");
-  expect(announcement()).toBe("Find，第 2 项，共 2 项");
+  expect(announcement()).toBe("Find, 2 of 2");
   expect(dialog.shadowRoot?.querySelector('[aria-current]')).toBeNull();
   await key("ArrowDown");
   expect(selected()).toBe("Files");
@@ -105,8 +105,8 @@ it("filters destinations and navigates results from search without changing pins
   expect(dialog.onClose).toHaveBeenCalledOnce();
   expect(dialog.onPreferencesChange).not.toHaveBeenCalled();
   await search("missing");
-  expect(dialog.shadowRoot?.textContent).toContain("没有匹配的导航目标。");
-  expect(announcement()).toBe("没有匹配的导航目标。");
+  expect(dialog.shadowRoot?.textContent).toContain("No destinations found.");
+  expect(announcement()).toBe("No destinations found.");
   await key("ArrowDown");
   await key("Enter");
   expect(dialog.onSelect).toHaveBeenCalledOnce();
@@ -124,7 +124,7 @@ it("offers unpinned destinations and closes after navigating without modifying p
   dialog.onPreferencesChange = vi.fn();
   document.body.append(dialog);
   await dialog.updateComplete;
-  const pin = dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="固定：Files"]');
+  const pin = dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Pin Files"]');
   expect(pin?.getAttribute("aria-pressed")).toBe("false");
   expect(pin?.querySelector("svg")).not.toBeNull();
   const files = dialog.shadowRoot?.querySelector<HTMLButtonElement>('.destination > button:first-child[aria-pressed="true"]');
@@ -143,10 +143,10 @@ it("toggles icon pins and mobile layout independently, resets tabs, and uses sha
   dialog.onClose = vi.fn();
   document.body.append(dialog);
   await dialog.updateComplete;
-  dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="固定：Files"]')?.click();
+  dialog.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Pin Files"]')?.click();
   await dialog.updateComplete;
   expect(dialog.preferences).toEqual({ pinnedIds: ["chat", "missing:tool", "tools:files"], mobileCollapsed: true });
-  expect(dialog.shadowRoot?.querySelector('button[aria-label="取消固定：Files"]')?.getAttribute("aria-pressed")).toBe("true");
+  expect(dialog.shadowRoot?.querySelector("button[aria-label=\"Unpin Files\"]")?.getAttribute("aria-pressed")).toBe("true");
   const modes = [...dialog.shadowRoot?.querySelectorAll<HTMLButtonElement>('.mobile-navigation button') ?? []];
   expect(modes.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true"]);
   modes[0]?.click();
@@ -173,7 +173,7 @@ describe("NavigationDialog", () => {
     const onClose = vi.fn();
     const dialog = new NavigationDialog();
     dialog.tabs = [
-      { id: "chat", label: "聊天", icon: "chat" },
+      { id: "chat", label: "Chat", icon: "chat" },
       { id: "pi-web.files:workspace.files", label: "文件", icon: filesIcon },
       { id: "pi-web.git:workspace.git", label: "Git", icon: gitIcon },
     ];
@@ -200,7 +200,7 @@ describe("NavigationDialog", () => {
     const onPreferencesChange = vi.fn();
     const dialog = new NavigationDialog();
     dialog.tabs = [
-      { id: "chat", label: "聊天", icon: "chat" },
+      { id: "chat", label: "Chat", icon: "chat" },
       { id: "pi-web.files:workspace.files", label: "文件", icon: filesIcon },
     ];
     dialog.pinUniverse = ["chat", "pi-web.files:workspace.files"];

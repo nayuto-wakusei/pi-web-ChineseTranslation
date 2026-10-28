@@ -3,8 +3,7 @@ import { installNativeDialogFake } from "./nativeDialog.testSupport";
 installNativeDialogFake();
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MachineDialog, machineBaseUrlValidationMessage, suggestedMachineNameFromUrl } from "./MachineDialog";
-import { t } from "../i18n";
+import { MachineDialog, machineBaseUrlValidationMessage } from "./MachineDialog";
 import { deepActiveElement, pressKey, requiredElement, settleRenderedDialog } from "./modalSurfaceTestSupport";
 
 afterEach(() => {
@@ -23,33 +22,68 @@ describe("machine-dialog modal surface", () => {
     const dialog = await mountDialog();
     const url = urlInput(dialog);
     expect(url.getAttribute("aria-invalid")).toBe("false");
-    expect(description(dialog, url)).toBe(t("ui.machineDialog.enterAnAccessibleBaseUrlIncludingHttpOr", "Enter an accessible base URL, including http:// or https://."));
+    expect(description(dialog, url)).toContain("http:// or https://");
 
     url.value = "https://user@devbox.local";
     url.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     await settleRenderedDialog(dialog);
     expect(url.getAttribute("aria-invalid")).toBe("true");
-    expect(description(dialog, url)).toBe(t("ui.machineDialog.doNotIncludeCredentialsInTheMachineUrl", "Do not include credentials in the machine URL."));
+    expect(description(dialog, url)).toContain("Do not include credentials");
     expect(dialog.shadowRoot?.querySelector<HTMLButtonElement>("button[type='submit']")?.disabled).toBe(true);
 
     url.value = "https://devbox.local";
     url.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     await settleRenderedDialog(dialog);
     expect(url.getAttribute("aria-invalid")).toBe("false");
-    expect(description(dialog, nameInput(dialog))).toBe(t("ui.machineDialog.suggestedFromTheUrlChangeItToA", "Suggested from the URL. Change it to a friendly sidebar name."));
+    expect(description(dialog, nameInput(dialog))).toContain("Only changes the name shown here. Leave blank to use the remote machine’s name.");
     const token = requiredElement(dialog.shadowRoot?.querySelector<HTMLInputElement>("input[name='token']"), "token input");
-    expect(description(dialog, token)).toBe(t("ui.machineDialog.tokenWithoutPrefix", "If the remote machine requires a token, paste it without the “Bearer” prefix."));
+    expect(description(dialog, token)).toContain("without the “Bearer” prefix");
 
     const name = nameInput(dialog);
     name.value = " ";
     name.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     dialog.error = "Could not connect. Check the URL and token.";
     await settleRenderedDialog(dialog);
-    expect(name.getAttribute("aria-invalid")).toBe("true");
-    expect(description(dialog, name)).toBe(t("ui.machineDialog.enterMachineName", "Enter a machine name."));
+    expect(name.getAttribute("aria-invalid")).not.toBe("true");
+    expect(dialog.shadowRoot?.querySelector<HTMLButtonElement>("button[type='submit']")?.disabled).toBe(false);
     const form = requiredElement(dialog.shadowRoot?.querySelector("form"), "machine form");
     expect(description(dialog, form)).toContain("Could not connect");
-    expect(dialog.shadowRoot?.querySelector("header button")?.getAttribute("aria-label")).toBe(t("ui.machineDialog.closeAddMachine", "Close add machine"));
+    expect(dialog.shadowRoot?.querySelector("header button")?.getAttribute("aria-label")).toBe("Close add machine");
+  });
+
+  it("submits a blank override instead of suggesting a name from the URL", async () => {
+    const dialog = await mountDialog();
+    const onSubmit = vi.fn();
+    dialog.onSubmit = onSubmit;
+    const url = urlInput(dialog);
+    url.value = "https://devbox.local";
+    url.dispatchEvent(new Event("input", { bubbles: true }));
+    await settleRenderedDialog(dialog);
+    expect(nameInput(dialog).value).toBe("");
+    dialog.shadowRoot?.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settleRenderedDialog(dialog);
+    expect(onSubmit).toHaveBeenCalledWith({ name: "", baseUrl: "https://devbox.local" });
+  });
+
+  it("prefills only the local override and lets it be cleared", async () => {
+    const dialog = new MachineDialog();
+    dialog.machine = { id: "remote", name: "My alias", nameOverride: "My alias", kind: "remote", baseUrl: "https://remote.test", createdAt: "", updatedAt: "" };
+    const onSubmit = vi.fn();
+    dialog.onSubmit = onSubmit;
+    document.body.append(dialog);
+    await settleRenderedDialog(dialog);
+    expect(deepActiveElement()).toBe(nameInput(dialog));
+    expect(nameInput(dialog).value).toBe("My alias");
+    expect(nameInput(dialog).closest("label")?.textContent).toContain("Local display name");
+    expect(dialog.shadowRoot?.querySelector(".ui-dialog-title")?.textContent).toBe("Edit local display name");
+    nameInput(dialog).value = " ";
+    nameInput(dialog).dispatchEvent(new Event("input", { bubbles: true }));
+    dialog.shadowRoot?.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settleRenderedDialog(dialog);
+    expect(onSubmit).toHaveBeenCalledWith({ name: "", baseUrl: "https://remote.test" });
+    dialog.machine = { id: "remote", name: "Reported name", kind: "remote", baseUrl: "https://remote.test", createdAt: "", updatedAt: "" };
+    await settleRenderedDialog(dialog);
+    expect(nameInput(dialog).value).toBe("");
   });
 
   it("cancels on Escape", async () => {
@@ -97,17 +131,6 @@ function nameInput(dialog: MachineDialog): HTMLInputElement {
   return requiredElement(dialog.shadowRoot?.querySelector<HTMLInputElement>("input[name='name']"), "machine-dialog name input");
 }
 
-describe("suggestedMachineNameFromUrl", () => {
-  it("suggests the host without protocol or port", () => {
-    expect(suggestedMachineNameFromUrl("http://127.0.0.1:8504")).toBe("127.0.0.1");
-    expect(suggestedMachineNameFromUrl("https://devbox.example.test:8504/pi-web")).toBe("devbox.example.test");
-  });
-
-  it("also suggests a host while the URL protocol is being typed", () => {
-    expect(suggestedMachineNameFromUrl("devbox.local:8504")).toBe("devbox.local");
-  });
-});
-
 describe("machineBaseUrlValidationMessage", () => {
   it("accepts http and https base URLs", () => {
     expect(machineBaseUrlValidationMessage("http://127.0.0.1:8504")).toBeUndefined();
@@ -115,10 +138,10 @@ describe("machineBaseUrlValidationMessage", () => {
   });
 
   it("explains invalid machine URLs", () => {
-    expect(machineBaseUrlValidationMessage("")).toBe("必须填写远程 PI WEB URL。");
-    expect(machineBaseUrlValidationMessage("devbox.local:8504")).toBe("请使用 http:// 或 https:// URL。");
-    expect(machineBaseUrlValidationMessage("ftp://devbox.example.test")).toBe("请使用 http:// 或 https:// URL。");
-    expect(machineBaseUrlValidationMessage("https://user@devbox.example.test")).toBe("机器 URL 中不要包含凭据。");
-    expect(machineBaseUrlValidationMessage("https://devbox.example.test?q=1")).toBe("不要包含查询字符串或片段。");
+    expect(machineBaseUrlValidationMessage("")).toBe("Remote PI WEB URL is required.");
+    expect(machineBaseUrlValidationMessage("devbox.local:8504")).toBe("Use an http:// or https:// URL.");
+    expect(machineBaseUrlValidationMessage("ftp://devbox.example.test")).toBe("Use an http:// or https:// URL.");
+    expect(machineBaseUrlValidationMessage("https://user@devbox.example.test")).toBe("Do not include credentials in the machine URL.");
+    expect(machineBaseUrlValidationMessage("https://devbox.example.test?q=1")).toBe("Do not include a query string or fragment.");
   });
 });

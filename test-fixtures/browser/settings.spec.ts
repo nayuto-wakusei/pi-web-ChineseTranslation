@@ -36,8 +36,8 @@ test("settings machine selection and dirty confirmation fit the viewport without
   await page.goto("/settings.html");
   const dialog = page.locator("settings-dialog");
   const selector = dialog.getByLabel("配置机器", { exact: true });
-  const machineSection = dialog.getByRole("region", { name: "所选机器的文件访问和上传设置", exact: true });
-  const upload = machineSection.locator("input").first();
+  const machineSection = dialog.getByRole("region", { name: "所选机器设置", exact: true });
+  const upload = machineSection.getByRole("textbox", { name: /^默认上传文件夹/ });
   await expect(upload).toHaveValue("remote-a/uploads");
   await expect(selector).toHaveValue("remote-a");
   await upload.fill("pending/uploads");

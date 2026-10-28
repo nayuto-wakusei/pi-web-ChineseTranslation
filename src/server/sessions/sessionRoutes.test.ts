@@ -6,7 +6,7 @@ import { loadNodeTranslator } from "../../localization.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../shared/apiTypes.js";
+import { ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_ID_MAX_LENGTH, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../shared/apiTypes.js";
 import type {
   AskUserSubmission,
   ExtensionDialogAnswer,
@@ -213,6 +213,8 @@ describe("session routes", () => {
     try {
       const requestCwd = resolve("/repo");
       const catalog = await routeApp.inject({ method: "GET", url: "/sessions/unread" });
+      const marked = await routeApp.inject({ method: "POST", url: "/sessions/session-1/unread", payload: { cwd: requestCwd } });
+      const invalidMark = await routeApp.inject({ method: "POST", url: "/sessions/session-1/unread", payload: {} });
       const acknowledged = await routeApp.inject({
         method: "POST",
         url: "/sessions/session-1/unread/acknowledge",
@@ -235,6 +237,10 @@ describe("session routes", () => {
 
       expect(catalog.statusCode).toBe(200);
       expect(catalog.json()).toEqual(routeService.unreadCatalogResponse);
+      expect(marked.statusCode).toBe(200);
+      expect(marked.json()).toEqual(routeService.unreadCatalogResponse);
+      expect(invalidMark.statusCode).toBe(400);
+      expect(routeService.markUnreadCalls).toEqual([{ sessionId: "session-1", cwd: requestCwd }]);
       expect(acknowledged.statusCode).toBe(200);
       expect(acknowledged.json()).toEqual(routeService.unreadCatalogResponse);
       expect(invalid.statusCode).toBe(400);
@@ -272,6 +278,9 @@ describe("session routes", () => {
         payload: { cwd: "relative", catalogId: "catalog-test", throughCompletionOrder: 7 },
       });
 
+      const marked = await routeApp.inject({ method: "POST", url: "/sessions/session-1/unread", payload: { cwd: resolve("/repo") } });
+      expect(marked.statusCode).toBe(503);
+      expect(marked.json()).toEqual({ error: "unread persistence unavailable" });
       expect(catalog.statusCode).toBe(503);
       expect(acknowledgement.statusCode).toBe(503);
       expect(catalog.json()).toEqual({ error: "unread persistence unavailable" });
@@ -1165,6 +1174,7 @@ class CapturingRouteSessionService implements SessionRouteService {
   readonly dismissWarningCalls: { lookup: SessionRouteLookup; dismissId: string; managementContext?: ManagementEmbedContext }[] = [];
   readonly notificationInboxCalls: SessionRef[] = [];
   readonly acknowledgeUnreadCalls: { sessionId: string; request: SessionUnreadAcknowledgeRequest }[] = [];
+  readonly markUnreadCalls: { sessionId: string; cwd: string }[] = [];
   readonly unreadCatalogResponse: SessionUnreadCatalogSnapshot = { catalogId: "catalog-test", catalogRevision: 1, sessions: [] };
   readonly dismissNotificationCalls: { ref: SessionRef; request: Omit<SessionNotificationDismissRequest, "cwd"> }[] = [];
   readonly dismissAllNotificationCalls: { ref: SessionRef; request: Omit<SessionNotificationDismissAllRequest, "cwd"> }[] = [];
@@ -1278,6 +1288,11 @@ class CapturingRouteSessionService implements SessionRouteService {
     return this.unreadError === undefined
       ? Promise.resolve(this.unreadCatalogResponse)
       : Promise.reject(this.unreadError);
+  }
+
+  markUnread(sessionId: string, cwd: string): Promise<SessionUnreadCatalogSnapshot> {
+    this.markUnreadCalls.push({ sessionId, cwd });
+    return this.unreadCatalog();
   }
 
   notificationInbox(ref: SessionRef): SessionNotificationInboxSnapshot {
@@ -1674,6 +1689,203 @@ describe("session routes upstream strict contract", () => {
       await routeService.dispose();
       await routeApp.close();
     }
+  });
+
+  it("parses question responses and skips and returns ordinary session status", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const submitted = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/ask/submit",
+        payload: {
+          cwd: "/repo/./",
+          askId: "ask-1",
+          answers: [{ id: "db", values: ["pg"], comment: "behind pgbouncer" }, { id: "cache", values: [], otherText: "redis" }],
+        },
+      });
+      const cancelled = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/ask/cancel",
+        payload: { cwd: "/repo/./", askId: "ask-2" },
+      });
+
+      expect(submitted.statusCode).toBe(200);
+      expect(submitted.json()).toMatchObject({ sessionId: "session-1" });
+      expect(routeService.submitAskCalls).toEqual([{
+        lookup: { id: "session-1", cwd: resolve("/repo") },
+        askId: "ask-1",
+        submission: {
+          answers: [{ id: "db", values: ["pg"], comment: "behind pgbouncer" }, { id: "cache", values: [], otherText: "redis" }],
+        },
+      }]);
+      expect(cancelled.statusCode).toBe(200);
+      expect(cancelled.json()).toMatchObject({ sessionId: "session-1" });
+      expect(routeService.cancelAskCalls).toEqual([{ lookup: { id: "session-1", cwd: resolve("/repo") }, askId: "ask-2" }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects malformed ask payloads before calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+    const malformed: Record<string, unknown>[] = [
+      { cwd: "/repo", answers: [] },
+      { cwd: "/repo", askId: "", answers: [] },
+      { cwd: "/repo", askId: "x".repeat(ASK_USER_ID_MAX_LENGTH + 1), answers: [] },
+      { cwd: "/repo", askId: "ask-1" },
+      { cwd: "/repo", askId: "ask-1", answers: {} },
+      { cwd: "/repo", askId: "ask-1", answers: [{ values: ["pg"] }] },
+      { cwd: "/repo", askId: "ask-1", answers: [{ id: "db" }] },
+      { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: [1] }] },
+      { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: [], otherText: 7 }] },
+      { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: [], otherText: "x".repeat(ASK_USER_OTHER_TEXT_MAX_LENGTH + 1) }] },
+      { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: ["pg"], comment: 7 }] },
+      { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: ["pg"], comment: "x".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1) }] },
+      { cwd: "/repo", askId: "ask-1", answers: new Array<unknown>(ASK_USER_QUESTION_LIMIT + 1).fill({ id: "db", values: [] }) },
+    ];
+
+    try {
+      for (const payload of malformed) {
+        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/submit", payload });
+        expect(response.statusCode).toBe(400);
+      }
+      const cancelWithoutAskId = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/cancel", payload: {} });
+
+      expect(cancelWithoutAskId.statusCode).toBe(400);
+      expect(routeService.submitAskCalls).toEqual([]);
+      expect(routeService.cancelAskCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("maps a missing session on an ask submission to 404", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.askError = new Error("Session not found");
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/submit", payload: { cwd: "/repo", askId: "ask-1", answers: [] } });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: "Session not found" });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("parses dialog answers and cancels and reports both closed and stale outcomes", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const answered = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/dialogs/answer",
+        payload: { cwd: "/repo/./", dialogId: "dialog-1", value: true },
+      });
+      const answeredText = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/dialogs/answer",
+        payload: { cwd: "/repo", dialogId: "dialog-2", value: "typed text" },
+      });
+      const cancelled = await routeApp.inject({
+        method: "POST",
+        url: "/sessions/session-1/dialogs/cancel",
+        payload: { cwd: "/repo", dialogId: "dialog-3" },
+      });
+
+      expect(answered.statusCode).toBe(200);
+      expect(answered.json()).toMatchObject({ result: "closed", sessionStatus: { sessionId: "session-1" } });
+      expect(answeredText.statusCode).toBe(200);
+      expect(routeService.answerDialogCalls).toEqual([
+        { lookup: { id: "session-1", cwd: resolve("/repo") }, dialogId: "dialog-1", value: true },
+        { lookup: { id: "session-1", cwd: resolve("/repo") }, dialogId: "dialog-2", value: "typed text" },
+      ]);
+      expect(cancelled.statusCode).toBe(200);
+      expect(cancelled.json()).toMatchObject({ result: "stale" });
+      expect(routeService.cancelDialogCalls).toEqual([{ lookup: { id: "session-1", cwd: resolve("/repo") }, dialogId: "dialog-3" }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects malformed dialog payloads before calling the service", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    registerSessionRoutes(routeApp, routeService, eventHub);
+    const malformedAnswers: Record<string, unknown>[] = [
+      { value: true },
+      { dialogId: "", value: true },
+      { dialogId: "x".repeat(EXTENSION_DIALOG_ID_MAX_LENGTH + 1), value: true },
+      { dialogId: "dialog-1" },
+      { dialogId: "dialog-1", value: 7 },
+      { dialogId: "dialog-1", value: ["option"] },
+      { dialogId: "dialog-1", value: "x".repeat(EXTENSION_DIALOG_INPUT_MAX_LENGTH + 1) },
+    ];
+
+    try {
+      for (const payload of malformedAnswers) {
+        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/dialogs/answer", payload });
+        expect(response.statusCode).toBe(400);
+      }
+      const cancelWithoutDialogId = await routeApp.inject({ method: "POST", url: "/sessions/session-1/dialogs/cancel", payload: {} });
+
+      expect(cancelWithoutDialogId.statusCode).toBe(400);
+      expect(routeService.answerDialogCalls).toEqual([]);
+      expect(routeService.cancelDialogCalls).toEqual([]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("maps a missing session on a dialog answer to 404", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService();
+    routeService.dialogError = new Error("Session not found");
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/dialogs/answer", payload: { cwd: "/repo", dialogId: "dialog-1", value: true } });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: "Session not found" });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("rejects prompt payloads that omit text without opening a session", async () => {
+    const response = await app.inject({ method: "POST", url: "/sessions/session-1/prompt", payload: { cwd: "/repo", body: "Build the thing" } });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "提示文本为必填项" });
+    expect(sessionManager.calls).toEqual({ create: 0, list: 0, listAll: 0, open: 0 });
   });
 
   it("rejects per-session routes that omit cwd without calling the service", async () => {

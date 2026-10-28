@@ -78,16 +78,17 @@ export class ModalSurface extends LitElement {
     const registration = registerRenderedModal({
       element: dialog,
       focus: () => { this.focusDialogContent(); },
-      onTopChange: () => { this.requestUpdate(); },
+      onTopChange: (isTop) => { this.syncModalAccessibility(isTop); },
     });
     this.modalRegistration = registration;
     try {
       dialog.showModal();
+      this.syncModalAccessibility(registration.isTop);
       registration.focus();
-      this.requestUpdate();
     } catch (error) {
       this.modalRegistration = undefined;
       registration.unregister();
+      this.syncModalAccessibility(false);
       throw error;
     }
   }
@@ -110,12 +111,22 @@ export class ModalSurface extends LitElement {
     if (this.dialog !== undefined) focusElement(this.dialog);
   }
 
+  // Ownership depends on the opened native dialog, not just Lit properties.
+  // Keep these attributes registry-owned so opening or changing layers does
+  // not need a corrective render. The template supplies closed defaults only.
+  private syncModalAccessibility(isTop: boolean): void {
+    const dialog = this.dialog;
+    if (dialog === undefined) return;
+    dialog.setAttribute("aria-modal", isTop ? "true" : "false");
+    if (isTop) dialog.removeAttribute("aria-hidden");
+    else dialog.setAttribute("aria-hidden", "true");
+  }
+
   override render(): TemplateResult {
-    const isTop = this.modalRegistration?.isTop === true;
     return html`
       <dialog role="dialog" @cancel=${this.handleCancel}
-        aria-modal=${isTop ? "true" : "false"}
-        aria-hidden=${isTop ? nothing : "true"}
+        aria-modal="false"
+        aria-hidden="true"
         aria-busy=${this.busy ? "true" : "false"}
         aria-label=${this.label ?? nothing}>
         <div class="backdrop" @mousedown=${(event: MouseEvent) => { this.handleBackdropMouseDown(event); }}>

@@ -59,7 +59,7 @@ describe("SessionController message history actions", () => {
     );
 
     await controller.actOnMessage("root", "fork");
-    await expect(controller.actOnMessage("missing", "fork")).rejects.toThrow(/不在当前会话历史/);
+    await expect(controller.actOnMessage("missing", "fork")).rejects.toThrow(/This message is no longer available in session history/);
 
     expect(forkTree).toHaveBeenCalledTimes(1);
     expect(forkTree).toHaveBeenCalledWith(oldSession, { entryId: "root", expectedLeafId: "leaf-1", retainCheckpoint: true }, "local");
@@ -574,7 +574,7 @@ describe("SessionController session tree navigation", () => {
     await run;
 
     expect(state.treeDialog).toBeUndefined();
-    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("需要输入；请打开会话并重新运行");
+    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("needs input; open the session and run it again");
   });
 
   it("requires a delayed interactive tree command to be rerun after its session is no longer selected", async () => {
@@ -602,7 +602,7 @@ describe("SessionController session tree navigation", () => {
     await run;
 
     expect(state.treeDialog).toBeUndefined();
-    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("需要输入；请打开会话并重新运行");
+    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("needs input; open the session and run it again");
   });
 });
 
@@ -683,7 +683,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
       expect(navigateTree).toHaveBeenCalledWith(oldSession, { targetId: "root", expectedLeafId: "leaf-1", summary: { mode: "none" }, retainCheckpoint: true }, "local");
       expect(forkTree).not.toHaveBeenCalled();
     }
-    await expect(controller.actOnMessage("missing", action)).rejects.toThrow("不在当前会话历史");
+    await expect(controller.actOnMessage("missing", action)).rejects.toThrow("This message is no longer available in session history");
   });
 
   it("does not mutate a different session after history loading", async () => {
@@ -843,15 +843,15 @@ describe("SessionController upstream navigation and runtime contracts", () => {
       { api, socket: new FakeSocket() },
     );
 
-    await expect(controller.forkFromTree("root")).rejects.toThrow("会话树导航器已不可用");
+    await expect(controller.forkFromTree("root")).rejects.toThrow("The session tree navigator is no longer available");
     expect(forkTree).not.toHaveBeenCalled();
 
     state = { ...state, treeDialog: tree, selectedSession: { ...oldSession, archived: true } };
-    await expect(controller.forkFromTree("root")).rejects.toThrow("会话树导航器已不可用");
+    await expect(controller.forkFromTree("root")).rejects.toThrow("The session tree navigator is no longer available");
     expect(forkTree).not.toHaveBeenCalled();
 
     state = { ...state, selectedSession: undefined };
-    await expect(controller.forkFromTree("root")).rejects.toThrow("会话树导航器已不可用");
+    await expect(controller.forkFromTree("root")).rejects.toThrow("The session tree navigator is no longer available");
     expect(forkTree).not.toHaveBeenCalled();
   });
 });

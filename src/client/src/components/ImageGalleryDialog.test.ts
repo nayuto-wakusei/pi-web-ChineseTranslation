@@ -4,7 +4,7 @@ installNativeDialogFake();
 
 import { afterEach, describe, expect, it } from "vitest";
 import { ImageGalleryDialog } from "./ImageGalleryDialog";
-import { t } from "../i18n";
+import { imageMessages } from "../imageMessages";
 import { deepActiveElement, hasRenderedModal } from "./modalLayerRegistry";
 
 const images = ["first", "second", "third"].map((alt) => ({ src: `data:image/png;base64,${alt}`, alt }));
@@ -145,15 +145,15 @@ async function mountGallery(index = 0): Promise<ImageGalleryDialog> {
 }
 
 function button(gallery: ImageGalleryDialog, label: "Next image" | "Previous image" | "Close image"): HTMLButtonElement {
-  const key = label === "Next image" ? "images.nextLabel" : label === "Previous image" ? "images.previousLabel" : "images.close";
-  return required(gallery.renderRoot.querySelector<HTMLButtonElement>(`button[aria-label="${t(key, label)}"]`));
+  const key = label === "Next image" ? "nextImage" : label === "Previous image" ? "previousImage" : "close";
+  return required(gallery.renderRoot.querySelector<HTMLButtonElement>(`button[aria-label="${imageMessages.t(key)}"]`));
 }
 
 function expectSelection(gallery: ImageGalleryDialog, index: number): void {
   const image = required(gallery.renderRoot.querySelector("img"));
   expect(image.getAttribute("src")).toBe(images[index]?.src);
   expect(image.alt).toBe(images[index]?.alt);
-  expect(gallery.renderRoot.querySelector('[role="status"]')?.textContent).toBe(t("images.position", "Image {index} of {total}", { index: String(index + 1), total: "3" }));
+  expect(gallery.renderRoot.querySelector('[role="status"]')?.textContent).toBe(imageMessages.t("position", { index: index + 1, count: 3 }));
 }
 
 function required<T>(value: T | null | undefined): T {

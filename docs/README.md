@@ -15,6 +15,7 @@
 | 查找模块职责与边界 | [项目与工作区](modules/projects-workspaces.md)、[会话](modules/sessions.md)、[认证与模型](modules/auth-models.md)、[文件与终端](modules/files-terminals.md) |
 | 理解跨机器、插件与配置边界 | [机器/API](modules/machines-api.md)、[插件](modules/plugins.md)、[配置维护](modules/configuration.md) |
 | 管理集成与运行维护 | [管理与审计](admin/management-audit.md)、[运维](admin/operations.md) |
+| 维护配置分层与翻译 | [配置架构](config-architecture.md)、[本地化开发](localization.md) |
 | 查公开使用契约 | [配置参考](config.md)、[插件指南](plugins.md)、[机器联邦](machines.html)、[远端使用](remote-first.html) |
 | 选择验证与交付检查 | [改动联动](development/change-guide.md)、[开发检查](development-checks.md) |
 
@@ -22,6 +23,7 @@
 
 | 位置 | 内容与边界 |
 | --- | --- |
+| [config-audit.md](config-audit.md) | 配置实施前历史审计；当前行为以配置参考与配置架构为准。 |
 | `docs/` | 用户指南、配置与插件参考、网站页面、社区插件 npm 发现目录及维护入口。成对的 Markdown/HTML 页面保持契约一致。 |
 | [`development/`](development/) | 全局架构、状态所有权和跨模块改动约束。 |
 | [`modules/`](modules/) | 各领域的职责、协作关系、不变量及少量源码导航。 |

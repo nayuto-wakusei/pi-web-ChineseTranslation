@@ -55,6 +55,21 @@ describe("project plugin settings snapshots", () => {
     expect(global.nested).toEqual({ globalOnly: true });
   });
 
+  it("enforces only supplied plugin setting leaves above project values and snapshots the explicit environment", async () => {
+    await writeConfig(project, { plugins: { alpha: { settings: {
+      nested: { project: true }, list: ["project"], flag: true, projectOnly: true,
+    } } } });
+    const env = { PI_WEB_PLUGINS: JSON.stringify({ alpha: { settings: {
+      nested: { enforced: true }, list: [], flag: false,
+    } }, beta: { settings: { unrelated: true } } }) };
+    const service = new ProjectPluginSettingsSnapshots(projects, { env });
+    env.PI_WEB_PLUGINS = JSON.stringify({ alpha: { settings: { flag: true } } });
+    const result = await service.resolve("alpha", { inherited: "global", nested: { global: true }, flag: true }, project, signal);
+    expect(result).toEqual({ inherited: "global", nested: { enforced: true }, list: [], flag: false, projectOnly: true });
+    expectDeeplyFrozen(result);
+    expect(await service.resolve("beta", { default: true }, project, signal)).toEqual({ default: true, unrelated: true });
+  });
+
   it("captures a detached global base before I/O and deeply freezes detached results", async () => {
     await writeConfig(project, { plugins: { alpha: { settings: { override: { list: [{ value: "project" }] } } } } });
     const pending = deferred<Project>();

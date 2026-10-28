@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { html } from "lit";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Machine } from "../../api";
 import { AppContextBar, machineContextDetail } from "./AppContextBar";
 
@@ -24,6 +25,22 @@ it("omits folder workspace selection while preserving project and session select
   expect(bar.shadowRoot?.querySelectorAll(".context-items button")).toHaveLength(3);
 });
 
+it.each([false, true])("places reload before actions with navigation toggle: %s", async (showNavigation) => {
+  const bar = new AppContextBar();
+  bar.refreshControl = html`<button aria-label="Full page reload">Reload</button>`;
+  bar.onShowActions = vi.fn();
+  if (showNavigation) bar.onShowNavigation = vi.fn();
+  document.body.append(bar);
+  await bar.updateComplete;
+
+  const labels = Array.from(bar.shadowRoot?.querySelectorAll(".context-actions button") ?? [], (button) => button.getAttribute("aria-label"));
+  expect(labels).toEqual([
+    ...(showNavigation ? ["Navigation"] : []),
+    "Full page reload",
+    "Show Actions",
+  ]);
+});
+
 describe("machineContextDetail", () => {
   it("uses the serving gateway for local machines and the remote host otherwise", () => {
     const remote = { ...machine("remote-a"), baseUrl: "https://fleet-a.example.com/pi-web/" };
@@ -37,11 +54,25 @@ describe("machineContextDetail", () => {
 });
 
 describe("machine crumb", () => {
-  it("retains the upstream static machine identity in browser mode", async () => {
-    const chip = machineChip(await mountBar([machine("local")]));
+  it.each([false, true])("shows PI-WEB before machines load (PWA: %s)", async (locationIndicator) => {
+    const bar = await mountBar([], locationIndicator);
+    expect(machineChip(bar)?.tagName).toBe("SPAN");
+    expect(machineChip(bar)?.textContent).toContain("PI-WEB");
+  });
+
+  it("always shows the machine crumb in PWA mode, falling back to the local machine", async () => {
+    const bar = await mountBar([machine("local")], true);
+
+    expect(machineChip(bar)?.querySelector("img")).not.toBeNull();
+  });
+
+  it("is a static identity chip with its name and URL in PWA mode when there is no machine choice", async () => {
+    const bar = await mountBar([machine("local")], true);
+
+    const chip = machineChip(bar);
     expect(chip?.tagName).toBe("SPAN");
     expect(chip?.textContent).toContain("本地");
-    expect(chip?.querySelector("img")).toBeNull();
+    expect(chip?.querySelector("img")).not.toBeNull();
   });
 
   it.each(["本地", "Local"])("shows a static gateway identity instead of %s in single-machine PWA mode", async (name) => {
@@ -49,7 +80,7 @@ describe("machine crumb", () => {
     expect(chip?.tagName).toBe("SPAN");
     expect(chip?.querySelector("img")?.getAttribute("src")).toContain("favicon.svg");
     expect(chip?.textContent).toContain(document.location.host);
-    expect(chip?.textContent).not.toContain(name);
+    expect(chip?.textContent).toContain(name);
   });
 
   it.each(["本地", "Local"])("keeps the browser-mode multi-machine chip as a plain picker for %s", async (name) => {

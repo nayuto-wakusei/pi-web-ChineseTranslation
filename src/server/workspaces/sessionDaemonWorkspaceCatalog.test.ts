@@ -88,6 +88,7 @@ describe("SessionDaemonWorkspaceCatalog", () => {
         machineSpecific: true,
         pairedRequestVersion: 1,
         pairedChannelVersion: 1,
+        pairedResourceVersion: 1,
         state: "active",
         name: "Paired tools",
       }],
@@ -106,7 +107,7 @@ describe("SessionDaemonWorkspaceCatalog", () => {
       protocolVersion: 2,
       terminalMode: "required",
       safeStart: "bundled-only",
-      records: [{ pluginId: "paired-tools", source: "local", scope: "local", moduleRevision: "sha256:abc", browserRevision: "sha256:browser", settingsRevision: "sha256:settings", machineSpecific: true, pairedRequestVersion: 1, pairedChannelVersion: 1, state: "active", name: "Paired tools" }],
+      records: [{ pluginId: "paired-tools", source: "local", scope: "local", moduleRevision: "sha256:abc", browserRevision: "sha256:browser", settingsRevision: "sha256:settings", machineSpecific: true, pairedRequestVersion: 1, pairedChannelVersion: 1, pairedResourceVersion: 1, state: "active", name: "Paired tools" }],
       health: [{ pluginId: "paired-tools", health: { status: "degraded", message: "Paired tools are old", details: { version: 1, nested: ["ok", { ready: true }] } } }],
       diagnostics: [
         { code: "duplicate-id", source: "local", message: "Duplicate PI WEB plugin id: paired-tools", pluginId: "paired-tools" },

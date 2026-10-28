@@ -1,8 +1,10 @@
+import { LocalizationService } from "../../src/client/src/localization/service.js";
+import { createPluginLocalization } from "../../src/client/src/plugins/localization.js";
 // @vitest-environment happy-dom
 
 import { html, render, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PiWebComponentStatus, PiWebStatusResponse, PluginRuntimeState, TerminalCommandRun, TerminalCommandRunHandle, ApplicationPanelContext, WorkspacePanelTerminal } from "@chainingintention/pi-web-cn/plugin-api";
+import type { PiWebComponentStatus, PiWebStatusResponse, PluginRuntimeState, MaintenanceTerminalCommandRun, TerminalCommandRunHandle, ApplicationPanelContext, MaintenanceTerminal } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin.js";
 
 function component(overrides: Partial<PiWebComponentStatus> = {}): PiWebComponentStatus {
@@ -32,12 +34,11 @@ function status(overrides: Partial<PiWebStatusResponse> = {}): PiWebStatusRespon
   };
 }
 
-function commandRunHandle(input: { title: string; command: string }): TerminalCommandRunHandle {
-  const run: TerminalCommandRun = {
+function commandRunHandle(input: { title: string; command: string }): TerminalCommandRunHandle<MaintenanceTerminalCommandRun> {
+  const run: MaintenanceTerminalCommandRun = {
     id: "run-1",
     origin: "updates",
-    projectId: "project-1",
-    workspaceId: "workspace-1",
+    scope: "maintenance",
     terminalId: "terminal-1",
     title: input.title,
     command: input.command,
@@ -48,7 +49,7 @@ function commandRunHandle(input: { title: string; command: string }): TerminalCo
   return { run, completed: Promise.resolve({ ...run, status: "succeeded" }) };
 }
 
-function panelContext(state: PluginRuntimeState, terminal?: WorkspacePanelTerminal): ApplicationPanelContext {
+function panelContext(state: PluginRuntimeState, terminal?: MaintenanceTerminal): ApplicationPanelContext {
   const noop = () => undefined;
   return {
     navigate: () => Promise.resolve(),
@@ -58,13 +59,14 @@ function panelContext(state: PluginRuntimeState, terminal?: WorkspacePanelTermin
     prompt: { insertText: noop, getText: () => "", getSelection: () => null },
     ...(terminal === undefined ? {} : {
       workspace: { id: "workspace-1", projectId: "project-1", path: "/repo", label: "main", isMain: true },
-      terminal,
+      maintenanceTerminal: terminal,
     }),
   };
 }
 
-function renderPanel(value: PiWebStatusResponse, terminal?: WorkspacePanelTerminal): HTMLElement {
+function renderPanel(value: PiWebStatusResponse, terminal?: MaintenanceTerminal): HTMLElement {
   const contributions = plugin.activate({
+    localization: createPluginLocalization(new LocalizationService(), "updates", "updates", new AbortController().signal),
     apiVersion: 4,
     pluginId: "updates",
     runtimePluginId: "updates",
@@ -118,7 +120,7 @@ describe("Updates plugin panel layout", () => {
     "pi-web update",
     "PI_CODING_AGENT_DIR='/profiles/active' '/usr/bin/node' '/opt/pi-web/dist/cli.js' update",
   ])("runs the recommended command unchanged in the panel-scoped terminal: %s", (update) => {
-    const runCommand = vi.fn<WorkspacePanelTerminal["runCommand"]>((input) => Promise.resolve(commandRunHandle(input)));
+    const runCommand = vi.fn<MaintenanceTerminal["runCommand"]>((input) => Promise.resolve(commandRunHandle(input)));
     const container = renderPanel(status({
       release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true, latestVersion: "1.202605.9" },
       commands: { update, restart: "pi-web-docker restart" },

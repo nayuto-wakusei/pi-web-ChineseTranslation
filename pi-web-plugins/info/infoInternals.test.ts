@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PiWebComponentStatus, PiWebReleaseStatus, PiWebStatusResponse, PluginMachine, Workspace } from "@chainingintention/pi-web-cn/plugin-api";
-import { componentDetails, componentHealth, diagnosticsSummary, formatVersion, installationLabel, machineKindLabel, piVersionDriftNote, releaseSummary, workspaceFlags } from "./infoInternals.js";
+import { componentHealth, createInfoContent } from "./infoInternals.js";
+import { chinesePluginLocalization } from "../localization.testSupport.js";
+
+const service = await chinesePluginLocalization("info");
+const { componentDetails, diagnosticsSummary, formatVersion, installationLabel, machineKindLabel, piVersionDriftNote, releaseSummary, workspaceFlags } = createInfoContent(service);
 
 describe("componentHealth", () => {
   it("reports current when the component is available and not stale", () => {
@@ -37,7 +41,7 @@ describe("releaseSummary", () => {
 
 describe("componentDetails", () => {
   it("combines versions, health, and installation into one line", () => {
-    expect(componentDetails(componentStatus())).toBe("运行版本 1.0.0 · 安装版本 1.0.0 · Pi 0.84.1 · 当前版本 · 全局 npm 包 · /usr/lib/node_modules");
+    expect(componentDetails(componentStatus())).toBe("运行 1.0.0 · 已安装 1.0.0 · Pi 0.84.1 · 当前版本 · 全局 npm 包 · /usr/lib/node_modules");
   });
 
   it("reports the Pi version as unknown when the component does not report one", () => {
@@ -57,7 +61,7 @@ describe("piVersionDriftNote", () => {
   });
 
   it("names the session daemon Pi version when it differs from the web process", () => {
-    expect(piVersionDriftNote(componentStatus(), componentStatus({ component: "sessiond", piVersion: "0.83.0" }))).toBe("会话守护进程正在运行 0.83.0");
+    expect(piVersionDriftNote(componentStatus(), componentStatus({ component: "sessiond", piVersion: "0.83.0" }))).toBe("会话守护进程运行 0.83.0");
   });
 
   it("stays quiet while the daemon is unavailable or either version is unknown", () => {
@@ -74,12 +78,12 @@ describe("diagnosticsSummary", () => {
     expect(summary).toBe([
       "PI WEB 诊断信息",
       "包：@chainingintention/pi-web-cn",
-      "Web/界面：运行版本 1.0.0 · 安装版本 1.0.1 · Pi 0.84.1 · 需要重启 · 全局 npm 包 · /usr/lib/node_modules",
-      "会话守护进程：运行版本 1.0.0 · 安装版本 1.0.0 · Pi 0.84.1 · 当前版本 · 本地检出 · /srv/dev/pi-web",
-      "发布状态：有可用更新：1.1.0（检查于 2025-01-02T03:04:05Z）",
-      "状态生成时间：2025-01-02T03:04:06Z",
+      "Web/界面：运行 1.0.0 · 已安装 1.0.1 · Pi 0.84.1 · 需要重启 · 全局 npm 包 · /usr/lib/node_modules",
+      "会话守护进程：运行 1.0.0 · 已安装 1.0.0 · Pi 0.84.1 · 当前版本 · 本地源码 · /srv/dev/pi-web",
+      `发布：有可用更新：1.1.0（检查于 ${service.date(new Date("2025-01-02T03:04:05Z"), { dateStyle: "medium", timeStyle: "medium" })}）`,
+      `状态生成时间：${service.date(new Date("2025-01-02T03:04:06Z"), { dateStyle: "medium", timeStyle: "medium" })}`,
       "机器：devbox（本地机器）",
-      "工作区：pi-web - /srv/dev/pi-web（分支 main、Git 工作树、主工作区）",
+      `工作区：pi-web - /srv/dev/pi-web（${service.list(["分支 main", "Git 仓库", "Git 工作树", "主工作区"])}）`,
     ].join("\n"));
   });
 
@@ -89,7 +93,7 @@ describe("diagnosticsSummary", () => {
     expect(summary).toBe([
       "PI WEB 诊断信息",
       "状态：不可用",
-      "工作区：未选择",
+      "工作区：尚未选择",
     ].join("\n"));
   });
 });
@@ -103,8 +107,8 @@ describe("small formatters", () => {
 
   it("labels installations", () => {
     expect(installationLabel(undefined)).toBe("安装方式未知");
-    expect(installationLabel({ kind: "pi-package", source: "Pi package", scope: "user" })).toBe("Pi package · 用户范围");
-    expect(installationLabel({ kind: "pi-package", source: "Pi package", scope: "project" })).toBe("Pi package · 项目范围");
+    expect(installationLabel({ kind: "pi-package", source: "Pi package", scope: "user" })).toBe("Pi package · user");
+    expect(installationLabel({ kind: "pi-package", source: "Pi package", scope: "project" })).toBe("Pi package · project");
     expect(installationLabel({ kind: "docker", dockerMode: "dev" })).toBe("Docker 开发运行时");
     expect(installationLabel({ kind: "docker" })).toBe("Docker 运行时");
     expect(installationLabel({ kind: "unknown" })).toBe("安装方式未知");
@@ -131,14 +135,14 @@ describe("small formatters", () => {
     expect(workspaceFlags({
       id: "ws", projectId: "project", path: "/workspace", label: "main", isMain: true,
       branch: "main", isGitRepo: true, provider: { pluginId: "custom-workspaces", capabilities: { remove: true } },
-    })).toEqual(["提供器 custom-workspaces", "分支 main", "Git 仓库", "主工作区"]);
+    })).toEqual(["提供者：custom-workspaces", "分支 main", "Git 仓库", "主工作区"]);
   });
 
   it("describes provider-owned workspaces without guessing absent legacy Git fields", () => {
     expect(workspaceFlags({
       id: "ws", projectId: "project", path: "/workspace", label: "main", isMain: true,
       provider: { pluginId: "git", capabilities: { remove: true }, metadata: { branch: "main" } },
-    })).toEqual(["提供器 git", "主工作区"]);
+    })).toEqual(["提供者：git", "主工作区"]);
   });
 
   it("describes folder-owned workspaces without requiring legacy Git flags", () => {

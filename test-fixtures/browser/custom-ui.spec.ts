@@ -87,8 +87,8 @@ for (const scheme of ["light", "dark"] as const) {
       const editor = page.locator("prompt-editor");
       const sendGroup = editor.locator(".actions > .ui-toolbar-group");
       const status = page.locator("status-bar");
-      await expect(status.locator(".context")).toHaveText("25.0%/128k");
-      await expect(status.locator(".cost")).toHaveText("$0.12");
+      await expect(status.locator(".context")).toHaveText("25.0%/13万");
+      await expect(status.locator(".cost")).toHaveText("US$0.12");
       await expect(status.locator(".context")).toBeVisible();
       await expect(status.locator(".cost")).toBeVisible();
       expect(await sendGroup.evaluate((element) => getComputedStyle(element).borderInlineStartWidth)).toBe("0px");
@@ -114,7 +114,7 @@ for (const scheme of ["light", "dark"] as const) {
       await page.evaluate(() => window.customUiFixture.setEnabled(false));
       expect(await sendGroup.evaluate((element) => getComputedStyle(element).borderInlineStartWidth)).toBe("1px");
       expect(await status.locator(".bar").evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe("1px");
-      await expect(status.locator(".cost")).toHaveText("$0.12");
+      await expect(status.locator(".cost")).toHaveText("US$0.12");
       expect(await page.evaluate(() => window.customUiFixture.identity())).toEqual({ editor: true, chat: true, draft: "未发送的草稿" });
       await expect(editor.locator(".attachments")).toContainText("metrics-draft.txt");
       await page.evaluate(() => window.customUiFixture.setEnabled(true));

@@ -68,6 +68,7 @@ export interface SessionRouteService {
   transcriptSnapshot(ref: SessionRouteLookup, page?: { limit?: number }, managementContext?: ManagementEmbedContext): Promise<SessionTranscriptSnapshot>;
   notificationCatalog(context?: ManagementEmbedContext): SessionNotificationCatalogSnapshot | Promise<SessionNotificationCatalogSnapshot>;
   unreadCatalog(context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot>;
+  markUnread(sessionId: string, cwd: string, context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot>;
   acknowledgeUnread(sessionId: string, request: SessionUnreadAcknowledgeRequest, context?: ManagementEmbedContext): Promise<SessionUnreadCatalogSnapshot>;
   notificationInbox(ref: SessionRouteRef, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;
   dismissNotification(ref: SessionRouteRef, request: Omit<SessionNotificationDismissRequest, "cwd">, context?: ManagementEmbedContext): SessionNotificationInboxSnapshot | Promise<SessionNotificationInboxSnapshot>;

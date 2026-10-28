@@ -62,7 +62,7 @@ describe("SessionCommandService", () => {
       () => getActive(active), prompt, eventPublisher(), {}, {},
       loadNodeTranslator("server", { plugins: { "zh-cn": { enabled: false } } }),
     );
-    await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "Unknown command: /missing" });
+    await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "Unknown command: /missing", presentation: { kind: "commandResult", feedback: { code: "unknown", command: "missing" } } });
     await expect(service.run("s1", "/name 中文名称")).resolves.toMatchObject({
       type: "done", message: "Session named: 中文名称", session: { name: "中文名称" },
     });
@@ -74,7 +74,7 @@ describe("SessionCommandService", () => {
     const prompt = vi.fn(promptAccepted);
     const service = new SessionCommandService(() => getActive(active), prompt, eventPublisher());
 
-    await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "未知命令：/missing" });
+    await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "Unknown command: /missing", presentation: { kind: "commandResult", feedback: {"code":"unknown","command":"missing"} } });
     // Forwarded runtime commands return a bare done result: the agent streams
     // back the canonical expanded message, so no synthetic "Accepted" line.
     await expect(service.run("s1", "/ext arg")).resolves.toEqual({ type: "done" });
@@ -111,7 +111,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/name Useful name")).resolves.toMatchObject({
       type: "done",
-      message: "会话已命名：Useful name",
+      message: "Session named: Useful name", presentation: { kind: "commandResult", feedback: {"code":"named","name":"Useful name"} },
       session: { id: "s1", cwd: "/work", name: "Useful name", messageCount: 2 },
     });
     expect(active.runtime.session.setSessionName).toHaveBeenCalledWith("Useful name");
@@ -124,7 +124,40 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/session")).resolves.toEqual({
       type: "done",
-      message: "会话：s1\n消息：2（用户 1，助手 1）\n工具调用：3\nTokens：↑10 ↓5 总计 15\n费用：$0.1235",
+      message: "Session: s1\nMessages: 2 (1 user, 1 assistant)\nTool calls: 3\nTokens: ↑10 ↓5 total 15\nCost: $0.1235",
+      presentation: { kind: "commandResult", feedback: { code: "stats", stats: active.runtime.session.getSessionStats() } },
+    });
+  });
+
+  it("marks unsupported commands, runtime diagnostics and empty command states with explicit provenance", async () => {
+    const active = activeSession({ getUserMessagesForForking: () => [], sessionManager: { getLeafId: () => null } });
+    const detail = "<raw runtime diagnostic>";
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher(), {
+      reloadSession: () => Promise.reject(new Error(detail)),
+      getSessionTree: () => { throw new Error(detail); },
+    });
+    for (const [command, message, feedback] of [
+      ["/login", "/login is not implemented in the web UI yet", { code: "notImplemented", command: "login" }],
+      ["/name", "Usage: /name <session name>", { code: "nameUsage" }],
+      ["/clone", "Cannot clone: no current session entry", { code: "cloneEmpty" }],
+      ["/fork", "No user messages to fork from", { code: "forkEmpty" }],
+      ["/reload", `Reload failed: ${detail}`, { code: "reloadFailed", detail }],
+      ["/tree", `Unable to open the session tree: ${detail}`, { code: "treeFailed", detail }],
+    ] as const) {
+      await expect(service.run("s1", command)).resolves.toEqual({ type: "unsupported", message, presentation: { kind: "commandResult", feedback } });
+    }
+    const unavailable = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
+    await expect(unavailable.run("s1", "/reload")).resolves.toEqual({ type: "unsupported", message: "/reload is not available for this session runtime.", presentation: { kind: "commandResult", feedback: { code: "reloadUnavailable" } } });
+  });
+
+  it("marks cancelled clone and fork-selection titles without marking user option text", async () => {
+    const active = activeSession({ getUserMessagesForForking: () => [{ entryId: "raw-id", text: "Session forked" }] });
+    active.runtime.fork = vi.fn(() => Promise.resolve({ cancelled: true }));
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
+    await expect(service.run("s1", "/clone")).resolves.toEqual({ type: "done", message: "Clone cancelled", presentation: { kind: "commandResult", feedback: { code: "cloneCancelled" } } });
+    await expect(service.run("s1", "/fork")).resolves.toMatchObject({
+      type: "select", title: "Fork from message", presentation: { kind: "commandResult", feedback: { code: "forkSelect" } },
+      options: [{ value: "raw-id", label: "Session forked" }],
     });
   });
 
@@ -151,7 +184,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/reload")).resolves.toEqual({
       type: "done",
-      message: "会话运行时资源已重新加载。扩展、技能、提示词模板、主题以及上下文/系统提示词文件已刷新；PI WEB 浏览器插件变更仍需另行刷新浏览器页面。",
+      message: "Session runtime resources reloaded. Extensions, skills, prompt templates, themes, and context/system prompt files are refreshed for this session. Reload the browser page separately for PI WEB browser plugin changes.", presentation: { kind: "commandResult", feedback: {"code":"reloaded"} },
     });
     expect(reloadSession).toHaveBeenCalledWith(active.runtime.session);
   });
@@ -163,7 +196,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/reload")).resolves.toEqual({
       type: "unsupported",
-      message: "会话活动期间无法重新加载，请先停止当前活动。",
+      message: "Cannot reload while the session is active. Stop current activity before reloading.", presentation: { kind: "commandResult", feedback: {"code":"reloadActive"} },
     });
     expect(reloadSession).not.toHaveBeenCalled();
   });
@@ -194,20 +227,20 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/tree")).resolves.toEqual({
       type: "unsupported",
-      message: "会话活动期间无法打开会话树。请先停止当前活动，再尝试 /tree。",
+      message: "Cannot open the session tree while the session is active. Stop current activity and try /tree again.", presentation: { kind: "commandResult", feedback: {"code":"treeActive"} },
     });
     expect(getSessionTree).not.toHaveBeenCalled();
 
     externallyActive = false;
     await expect(service.run("s1", "/tree")).resolves.toEqual({
       type: "unsupported",
-      message: "无法导航空会话树。",
+      message: "Cannot navigate an empty session tree.", presentation: { kind: "commandResult", feedback: {"code":"treeEmpty"} },
     });
 
     const unavailable = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
     await expect(unavailable.run("s1", "/tree")).resolves.toEqual({
       type: "unsupported",
-      message: "当前 Pi 运行时不支持会话树导航。",
+      message: "Session tree navigation is not available with this Pi runtime.", presentation: { kind: "commandResult", feedback: {"code":"treeUnavailable"} },
     });
   });
 
@@ -223,11 +256,11 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/name changed")).resolves.toEqual({
       type: "unsupported",
-      message: "会话树导航期间无法运行命令。请先停止或完成导航。",
+      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.", presentation: { kind: "commandResult", feedback: {"code":"navigationActive"} },
     });
     await expect(service.respond("s1", pendingFork.requestId, "m1")).resolves.toEqual({
       type: "unsupported",
-      message: "会话树导航期间无法运行命令。请先停止或完成导航。",
+      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.", presentation: { kind: "commandResult", feedback: { code: "navigationActive" } },
     });
     expect(active.runtime.session.setSessionName).not.toHaveBeenCalled();
     expect(active.runtime.fork).not.toHaveBeenCalled();
@@ -246,22 +279,11 @@ describe("SessionCommandService", () => {
 
     const result = await service.run("s1", "/fork");
 
-    expect(result).toMatchObject({ type: "select", title: "从消息分叉", options: [{ value: "newest" }, { value: "middle" }, { value: "oldest" }] });
+    expect(result).toMatchObject({ type: "select", title: "Fork from message", options: [{ value: "newest" }, { value: "middle" }, { value: "oldest" }] });
     if (result.type !== "select") throw new Error("Expected select result");
-    await expect(service.respond("s1", result.requestId, "newest")).resolves.toMatchObject({ type: "done", message: "会话已分叉", session: { id: "s1" }, promptDraft: "newest message" });
+    await expect(service.respond("s1", result.requestId, "newest")).resolves.toMatchObject({ type: "done", message: "Session forked", presentation: { kind: "commandResult", feedback: {"code":"forked"} }, session: { id: "s1" }, promptDraft: "newest message" });
     expect(active.runtime.fork).toHaveBeenCalledWith("newest", { position: "before" });
-    await expect(service.respond("s1", result.requestId, "newest")).resolves.toEqual({ type: "unsupported", message: "命令请求已过期" });
-  });
-
-  it("keeps fork selection responses scoped to the request that created them", async () => {
-    const active = activeSession();
-    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
-
-    const result = await service.run("s1", "/fork", "management:account-1");
-    if (result.type !== "select") throw new Error("Expected select result");
-
-    await expect(service.respond("s1", result.requestId, "m1")).resolves.toEqual({ type: "unsupported", message: "命令请求已过期" });
-    await expect(service.respond("s1", result.requestId, "m1", "management:account-1")).resolves.toMatchObject({ type: "done", message: "会话已分叉" });
+    await expect(service.respond("s1", result.requestId, "newest")).resolves.toEqual({ type: "unsupported", message: "Command request expired", presentation: { kind: "commandResult", feedback: {"code":"requestExpired"} } });
   });
 
   it("names forked sessions from the source title with the next available counter", async () => {
@@ -280,11 +302,28 @@ describe("SessionCommandService", () => {
     if (result.type !== "select") throw new Error("Expected select result");
     await expect(service.respond("s1", result.requestId, "newest")).resolves.toMatchObject({
       type: "done",
-      message: "会话已分叉",
+      message: "Session forked", presentation: { kind: "commandResult", feedback: {"code":"forked"} },
       session: { id: "forked", name: "Build auth — 分叉 2" },
     });
     expect(forked.setSessionName).toHaveBeenCalledWith("Build auth — 分叉 2");
     expect(events.publish).toHaveBeenCalledWith("forked", { type: "session.name", sessionId: "forked", name: "Build auth — 分叉 2" }, undefined);
+  });
+
+  it("retains raw naming diagnostics with explicit generated command-output provenance", async () => {
+    const active = activeSession({ sessionName: "Source" });
+    const detail = "<img src=x> raw naming diagnostic";
+    const forked = activeSession({ sessionId: "forked", setSessionName: () => { throw new Error(detail); } }).runtime.session;
+    vi.mocked(active.runtime.fork).mockImplementationOnce(() => {
+      active.runtime.session = forked;
+      return Promise.resolve({ cancelled: false });
+    });
+    const events = eventPublisher();
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), events);
+    await expect(service.run("s1", "/clone")).resolves.toMatchObject({ type: "done", session: { id: "forked" } });
+    expect(events.publish).toHaveBeenCalledWith("forked", {
+      type: "command.output", level: "error", message: `Session created, but naming failed: ${detail}`,
+      presentation: { kind: "sessionNamingFailed", detail },
+    }, undefined);
   });
 
   it("names cloned sessions as copies of the source title", async () => {
@@ -300,7 +339,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/clone")).resolves.toMatchObject({
       type: "done",
-      message: "会话已克隆",
+      message: "Session cloned", presentation: { kind: "commandResult", feedback: {"code":"cloned"} },
       session: { id: "copy", name: "Build auth — 副本 2" },
     });
     expect(active.runtime.fork).toHaveBeenCalledWith("leaf-1", { position: "at" });
@@ -323,7 +362,7 @@ describe("SessionCommandService", () => {
 
     await expect(clone).resolves.toEqual({
       type: "unsupported",
-      message: "会话树导航期间无法运行命令。请先停止或完成导航。",
+      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.", presentation: { kind: "commandResult", feedback: {"code":"navigationActive"} },
     });
     expect(active.runtime.fork).not.toHaveBeenCalled();
   });
@@ -340,7 +379,7 @@ describe("SessionCommandService", () => {
     leafId = "leaf-after-navigation";
     names.resolve([]);
 
-    await expect(clone).resolves.toMatchObject({ type: "done", message: "会话已克隆" });
+    await expect(clone).resolves.toMatchObject({ type: "done", message: "Session cloned", presentation: { kind: "commandResult", feedback: {"code":"cloned"} } });
     expect(active.runtime.fork).toHaveBeenCalledWith("leaf-after-navigation", { position: "at" });
   });
 
@@ -350,11 +389,11 @@ describe("SessionCommandService", () => {
 
     await expect(service.run("s1", "/fork")).resolves.toEqual({
       type: "unsupported",
-      message: "会话活动期间无法分叉。请先停止当前活动。",
+      message: "Cannot fork while the session is active. Stop current activity before forking.", presentation: { kind: "commandResult", feedback: {"code":"replacementActive","command":"fork"} },
     });
     await expect(service.run("s1", "/clone")).resolves.toEqual({
       type: "unsupported",
-      message: "会话活动期间无法克隆。请先停止当前活动。",
+      message: "Cannot clone while the session is active. Stop current activity before cloning.", presentation: { kind: "commandResult", feedback: {"code":"replacementActive","command":"clone"} },
     });
     expect(active.runtime.fork).not.toHaveBeenCalled();
   });
@@ -369,7 +408,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.respond("s1", result.requestId, "m1")).resolves.toEqual({
       type: "unsupported",
-      message: "会话活动期间无法分叉。请先停止当前活动。",
+      message: "Cannot fork while the session is active. Stop current activity before forking.", presentation: { kind: "commandResult", feedback: {"code":"replacementActive","command":"fork"} },
     });
     expect(active.runtime.fork).not.toHaveBeenCalled();
   });
@@ -381,7 +420,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.forkEntry("s1", "m1")).resolves.toMatchObject({
       type: "done",
-      message: "会话已分叉",
+      message: "Session forked", presentation: { kind: "commandResult", feedback: {"code":"forked"} },
       session: { id: "s1" },
       promptDraft: "hello again",
     });
@@ -392,7 +431,7 @@ describe("SessionCommandService", () => {
     const active = activeSession();
     const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
 
-    await expect(service.forkEntry("s1", "entry-9")).resolves.toMatchObject({ type: "done", message: "会话已分叉" });
+    await expect(service.forkEntry("s1", "entry-9")).resolves.toMatchObject({ type: "done", message: "Session forked", presentation: { kind: "commandResult", feedback: {"code":"forked"} } });
     expect(active.runtime.fork).toHaveBeenCalledWith("entry-9", { position: "at" });
   });
 
@@ -401,7 +440,7 @@ describe("SessionCommandService", () => {
     vi.mocked(active.runtime.fork).mockResolvedValueOnce({ cancelled: true });
     const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
 
-    await expect(service.forkEntry("s1", "m1")).resolves.toEqual({ type: "done", message: "已取消分叉" });
+    await expect(service.forkEntry("s1", "m1")).resolves.toEqual({ type: "done", message: "Fork cancelled", presentation: { kind: "commandResult", feedback: {"code":"forkCancelled"} } });
     expect(active.runtime.session.setSessionName).not.toHaveBeenCalled();
   });
 
@@ -411,7 +450,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.forkEntry("s1", "m1")).resolves.toEqual({
       type: "unsupported",
-      message: "会话活动期间无法分叉。请先停止当前活动。",
+      message: "Cannot fork while the session is active. Stop current activity before forking.", presentation: { kind: "commandResult", feedback: {"code":"replacementActive","command":"fork"} },
     });
 
     const navigating = activeSession();
@@ -420,7 +459,7 @@ describe("SessionCommandService", () => {
     });
     await expect(navigatingService.forkEntry("s1", "m1")).resolves.toEqual({
       type: "unsupported",
-      message: "会话树导航期间无法运行命令。请先停止或完成导航。",
+      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.", presentation: { kind: "commandResult", feedback: {"code":"navigationActive"} },
     });
     expect(active.runtime.fork).not.toHaveBeenCalled();
     expect(navigating.runtime.fork).not.toHaveBeenCalled();
@@ -440,7 +479,7 @@ describe("SessionCommandService", () => {
 
     await expect(service.forkEntry("s1", "entry-9")).resolves.toMatchObject({
       type: "done",
-      message: "会话已分叉",
+      message: "Session forked", presentation: { kind: "commandResult", feedback: {"code":"forked"} },
       session: { id: "forked", name: "Build auth — 分叉 1" },
     });
     expect(forked.setSessionName).toHaveBeenCalledWith("Build auth — 分叉 1");

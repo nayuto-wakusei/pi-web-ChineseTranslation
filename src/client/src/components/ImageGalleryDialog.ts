@@ -1,10 +1,12 @@
+import { LocalizationController, localization } from "../localization/browser";
+import { imageMessages } from "../imageMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, css, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
 import type { ImageOpenDetail } from "./ImagePresentation";
 import { deepActiveElement, registerRenderedModal, type RenderedModalRegistration } from "./modalLayerRegistry";
 import { uiButtonStyles, uiToolbarStyles } from "./ui/controlStyles";
-import { t } from "../i18n";
+
 
 /** Native image preview; callers own source selection and gallery membership. */
 @customElement("pi-web-image-gallery-dialog")
@@ -12,6 +14,7 @@ export class ImageGalleryDialog extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @query("dialog") private dialog?: HTMLDialogElement;
@@ -69,7 +72,7 @@ export class ImageGalleryDialog extends LitElement {
       const navigationFocus = this.navigationFocus;
       this.navigationFocus = undefined;
       if (navigationFocus !== undefined) {
-        dialog.querySelector<HTMLButtonElement>(`[data-direction="${navigationFocus}"]`)?.focus();
+        dialog.querySelector<HTMLButtonElement>(`[data-navigation="${navigationFocus}"]`)?.focus();
       }
       return;
     }
@@ -89,8 +92,8 @@ export class ImageGalleryDialog extends LitElement {
     const index = gallery.index + direction;
     if (index < 0 || index >= gallery.images.length) return;
     const active = deepActiveElement(this.ownerDocument);
-    if (index === 0 && active === this.dialog?.querySelector('[data-direction="previous"]')) this.navigationFocus = "next";
-    else if (index === gallery.images.length - 1 && active === this.dialog?.querySelector('[data-direction="next"]')) this.navigationFocus = "previous";
+    if (index === 0 && active === this.dialog?.querySelector('[data-navigation="previous"]')) this.navigationFocus = "next";
+    else if (index === gallery.images.length - 1 && active === this.dialog?.querySelector('[data-navigation="next"]')) this.navigationFocus = "previous";
     this.gallery = { ...gallery, index };
   }
 
@@ -107,7 +110,7 @@ export class ImageGalleryDialog extends LitElement {
     if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
     event.preventDefault();
     event.stopPropagation();
-    this.move(event.key === "ArrowLeft" ? -1 : 1);
+    this.move((event.key === "ArrowLeft") !== (localization.direction === "rtl") ? -1 : 1);
   };
 
   private readonly onPointerDown = (event: PointerEvent): void => {
@@ -123,7 +126,7 @@ export class ImageGalleryDialog extends LitElement {
     this.swipe = undefined;
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) this.move(dx > 0 ? -1 : 1);
+    if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) this.move((dx > 0) !== (localization.direction === "rtl") ? -1 : 1);
   };
 
   private readonly onDialogClick = (event: MouseEvent): void => {
@@ -134,20 +137,20 @@ export class ImageGalleryDialog extends LitElement {
     const gallery = this.gallery;
     const image = gallery?.images[gallery.index];
     return html`
-      <dialog class="image-zoom" aria-label=${t("images.preview", "Image preview")} aria-describedby="image-gallery-position"
+      <dialog class="image-zoom" aria-label=${imageMessages.t("preview")} aria-describedby="image-gallery-position"
         @keydown=${this.onKeyDown} @click=${this.onDialogClick} @close=${this.close} @cancel=${this.close}>
         ${gallery === undefined || image === undefined ? null : html`
           <div class="image-gallery-header ui-toolbar ui-toolbar--primary">
-            <span id="image-gallery-position" class="image-gallery-position ui-toolbar-title" role="status" aria-live="polite" aria-atomic="true">${t("images.position", "Image {index} of {total}", { index: String(gallery.index + 1), total: String(gallery.images.length) })}</span>
-            <div class="ui-toolbar-group"><button type="button" class="image-zoom-close ui-button ui-button--icon" aria-label=${t("images.close", "Close image")} title=${t("images.close", "Close image")} @click=${this.close}>×</button></div>
+            <span id="image-gallery-position" class="image-gallery-position ui-toolbar-title" role="status" aria-live="polite" aria-atomic="true">${imageMessages.t("position", { index: gallery.index + 1, count: gallery.images.length })}</span>
+            <div class="ui-toolbar-group"><button type="button" class="image-zoom-close ui-button ui-button--icon" aria-label=${imageMessages.t("close")} title=${imageMessages.t("close")} @click=${this.close}>×</button></div>
           </div>
           <div class="image-gallery-stage" @pointerdown=${this.onPointerDown} @pointerup=${this.onPointerUp} @pointercancel=${() => { this.swipe = undefined; }}>
             <img class="image-zoom-full" src=${image.src} alt=${image.alt} decoding="async" draggable="false" />
           </div>
           ${gallery.images.length < 2 ? null : html`
-            <div class="image-gallery-navigation ui-toolbar ui-toolbar--primary">
-              <button type="button" class="ui-button" data-direction="previous" aria-label=${t("images.previousLabel", "Previous image")} ?disabled=${gallery.index === 0} @click=${() => { this.move(-1); }}>${t("images.previous", "Previous")}</button>
-              <button type="button" class="ui-button" data-direction="next" aria-label=${t("images.nextLabel", "Next image")} ?disabled=${gallery.index === gallery.images.length - 1} @click=${() => { this.move(1); }}>${t("images.next", "Next")}</button>
+            <div class="image-gallery-navigation ui-toolbar ui-toolbar--primary ui-toolbar--borderless">
+              <button type="button" class="ui-button" data-navigation="previous" aria-label=${imageMessages.t("previousImage")} ?disabled=${gallery.index === 0} @click=${() => { this.move(-1); }}>${imageMessages.t("previous")}</button>
+              <button type="button" class="ui-button" data-navigation="next" aria-label=${imageMessages.t("nextImage")} ?disabled=${gallery.index === gallery.images.length - 1} @click=${() => { this.move(1); }}>${imageMessages.t("next")}</button>
             </div>
           `}
         `}
@@ -159,7 +162,7 @@ export class ImageGalleryDialog extends LitElement {
     dialog.image-zoom { position: fixed; inset: 0; margin: auto; box-sizing: border-box; width: min(1100px, calc(100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right))); height: min(900px, calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom))); max-width: none; max-height: none; padding: 0; border: 1px solid var(--pi-border); border-radius: 0; color: var(--pi-text); background: var(--pi-bg); overflow: hidden; }
     dialog.image-zoom[open] { display: flex; flex-direction: column; }
     dialog.image-zoom::backdrop { background: var(--pi-overlay); }
-    .image-gallery-header { border-bottom: 1px solid var(--pi-border); }
+    .image-gallery-header { border-bottom-color: var(--pi-border); }
     .image-gallery-position { padding-inline: 12px; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
     .image-gallery-stage { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--pi-surface); touch-action: pan-y pinch-zoom; }
     .image-zoom-full { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; }

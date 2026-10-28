@@ -1,4 +1,6 @@
 import { html } from "lit";
+import { LocalizationService, message } from "../localization/service";
+import { applyActiveShortcutPreferences } from "../shortcutPreferences";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MoveWorkspaceFileResponse, SessionInfo, SessionStatus, WriteWorkspaceFileResponse, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
@@ -10,6 +12,62 @@ import type { PiWebPlugin, PluginActivationResult, PluginCapability, PluginRunti
 import { createPluginPeer } from "./pluginPeer";
 import { adaptPublicPlugin, publicPluginState } from "./publicContext";
 import type { PluginBackendRequestTarget } from "../api/pluginBackends";
+
+it("keeps display getters live through v5 services, qualification, shortcuts and retained renderer choices", async () => {
+  const service = new LocalizationService();
+  const registry = new PluginRegistry({ localization: service });
+  let order = 1;
+  let mode: "manual" | "automatic" = "manual";
+  await registry.register({ id: "labels", plugin: adaptPublicPlugin({
+    apiVersion: 5, name: "Labels", activate(context) {
+      const api = context.localization;
+      if (api === undefined) throw new Error("Expected localization");
+      const messages = api.registerMessages("ui", { title: message("Preview", "Contribution title") });
+      api.registerCatalog({ id: "fr", namespace: "plugin:labels:ui", locale: "fr", load: () => Promise.resolve({ title: "Aperçu" }) });
+      return { contributions: {
+        messageActions: [{ id: "copy", target: "display", get title() { return `${messages.t("title")} ${this.id}`; }, run: () => undefined }],
+        actions: [{ id: "display", get title() { return `${messages.t("title")} ${this.id}`; }, get description() { return messages.t("title"); }, get group() { return messages.t("title"); }, shortcut: "mod+k", run: () => undefined },
+          { id: "disabled", title: "Disabled", enabled: () => false, disabledReason: () => messages.t("title"), run: () => undefined }],
+        applicationPanels: [{ id: "application", get title() { return messages.t("title"); }, get order() { return order; }, render: () => html`` }],
+        workspacePanels: [{ id: "workspace", get title() { return messages.t("title"); }, get order() { return order; }, render: () => html`` }],
+        contentRenderers: [{ id: "renderer", get title() { return messages.t("title"); }, languages: ["test"], get renderMode() { return mode; }, render: () => html`` }],
+        themes: [{ id: "light", get name() { return messages.t("title"); }, get description() { return messages.t("title"); }, colorScheme: "light" }, { id: "dark", name: "Dark", colorScheme: "dark" }],
+        themePairs: [{ id: "pair", get name() { return messages.t("title"); }, get description() { return messages.t("title"); }, light: "light", dark: "dark" }],
+      } };
+    },
+  }) });
+  const action = applyActiveShortcutPreferences(registry.getActions(createContext().context), { "labels:display": "mod+j" })[0];
+  const disabledAction = applyActiveShortcutPreferences(registry.getActions(createContext().context), {})[1];
+  const messageAction = registry.getMessageActions("local")[0];
+  const application = registry.getApplicationPanels()[0];
+  const workspace = registry.getWorkspacePanels()[0];
+  const theme = registry.getThemes().find(({ id }) => id === "labels:light");
+  const pair = registry.getThemePairs()[0];
+  const request = { machineId: "local", language: "test", text: "source" };
+  const choice = registry.matchContentRenderers(request)[0];
+  const rendering = registry.getChatContentRendering("local");
+  const listed = registry.contentRendering.listRenderers(request)[0];
+  if (!action || !application || !workspace || !theme || !pair || !choice || !listed) throw new Error("Expected all contributions");
+  expect(messageAction?.title).toBe("Preview copy");
+  expect(action.title).toBe("Preview display");
+  expect(disabledAction?.disabledReason).toBe("Preview");
+  expect(choice.label).toBe("Preview");
+  order = 99;
+  mode = "automatic";
+  await service.setPreferences({ language: "fr", formatLocale: "en" });
+  expect(disabledAction?.disabledReason).toBe("Aperçu");
+  expect(messageAction?.title).toBe("Aperçu copy");
+  expect(registry.getMessageActions("local")[0]).toBe(messageAction);
+  expect([action.title, action.description, action.group]).toEqual(["Aperçu display", "Aperçu", "Aperçu"]);
+  expect([application.title, workspace.title, theme.name, theme.description, pair.name, pair.description]).toEqual(Array(6).fill("Aperçu"));
+  expect([choice.label, choice.renderer.title, listed.label, listed.title]).toEqual(Array(4).fill("Aperçu"));
+  expect([application.order, workspace.order]).toEqual([1, 1]);
+  expect(choice.renderer.renderMode).toBe("manual");
+  expect(registry.getChatContentRendering("local")).toBe(rendering);
+  expect(action.id).toBe("labels:display");
+  expect(action.shortcut).toBe("mod+j");
+  await registry.dispose();
+});
 
 it("resolves file-opening panels by availability, applicability, order and scoped context", async () => {
   let enabled = true;
@@ -81,6 +139,27 @@ function createContext(statePatch: Partial<AppState> = {}) {
 }
 
 describe("PluginRegistry v5 host services", () => {
+  it("propagates resource-only metadata to binding snapshots and lifetime-bound callback backends", async () => {
+    const registry = new PluginRegistry();
+    const render = vi.fn((context: WorkspacePanelContext) => html`${context.machine.id}`);
+    await registry.register({
+      id: "remote.resources", sourcePluginId: "resources", machineId: "remote",
+      backendRevision: "r1", pairedResourceVersion: 1,
+      plugin: { apiVersion: 5, name: "Resources", activate: () => ({ contributions: {
+        workspacePanels: [{ id: "preview", title: "Preview", render }],
+      } }) },
+    });
+    const panel = registry.getWorkspacePanels()[0];
+    const base = createWorkspacePanelContext("remote");
+    const bindings: WorkspacePluginBinding[] = [];
+    panel?.render(installWorkspacePanelScope(base, (binding) => { bindings.push(binding); return base; }));
+    expect(bindings).toEqual([{ registrationPluginId: "remote.resources", sourcePluginId: "resources", backendRevision: "r1", pairedResourceVersion: 1 }]);
+    const peer = render.mock.calls[0]?.[0].backend?.forScope({ kind: "machine" });
+    expect(Object.keys(peer ?? {})).toEqual(["resourceUrl"]);
+    await registry.dispose();
+    expect(() => peer?.resourceUrl?.("image", null)).toThrow();
+  });
+
   it("activates matching versions and warns once per legacy source plugin", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const activate = vi.fn((context: import("./types").PluginActivationContext) => {
@@ -1252,7 +1331,7 @@ describe("PluginRegistry", () => {
     }) }).context);
     const removalAction = deletable.find((action) => action.id === "core:workspace.delete");
     expect(removalAction?.enabled).toBe(true);
-    expect(removalAction?.title).toBe("删除工作区");
+    expect(removalAction?.title).toBe("Remove Workspace");
   });
 
   it("routes workspace delete through the runtime context", async () => {
@@ -1314,8 +1393,8 @@ describe("PluginRegistry", () => {
     const reloadable = registry.getActions(createContext({ selectedSession: testSession({ persisted: true }) }).context);
     const reloadableAction = reloadable.find((action) => action.id === "core:session.reload");
     expect(reloadableAction?.enabled).toBe(true);
-    expect(reloadableAction?.title).toBe("重新加载会话");
-    expect(reloadableAction?.description).toContain("如需重载 Pi 运行时资源，请在提示词中使用 /reload");
+    expect(reloadableAction?.title).toBe("Reload Session from Disk");
+    expect(reloadableAction?.description).toContain("Use /reload in the prompt for Pi runtime resources.");
 
     const noRuntime = registry.getActions(createContext({ selectedSession: testSession({ persisted: true }), machineRuntimes: {} }).context);
     expect(noRuntime.find((action) => action.id === "core:session.reload")?.enabled).toBe(false);
@@ -1390,9 +1469,9 @@ describe("PluginRegistry", () => {
     const actions = registry.getActions(context);
     const modelAction = actions.find((action) => action.id === "core:model.select");
     const thinkingAction = actions.find((action) => action.id === "core:thinking.select");
-    expect(modelAction).toMatchObject({ title: "选择模型", enabled: true });
+    expect(modelAction).toMatchObject({ title: "Select Model", enabled: true });
     expect(modelAction?.shortcut).toBeUndefined();
-    expect(thinkingAction).toMatchObject({ title: "选择思考级别", enabled: true });
+    expect(thinkingAction).toMatchObject({ title: "Select Thinking Level", enabled: true });
     expect(thinkingAction?.shortcut).toBeUndefined();
 
     if (modelAction !== undefined) void modelAction.run();
@@ -2126,8 +2205,8 @@ it("enables session disk reload only for a persisted session on a healthy, idle 
     const reloadable = registry.getActions(createContext({ selectedSession: testSession({ persisted: true }), machineRuntimes: reloadRuntime }).context);
     const reloadableAction = reloadable.find((action) => action.id === "core:session.reload");
     expect(reloadableAction?.enabled).toBe(true);
-    expect(reloadableAction?.title).toBe("重新加载会话");
-    expect(reloadableAction?.description).toContain("如需重载 Pi 运行时资源，请在提示词中使用 /reload");
+    expect(reloadableAction?.title).toBe("Reload Session from Disk");
+    expect(reloadableAction?.description).toContain("Use /reload in the prompt for Pi runtime resources.");
 
     const noCapability = registry.getActions(createContext({ selectedSession: testSession({ persisted: true }), machineRuntimes: {} }).context);
     const noCapabilityReload = noCapability.find((action) => action.id === "core:session.reload");

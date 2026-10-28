@@ -35,15 +35,15 @@ describe("machine-switcher status indicator", () => {
     const switcher = await mountSwitcher([remote, machine("local", "local")], {}, { "remote-a": { ...health("offline"), machineId: "remote-a" } });
     const button = switcherButton(switcher);
 
-    expect(button.getAttribute("aria-label")).toBe(`Machine: ${remote.name}. Offline. Switch machine.`);
-    expect(button.title).toBe(`${remote.name} · ${remote.baseUrl} · Offline`);
+    expect(button.getAttribute("aria-label")).toBe(`Machine: ${remote.name}. offline. Switch machine.`);
+    expect(button.title).toBe(`${remote.name} · ${remote.baseUrl} · offline`);
     expect(button.classList.contains("disconnected")).toBe(true);
     expect(button.querySelector(".machine-status")).toBeNull();
     expect(button.querySelector(".machine-icon")?.classList.contains("dimmed")).toBe(true);
 
     switcher.statuses = { "remote-a": { ...health("online"), machineId: "remote-a" } };
     await switcher.updateComplete;
-    expect(button.getAttribute("aria-label")).toContain("Online");
+    expect(button.getAttribute("aria-label")).toContain("online");
     expect(button.classList.contains("disconnected")).toBe(false);
     expect(button.querySelector(".machine-status")).toBeNull();
     expect(button.querySelector(".machine-icon")?.classList.contains("dimmed")).toBe(false);
@@ -52,7 +52,7 @@ describe("machine-switcher status indicator", () => {
     await switcher.updateComplete;
     const option = optionFor(switcher, remote.name);
     expect(option.querySelector(".machine-option-name")?.textContent).toContain(remote.name);
-    expect(option.querySelector("small")?.textContent).toContain("Online");
+    expect(option.querySelector("small")?.textContent).toContain("online");
   });
 
   it("does not repeat the selected machine's attention in the other-machines indicator", async () => {

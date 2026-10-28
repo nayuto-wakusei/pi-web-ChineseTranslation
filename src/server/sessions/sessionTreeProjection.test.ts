@@ -65,11 +65,11 @@ describe("projectSessionTree", () => {
     expect(snapshot.nodes.map((node) => node.id)).toEqual(["root", "assistant", "tool", "custom", "orphan"]);
     expect(snapshot.activeLeafId).toBe("tool");
     expect(snapshot.activePathIds).toEqual(["root", "assistant", "tool"]);
-    expect(snapshot.nodes[0]).toMatchObject({ kind: "user", summary: "hello world [图片]", label: "Important root" });
-    expect(snapshot.nodes[1]).toMatchObject({ kind: "assistant", summary: "工具调用: read" });
-    expect(snapshot.nodes[2]).toMatchObject({ kind: "tool-result", summary: "工具结果 (read): visible tool text" });
-    expect(snapshot.nodes[3]).toMatchObject({ kind: "custom", summary: "自定义条目: extension-state" });
-    expect(snapshot.nodes[4]).toMatchObject({ kind: "other", summary: "条目: future_entry" });
+    expect(snapshot.nodes[0]).toMatchObject({ kind: "user", summary: "hello world [image]", label: "Important root" });
+    expect(snapshot.nodes[1]).toMatchObject({ kind: "assistant", summary: "Tool call: read" });
+    expect(snapshot.nodes[2]).toMatchObject({ kind: "tool-result", summary: "Tool result (read): visible tool text" });
+    expect(snapshot.nodes[3]).toMatchObject({ kind: "custom", summary: "Custom entry: extension-state" });
+    expect(snapshot.nodes[4]).toMatchObject({ kind: "other", summary: "Entry: future_entry" });
 
     for (const secret of [
       "secret-text-signature",
@@ -110,50 +110,77 @@ describe("projectSessionTree", () => {
     const snapshot = projectSessionTree(roots, null);
     const byId = new Map(snapshot.nodes.map((node) => [node.id, node]));
 
-    expect(byId.get("assistant-error")).toMatchObject({ kind: "assistant", summary: "助手错误" });
-    expect(byId.get("tool-error")).toMatchObject({ kind: "tool-result", summary: "工具错误 (bash): [图片]" });
-    expect(byId.get("bash")).toMatchObject({ kind: "bash", summary: "命令: npm test" });
-    expect(byId.get("custom-visible")).toMatchObject({ kind: "custom-message", summary: "自定义消息 (notice): visible notice" });
-    expect(byId.get("custom-hidden")).toMatchObject({ kind: "custom-message", summary: "隐藏的自定义消息" });
+    expect(byId.get("assistant-error")).toMatchObject({ kind: "assistant", summary: "Assistant error" });
+    expect(byId.get("tool-error")).toMatchObject({ kind: "tool-result", summary: "Tool error (bash): [image]" });
+    expect(byId.get("bash")).toMatchObject({ kind: "bash", summary: "Shell: npm test" });
+    expect(byId.get("custom-visible")).toMatchObject({ kind: "custom-message", summary: "Custom message (notice): visible notice" });
+    expect(byId.get("custom-hidden")).toMatchObject({ kind: "custom-message", summary: "Hidden custom message" });
     expect(byId.get("compaction")).toMatchObject({ kind: "compaction", summary: "compact summary" });
     expect(byId.get("branch")).toMatchObject({ kind: "branch-summary", summary: "branch summary" });
-    expect(byId.get("model")).toMatchObject({ kind: "model-change", summary: "模型: anthropic/claude" });
-    expect(byId.get("thinking")).toMatchObject({ kind: "thinking-level-change", summary: "思考级别: high" });
-    expect(byId.get("info")).toMatchObject({ kind: "session-info", summary: "会话名称: Tree work" });
-    expect(byId.get("label")).toMatchObject({ kind: "label", summary: "标签: checkpoint" });
+    expect(byId.get("model")).toMatchObject({ kind: "model-change", summary: "Model: anthropic/claude" });
+    expect(byId.get("thinking")).toMatchObject({ kind: "thinking-level-change", summary: "Thinking level: high" });
+    expect(byId.get("info")).toMatchObject({ kind: "session-info", summary: "Session name: Tree work" });
+    expect(byId.get("label")).toMatchObject({ kind: "label", summary: "Label: checkpoint" });
     expect(JSON.stringify(snapshot)).not.toContain("private");
   });
 
-  it("localizes generated fallbacks without translating entry identifiers or authored content", () => {
+  it("preserves display provenance without treating user-authored English or image markers as messages", () => {
     const roots = [
-      treeNode(entry("user", null, "message", { message: { role: "user", content: "" } })),
-      treeNode(entry("assistant", null, "message", { message: { role: "assistant", content: [] } })),
-      treeNode(entry("aborted", null, "message", { message: { role: "assistant", stopReason: "aborted" } })),
-      treeNode(entry("tool", null, "message", { message: { role: "toolResult" } })),
-      treeNode(entry("bash", null, "message", { message: { role: "bashExecution" } })),
-      treeNode(entry("compaction", null, "compaction")),
-      treeNode(entry("branch", null, "branch_summary")),
-      treeNode(entry("model", null, "model_change")),
-      treeNode(entry("thinking", null, "thinking_level_change")),
-      treeNode(entry("info", null, "session_info")),
+      treeNode(entry("literal", null, "message", { message: { role: "user", content: [{ type: "text", text: "Tool error [image]" }, { type: "image", data: "private" }] } })),
+      treeNode(entry("tools", null, "message", { message: { role: "assistant", content: ["read", "bash", "read", "edit", "fourth"].map((name) => ({ type: "toolCall", name, arguments: "private" })) } })),
+      treeNode(entry("result", null, "message", { message: { role: "toolResult", toolName: "read", isError: true, content: "Assistant error" } })),
+      treeNode(entry("hidden", null, "custom_message", { display: false, customType: "private", content: "private" })),
+      treeNode(entry("model", null, "model_change", { provider: "provider", modelId: "model" })),
       treeNode(entry("label", null, "label")),
-      treeNode(entry("custom", null, "custom")),
-      treeNode(entry("notice", null, "custom_message", { display: true })),
-      treeNode(entry("unknown", null, "future_entry")),
-      treeNode(entry("authored", null, "message", { message: { role: "user", content: "Model: anthropic/claude [image]" } })),
+      treeNode(entry("visible", null, "custom_message", { display: true, customType: "notice", content: [{ type: "image", data: "private" }] })),
     ];
-
     const snapshot = projectSessionTree(roots, null);
-
-    expect(snapshot.nodes.map(({ summary }) => summary)).toEqual([
-      "用户消息", "助手回复", "助手回复已终止", "工具结果", "Shell 命令", "上下文压缩摘要", "分支摘要",
-      "模型已改变", "思考级别已改变", "会话信息已更新", "标签已移除", "自定义条目", "自定义消息",
-      "条目: future_entry", "Model: anthropic/claude [image]",
+    expect(snapshot.nodes.map((node) => node.summaryPresentation)).toEqual([
+      { type: "content", parts: [{ type: "text", text: "Tool error [image]" }, { type: "image" }], fallback: "user-message" },
+      { type: "assistant-tools", names: ["read", "bash", "edit"] },
+      { type: "tool-result", isError: true, toolName: "read", parts: [{ type: "text", text: "Assistant error" }] },
+      { type: "status", status: "hidden-custom-message" },
+      { type: "named", field: "model", value: "provider/model" },
+      { type: "named", field: "label" },
+      { type: "custom-message", customType: "notice", parts: [{ type: "image" }] },
     ]);
-    expect(snapshot.nodes.map(({ id }) => id)).toEqual(roots.map(({ entry: source }) => {
-      if (typeof source !== "object" || source === null || !("id" in source)) throw new Error("Expected entry identity");
-      return source.id;
-    }));
+    expect(JSON.stringify(snapshot)).not.toContain("private");
+  });
+
+  it("projects all empty-message and named-field fallbacks semantically", () => {
+    const cases = [
+      ["message", { message: null }, { type: "status", status: "message" }],
+      ["message", { message: { role: "future" } }, { type: "status", status: "message" }],
+      ["message", { message: { role: "user", content: "  " } }, { type: "content", parts: [], fallback: "user-message" }],
+      ["message", { message: { role: "assistant", stopReason: "error" } }, { type: "status", status: "assistant-error" }],
+      ["message", { message: { role: "assistant", stopReason: "aborted" } }, { type: "status", status: "assistant-aborted" }],
+      ["message", { message: { role: "assistant" } }, { type: "status", status: "assistant-response" }],
+      ["message", { message: { role: "bashExecution" } }, { type: "named", field: "shell" }],
+      ["model_change", {}, { type: "named", field: "model" }],
+      ["thinking_level_change", {}, { type: "named", field: "thinking-level" }],
+      ["session_info", {}, { type: "named", field: "session-name" }],
+      ["custom", {}, { type: "named", field: "custom-entry" }],
+      ["compaction", {}, { type: "content", parts: [], fallback: "compaction-summary" }],
+      ["branch_summary", {}, { type: "content", parts: [], fallback: "branch-summary" }],
+    ] as const;
+    for (const [type, patch, expected] of cases) {
+      expect(projectSessionTree([treeNode(entry("id", null, type, patch))], null).nodes[0]?.summaryPresentation).toEqual(expected);
+    }
+  });
+
+  it("bounds transported content and image part counts while excluding controls and private payloads", () => {
+    const nodes = projectSessionTree([
+      treeNode(entry("text", null, "message", { message: { role: "user", content: `hello\u0000${"x".repeat(5000)}` } })),
+      treeNode(entry("images", null, "message", { message: { role: "user", content: Array.from({ length: 1000 }, () => ({ type: "image", data: "private" })) } })),
+    ], null).nodes;
+    const text = nodes[0]?.summaryPresentation;
+    const images = nodes[1]?.summaryPresentation;
+    expect(text?.type).toBe("content");
+    if (text?.type !== "content" || images?.type !== "content") throw new Error("Missing content projection");
+    expect(JSON.stringify(text.parts)).not.toContain("\\u0000");
+    expect(text.parts).toEqual([{ type: "text", text: `hello ${"x".repeat(714)}` }]);
+    expect(images.parts.length).toBeLessThanOrEqual(103);
+    expect(JSON.stringify(nodes)).not.toContain("private");
   });
 
   it("rejects malformed SDK node wrappers and empty entry identities with clear boundary errors", () => {

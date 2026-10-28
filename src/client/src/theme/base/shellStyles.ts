@@ -153,7 +153,6 @@ export const listStyles = css`
   :host([collapsed]) { flex: 0 0 auto; min-height: auto; overflow: hidden; }
   section { box-sizing: border-box; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 0; }
   h2 { flex: 0 0 auto; margin: 0; color: var(--pi-muted); font-size: 12px; text-transform: uppercase; }
-  h2.ui-toolbar { border-bottom: 1px solid var(--pi-border-muted); }
   section > h2 { position: relative; z-index: 3; background: var(--pi-bg); box-shadow: ${scrollBoundaryShadow}; }
   .list-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
   .subheading { margin-top: 14px; }
@@ -236,7 +235,7 @@ export const autocompleteStyles = css`
   @layer pi-web-base {
   :host { display: block; }
   .menu { overflow: auto; padding: 0; color: var(--pi-text); border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); box-shadow: 0 10px 30px var(--pi-shadow); }
-  button { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 4px 10px; width: 100%; border: 0; border-bottom: 1px solid var(--pi-border); border-radius: 0; background: transparent; color: var(--pi-text); padding: 8px 10px; text-align: left; cursor: pointer; }
+  button { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 4px 10px; width: 100%; border: 0; border-bottom: 1px solid var(--pi-border); border-radius: 0; background: transparent; color: var(--pi-text); padding: 8px 10px; text-align: start; cursor: pointer; }
   button:last-child { border-bottom: 0; }
   button.selected, button:hover { background: var(--pi-selection-bg); }
   .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -259,7 +258,7 @@ export const promptEditorLayoutStyles = css`
   .actions { justify-content: flex-end; flex-wrap: nowrap; white-space: nowrap; border-top: 1px solid var(--pi-border-muted); }
   .compact-status { display: flex; min-width: 0; align-items: stretch; flex: 1 1 0; }
   .compact-status > .ui-toolbar-group { flex: 0 1 auto; }
-  .select-model { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  .select-model { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: start; }
   .icon-button { flex: 0 0 auto; display: inline-grid; place-items: center; }
   .icon-button .prompt-action-icon, .icon-button .prompt-thinking-gauge { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
   .icon-button .prompt-action-icon-filled { fill: currentColor; stroke: none; }
@@ -267,11 +266,10 @@ export const promptEditorLayoutStyles = css`
   .stop-button:not(:disabled), .stop-button:hover:not(:disabled) { color: var(--pi-danger); }
   .select-thinking .prompt-thinking-gauge .gauge-bar { fill: currentColor; stroke: none; opacity: .28; }
   .select-thinking .prompt-thinking-gauge .gauge-bar-active { opacity: 1; }
-  .editor-chat-navigation { position: absolute; right: 0; top: 0; z-index: 2; box-sizing: border-box; width: 58px; border: 1px solid var(--pi-border-muted); }
+  .editor-chat-navigation { position: absolute; inset-inline-end: 0; top: 0; z-index: 2; box-sizing: border-box; width: 58px; border: 1px solid var(--pi-border-muted); }
   .editor-chat-navigation .chat-jumps button + button { border-inline-start: 1px solid var(--pi-border-muted); }
-  .editor-input:has(.editor-chat-navigation) .editor-attach { box-sizing: border-box; width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 0; border: 1px solid var(--pi-border-muted); }
-  .editor-input:has(.editor-chat-navigation) .editor-attach .prompt-action-icon { width: 14px; height: 14px; }
-  .editor-attach { position: absolute; right: 0; bottom: 0; z-index: 2; border-inline-start: 1px solid var(--pi-border-muted); }
+  .editor-attach { position: absolute; inset-inline-end: 0; bottom: 0; z-index: 2; box-sizing: border-box; width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 0; border: 1px solid var(--pi-border-muted); }
+  .editor-attach .prompt-action-icon { width: 14px; height: 14px; }
   .attach-source-panel .attach-source-label { display: inline-flex; align-items: center; min-width: 0; }
   .attach-source-panel .attach-source-icon { display: inline-grid; place-items: center; flex: 0 0 auto; width: 16px; height: 16px; margin-inline-end: 9px; color: var(--pi-muted); }
   .attach-source-panel .attach-source-icon .prompt-action-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
@@ -280,11 +278,11 @@ export const promptEditorLayoutStyles = css`
   textarea:focus-visible, .markdown-editor:focus-within { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
   .shell-mode textarea { background: var(--pi-success-bg); }
   .shell-mode textarea:focus-visible, .shell-mode .markdown-editor:focus-within { outline-color: var(--pi-success); }
-  .mode-hint { position: absolute; right: 46px; bottom: 8px; max-width: calc(100% - 54px); border: 1px solid var(--pi-success-border); border-radius: 999px; background: var(--pi-success-surface); color: var(--pi-success); padding: 2px 8px; font-size: 12px; pointer-events: none; }
+  .mode-hint { position: absolute; inset-inline-end: 46px; bottom: 8px; box-sizing: border-box; max-width: calc(100% - 54px); overflow-wrap: anywhere; border: 1px solid var(--pi-success-border); border-radius: 999px; background: var(--pi-success-surface); color: var(--pi-success); padding: 2px 8px; font-size: 12px; pointer-events: none; }
   .prompt-chips, .attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 12px; }
   .prompt-chip { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); padding-inline-start: 6px; }
   .prompt-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip-error { flex-basis: 100%; color: var(--pi-danger); font-size: 12px; }
+  .chip-error { overflow-wrap: anywhere; min-width: 0; flex-basis: 100%; color: var(--pi-danger); font-size: 12px; }
   .attachment-chip { --attachment-remove-width: 32px; position: relative; width: 56px; height: 56px; padding-inline-end: var(--attachment-remove-width); border: 1px solid var(--pi-border); border-radius: 8px; overflow: hidden; background: var(--pi-bg); }
   .attachment-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .attachment-chip-file { display: grid; place-items: center; }
@@ -293,7 +291,7 @@ export const promptEditorLayoutStyles = css`
   .attachment-remove { position: absolute; top: 0; inset-inline-end: 0; width: var(--attachment-remove-width); height: 100%; border-inline-start: 1px solid var(--pi-border-muted); background: var(--pi-surface); }
   .attachment-delivery { min-width: 0; max-width: 100%; }
   .attachment-delivery .ui-select { width: 100%; }
-  .attachment-error { flex-basis: 100%; color: var(--pi-danger); font-size: 12px; }
+  .attachment-error { overflow-wrap: anywhere; min-width: 0; flex-basis: 100%; color: var(--pi-danger); font-size: 12px; }
   textarea:disabled { opacity: .5; cursor: not-allowed; }
   }
 `;

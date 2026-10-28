@@ -25,6 +25,14 @@
 
 默认 daemon transport 是 `$PI_WEB_DATA_DIR/sessiond.sock`，也支持配置的 sessiond HTTP transport。协议、socket/数据目录或 transport 环境变化时，两服务必须对齐并重启。修改 `sessiond.ts`、daemon 协议/传输，或 `src/server/sessions/`、`terminals/`、`activity/`、`realtime/` 中传递依赖的 daemon 代码，也必须明确告知需要手动重启 daemon。纯浏览器插件走 UI/Web 重载；服务端插件不能归入此例外。
 
+## 运行时与部署
+
+Node.js 22.19+ 是推荐运行时，启动器也提供尽力支持的 Bun；Web 与 daemon 可分别选择运行时。运行时选择与 PTY 适配器属于启动组合边界，不改变普通项目认证、管理权限或 daemon 状态所有权。Bun daemon 不应用 Pi 的 httpIdleTimeoutMs；需要该设置时使用 Node。
+
+Docker runtime/dev 镜像使用 Ubuntu 26.04，PI WEB 使用镜像自有 Node，项目语言版本由 mise 管理并持久化到 /data。修改项目工具不会选择服务 Node；镜像/容器配置应用须 recreate，可能中断 daemon 会话。build/validate 只准备与验证，不代表部署。具体变量和挂载见 [Docker 指南](../../docker/README.md)。
+
+更新面板使用所选机器的维护终端，不依赖工作区。更新交接成功只证明任务已派发；必须分别核对安装版本与 Web/daemon 运行状态，不能把日志、静态检查或提交当作线上验收。
+
 ## 日常诊断
 
 以下为已安装 CLI 的读取型入口；`doctor` 针对受管理安装，不证明所有手工部署都正确：

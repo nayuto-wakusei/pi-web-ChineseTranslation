@@ -6,13 +6,22 @@ import metadata from "./metadata.json" with { type: "json" };
 import main from "./main.json" with { type: "json" };
 import server from "./server.json" with { type: "json" };
 import serverMain from "./server-main.json" with { type: "json" };
+import catalogs from "./catalogs.json" with { type: "json" };
 
 const messages = { ...components, ...client, ...bundled, ...metadata, ...main, ...server, ...serverMain };
 
 export default {
-  apiVersion: 4,
+  apiVersion: 5,
   name: "简体中文",
-  activate: () => ({
-    contributions: { localizations: [{ locale: "zh-CN", messages }] },
-  }),
+  activate: ({ localization }) => {
+    for (const [namespace, catalog] of Object.entries(catalogs)) {
+      localization?.registerCatalog({
+        id: `zh-cn:${namespace}`,
+        namespace,
+        locale: "zh-CN",
+        load: () => Promise.resolve(catalog),
+      });
+    }
+    return { contributions: { localizations: [{ locale: "zh-CN", messages }] } };
+  },
 } satisfies PiWebPlugin;

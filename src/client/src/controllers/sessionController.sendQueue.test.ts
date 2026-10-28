@@ -175,7 +175,7 @@ describe("SessionController send queue", () => {
       { kind: "followUp", text: "first" },
       { kind: "steer", text: "second" },
     ]);
-    expect(state.activity?.detail).toContain("2 条排队消息");
+    expect(state.activity?.detail).toContain("2 queued messages");
 
     startRequest.resolve(started);
     await start;
@@ -241,8 +241,8 @@ describe("SessionController send queue", () => {
     expect(state.clientQueuedSessionMessages[temporaryId]).toEqual([
       { kind: "followUp", text: "/help" },
       { kind: "followUp", text: "!pwd" },
-      { kind: "followUp", text: "look\n\n[已排队 1 个附件：shot.png]", hasAttachments: true, attachmentCount: 1 },
-      { kind: "followUp", text: "save\n\n[已排队 1 个附件：shot.png]", hasAttachments: true, attachmentCount: 1 },
+      { kind: "followUp", text: "look\n\n[1 attachment queued: shot.png]", hasAttachments: true, attachmentCount: 1 },
+      { kind: "followUp", text: "save\n\n[1 attachment queued: shot.png]", hasAttachments: true, attachmentCount: 1 },
     ]);
 
     startRequest.resolve(started);
@@ -287,8 +287,8 @@ describe("SessionController send queue", () => {
 
     expect(state.selectedSession?.id).toBe(temporaryId);
     expect(state.clientQueuedSessionMessages[temporaryId]).toEqual([{ kind: "followUp", text: "recover me" }]);
-    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "会话创建失败" });
-    expect(state.activity?.detail).toContain("下方保留了 1 条排队消息");
+    expect(state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "Session creation failed" });
+    expect(state.activity?.detail).toContain("1 queued message kept below");
 
     await controller.deleteCachedNewSession(state.selectedSession);
 

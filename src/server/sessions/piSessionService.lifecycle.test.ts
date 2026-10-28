@@ -843,7 +843,7 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
     const extensionErrorActivity = hub.globalEvents.find(({ event }) => event.type === "activity.update" && event.activity.sessionId === "extension-session")?.event;
     expect(extensionErrorActivity).toMatchObject({
       type: "activity.update",
-      activity: { sessionId: "extension-session", phase: "error", label: "扩展错误", detail: "pi-mcp-adapter: MCP failed" },
+      activity: { sessionId: "extension-session", phase: "error", label: "extension error", detail: "pi-mcp-adapter: MCP failed" },
     });
 
     await service.dispose();
@@ -998,7 +998,8 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
 
     await expect(service.runCommand(sessionRef("failed-runtime-reload"), "/reload")).resolves.toEqual({
       type: "unsupported",
-      message: "重新加载失败：reload failed after rotation",
+      message: "Reload failed: reload failed after rotation",
+      presentation: { kind: "commandResult", feedback: { code: "reloadFailed", detail: "reload failed after rotation" } },
     });
     expect(service.notificationInbox(sessionRef("failed-runtime-reload")).notifications.map((notification) => notification.message)).toEqual([
       "candidate before failure",
@@ -1032,7 +1033,8 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
 
     await expect(service.runCommand(sessionRef("failed-before-rotation"), "/reload")).resolves.toEqual({
       type: "unsupported",
-      message: "重新加载失败：reload failed before rotation",
+      message: "Reload failed: reload failed before rotation",
+      presentation: { kind: "commandResult", feedback: { code: "reloadFailed", detail: "reload failed before rotation" } },
     });
     expect(service.notificationInbox(sessionRef("failed-before-rotation"))).toEqual(before);
 
@@ -1176,13 +1178,13 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
     listener?.({ type: "tool_execution_end", toolName: "read", isError: false });
 
     expect(hub.globalEvents.filter((event) => event.type === "activity.update")).toMatchObject([
-      { activity: { sessionId: "completion-session", phase: "idle", label: "工具执行完成", detail: "read" } },
+      { activity: { sessionId: "completion-session", phase: "idle", label: "tool complete", detail: "read" } },
     ]);
 
     await service.dispose();
   });
 
-  it("localizes realtime session activity events", async () => {
+  it("publishes portable realtime session activity fallbacks", async () => {
     const hub = new CapturingSessionEventHub();
     let listener: ((event: unknown) => void) | undefined;
     const fake = fakeRuntime("response-session", {
@@ -1200,17 +1202,17 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
 
     await service.status(sessionRef("response-session"));
     const cases = [
-      [{ type: "agent_start" }, "active", "代理正在运行"],
-      [{ type: "agent_end" }, "idle", "空闲"],
-      [{ type: "turn_end" }, "idle", "本轮已完成"],
-      [{ type: "message_start" }, "active", "消息开始处理"],
-      [{ type: "message_end" }, "idle", "消息处理完成"],
-      [{ type: "message_update" }, "active", "正在接收回复"],
-      [{ type: "tool_execution_start", toolName: "read" }, "active", "正在运行工具", "read"],
-      [{ type: "tool_execution_end", toolName: "read", isError: false }, "idle", "工具执行完成", "read"],
-      [{ type: "tool_execution_end", toolName: "read", isError: true }, "error", "工具执行失败", "read"],
-      [{ type: "bash_execution_start" }, "active", "正在运行命令"],
-      [{ type: "bash_execution_end" }, "idle", "命令执行完成"],
+      [{ type: "agent_start" }, "active", "agent running"],
+      [{ type: "agent_end" }, "idle", "idle"],
+      [{ type: "turn_end" }, "idle", "turn complete"],
+      [{ type: "message_start" }, "active", "message started"],
+      [{ type: "message_end" }, "idle", "message complete"],
+      [{ type: "message_update" }, "active", "receiving response"],
+      [{ type: "tool_execution_start", toolName: "read" }, "active", "running tool", "read"],
+      [{ type: "tool_execution_end", toolName: "read", isError: false }, "idle", "tool complete", "read"],
+      [{ type: "tool_execution_end", toolName: "read", isError: true }, "error", "tool failed", "read"],
+      [{ type: "bash_execution_start" }, "active", "running bash"],
+      [{ type: "bash_execution_end" }, "idle", "bash complete"],
     ] as const;
 
     for (const [event, phase, label, detail] of cases) {
@@ -1226,7 +1228,7 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
     hub.globalEvents.length = 0;
     listener?.({ type: "resource_update" });
     const fallbackActivity = hub.globalEvents.find((event) => event.type === "activity.update");
-    expect(fallbackActivity).toMatchObject({ activity: { sessionId: "response-session", phase: "active", label: "正在处理" } });
+    expect(fallbackActivity).toMatchObject({ activity: { sessionId: "response-session", phase: "active", label: "resource update" } });
 
     await service.dispose();
   });
@@ -1371,13 +1373,14 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
 
     await expect(service.runCommand(sessionRef("runtime-reload-session"), "/reload")).resolves.toEqual({
       type: "done",
-      message: "会话运行时资源已重新加载。扩展、技能、提示词模板、主题以及上下文/系统提示词文件已刷新；PI WEB 浏览器插件变更仍需另行刷新浏览器页面。",
+      message: "Session runtime resources reloaded. Extensions, skills, prompt templates, themes, and context/system prompt files are refreshed for this session. Reload the browser page separately for PI WEB browser plugin changes.",
+      presentation: { kind: "commandResult", feedback: { code: "reloaded" } },
     });
 
     expect(fake.calls.reload).toBe(1);
     expect(fake.calls.abort).toBe(0);
     expect(fake.calls.dispose).toBe(0);
-    expect(hub.globalEvents.some((event) => event.type === "activity.update" && event.activity.sessionId === "runtime-reload-session" && event.activity.label === "资源已重新加载")).toBe(true);
+    expect(hub.globalEvents.some((event) => event.type === "activity.update" && event.activity.sessionId === "runtime-reload-session" && event.activity.label === "resources reloaded")).toBe(true);
     expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "runtime-reload-session")).toBe(true);
 
     await service.dispose();

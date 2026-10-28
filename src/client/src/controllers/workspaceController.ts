@@ -1,4 +1,4 @@
-import { t } from "../i18n";
+import { projectWorkspaceMessages as messages, ProjectWorkspaceError, reportProjectWorkspaceError } from "./projectWorkspaceMessages";
 import { api as defaultApi, type Project, type Workspace, type WorkspaceProviderResolution } from "../api";
 import { resetWorkspaceScopedState, type AppState } from "../appState";
 import { BrowserErrorReporter, projectBrowserErrorScope, workspaceBrowserErrorScope } from "../browserErrors";
@@ -27,6 +27,8 @@ interface WorkspaceMutationGuard {
 }
 
 type WorkspaceSelectionTarget = RouteTarget & WorkspaceMutationGuard;
+
+export type WorkspaceSelectionError = string | (() => string);
 
 export class WorkspaceController {
   private readonly api: Pick<typeof defaultApi, "sessions" | "workspaces" | "workspaceResolution">;
@@ -71,7 +73,7 @@ export class WorkspaceController {
     this.setState({ workspacesByProjectId });
   }
 
-  async selectProject(project: Project, target?: WorkspaceSelectionTarget): Promise<string | undefined> {
+  async selectProject(project: Project, target?: WorkspaceSelectionTarget): Promise<WorkspaceSelectionError | undefined> {
     const navigation = target?.navigation ?? this.beginNavigationOperation?.(WORKSPACE_SELECTION_SCOPE);
     if (!this.navigationIsCurrent(navigation) || !workspaceMutationIsCurrent(target)) return;
     const machineId = selectedMachineId(this.getState());
@@ -96,8 +98,9 @@ export class WorkspaceController {
         return await this.selectWorkspace(workspace, { ...target, sessionId: target?.sessionId, updateUrl: target?.updateUrl, navigation });
       }
       if (target?.workspaceId !== undefined && target.workspaceId !== "") {
-        this.browserErrors.report(errorScope, t("ui.main.06529052d1e0", "Workspace not found: {arg0}", { arg0: target.workspaceId }));
-        return t("ui.main.06529052d1e0", "Workspace not found: {arg0}", { arg0: target.workspaceId });
+        const id = target.workspaceId;
+        this.browserErrors.reportLocalized(errorScope, () => messages.t("workspaceNotFound", { id }));
+        return () => messages.t("workspaceNotFound", { id });
       }
       if (target?.updateUrl !== false && this.navigationIsCurrent(navigation)) this.updateUrl();
     } catch (error) {
@@ -105,13 +108,13 @@ export class WorkspaceController {
         && workspaceMutationIsCurrent(target)
         && selectedMachineId(this.getState()) === machineId
         && this.getState().selectedProject?.id === project.id) this.setState({ isLoadingWorkspaces: false });
-      if (target?.signal?.aborted !== true) this.browserErrors.report(errorScope, String(error));
-      return String(error);
+      if (target?.signal?.aborted !== true) reportProjectWorkspaceError(this.browserErrors, errorScope, error);
+      return selectionError(error);
     }
     return undefined;
   }
 
-  async selectWorkspace(workspace: Workspace, target?: WorkspaceSelectionTarget): Promise<string | undefined> {
+  async selectWorkspace(workspace: Workspace, target?: WorkspaceSelectionTarget): Promise<WorkspaceSelectionError | undefined> {
     const navigation = target?.navigation ?? this.beginNavigationOperation?.(WORKSPACE_SELECTION_SCOPE);
     if (!this.navigationIsCurrent(navigation) || !workspaceMutationIsCurrent(target)) return;
     const machineId = selectedMachineId(this.getState());
@@ -134,13 +137,14 @@ export class WorkspaceController {
       if (!this.navigationIsCurrent(navigation) || !workspaceMutationIsCurrent(target)) return;
       if (session) await this.sessions.selectSession(session, { deferChatLoading: true, updateUrl: target?.updateUrl, ...(navigation === undefined ? {} : { navigation }) });
       else if (target?.sessionId !== undefined && target.sessionId !== "") {
-        this.browserErrors.report(errorScope, t("ui.main.0041c3cf98cd", "Session not found: {arg0}", { arg0: target.sessionId }));
-        return t("ui.main.0041c3cf98cd", "Session not found: {arg0}", { arg0: target.sessionId });
+        const id = target.sessionId;
+        this.browserErrors.reportLocalized(errorScope, () => messages.t("sessionNotFound", { id }));
+        return () => messages.t("sessionNotFound", { id });
       }
       else if (target?.updateUrl !== false) this.updateUrl();
     } catch (error) {
-      if (target?.signal?.aborted !== true) this.browserErrors.report(errorScope, String(error));
-      return String(error);
+      if (target?.signal?.aborted !== true) reportProjectWorkspaceError(this.browserErrors, errorScope, error);
+      return selectionError(error);
     }
     return undefined;
   }
@@ -161,7 +165,7 @@ export class WorkspaceController {
   ): Promise<{ workspaces: Workspace[]; isCurrent: () => boolean }> {
     if (!workspaceMutationIsCurrent(options)) return { workspaces: [], isCurrent: () => false };
     const project = this.getState().projects.find((candidate) => candidate.id === projectId);
-    if (project === undefined) throw new Error(t("client.workspaceController.project.not.found.3b6bf4", "Project not found"));
+    if (project === undefined) throw new ProjectWorkspaceError(() => messages.t("projectNotFound"));
     const isCurrent = this.beginWorkspaceListRequest(projectId, machineId);
     const resolution = options?.signal === undefined
       ? await this.api.workspaceResolution(project.id, machineId)
@@ -314,5 +318,10 @@ function isBrowserObservableRecord(value: unknown): value is Record<string, unkn
 }
 
 function workspaceAuthorityError(resolution: WorkspaceProviderResolution): Error {
-  return new Error(resolution.diagnostics.map(({ message }) => message).join("; ") || t("client.workspaceController.authorityDegraded", "Workspace authority is degraded"));
+  const detail = resolution.diagnostics.map(({ message }) => message).join("; ");
+  return detail ? new Error(detail) : new ProjectWorkspaceError(() => messages.t("degraded"));
+}
+
+function selectionError(error: unknown): WorkspaceSelectionError {
+  return error instanceof ProjectWorkspaceError ? () => String(error) : String(error);
 }

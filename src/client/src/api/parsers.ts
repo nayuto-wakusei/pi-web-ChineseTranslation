@@ -1,12 +1,18 @@
 import { t } from "../i18n";
 import { parseSessionArchiveConfig, parseSessionNamingConfig } from "../../../shared/piWebConfigParsing";
 import type { McpAuthServersResponse, SessionTranscriptSnapshot } from "../../../shared/apiTypes";
-import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, EXTENSION_DIALOG_OPTION_LIMIT, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type AskUserRequest, type PendingExtensionDialog, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogKind, type ExtensionDialogOutcome, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelCatalogResponse, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceEffectiveConfig, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
+import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, EXTENSION_DIALOG_OPTION_LIMIT, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type AskUserRequest, type PendingExtensionDialog, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogKind, type ExtensionDialogOutcome, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelCatalogResponse, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceEffectiveConfig, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
 import type { GlobalSessionEvent, PiPackageInfo, PiPackageInstallableSuggestion, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, ServerNotice, ServerNoticeEvent, ServerNoticeSeverity, ServerNoticeSnapshot, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot } from "../../../shared/apiTypes";
 import type { NormalAuthStatusResponse, SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionContentSearchResult, SessionPinResponse, SessionPinnedIdsResponse, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
 import type { WorkspaceTreeBatchResponse } from "../../../shared/apiTypes";
 import type { JsonValue } from "../../../shared/apiTypes";
 import { parseActiveAgentProfileDescriptor } from "../../../shared/activeAgentProfile";
+import { parseServerNoticePresentation } from "../../../shared/serverNoticePresentation";
+import { parseWorkspaceRemovalLocalization } from "../../../shared/workspaceRemovalPresentation";
+import { parseCommandResultPresentation } from "../../../shared/commandResultPresentation";
+import { parseCommandOutputPresentation } from "../../../shared/commandOutputPresentation";
+import { parseSessionNotificationPresentation } from "../../../shared/sessionNotificationPresentation";
+import { parseSessionTreeSummaryPresentation } from "../../../shared/sessionTreeSummaryPresentation";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
 import { parseDeprecatedAgentInputs } from "../../../shared/piWebStatusParsing";
 import { parseServerNoticeScope } from "../../../shared/serverNoticeContract";
@@ -14,7 +20,10 @@ import { parseMachineStatusSnapshot, type MachineStatusSnapshot } from "../../..
 import type { MachineStatusUiEvent } from "../../../shared/machineStatus";
 import type { SessionUiEvent, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier } from "../../../shared/apiTypes";
 import { requireDefaultThemePreference } from "../../../shared/themePreference";
+import { requireDefaultLocalization } from "../../../shared/defaultLocalization";
 import { requireDefaultStreamingBehavior } from "../../../shared/streamingBehavior";
+import { requireInstallationName } from "../../../shared/installationName";
+import { parseRuntimeActivityPresentation } from "../../../shared/sessionActivityPresentation";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -94,6 +103,8 @@ export function parseMachine(value: unknown): Machine {
   return {
     id: requireString(record, "id"),
     name: requireString(record, "name"),
+    ...optionalField("nameOverride", optionalString(record, "nameOverride")),
+    ...optionalField("reportedName", optionalString(record, "reportedName")),
     kind,
     ...(baseUrl === undefined ? {} : { baseUrl }),
     createdAt: requireString(record, "createdAt"),
@@ -250,6 +261,7 @@ function optionalWorkspaceRemovalPresentation(value: unknown): Workspace["remova
     actionLabel: requireNonEmptyString(value, "actionLabel"),
     confirmation: requireNonEmptyString(value, "confirmation"),
     precondition: requireNonEmptyString(value, "precondition"),
+    ...optionalField("localization", parseWorkspaceRemovalLocalization(value["localization"])),
   });
 }
 
@@ -396,6 +408,8 @@ function parseSessionWarning(value: unknown): SessionWarning {
   return {
     severity: parseSessionWarningSeverity(record["severity"]),
     message: requireString(record, "message"),
+    ...(isRecord(record["presentation"]) && record["presentation"]["kind"] === "anthropicSubscriptionAuth"
+      ? { presentation: { kind: "anthropicSubscriptionAuth" as const } } : {}),
     ...optionalField("source", optionalString(record, "source")),
     ...optionalField("path", optionalString(record, "path")),
     ...(dismiss === undefined ? {} : { dismiss }),
@@ -462,11 +476,12 @@ function parseAskUserQuestionRecord(value: unknown): AskUserQuestionRecord {
   const offered = new Set(question.options.map((option) => option.value));
   if (values.some((selected) => !offered.has(selected))) throw new Error("Ask answer selected an option the question never offered");
   const otherText = optionalBoundedNonEmptyString(record, "otherText", ASK_USER_OTHER_TEXT_MAX_LENGTH);
+  const comment = optionalBoundedNonEmptyString(record, "comment", ASK_USER_COMMENT_MAX_LENGTH);
   const answered = requireBoolean(record, "answered");
   // The record is the one thing both the model and the user read, so a flag that
   // disagrees with the answer it describes is rejected rather than displayed.
   if (answered !== (values.length > 0 || otherText !== undefined)) throw new Error("Ask answer contradicts its answered flag");
-  return { question, answered, values, ...(otherText === undefined ? {} : { otherText }) };
+  return { question, answered, values, ...(otherText === undefined ? {} : { otherText }), ...(comment === undefined ? {} : { comment }) };
 }
 
 export function parseAskUserOutcome(value: unknown): AskUserOutcome {
@@ -724,7 +739,16 @@ function parseSessionActivity(value: unknown): SessionActivity {
     ...optionalField("detail", optionalString(record, "detail")),
     at: requireNonEmptyString(record, "at"),
     ...optionalField("startup", optionalActivityStartupMarker(record)),
+    ...optionalField("startupPresentation", parseStartupPresentation(record["startupPresentation"])),
+    ...optionalField("runtimePresentation", parseRuntimeActivityPresentation(record["runtimePresentation"])),
   };
+}
+
+function parseStartupPresentation(value: unknown): SessionActivity["startupPresentation"] {
+  if (!isRecord(value)) return undefined;
+  const { intent, stage, catalogRefreshing } = value;
+  if ((intent !== "create" && intent !== "open") || (stage !== "runtime" && stage !== "extensions") || typeof catalogRefreshing !== "boolean") return undefined;
+  return { intent, stage, catalogRefreshing };
 }
 
 /**
@@ -877,6 +901,7 @@ function parseModelScopeChangedEvent(value: unknown): Extract<GlobalSessionEvent
 
 function parseServerNotice(value: unknown): ServerNotice {
   const record = requireRecord(value);
+  const presentation = parseServerNoticePresentation(record["presentation"]);
   const createdAt = requireNonEmptyString(record, "createdAt");
   if (!Number.isFinite(Date.parse(createdAt))) throw new Error("Invalid server notice creation time");
   const source = optionalString(record, "source");
@@ -885,6 +910,7 @@ function parseServerNotice(value: unknown): ServerNotice {
   return {
     id: requireNonEmptyString(record, "id"),
     severity: parseServerNoticeSeverity(record["severity"]),
+    ...optionalField("presentation", presentation),
     message: requireString(record, "message"),
     createdAt,
     ...optionalField("source", source),
@@ -926,6 +952,7 @@ function parseSessionNotification(value: unknown): SessionNotification {
   return {
     id: requireNonEmptyString(record, "id"),
     message,
+    ...optionalField("presentation", parseSessionNotificationPresentation(record["presentation"])),
     truncated: requireBoolean(record, "truncated"),
     severity: parseSessionNotificationSeverity(record["severity"]),
     receivedAt,
@@ -1509,7 +1536,20 @@ export function parsePiWebConfigResponse(value: unknown): PiWebConfigResponse {
     config: parsePiWebConfigValues(record["config"]),
     effectiveConfig: parsePiWebConfigValues(record["effectiveConfig"]),
     envOverrides: parsePiWebConfigEnvOverrides(record["envOverrides"]),
+    ...optionalField("enforcedSettings", optionalConfigSources(record["enforcedSettings"])),
+    ...optionalField("configSources", optionalConfigSources(record["configSources"])),
+    ...optionalField("defaultsConfig", record["defaultsConfig"] === undefined ? undefined : parsePiWebConfigValues(record["defaultsConfig"])),
+    ...optionalField("defaultsPath", optionalString(record, "defaultsPath")),
   };
+}
+
+function optionalConfigSources(value: unknown): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value);
+  return Object.fromEntries(Object.entries(record).map(([key, source]) => {
+    if (typeof source !== "string") throw new Error(`Invalid configuration source for ${key}`);
+    return [key, source];
+  }));
 }
 
 function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
@@ -1517,11 +1557,15 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
   return {
     ...optionalField("host", optionalString(record, "host")),
     ...optionalField("port", optionalNumber(record, "port")),
+    ...optionalField("installationName", record["installationName"] === undefined ? undefined : requireInstallationName(record["installationName"])),
     ...optionalField("allowedHosts", optionalAllowedHosts(record["allowedHosts"])),
     ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
     ...optionalField("defaultTheme", record["defaultTheme"] === undefined ? undefined : requireDefaultThemePreference(record["defaultTheme"], "response")),
     ...optionalField("defaultStreamingBehavior", record["defaultStreamingBehavior"] === undefined ? undefined : requireDefaultStreamingBehavior(record["defaultStreamingBehavior"], "response")),
+    ...optionalField("defaultLocalization", record["defaultLocalization"] === undefined ? undefined : requireDefaultLocalization(record["defaultLocalization"], "response")),
+    ...optionalField("quietMode", optionalBoolean(record, "quietMode")),
     ...optionalField("plugins", optionalPlugins(record["plugins"])),
+    ...optionalField("basePaths", optionalStringArray(record["basePaths"], "basePaths")),
     ...optionalField("pathAccess", optionalPathAccess(record["pathAccess"])),
     ...optionalField("uploads", optionalUploads(record["uploads"])),
     ...optionalField("attachments", optionalAttachments(record["attachments"])),
@@ -1530,6 +1574,8 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("spawnSessions", optionalBoolean(record, "spawnSessions")),
     ...optionalField("subsessions", optionalBoolean(record, "subsessions")),
     ...optionalField("askUser", optionalBoolean(record, "askUser")),
+    ...optionalField("environmentFacts", optionalBoolean(record, "environmentFacts")),
+    ...optionalField("extensionDialogsTimeoutMs", optionalNumber(record, "extensionDialogsTimeoutMs")),
     ...optionalField("sessionNaming", record["sessionNaming"] === undefined ? undefined : parseSessionNamingConfig(record["sessionNaming"], "response")),
     ...optionalField("sessionArchive", record["sessionArchive"] === undefined ? undefined : parseSessionArchiveConfig(record["sessionArchive"], "response")),
   };
@@ -2001,10 +2047,10 @@ function parsePiWebStatusSeverity(value: unknown): PiWebStatusSeverity {
 export function parseCommandResult(value: unknown): CommandResult {
   const record = requireRecord(value);
   const type = requireString(record, "type");
-  if (type === "unsupported") return { type, message: requireString(record, "message") };
-  if (type === "select") return { type, requestId: requireString(record, "requestId"), title: requireString(record, "title"), options: arrayOf(parseCommandOption)(record["options"]) };
+  if (type === "unsupported") return { type, ...optionalField("presentation", parseCommandResultPresentation(record["presentation"])), message: requireString(record, "message") };
+  if (type === "select") return { type, ...optionalField("presentation", parseCommandResultPresentation(record["presentation"])), requestId: requireString(record, "requestId"), title: requireString(record, "title"), options: arrayOf(parseCommandOption)(record["options"]) };
   if (type === "tree") return { type, tree: parseSessionTreeSnapshot(record["tree"]) };
-  if (type === "done") return { type, ...optionalField("message", optionalString(record, "message")), ...optionalSession(record["session"]), ...optionalField("promptDraft", optionalString(record, "promptDraft")) };
+  if (type === "done") return { type, ...optionalField("presentation", parseCommandResultPresentation(record["presentation"])), ...optionalField("message", optionalString(record, "message")), ...optionalSession(record["session"]), ...optionalField("promptDraft", optionalString(record, "promptDraft")) };
   throw new Error("Invalid command result type");
 }
 
@@ -2029,6 +2075,7 @@ function parseSessionTreeNode(value: unknown): SessionTreeNode {
     parentId: requireNullableString(record, "parentId"),
     kind: parseSessionTreeNodeKind(record["kind"]),
     summary: requireString(record, "summary"),
+    ...optionalField("summaryPresentation", parseSessionTreeSummaryPresentation(record["summaryPresentation"])),
     ...optionalField("timestamp", optionalString(record, "timestamp")),
     ...optionalField("label", optionalString(record, "label")),
   };
@@ -2343,6 +2390,7 @@ function parseCommandOutputEvent(record: Record<string, unknown>): Extract<Sessi
     type: "command.output",
     level,
     message: requireString(record, "message"),
+    ...optionalField("presentation", parseCommandOutputPresentation(record["presentation"])),
     ...optionalField("notificationId", optionalString(record, "notificationId")),
   };
 }
@@ -2359,5 +2407,4 @@ export function parseWorkspaceTrustResponse(value: unknown): import("../../../sh
   if (decision !== true && decision !== false && decision !== null) throw new Error("Invalid workspace trust decision");
   return { path: requireString(record, "path"), decision, trusted: requireBoolean(record, "trusted") };
 }
-import { PI_WEB_PLUGIN_LIFECYCLE_VERSION } from "../../../shared/apiTypes";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS, pluginDisableRecoveryCommand } from "../../../shared/pluginRecoveryCommands";

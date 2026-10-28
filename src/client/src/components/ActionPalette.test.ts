@@ -25,7 +25,7 @@ describe("filterActionPaletteActions", () => {
 
   it("matches disabled reasons in search", () => {
     const actions: AppAction[] = [
-      action("cleanup", "清理会话", { enabled: false, disabledReason: "所选服务器不支持清理。" }),
+      action("cleanup", "Clean up sessions", { enabled: false, disabledReason: "所选服务器不支持清理。" }),
     ];
 
     expect(filterActionPaletteActions(actions, "不支持清理").map((item) => item.id)).toEqual(["cleanup"]);
@@ -169,7 +169,7 @@ function actionButtons(palette: ActionPalette): HTMLButtonElement[] {
 }
 
 function closeButton(palette: ActionPalette): HTMLButtonElement {
-  return requiredElement(palette.shadowRoot?.querySelector<HTMLButtonElement>("header button[aria-label='关闭']"), "action-palette Close button");
+  return requiredElement(palette.shadowRoot?.querySelector<HTMLButtonElement>("header button[aria-label='Close']"), "action-palette Close button");
 }
 
 function selectedActionIndex(palette: ActionPalette): number {

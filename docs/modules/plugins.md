@@ -25,7 +25,7 @@ Pi 包/本地插件目录
   -> pluginBackendRegistry（请求/channel）
 ```
 
-纯浏览器插件不一定经过后端；双入口必须匹配实际 daemon 快照。发现不能等同执行插件。浏览器激活保持轻量声明式，连接在对应生命周期打开/清理。
+纯浏览器插件不一定经过后端；双入口通常必须匹配实际 daemon 快照；受支持的 dev:web 启动可显式采用开发宽松配对，仍不能热替换后端或省略必要 daemon 重启。发现不能等同执行插件。浏览器激活保持轻量声明式，连接在对应生命周期打开/清理。
 
 浏览器发现先装配 bundled 默认贡献，再装配 installed 覆盖，各组内部保留原发现顺序，模块下载完成先后不改变优先级。必需 Terminal 的失败边界和机器作用域不变；该顺序不允许用网关后端替代远端配对后端。
 
@@ -59,7 +59,17 @@ v5 catalog 固定到创建时的机器，只提供脱离内部引用的公开项
 
 核心提供默认布局、共享控件和可选的通用树形组合能力，`custom-ui-codex` 持有可关闭的本地视觉与布局定制，中文化继续由独立语言插件提供。网关的 `ui-presentation` 能力装配可选展示贡献，渲染器只组织宿主提供的命名插槽；导航贡献可请求宿主将原有项目、工作区和会话列表组合为选中分支树。当前选择的数据加载、菜单、信任、权限和业务操作仍归宿主，不迁入插件，也不向插件投影未选中分支的会话内容。编辑器与消息视图在展示切换时保持原有生命周期，导航列表可重新装配。普通与管理视图使用相同展示边界，但只向插件投影当前作用域的标识、显示名称和已授权操作，不开放普通宿主会话连接。展示冲突拒绝激活，渲染失败撤下该插件的展示、样式与主题并恢复默认独立导航列表。公开区域和上下文见[展示契约](../plugins.md#ui-presentation)，生命周期入口见 [uiPresentationRuntime.ts](../../src/client/src/plugins/uiPresentationRuntime.ts) 与[内置展示插件](../../pi-web-plugins/custom-ui-codex/)。
 
+Relays 与 Workflows 的托管包来源跟随当前运行安装，迁移保留过滤器和显式移除记忆，不改写无关用户来源。
+
 Workflows 同时包含 Pi 提示词资源和浏览器/服务端插件。profile 默认安装保留用户的移除记忆，禁用浏览器集成不等于移除提示词；派发使用当前机器的项目/工作区 authority 与能力，不通过私有路由绕过。详见[公开指南](../plugins.md#workflows)。
+
+## 预览、资源与本地化
+
+文件宿主持有选择、Raw 与下载回退，v5 `filePreviewers` 提供具体格式视图并独立管理转换限额；宿主冻结文件及 machine/project/workspace 快照，切换视图或销毁时取消旧工作。语法高亮返回 token，不返回 HTML；文件图标主题属于网关应用级贡献，选择只保存在浏览器。公开接口与生命周期见[插件参考](../plugins.md#contribute-file-previewers)。
+
+资源后端提供带背压的二进制响应，固定机器、作用域及运行版本；网关/daemon 每次重新授权，不把 URL 当分享凭据。响应元数据使用白名单，插件负责格式与范围校验；管理资源保持授权工作区与管理 context，不能回退普通作用域。资源与 companion 请求/channel 是不同能力。
+
+激活上下文可选 localization 服务注册 ICU 消息；语言插件提供目录，宿主持有偏好、格式化和取消/注销。zh-cn 保留旧 translate 兼容，设备语言切换也更新旧浏览器桥接，不改变服务端自有语言。详见[本地化](../localization.md)。
 
 ## 公开 API 修改步骤
 
@@ -84,7 +94,6 @@ Workflows 同时包含 Pi 提示词资源和浏览器/服务端插件。profile 
 | 信息 | [pi-web-plugin](../../pi-web-plugins/info/pi-web-plugin.ts) | 无工作区状态、目标机器、可选工作区 |
 | 更新 | [updatesLogic](../../pi-web-plugins/updates/updatesLogic.ts) | 有效 profile、实际版本、正确重启建议 |
 | Relay | [package.json](../../pi-packages/relays/package.json) | 普通自动安装/移除记忆与管理 Skill 同步分离 |
-| Captain's Log | [行为说明](../../pi-packages/captains-log/docs/usage.md) | 可选安装、独立派生会话、源会话不变、模型费用 |
 
 ## 排障与验证
 

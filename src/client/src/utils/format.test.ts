@@ -1,5 +1,29 @@
-import { describe, expect, it } from "vitest";
-import { formatFileSize } from "./format";
+import { afterEach, describe, expect, it } from "vitest";
+import { localization } from "../localization/browser";
+import { formatCost, formatFileSize, formatTokenCount } from "./format";
+
+afterEach(async () => { await localization.setPreferences({ language: "en", formatLocale: "en" }); });
+
+it("formats token counts with native compact notation and regional digits", async () => {
+  for (const formatLocale of ["en", "de-DE", "ar-EG"]) {
+    await localization.setPreferences({ language: "en", formatLocale });
+    for (const count of [0, 512, 1234, 12000, 1500000, 12000000, Number.NaN, Infinity]) {
+      const maximumFractionDigits = count >= 1000 && count < 10_000 || count >= 1_000_000 && count < 10_000_000 ? 1 : 0;
+      expect(formatTokenCount(count)).toBe(new Intl.NumberFormat(formatLocale, { notation: "compact", maximumFractionDigits }).format(Number.isFinite(count) ? count : 0));
+    }
+  }
+});
+
+it("formats explicit USD costs without inferring currency from regional preferences", async () => {
+  for (const formatLocale of ["en", "de-DE", "ar-EG"]) {
+    await localization.setPreferences({ language: "en", formatLocale });
+    for (const cost of [0, 0.001234, 12.34, Number.NaN, Infinity]) {
+      const value = Number.isFinite(cost) ? cost : 0;
+      const digits = value === 0 ? 0 : value < 0.01 ? 4 : 2;
+      expect(formatCost(cost)).toBe(new Intl.NumberFormat(formatLocale, { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value));
+    }
+  }
+});
 
 describe("formatFileSize", () => {
   it("keeps small sizes in whole bytes", () => {

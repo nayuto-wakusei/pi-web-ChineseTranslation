@@ -28,7 +28,7 @@ describe("configuration accessibility and activation guidance", () => {
 
     const toggle = panel.shadowRoot?.querySelector<HTMLInputElement>('input[aria-label="Enable example"]');
     expect(toggle?.checked).toBe(true);
-    expect(panel.shadowRoot?.textContent).toContain("Enabled by configuration");
+    expect(panel.shadowRoot?.textContent).toContain("Saved: enabled");
     expect(panel.shadowRoot?.textContent).toContain("Disabled");
     expect(panel.shadowRoot?.querySelector("settings-panel-frame")?.shadowRoot?.textContent).toMatch(/interrupt.*active sessions/);
     expect(panel.shadowRoot?.textContent).toContain("Check safe mode");

@@ -86,7 +86,7 @@ describe("session-tree-navigator modal surface", () => {
     await advanceToAction(navigator);
     summaryRadio(navigator, "default").click();
     await settleRenderedDialog(navigator);
-    footerButton(navigator, "从此处继续").click();
+    footerButton(navigator, "Continue from here").click();
     await settleRenderedDialog(navigator);
 
     backdropPress(navigator);
@@ -106,7 +106,7 @@ describe("session-tree-navigator modal surface", () => {
     const onCancel = vi.fn<() => void>();
     const navigator = await mountNavigator({ onNavigate, onAbort, onCancel });
     await advanceToAction(navigator);
-    footerButton(navigator, "从此处继续").click();
+    footerButton(navigator, "Continue from here").click();
     await settleRenderedDialog(navigator);
 
     pressKey(dialogSurface(navigator), "Escape");
@@ -129,7 +129,7 @@ describe("session-tree-navigator modal surface", () => {
     await advanceToAction(navigator);
     operationRadio(navigator, "fork").click();
     await settleRenderedDialog(navigator);
-    footerButton(navigator, "分叉为新会话").click();
+    footerButton(navigator, "Fork into new session").click();
     await settleRenderedDialog(navigator);
 
     backdropPress(navigator);
@@ -137,12 +137,12 @@ describe("session-tree-navigator modal surface", () => {
 
     expect(onAbort).not.toHaveBeenCalled();
     expect(onCancel).not.toHaveBeenCalled();
-    expect(footerButton(navigator, "正在分叉…").disabled).toBe(true);
+    expect(footerButton(navigator, "Forking…").disabled).toBe(true);
 
     fork.resolve({ cancelled: true });
     await settleRenderedDialog(navigator);
-    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("选择继续方式");
-    expect(shadowText(navigator)).toContain("分叉已取消，未创建新会话");
+    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("Choose how to continue");
+    expect(shadowText(navigator)).toContain("Fork cancelled. No new session was created");
   });
 });
 
@@ -154,19 +154,19 @@ describe("session-tree-navigator location step", () => {
   it("keeps operation selection out of step 1 and offers only Cancel and Next", async () => {
     const navigator = await mountNavigator();
 
-    expect(footerLabels(navigator)).toEqual(["取消", "下一步"]);
-    expect(shadowText(navigator)).toContain("选择要从哪一条历史记录继续。");
+    expect(footerLabels(navigator)).toEqual(["Cancel", "Next"]);
+    expect(shadowText(navigator)).toContain("Select the history entry where you would like to continue.");
     expect(navigator.renderRoot.querySelector("input[name='session-tree-operation']")).toBeNull();
-    expect(footerButton(navigator, "下一步").classList.contains("primary")).toBe(true);
-    expect(footerButton(navigator, "下一步").disabled).toBe(false);
+    expect(footerButton(navigator, "Next").classList.contains("primary")).toBe(true);
+    expect(footerButton(navigator, "Next").disabled).toBe(false);
   });
 
   it("keeps an empty history inert", async () => {
     const navigator = await mountNavigator({ tree: { nodes: [], activeLeafId: null, activePathIds: [] } });
 
-    expect(shadowText(navigator)).toContain("不包含可选择的历史条目");
-    expect(footerLabels(navigator)).toEqual(["取消", "下一步"]);
-    expect(footerButton(navigator, "下一步").disabled).toBe(true);
+    expect(shadowText(navigator)).toContain("does not contain any selectable history entries");
+    expect(footerLabels(navigator)).toEqual(["Cancel", "Next"]);
+    expect(footerButton(navigator, "Next").disabled).toBe(true);
   });
 
   it("uses the same semantic kind badge treatment in the tree and selected-entry steps", async () => {
@@ -176,7 +176,7 @@ describe("session-tree-navigator location step", () => {
     await settleRenderedDialog(navigator);
 
     const treeBadge = kindBadge(root);
-    expect(treeBadge.textContent).toBe("用户");
+    expect(treeBadge.textContent).toBe("User");
     expect(treeBadge.classList.contains("kind-tone-user")).toBe(true);
     expect(root.classList.contains("kind-tone-user")).toBe(false);
 
@@ -184,7 +184,7 @@ describe("session-tree-navigator location step", () => {
     const selectedEntry = navigator.renderRoot.querySelector(".selected-entry");
     if (!(selectedEntry instanceof HTMLElement)) throw new Error("Selected entry was unavailable");
     const actionBadge = kindBadge(selectedEntry);
-    expect(actionBadge.textContent).toBe("用户");
+    expect(actionBadge.textContent).toBe("User");
     expect(actionBadge.classList.contains("kind-tone-user")).toBe(true);
     expect(selectedEntry.classList.contains("kind-tone-user")).toBe(false);
   });
@@ -203,13 +203,13 @@ describe("session-tree-navigator location step", () => {
     selected.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await settleRenderedDialog(navigator);
 
-    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("选择继续方式");
-    expect(footerLabels(navigator)).toEqual(["返回", "从此处继续"]);
+    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("Choose how to continue");
+    expect(footerLabels(navigator)).toEqual(["Back", "Continue from here"]);
   });
 
   it("moves focus across steps and traps Tab in the dialog", async () => {
     const navigator = await mountNavigator();
-    const next = footerButton(navigator, "下一步");
+    const next = footerButton(navigator, "Next");
 
     expect(navigator.shadowRoot?.activeElement).toBe(treeItem(navigator, "active"));
 
@@ -224,7 +224,7 @@ describe("session-tree-navigator location step", () => {
     await settleRenderedDialog(navigator);
     expect(navigator.shadowRoot?.activeElement).toBe(operationRadio(navigator, "continue"));
 
-    footerButton(navigator, "返回").click();
+    footerButton(navigator, "Back").click();
     await settleRenderedDialog(navigator);
     expect(navigator.shadowRoot?.activeElement).toBe(treeItem(navigator, "active"));
   });
@@ -234,7 +234,7 @@ describe("session-tree-navigator location step", () => {
     const navigator = await mountNavigator({ onCancel });
 
     await advanceToAction(navigator);
-    footerButton(navigator, "返回").click();
+    footerButton(navigator, "Back").click();
     await settleRenderedDialog(navigator);
     expect(navigator.renderRoot.querySelector("[role='tree']")).toBeTruthy();
 
@@ -258,29 +258,29 @@ describe("session-tree-navigator action step", () => {
     const navigator = await mountNavigator();
     await advanceToAction(navigator);
 
-    expect(fieldsetByLegend(navigator, "如何继续？")).toBeTruthy();
+    expect(fieldsetByLegend(navigator, "How would you like to continue?")).toBeTruthy();
     expect(operationRadio(navigator, "continue").checked).toBe(true);
     expect(operationRadio(navigator, "fork").checked).toBe(false);
-    expect(operationRadio(navigator, "continue").parentElement?.textContent).toContain("在当前会话中继续");
-    expect(operationRadio(navigator, "fork").parentElement?.textContent).toContain("分叉为新会话");
-    expect(fieldsetByLegend(navigator, "已放弃分支摘要")).toBeTruthy();
+    expect(operationRadio(navigator, "continue").parentElement?.textContent).toContain("Continue in this session");
+    expect(operationRadio(navigator, "fork").parentElement?.textContent).toContain("Fork into a new session");
+    expect(fieldsetByLegend(navigator, "Abandoned branch summary")).toBeTruthy();
     expect(summaryRadio(navigator, "none").checked).toBe(true);
-    expect(footerButton(navigator, "从此处继续")).toBeTruthy();
-    expect(selectedEntryText(navigator)).toContain("提示词编辑器将为空");
+    expect(footerButton(navigator, "Continue from here")).toBeTruthy();
+    expect(selectedEntryText(navigator)).toContain("The prompt editor will be empty");
 
     operationRadio(navigator, "fork").click();
     await settleRenderedDialog(navigator);
 
-    expect(fieldsetByLegend(navigator, "已放弃分支摘要")).toBeNull();
+    expect(fieldsetByLegend(navigator, "Abandoned branch summary")).toBeNull();
     expect(navigator.renderRoot.querySelector("input[name='session-tree-summary']")).toBeNull();
-    expect(selectedEntryText(navigator)).toContain("包含此条目以及此前的全部历史记录");
-    expect(shadowText(navigator)).toContain("单独的会话文件，原会话保持不变");
-    expect(footerButton(navigator, "分叉为新会话")).toBeTruthy();
+    expect(selectedEntryText(navigator)).toContain("include this entry and all history leading to it");
+    expect(shadowText(navigator)).toContain("separate session file while leaving the original unchanged");
+    expect(footerButton(navigator, "Fork into new session")).toBeTruthy();
 
     operationRadio(navigator, "continue").click();
     await settleRenderedDialog(navigator);
-    expect(fieldsetByLegend(navigator, "已放弃分支摘要")).toBeTruthy();
-    expect(footerButton(navigator, "从此处继续")).toBeTruthy();
+    expect(fieldsetByLegend(navigator, "Abandoned branch summary")).toBeTruthy();
+    expect(footerButton(navigator, "Continue from here")).toBeTruthy();
   });
 
   it("explains user-message restoration for same-session continuation and forks", async () => {
@@ -289,12 +289,12 @@ describe("session-tree-navigator action step", () => {
     await settleRenderedDialog(navigator);
     await advanceToAction(navigator);
 
-    expect(selectedEntryText(navigator)).toContain("文本会返回提示词编辑器，供你选择编辑并重新提交");
+    expect(selectedEntryText(navigator)).toContain("text will return to the prompt editor");
 
     operationRadio(navigator, "fork").click();
     await settleRenderedDialog(navigator);
-    expect(selectedEntryText(navigator)).toContain("在此用户消息之前分叉");
-    expect(selectedEntryText(navigator)).toContain("新会话的提示词草稿");
+    expect(selectedEntryText(navigator)).toContain("branch before this user message");
+    expect(selectedEntryText(navigator)).toContain("the new session draft");
   });
 
   it("dispatches the final action to the selected callback and retains location after cancellation", async () => {
@@ -305,26 +305,26 @@ describe("session-tree-navigator action step", () => {
     treeItem(navigator, "side").click();
     await settleRenderedDialog(navigator);
     await advanceToAction(navigator);
-    footerButton(navigator, "从此处继续").click();
+    footerButton(navigator, "Continue from here").click();
     await settleRenderedDialog(navigator);
 
     expect(onNavigate).toHaveBeenCalledWith("side", { mode: "none" });
     expect(onFork).not.toHaveBeenCalled();
     expect(navigator.renderRoot.querySelector("[role='tree']")).toBeTruthy();
-    expect(shadowText(navigator)).toContain("所选历史条目未更改");
+    expect(shadowText(navigator)).toContain("selected history entry is unchanged");
 
     await advanceToAction(navigator);
     operationRadio(navigator, "fork").click();
     await settleRenderedDialog(navigator);
-    footerButton(navigator, "分叉为新会话").click();
+    footerButton(navigator, "Fork into new session").click();
     await settleRenderedDialog(navigator);
 
     expect(onFork).toHaveBeenCalledWith("side");
     expect(onNavigate).toHaveBeenCalledOnce();
-    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("选择继续方式");
+    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("Choose how to continue");
     expect(operationRadio(navigator, "fork").checked).toBe(true);
     expect(selectedEntryText(navigator)).toContain("Side branch");
-    expect(navigator.renderRoot.querySelector(".dialog-status[role='status']")?.textContent).toContain("分叉已取消，未创建新会话");
+    expect(navigator.renderRoot.querySelector(".dialog-status[role='status']")?.textContent).toContain("Fork cancelled. No new session was created");
   });
 
   it("validates custom summary focus without submitting", async () => {
@@ -334,11 +334,11 @@ describe("session-tree-navigator action step", () => {
 
     summaryRadio(navigator, "custom").click();
     await settleRenderedDialog(navigator);
-    footerButton(navigator, "从此处继续").click();
+    footerButton(navigator, "Continue from here").click();
     await settleRenderedDialog(navigator);
 
     expect(onNavigate).not.toHaveBeenCalled();
-    expect(navigator.renderRoot.querySelector(".validation-error[role='alert']")?.textContent).toContain("请输入自定义摘要重点");
+    expect(navigator.renderRoot.querySelector(".validation-error[role='alert']")?.textContent).toContain("Enter custom summary focus");
     expect(navigator.shadowRoot?.activeElement).toBe(customFocus(navigator));
   });
 
@@ -355,26 +355,26 @@ describe("session-tree-navigator action step", () => {
     textarea.value = "  focus on failed tests  ";
     textarea.dispatchEvent(new InputEvent("input", { bubbles: true }));
     await settleRenderedDialog(navigator);
-    footerButton(navigator, "从此处继续").click();
+    footerButton(navigator, "Continue from here").click();
     await settleRenderedDialog(navigator);
 
     expect(onNavigate).toHaveBeenCalledWith("active", { mode: "custom", instructions: "focus on failed tests" });
-    expect(fieldsetByLegend(navigator, "如何继续？")?.disabled).toBe(true);
-    expect(fieldsetByLegend(navigator, "已放弃分支摘要")?.disabled).toBe(true);
+    expect(fieldsetByLegend(navigator, "How would you like to continue?")?.disabled).toBe(true);
+    expect(fieldsetByLegend(navigator, "Abandoned branch summary")?.disabled).toBe(true);
     expect(closeButton(navigator).disabled).toBe(true);
-    expect(footerButton(navigator, "返回").disabled).toBe(true);
-    expect(footerButton(navigator, "正在生成摘要…").disabled).toBe(true);
-    expect(footerButton(navigator, "取消摘要").disabled).toBe(false);
+    expect(footerButton(navigator, "Back").disabled).toBe(true);
+    expect(footerButton(navigator, "Summarizing…").disabled).toBe(true);
+    expect(footerButton(navigator, "Cancel summarization").disabled).toBe(false);
 
     pressKey(dialogSurface(navigator), "Escape");
     await settleRenderedDialog(navigator);
     expect(onAbort).toHaveBeenCalledOnce();
-    expect(footerButton(navigator, "正在取消…").disabled).toBe(true);
+    expect(footerButton(navigator, "Cancelling…").disabled).toBe(true);
 
     navigation.resolve({ cancelled: true, aborted: true });
     await settleRenderedDialog(navigator);
     expect(navigator.renderRoot.querySelector("[role='tree']")).toBeTruthy();
-    expect(shadowText(navigator)).toContain("摘要已取消");
+    expect(shadowText(navigator)).toContain("Summarization cancelled");
   });
 
   it("keeps navigation failures visible and actionable in step 2", async () => {
@@ -382,12 +382,12 @@ describe("session-tree-navigator action step", () => {
     navigator.onNavigate = () => Promise.reject(new Error("The session changed since /tree was opened."));
     await advanceToAction(navigator);
 
-    footerButton(navigator, "从此处继续").click();
+    footerButton(navigator, "Continue from here").click();
     await settleRenderedDialog(navigator);
 
-    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("选择继续方式");
-    expect(navigator.renderRoot.querySelector(".dialog-error[role='alert']")?.textContent).toContain("无法导航会话历史：The session changed since /tree was opened.");
-    expect(footerButton(navigator, "从此处继续").disabled).toBe(false);
+    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("Choose how to continue");
+    expect(navigator.renderRoot.querySelector(".dialog-error[role='alert']")?.textContent).toContain("Could not navigate session history: The session changed since /tree was opened.");
+    expect(footerButton(navigator, "Continue from here").disabled).toBe(false);
   });
 
   it("keeps fork failures visible in step 2 without showing summary controls", async () => {
@@ -397,13 +397,13 @@ describe("session-tree-navigator action step", () => {
     operationRadio(navigator, "fork").click();
     await settleRenderedDialog(navigator);
 
-    footerButton(navigator, "分叉为新会话").click();
+    footerButton(navigator, "Fork into new session").click();
     await settleRenderedDialog(navigator);
 
-    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("选择继续方式");
+    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("Choose how to continue");
     expect(navigator.renderRoot.querySelector(".dialog-error[role='alert']")?.textContent).toContain("Restart the session daemon to enable tree forks.");
-    expect(fieldsetByLegend(navigator, "已放弃分支摘要")).toBeNull();
-    expect(footerButton(navigator, "分叉为新会话").disabled).toBe(false);
+    expect(fieldsetByLegend(navigator, "Abandoned branch summary")).toBeNull();
+    expect(footerButton(navigator, "Fork into new session").disabled).toBe(false);
   });
 
   it("disables the unified step while a fork is in flight", async () => {
@@ -414,20 +414,20 @@ describe("session-tree-navigator action step", () => {
     operationRadio(navigator, "fork").click();
     await settleRenderedDialog(navigator);
 
-    footerButton(navigator, "分叉为新会话").click();
+    footerButton(navigator, "Fork into new session").click();
     await settleRenderedDialog(navigator);
 
-    expect(fieldsetByLegend(navigator, "如何继续？")?.disabled).toBe(true);
-    expect(fieldsetByLegend(navigator, "已放弃分支摘要")).toBeNull();
+    expect(fieldsetByLegend(navigator, "How would you like to continue?")?.disabled).toBe(true);
+    expect(fieldsetByLegend(navigator, "Abandoned branch summary")).toBeNull();
     expect(closeButton(navigator).disabled).toBe(true);
-    expect(footerButton(navigator, "返回").disabled).toBe(true);
-    expect(footerButton(navigator, "正在分叉…").disabled).toBe(true);
-    expect(footerLabels(navigator)).not.toContain("取消摘要");
+    expect(footerButton(navigator, "Back").disabled).toBe(true);
+    expect(footerButton(navigator, "Forking…").disabled).toBe(true);
+    expect(footerLabels(navigator)).not.toContain("Cancel summarization");
 
     forkResult.resolve({ cancelled: true });
     await settleRenderedDialog(navigator);
-    expect(footerButton(navigator, "分叉为新会话").disabled).toBe(false);
-    expect(shadowText(navigator)).toContain("分叉已取消，未创建新会话");
+    expect(footerButton(navigator, "Fork into new session").disabled).toBe(false);
+    expect(shadowText(navigator)).toContain("Fork cancelled. No new session was created");
   });
 });
 
@@ -443,7 +443,7 @@ describe("session-tree-navigator interactions", () => {
 
     expect(onNavigate).toHaveBeenNthCalledWith(1, "side", { mode: "none" });
     expect(componentProperty(navigator, "step")).toBe("tree");
-    expect(componentProperty(navigator, "statusMessage")).toContain("所选历史条目未更改");
+    expect(componentProperty(navigator, "statusMessage")).toContain("selected history entry is unchanged");
 
     clickTreeNext(navigator);
     await callPromiseMethod(navigator, "submitNavigation");
@@ -505,13 +505,13 @@ describe("session-tree-navigator interactions", () => {
     callSummaryModeMethod(navigator, "default");
     const submission = callPromiseMethod(navigator, "submitNavigation");
     await callPromiseMethod(navigator, "abortNavigation");
-    expect(componentProperty(navigator, "statusMessage")).toBe("正在取消摘要…");
+    expect(componentProperty(navigator, "statusMessage")).toBe("Cancelling summarization…");
 
     navigation.reject(new Error("remote operation failed"));
     await submission;
 
     expect(componentProperty(navigator, "statusMessage")).toBe("");
-    expect(componentProperty(navigator, "error")).toBe("无法导航会话历史：remote operation failed");
+    expect(componentProperty(navigator, "error")).toBe("Could not navigate session history: remote operation failed");
   });
 
   it("keeps navigation failures actionable and local to the action step", async () => {
@@ -523,7 +523,7 @@ describe("session-tree-navigator interactions", () => {
 
     expect(componentProperty(navigator, "step")).toBe("action");
     expect(componentProperty(navigator, "busy")).toBe(false);
-    expect(componentProperty(navigator, "error")).toBe("无法导航会话历史：The session changed since /tree was opened. Reopen /tree and try again.");
+    expect(componentProperty(navigator, "error")).toBe("Could not navigate session history: The session changed since /tree was opened. Reopen /tree and try again.");
   });
 
   it("focuses the active leaf selected when the dialog opens", () => {
@@ -588,19 +588,19 @@ describe("session-tree-navigator display helpers", () => {
     };
 
     expect(actual).toEqual({
-      user: { label: "用户", tone: "user", bookkeeping: false },
-      assistant: { label: "助手", tone: "assistant", bookkeeping: false },
-      "tool-result": { label: "工具结果", tone: "tool", bookkeeping: false },
-      bash: { label: "命令", tone: "shell", bookkeeping: false },
-      "custom-message": { label: "自定义消息", tone: "context", bookkeeping: false },
-      compaction: { label: "上下文压缩", tone: "context", bookkeeping: false },
-      "branch-summary": { label: "分支摘要", tone: "context", bookkeeping: false },
-      "model-change": { label: "模型", tone: "metadata", bookkeeping: true },
-      "thinking-level-change": { label: "思考级别", tone: "metadata", bookkeeping: true },
-      "session-info": { label: "会话信息", tone: "metadata", bookkeeping: true },
-      label: { label: "标签", tone: "metadata", bookkeeping: true },
-      custom: { label: "自定义", tone: "metadata", bookkeeping: true },
-      other: { label: "其他", tone: "metadata", bookkeeping: true },
+      user: { label: "User", tone: "user", bookkeeping: false },
+      assistant: { label: "Assistant", tone: "assistant", bookkeeping: false },
+      "tool-result": { label: "Tool result", tone: "tool", bookkeeping: false },
+      bash: { label: "Shell", tone: "shell", bookkeeping: false },
+      "custom-message": { label: "Custom message", tone: "context", bookkeeping: false },
+      compaction: { label: "Compaction", tone: "context", bookkeeping: false },
+      "branch-summary": { label: "Branch summary", tone: "context", bookkeeping: false },
+      "model-change": { label: "Model", tone: "metadata", bookkeeping: true },
+      "thinking-level-change": { label: "Thinking", tone: "metadata", bookkeeping: true },
+      "session-info": { label: "Session info", tone: "metadata", bookkeeping: true },
+      label: { label: "Label", tone: "metadata", bookkeeping: true },
+      custom: { label: "Custom", tone: "metadata", bookkeeping: true },
+      other: { label: "Other", tone: "metadata", bookkeeping: true },
     });
   });
 
@@ -637,7 +637,7 @@ async function mountNavigator(props: MountedNavigatorProps = {}): Promise<Sessio
 }
 
 async function advanceToAction(navigator: SessionTreeNavigator): Promise<void> {
-  footerButton(navigator, "下一步").click();
+  footerButton(navigator, "Next").click();
   await settleRenderedDialog(navigator);
 }
 
@@ -743,11 +743,17 @@ function renderNavigator(navigator: SessionTreeNavigator): TemplateResult {
 }
 
 function clickTreeNext(navigator: SessionTreeNavigator): void {
-  templateClickHandlerForText(renderNavigator(navigator), "下一步")(new Event("click"));
+  // These legacy method-level tests exercise orchestration; DOM tests own button wiring.
+  callVoidMethod(navigator, "continueToAction");
 }
 
 function componentProperty(navigator: SessionTreeNavigator, property: string): unknown {
-  return Reflect.get(navigator, property);
+  const value: unknown = Reflect.get(navigator, property);
+  return (property === "error" || property === "statusMessage") && isMessageCallback(value) ? value() : value;
+}
+
+function isMessageCallback(value: unknown): value is () => string {
+  return typeof value === "function";
 }
 
 function setComponentProperty(navigator: SessionTreeNavigator, property: string, value: unknown): void {

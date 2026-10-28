@@ -92,13 +92,13 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     private readonly t: Translator = loadNodeTranslator("server"),
   ) {}
 
-  async run(sessionId: string, text: string, eventScope?: string, t: Translator = loadNodeTranslator("server")): Promise<ClientCommandResult> {
+  async run(sessionId: string, text: string, eventScope?: string): Promise<ClientCommandResult> {
     const active = await this.getActive(sessionId, eventScope);
     const session = active.runtime.session;
     const [name = "", ...args] = text.trim().replace(/^\//, "").split(/\s+/);
     const rest = args.join(" ").trim();
 
-    if (this.lifecycle.isTreeNavigationActive?.(session) === true) return treeNavigationActiveUnsupported(t);
+    if (this.lifecycle.isTreeNavigationActive?.(session) === true) return treeNavigationActiveUnsupported();
 
     if (!isBuiltinCommand(name)) {
       if (this.isRuntimeCommand(session, name)) {
@@ -109,10 +109,13 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
         await this.prompt(sessionId, text, eventScope);
         return { type: "done" };
       }
-      return { type: "unsupported", message: this.t("command.unknown", "Unknown command: /{value0}", { value0: name }) };
+      return { type: "unsupported", message: `Unknown command: /${name}`, presentation: { kind: "commandResult", feedback: { code: "unknown", command: name } } };
     }
 
-    if (name === "session") return { type: "done", message: formatSessionStats(session, this.t) };
+    if (name === "session") {
+      const stats = session.getSessionStats();
+      return { type: "done", message: formatSessionStats(stats), presentation: { kind: "commandResult", feedback: { code: "stats", stats } } };
+    }
     if (name === "name") return this.nameSession(active, rest, eventScope);
     if (name === "compact") return this.compact(session, rest);
     if (name === "reload") return this.reload(session);
@@ -120,12 +123,12 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     if (name === "fork") return this.fork(active, eventScope);
     if (name === "tree") return this.tree(session);
 
-    return { type: "unsupported", message: this.t("command.unsupported", "/{value0} is not implemented in the Web UI", { value0: name }) };
+    return { type: "unsupported", message: `/${name} is not implemented in the web UI yet`, presentation: { kind: "commandResult", feedback: { code: "notImplemented", command: name } } };
   }
 
   async respond(sessionId: string, requestId: string, value: string, eventScope?: string): Promise<ClientCommandResult> {
     const pending = this.pendingSelects.get(requestId);
-    if (pending?.sessionId !== sessionId || pending.eventScope !== eventScope) return { type: "unsupported", message: this.t("command.expired", "Command request expired") };
+    if (pending?.sessionId !== sessionId || pending.eventScope !== eventScope) return { type: "unsupported", message: "Command request expired", presentation: { kind: "commandResult", feedback: { code: "requestExpired" } } };
     this.pendingSelects.delete(requestId);
 
     return this.forkEntry(sessionId, value, eventScope);
@@ -134,11 +137,11 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
   /** Fork a tree entry into a new session file while preserving the original. */
   async forkEntry(sessionId: string, entryId: string, eventScope?: string, options?: ForkEntryOptions, t: Translator = loadNodeTranslator("server")): Promise<ClientCommandResult> {
     const active = await this.getActive(sessionId, eventScope);
-    if (this.lifecycle.isTreeNavigationActive?.(active.runtime.session) === true) return treeNavigationActiveUnsupported(t);
-    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork", this.t);
+    if (this.lifecycle.isTreeNavigationActive?.(active.runtime.session) === true) return treeNavigationActiveUnsupported();
+    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const relatedName = await this.nextRelatedSessionName(active, "fork");
-    if (this.lifecycle.isTreeNavigationActive?.(active.runtime.session) === true) return treeNavigationActiveUnsupported(t);
-    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork", this.t);
+    if (this.lifecycle.isTreeNavigationActive?.(active.runtime.session) === true) return treeNavigationActiveUnsupported();
+    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const result = await this.runSessionReplacement(active.runtime, async () => {
       const session = active.runtime.session;
       if (options?.expectedSession !== undefined && session !== options.expectedSession) throw new Error(this.t("session.forkRuntimeChanged", "The session runtime changed before forking. Try again from the current session."));
@@ -152,15 +155,15 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
       if (!forkResult.cancelled) this.tryNameRelatedSession(active.runtime.session, relatedName, eventScope);
       return forkResult;
     });
-    if (result.cancelled) return { type: "done", message: this.t("command.forkCancelled", "Fork cancelled") };
-    return { type: "done", message: this.t("command.forked", "Session forked"), session: clientSessionFromRuntime(active.runtime), ...promptDraft(result.selectedText) };
+    if (result.cancelled) return { type: "done", message: "Fork cancelled", presentation: { kind: "commandResult", feedback: { code: "forkCancelled" } } };
+    return { type: "done", message: "Session forked", presentation: { kind: "commandResult", feedback: { code: "forked" } }, session: clientSessionFromRuntime(active.runtime), ...promptDraft(result.selectedText) };
   }
 
   private nameSession(active: CommandActiveSession<TSession>, name: string, eventScope: string | undefined): ClientCommandResult {
-    if (name === "") return { type: "unsupported", message: this.t("command.nameUsage", "Usage: /name <session name>") };
+    if (name === "") return { type: "unsupported", message: "Usage: /name <session name>", presentation: { kind: "commandResult", feedback: { code: "nameUsage" } } };
     active.runtime.session.setSessionName(name);
     this.publishSessionName(active.runtime.session, eventScope);
-    return { type: "done", message: this.t("command.named", "Session named: {value0}", { value0: name }), session: clientSessionFromRuntime(active.runtime) };
+    return { type: "done", message: `Session named: ${name}`, presentation: { kind: "commandResult", feedback: { code: "named", name } }, session: clientSessionFromRuntime(active.runtime) };
   }
   private compact(session: TSession, instructions: string): ClientCommandResult {
     this.lifecycle.onCompactionStart?.(session);
@@ -172,65 +175,66 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
     return { type: "done" };
   }
 
-  private async reload(session: TSession, t: Translator = loadNodeTranslator("server")): Promise<ClientCommandResult> {
-    if (this.hasActiveWork(session)) return { type: "unsupported", message: t("command.reloadActive", "Cannot reload an active session. Stop current activity first.") };
-    if (this.lifecycle.reloadSession === undefined) return { type: "unsupported", message: t("command.reloadUnsupported", "/reload is not supported by this session runtime.") };
+  private async reload(session: TSession): Promise<ClientCommandResult> {
+    if (this.hasActiveWork(session)) return { type: "unsupported", message: "Cannot reload while the session is active. Stop current activity before reloading.", presentation: { kind: "commandResult", feedback: { code: "reloadActive" } } };
+    if (this.lifecycle.reloadSession === undefined) return { type: "unsupported", message: "/reload is not available for this session runtime.", presentation: { kind: "commandResult", feedback: { code: "reloadUnavailable" } } };
 
     try {
       await this.lifecycle.reloadSession(session);
     } catch (error: unknown) {
-      const message = userFacingErrorMessage(error, this.t);
-      return { type: "unsupported", message: this.t("command.reloadFailed", "Reload failed: {value0}", { value0: message }) };
+      const message = error instanceof Error ? error.message : String(error);
+      return { type: "unsupported", message: `Reload failed: ${message}`, presentation: { kind: "commandResult", feedback: { code: "reloadFailed", detail: message } } };
     }
-    return { type: "done", message: this.t("command.reloaded", "Session runtime resources reloaded: extensions, skills, prompt templates, themes, and context/system prompt files. Refresh the browser separately for PI WEB browser plugin changes.") };
+    return { type: "done", message: "Session runtime resources reloaded. Extensions, skills, prompt templates, themes, and context/system prompt files are refreshed for this session. Reload the browser page separately for PI WEB browser plugin changes.", presentation: { kind: "commandResult", feedback: { code: "reloaded" } } };
   }
 
-  private async clone(active: CommandActiveSession<TSession>, eventScope: string | undefined, t: Translator = loadNodeTranslator("server")): Promise<ClientCommandResult> {
-    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("clone", this.t);
+  private async clone(active: CommandActiveSession<TSession>, eventScope: string | undefined): Promise<ClientCommandResult> {
+    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("clone");
     const initialLeafId = active.runtime.session.sessionManager.getLeafId();
-    if (initialLeafId === null || initialLeafId === "") return { type: "unsupported", message: this.t("command.cloneNoEntry", "Cannot clone: no current session entry") };
+    if (initialLeafId === null || initialLeafId === "") return { type: "unsupported", message: "Cannot clone: no current session entry", presentation: { kind: "commandResult", feedback: { code: "cloneEmpty" } } };
     const relatedName = await this.nextRelatedSessionName(active, "copy");
-    if (this.lifecycle.isTreeNavigationActive?.(active.runtime.session) === true) return treeNavigationActiveUnsupported(t);
-    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("clone", this.t);
+    if (this.lifecycle.isTreeNavigationActive?.(active.runtime.session) === true) return treeNavigationActiveUnsupported();
+    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("clone");
     const leafId = active.runtime.session.sessionManager.getLeafId();
-    if (leafId === null || leafId === "") return { type: "unsupported", message: this.t("command.cloneNoEntry", "Cannot clone: no current session entry") };
+    if (leafId === null || leafId === "") return { type: "unsupported", message: "Cannot clone: no current session entry", presentation: { kind: "commandResult", feedback: { code: "cloneEmpty" } } };
     const result = await this.runSessionReplacement(active.runtime, async () => {
       const cloneResult = await active.runtime.fork(leafId, { position: "at" });
       if (!cloneResult.cancelled) this.tryNameRelatedSession(active.runtime.session, relatedName, eventScope);
       return cloneResult;
     });
-    if (result.cancelled) return { type: "done", message: this.t("command.cloneCancelled", "Clone cancelled") };
-    return { type: "done", message: this.t("command.cloned", "Session cloned"), session: clientSessionFromRuntime(active.runtime) };
+    if (result.cancelled) return { type: "done", message: "Clone cancelled", presentation: { kind: "commandResult", feedback: { code: "cloneCancelled" } } };
+    return { type: "done", message: "Session cloned", presentation: { kind: "commandResult", feedback: { code: "cloned" } }, session: clientSessionFromRuntime(active.runtime) };
   }
 
   private fork(active: CommandActiveSession<TSession>, eventScope: string | undefined): ClientCommandResult {
-    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork", this.t);
+    if (this.hasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const messages = active.runtime.session.getUserMessagesForForking();
-    if (!messages.length) return { type: "unsupported", message: this.t("command.forkNoMessages", "No user messages available for forking") };
+    if (!messages.length) return { type: "unsupported", message: "No user messages to fork from", presentation: { kind: "commandResult", feedback: { code: "forkEmpty" } } };
     const requestId = crypto.randomUUID();
     this.pendingSelects.set(requestId, { sessionId: active.runtime.session.sessionId, eventScope, command: "fork" });
     return {
       type: "select",
       requestId,
-      title: this.t("command.forkTitle", "Fork from message"),
+      title: "Fork from message",
+      presentation: { kind: "commandResult", feedback: { code: "forkSelect" } },
       options: [...messages].reverse().map((message) => ({ value: message.entryId, label: truncate(message.text, 140) })),
     };
   }
 
-  private tree(session: TSession, t: Translator = loadNodeTranslator("server")): ClientCommandResult {
+  private tree(session: TSession): ClientCommandResult {
     if (this.hasActiveWork(session)) {
-      return { type: "unsupported", message: t("server.main.a918daf4f693", "Cannot open the session tree while the session is active. Stop current activity and try /tree again.") };
+      return { type: "unsupported", message: "Cannot open the session tree while the session is active. Stop current activity and try /tree again.", presentation: { kind: "commandResult", feedback: { code: "treeActive" } } };
     }
-    if (this.lifecycle.getSessionTree === undefined) return treeUnavailableUnsupported(this.t);
+    if (this.lifecycle.getSessionTree === undefined) return treeUnavailableUnsupported();
 
     try {
       const tree = this.lifecycle.getSessionTree(session);
       if (tree === undefined) return treeUnavailableUnsupported();
-      if (tree.nodes.length === 0) return { type: "unsupported", message: t("server.main.ab9910fde691", "Cannot navigate an empty session tree.") };
+      if (tree.nodes.length === 0) return { type: "unsupported", message: "Cannot navigate an empty session tree.", presentation: { kind: "commandResult", feedback: { code: "treeEmpty" } } };
       return { type: "tree", tree };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      return { type: "unsupported", message: t("server.main.0678911a2580", "Unable to open the session tree: {arg0}", { arg0: message }) };
+      return { type: "unsupported", message: `Unable to open the session tree: ${message}`, presentation: { kind: "commandResult", feedback: { code: "treeFailed", detail: message } } };
     }
   }
 
@@ -266,8 +270,8 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
       session.setSessionName(name);
       this.publishSessionName(session, eventScope);
     } catch (error: unknown) {
-      const message = userFacingErrorMessage(error, this.t);
-      this.events.publish(session.sessionId, { type: "command.output", level: "error", message: this.t("command.namingFailed", "Session created, but naming failed: {value0}", { value0: message }) }, eventScope);
+      const message = error instanceof Error ? error.message : String(error);
+      this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `Session created, but naming failed: ${message}`, presentation: { kind: "sessionNamingFailed", detail: message } }, eventScope);
     }
   }
 
@@ -354,30 +358,29 @@ function sessionHasActiveWork(session: CommandSession): boolean {
   return session.isStreaming || session.isBashRunning || session.isCompacting || session.pendingMessageCount > 0;
 }
 
-function forkActiveUnsupported(command: "fork" | "clone", t: Translator): ClientCommandResult {
-  return { type: "unsupported", message: t("command.relatedActive", "Cannot {value0} while the session is active. Stop current activity first.", { value0: command === "fork" ? t("session.fork", "Fork") : t("session.clone", "Clone") }) };
+function forkActiveUnsupported(command: "fork" | "clone"): ClientCommandResult {
+  return { type: "unsupported", message: `Cannot ${command} while the session is active. Stop current activity before ${command === "fork" ? "forking" : "cloning"}.`, presentation: { kind: "commandResult", feedback: { code: "replacementActive", command } } };
 }
 
-function treeUnavailableUnsupported(t: Translator = loadNodeTranslator("server")): ClientCommandResult {
-  return { type: "unsupported", message: t("command.treeUnavailable", "The current Pi runtime does not support session tree navigation.") };
+function treeUnavailableUnsupported(): ClientCommandResult {
+  return { type: "unsupported", message: "Session tree navigation is not available with this Pi runtime.", presentation: { kind: "commandResult", feedback: { code: "treeUnavailable" } } };
 }
 
-function treeNavigationActiveUnsupported(t: Translator = loadNodeTranslator("server")): ClientCommandResult {
-  return { type: "unsupported", message: t("server.main.53f693cde268", "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.") };
+function treeNavigationActiveUnsupported(): ClientCommandResult {
+  return { type: "unsupported", message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.", presentation: { kind: "commandResult", feedback: { code: "navigationActive" } } };
 }
 
 function promptDraft(text: string | undefined): Partial<Pick<Extract<ClientCommandResult, { type: "done" }>, "promptDraft">> {
   return text === undefined ? {} : { promptDraft: text };
 }
 
-function formatSessionStats(session: CommandSession, t: Translator): string {
-  const stats = session.getSessionStats();
+function formatSessionStats(stats: ReturnType<CommandSession["getSessionStats"]>): string {
   return [
-    t("stats.session", "Session: {value0}", { value0: stats.sessionId }),
-    t("stats.messages", "Messages: {value0} (user {value1}, assistant {value2})", { value0: String(stats.totalMessages), value1: String(stats.userMessages), value2: String(stats.assistantMessages) }),
-    t("stats.toolCalls", "Tool calls: {value0}", { value0: String(stats.toolCalls) }),
-    t("stats.tokens", "Tokens: ↑{value0} ↓{value1} total {value2}", { value0: String(stats.tokens.input), value1: String(stats.tokens.output), value2: String(stats.tokens.total) }),
-    t("stats.cost", "Cost: ${value0}", { value0: stats.cost.toFixed(4) }),
+    `Session: ${stats.sessionId}`,
+    `Messages: ${String(stats.totalMessages)} (${String(stats.userMessages)} user, ${String(stats.assistantMessages)} assistant)`,
+    `Tool calls: ${String(stats.toolCalls)}`,
+    `Tokens: ↑${String(stats.tokens.input)} ↓${String(stats.tokens.output)} total ${String(stats.tokens.total)}`,
+    `Cost: $${stats.cost.toFixed(4)}`,
   ].join("\n");
 }
 

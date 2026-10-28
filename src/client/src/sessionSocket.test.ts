@@ -1,6 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RealtimeSocket, SessionSocket, parseRealtimeSocketEvent, parseSessionSocketEvent } from "./sessionSocket";
 
+it("validates optional command-output provenance without inferring it from English messages", () => {
+  const base = { type: "command.output", level: "error", message: "Authentication for raw/model was removed. Use /model to select another model." };
+  for (const presentation of [
+    { kind: "modelAuthRemoved", provider: "raw", model: "<model>" },
+    { kind: "sessionNamingFailed", detail: "<raw diagnostic>" },
+  ]) {
+    expect(parseSessionSocketEvent({ ...base, presentation })).toEqual({ ...base, presentation });
+  }
+  expect(parseSessionSocketEvent(base)).toEqual(base);
+  for (const presentation of [null, [], { kind: "future" }, { kind: "modelAuthRemoved", provider: 3, model: "id" }, { kind: "sessionNamingFailed" }]) {
+    expect(parseSessionSocketEvent({ ...base, presentation })).toEqual(base);
+  }
+});
+
 function notification(order = 1) {
   return {
     id: `daemon-a:${String(order)}`,
@@ -354,6 +368,91 @@ class FakeWebSocket {
   }
 }
 
+describe("socket reconnect lifecycle", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeWebSocket.instances.length = 0;
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/" });
+    vi.stubGlobal("window", { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout });
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function connection(): FakeWebSocket {
+    const socket = FakeWebSocket.instances.at(-1);
+    if (socket === undefined) throw new Error("expected socket");
+    return socket;
+  }
+
+  it("reports browser transport state and uses only the existing reconnect backoff", () => {
+    const socket = new SessionSocket();
+    const states = vi.fn();
+    const initial = vi.fn();
+    const reconnect = vi.fn();
+    socket.connect({ id: "session-1", cwd: "/repo" }, vi.fn(), reconnect, "local", initial, states);
+    expect(states).toHaveBeenLastCalledWith("connecting");
+    expect(vi.getTimerCount()).toBe(0);
+    connection().onopen?.();
+    expect(states).toHaveBeenLastCalledWith("open");
+    expect(initial).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(60000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+
+    connection().onclose?.();
+    expect(states).toHaveBeenLastCalledWith("connecting");
+    vi.advanceTimersByTime(499);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    connection().onclose?.();
+    vi.advanceTimersByTime(799);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    vi.advanceTimersByTime(1);
+    expect(FakeWebSocket.instances).toHaveLength(3);
+    connection().onopen?.();
+    expect(reconnect).toHaveBeenCalledOnce();
+    expect(states.mock.calls).toEqual([["connecting"], ["open"], ["connecting"], ["connecting"], ["connecting"], ["connecting"], ["open"]]);
+
+    connection().onclose?.();
+    vi.advanceTimersByTime(500);
+    expect(FakeWebSocket.instances).toHaveLength(4);
+    socket.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cancels pending retries on resume and close for both socket types", () => {
+    const session = new SessionSocket();
+    const realtime = new RealtimeSocket();
+    session.connect({ id: "session-1", cwd: "/repo" }, vi.fn());
+    const sessionTransport = connection();
+    realtime.connect(vi.fn());
+    const realtimeTransport = connection();
+    sessionTransport.onclose?.();
+    realtimeTransport.onclose?.();
+    expect(vi.getTimerCount()).toBe(2);
+    session.reconnect();
+    realtime.reconnect();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(FakeWebSocket.instances).toHaveLength(4);
+    vi.advanceTimersByTime(5000);
+    expect(FakeWebSocket.instances).toHaveLength(4);
+    FakeWebSocket.instances[2]?.onclose?.();
+    FakeWebSocket.instances[3]?.onclose?.();
+    expect(vi.getTimerCount()).toBe(2);
+    session.close();
+    realtime.close();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(5000);
+    expect(FakeWebSocket.instances).toHaveLength(4);
+  });
+});
+
 describe("socket instance isolation", () => {
   const setTimeoutSpy = vi.fn(() => 1);
 
@@ -367,6 +466,85 @@ describe("socket instance isolation", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("replaces a silently stale OPEN socket and resynchronizes on browser open", async () => {
+    const socket = new SessionSocket();
+    const onEvent = vi.fn();
+    const onReconnect = vi.fn();
+    const onInitialOpen = vi.fn();
+    const states = vi.fn();
+    socket.connect({ id: "session-1", cwd: "/repo" }, onEvent, onReconnect, "machine-a", onInitialOpen, states);
+    const previous = FakeWebSocket.instances[0];
+    if (previous === undefined) throw new Error("expected initial socket");
+    previous.onopen?.();
+    const staleOpen = previous.onopen;
+    const staleClose = previous.onclose;
+    previous.onmessage?.({ data: JSON.stringify(inboxEvent()) });
+
+    socket.reconnect();
+    staleOpen?.();
+    staleClose?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    const replacement = FakeWebSocket.instances[1];
+    if (replacement === undefined) throw new Error("expected replacement socket");
+    expect(previous.readyState).toBe(3);
+    expect(replacement.url).toBe(previous.url);
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    replacement.onopen?.();
+    expect(onInitialOpen).toHaveBeenCalledOnce();
+    expect(onReconnect).toHaveBeenCalledOnce();
+    expect(states.mock.calls).toEqual([["connecting"], ["open"], ["connecting"], ["open"]]);
+    replacement.onmessage?.({ data: JSON.stringify(inboxEvent()) });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onEvent).toHaveBeenCalledOnce();
+    socket.close();
+  });
+
+  it("does not reopen closed sockets when the browser resumes", () => {
+    for (const socket of [new SessionSocket(), new RealtimeSocket()]) {
+      socket.reconnect();
+    }
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    const session = new SessionSocket();
+    const realtime = new RealtimeSocket();
+    session.connect({ id: "session-1", cwd: "/repo" }, vi.fn());
+    realtime.connect(vi.fn());
+    session.close();
+    realtime.close();
+    session.reconnect();
+    realtime.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it("replaces realtime transport on resume without forwarding stale frames or lifecycle callbacks", async () => {
+    const socket = new RealtimeSocket();
+    const onEvent = vi.fn();
+    const onOpen = vi.fn();
+    socket.connect(onEvent, onOpen, "machine-a");
+    const previous = FakeWebSocket.instances[0];
+    if (previous === undefined) throw new Error("expected realtime socket");
+    previous.onopen?.();
+    const staleOpen = previous.onopen;
+    const staleClose = previous.onclose;
+    previous.onmessage?.({ data: JSON.stringify({ type: "machine.status", status: machineStatusWire() }) });
+    socket.reconnect();
+    staleOpen?.();
+    staleClose?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    const replacement = FakeWebSocket.instances[1];
+    if (replacement === undefined) throw new Error("expected replacement socket");
+    expect(previous.readyState).toBe(3);
+    expect(replacement.url).toBe(previous.url);
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    replacement.onopen?.();
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    socket.close();
   });
 
   it("logs diagnostics with session context without forwarding them to chat state", async () => {

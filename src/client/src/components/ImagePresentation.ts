@@ -1,10 +1,12 @@
+import { LocalizationController } from "../localization/browser";
+import { imageMessages } from "../imageMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { styleMap } from "lit/directives/style-map.js";
 import { validImageDimensions, type ImageDimensions } from "../../../shared/sessionMedia";
 import { uiButtonStyles } from "./ui/controlStyles";
-import { t } from "../i18n";
+
 
 export interface ImageOpenDetail {
   src: string;
@@ -17,6 +19,7 @@ export class ImagePresentation extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @property({ attribute: false }) source: string | undefined;
@@ -24,10 +27,11 @@ export class ImagePresentation extends LitElement {
   @property({ attribute: false }) dimensions: ImageDimensions | undefined;
   /** Optional metadata report; loading never changes this component's own state. */
   @property({ attribute: false }) onIntrinsicDimensions: ((source: string, dimensions: ImageDimensions) => void) | undefined;
-  @property() description = "";
+  /** A callback keeps generated alt text live while an independently owned gallery is open. */
+  @property() description: string | (() => string) = "";
   @property() label = "";
   @property({ type: Boolean }) requestDisabled = false;
-  @property() pendingLabel = t("images.show", "Show image");
+  @property() pendingLabel: string | undefined;
 
   private requestImage(event: MouseEvent): void {
     if (this.requestDisabled) return;
@@ -49,25 +53,27 @@ export class ImagePresentation extends LitElement {
     event.preventDefault();
     event.stopPropagation();
     if (this.source === undefined || this.source === "") return;
+    const description = this.description;
     this.dispatchEvent(new CustomEvent<ImageOpenDetail>("image-open", {
-      detail: { src: this.source, alt: this.description }, bubbles: true, composed: true,
+      detail: { src: this.source, get alt() { return typeof description === "function" ? description() : description; } }, bubbles: true, composed: true,
     }));
   }
 
   override render() {
     const pending = this.source === undefined || this.source === "";
     const dimensions = this.dimensions;
+    const description = typeof this.description === "function" ? this.description() : this.description;
     return html`
       <div class="frame">
         <button class="placeholder ui-button" type="button" ?hidden=${!pending} ?disabled=${this.requestDisabled}
           @click=${(event: MouseEvent) => { this.requestImage(event); }}>
-          <span>${this.pendingLabel}</span>${this.label === "" ? null : html`<code>${this.label}</code>`}
+          <span>${this.pendingLabel ?? imageMessages.t("show")}</span>${this.label === "" ? null : html`<code dir="auto">${this.label}</code>`}
         </button>
         <button class="image-button ui-button" type="button" ?hidden=${pending} ?disabled=${pending}
-          aria-label=${t("images.enlarge", "Enlarge {description}", { description: this.description || t("images.image", "image") })} title=${t("images.enlargeHint", "Click to enlarge")}
+          aria-label=${description === "" ? imageMessages.t("enlargeImage") : imageMessages.t("enlarge", { description })} title=${imageMessages.t("enlargeHint")}
           @click=${(event: MouseEvent) => { this.open(event); }}
           @keydown=${(event: KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") this.open(event); }}>
-          <img loading="lazy" decoding="async" src=${pending ? nothing : this.source} alt=${this.description}
+          <img loading="lazy" decoding="async" src=${pending ? nothing : this.source} alt=${description}
             @load=${(event: Event) => { this.reportIntrinsicDimensions(event); }}
             width=${dimensions?.width ?? nothing} height=${dimensions?.height ?? nothing}
             style=${styleMap(dimensions === undefined ? {} : {

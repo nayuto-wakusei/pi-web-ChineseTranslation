@@ -1,9 +1,11 @@
+import { LocalizationController, localization } from "../localization/browser";
+import { sessionCleanupMessages as messages } from "../sessionCleanupMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n.js";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupRequest } from "../api";
-import { canRunSessionCleanup, confirmSessionCleanup, DEFAULT_SESSION_CLEANUP_DRAFT, selectedSessionCleanupProjectCwds, sessionCleanupPreviewForSelectedProjects, sessionCleanupPreviewHasTargets, sessionCleanupRequestKey, validateSessionCleanupDraft, type SessionCleanupDraft } from "../sessionCleanupUi";
+import { canRunSessionCleanup, DEFAULT_SESSION_CLEANUP_DRAFT, selectedSessionCleanupProjectCwds, sessionCleanupPreviewForSelectedProjects, sessionCleanupPreviewHasTargets, sessionCleanupRequestKey, validateSessionCleanupDraft, type SessionCleanupDraft } from "../sessionCleanupUi";
 import "./ModalSurface";
 
 @customElement("session-cleanup-dialog")
@@ -11,6 +13,7 @@ export class SessionCleanupDialog extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @property({ type: Boolean }) canCleanup = true;
@@ -21,12 +24,13 @@ export class SessionCleanupDialog extends LitElement {
   @property({ type: Boolean }) loading = false;
   @property({ type: Boolean }) running = false;
   @property({ type: String }) error = "";
+  @property({ attribute: false }) errorMessage?: () => string;
   @property({ attribute: false }) onPreview?: (request: SessionCleanupRequest) => void | Promise<void>;
   @property({ attribute: false }) onRun?: (request: SessionCleanupRequest) => void | Promise<void>;
   @property({ attribute: false }) onClose?: () => void;
 
   @state() private draft: SessionCleanupDraft = { ...DEFAULT_SESSION_CLEANUP_DRAFT };
-  @state() private formError = "";
+  @state() private formError: (() => string) | undefined;
   @state() private selectedProjectCwds: string[] | undefined;
 
   override willUpdate(changedProperties: PropertyValues<this>): void {
@@ -37,28 +41,30 @@ export class SessionCleanupDialog extends LitElement {
     const validation = validateSessionCleanupDraft(this.draft);
     const selectedPreview = this.selectedPreview();
     const runEnabled = this.canCleanup && canRunSessionCleanup({ draft: this.draft, preview: selectedPreview, previewRequest: this.previewRequest, loading: this.loading, running: this.running });
-    const runTitle = runEnabled ? t("ui.sessionCleanupDialog.runCleanup", "Run cleanup") : selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? t("ui.sessionCleanupDialog.selectAtLeastOneProjectToRunCleanup2", "Select at least one project to run cleanup") : t("ui.sessionCleanupDialog.previewBeforeRunningCleanup2", "Preview before running cleanup");
+    const runTitle = runEnabled ? messages.t("run") : selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? messages.t("selectRequiredTitle") : messages.t("previewRequiredTitle");
     return html`
-      <modal-surface .onClose=${() => { this.onClose?.(); }} .busy=${this.running} .label=${t("ui.sessionCleanupDialog.cleanUpSessions", "Clean up sessions")}>
-          <header>
-            <div>
-              <span class="eyebrow">${t("ui.sessionCleanupDialog.sessions", "Sessions")}</span>
-              <h1>${t("ui.sessionCleanupDialog.cleanUpSessions", "Clean up sessions")}</h1>
-            </div>
-            <button class="close-button" title=${t("ui.sessionCleanupDialog.closeCleanup", "Close cleanup")} aria-label=${t("ui.sessionCleanupDialog.closeCleanup", "Close cleanup")} @click=${() => { this.onClose?.(); }}>×</button>
-          </header>
-          <div class="body">
-            <p class="intro">${t("ui.sessionCleanupDialog.previewManualCleanupOnThisMachineBeforeArchiving", "Preview manual cleanup on this machine before archiving idle sessions or permanently deleting old archived sessions.")}</p>
-            ${this.canCleanup ? this.renderForm(validation.ok ? "" : validation.error) : this.renderUnavailable()}
-            ${this.renderMessage()}
-            ${this.preview === undefined ? null : this.renderPreview(this.preview)}
-            ${this.result === undefined ? null : this.renderResult(this.result)}
+      <modal-surface .onClose=${() => { this.onClose?.(); }} .busy=${this.running} .label=${messages.t("title")}>
+        <header>
+          <div>
+            <span class="eyebrow">${messages.t("eyebrow")}</span>
+            <h1>${messages.t("title")}</h1>
           </div>
-          <footer>
-            <button @click=${() => { this.onClose?.(); }}>${this.result === undefined ? t("ui.sessionCleanupDialog.cancel", "Cancel") : t("ui.sessionCleanupDialog.close", "Close")}</button>
-            <button ?disabled=${!this.canCleanup || this.loading || this.running} @click=${() => { this.previewCleanup(); }}>${this.loading ? t("ui.sessionCleanupDialog.previewing", "Previewing…") : t("ui.sessionCleanupDialog.preview", "Preview")}</button>
-            <button class="danger" ?disabled=${!runEnabled} title=${runTitle} @click=${() => { this.runCleanup(); }}>${this.running ? t("ui.sessionCleanupDialog.running", "Running…") : t("ui.sessionCleanupDialog.runCleanup", "Run cleanup")}</button>
-          </footer>
+          <button class="close-button" title=${messages.t("closeCleanup")} aria-label=${messages.t("closeCleanup")} @click=${() => { this.onClose?.(); }}>×</button>
+        </header>
+        <div class="body">
+          <p class="intro">${messages.t("intro")}</p>
+          ${this.canCleanup ? this.renderForm(validation.ok ? "" : messages.t(validation.code)) : this.renderUnavailable()}
+          ${this.renderMessage()}
+          ${this.preview === undefined ? null : this.renderPreview(this.preview)}
+        </div>
+        <div class="feedback" role="status" aria-atomic="true">
+          ${this.result === undefined ? null : this.renderResult(this.result)}
+        </div>
+        <footer>
+          <button @click=${() => { this.onClose?.(); }}>${messages.t(this.result === undefined ? "cancel" : "close")}</button>
+          <button ?disabled=${!this.canCleanup || this.loading || this.running} @click=${() => { this.previewCleanup(); }}>${messages.t(this.loading ? "previewing" : "preview")}</button>
+          <button class="danger" ?disabled=${!runEnabled} title=${runTitle} @click=${() => { this.runCleanup(); }}>${messages.t(this.running ? "running" : "run")}</button>
+        </footer>
       </modal-surface>
     `;
   }
@@ -69,22 +75,20 @@ export class SessionCleanupDialog extends LitElement {
     const previewOutOfDate = this.preview !== undefined && validation.ok && sessionCleanupRequestKey(validation.request) !== sessionCleanupRequestKey(this.previewRequest) && sessionCleanupPreviewHasTargets(this.preview);
     return html`
       <fieldset ?disabled=${disabled}>
-        <label class="toggle-row">
-          <input type="checkbox" .checked=${this.draft.archiveIdleEnabled} @change=${(event: Event) => { this.updateDraft({ archiveIdleEnabled: checkedValue(event) }); }}>
-          <span>${t("ui.sessionCleanupDialog.archiveUnarchivedSessionsIdleForOver", "Archive unarchived sessions idle for over")}</span>
-          <input class="days" type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.archiveIdleDays} ?disabled=${disabled || !this.draft.archiveIdleEnabled} @input=${(event: Event) => { this.updateDraft({ archiveIdleDays: inputValue(event) }); }}>
-          <span>${t("ui.sessionCleanupDialog.days2", "days")}</span>
-        </label>
-        <label class="toggle-row delete-row">
-          <input type="checkbox" .checked=${this.draft.deleteArchivedEnabled} @change=${(event: Event) => { this.updateDraft({ deleteArchivedEnabled: checkedValue(event) }); }}>
-          <span>${t("ui.sessionCleanupDialog.deleteSessionsArchivedForOver", "Delete sessions archived for over")}</span>
-          <input class="days" type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.deleteArchivedDays} ?disabled=${disabled || !this.draft.deleteArchivedEnabled} @input=${(event: Event) => { this.updateDraft({ deleteArchivedDays: inputValue(event) }); }}>
-          <span>${t("ui.sessionCleanupDialog.days", "days")}</span>
-        </label>
+        <div class="toggle-row">
+          <input type="checkbox" aria-label=${messages.t("archiveEnabled")} .checked=${this.draft.archiveIdleEnabled} @change=${(event: Event) => { this.updateDraft({ archiveIdleEnabled: checkedValue(event) }); }}>
+          <label for="archive-days">${messages.t("archiveRule")}</label>
+          <input id="archive-days" class="days" aria-label=${messages.t("archiveThreshold")} type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.archiveIdleDays} ?disabled=${disabled || !this.draft.archiveIdleEnabled} @input=${(event: Event) => { this.updateDraft({ archiveIdleDays: inputValue(event) }); }}>
+        </div>
+        <div class="toggle-row delete-row">
+          <input type="checkbox" aria-label=${messages.t("deleteEnabled")} .checked=${this.draft.deleteArchivedEnabled} @change=${(event: Event) => { this.updateDraft({ deleteArchivedEnabled: checkedValue(event) }); }}>
+          <label for="delete-days">${messages.t("deleteRule")}</label>
+          <input id="delete-days" class="days" aria-label=${messages.t("deleteThreshold")} type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.deleteArchivedDays} ?disabled=${disabled || !this.draft.deleteArchivedEnabled} @input=${(event: Event) => { this.updateDraft({ deleteArchivedDays: inputValue(event) }); }}>
+        </div>
       </fieldset>
-      <p class="warning"><strong>${t("ui.sessionCleanupDialog.deletionIsPermanent", "Deletion is permanent.")}</strong>${t("ui.sessionCleanupDialog.cleanupOnlyDeletesSessionsThatAreAlreadyArchived", "Cleanup only deletes sessions that are already archived.")}</p>
+      <p class="warning">${messages.rich("warning", { strong: (chunks) => html`<strong>${chunks}</strong>` })}</p>
       ${validationError === "" ? null : html`<div class="dialog-error" role="alert">${validationError}</div>`}
-      ${previewOutOfDate ? html`<div class="hint" role="status">${t("ui.sessionCleanupDialog.thresholdsChangedPreviewAgainBeforeRunningCleanup", "Thresholds changed. Preview again before running cleanup.")}</div>` : null}
+      ${previewOutOfDate ? html`<div class="hint" role="status">${messages.t("stale")}</div>` : null}
     `;
   }
 
@@ -93,7 +97,7 @@ export class SessionCleanupDialog extends LitElement {
   }
 
   private renderMessage(): TemplateResult | null {
-    const message = this.formError || this.error;
+    const message = this.formError?.() ?? this.errorMessage?.() ?? this.error;
     return message === "" ? null : html`<div class="dialog-error" role="alert">${message}</div>`;
   }
 
@@ -102,25 +106,25 @@ export class SessionCleanupDialog extends LitElement {
     const selected = new Set(selectedCwds);
     const selectedPreview = sessionCleanupPreviewForSelectedProjects(preview, selectedCwds);
     return html`
-      <section class="preview" aria-label=${t("ui.sessionCleanupDialog.cleanupPreview", "Cleanup preview")}>
-        <h2>${t("ui.sessionCleanupDialog.preview", "Preview")}</h2>
-        ${preview.projects.length === 0 ? html`<p class="empty">${t("ui.sessionCleanupDialog.noSessionsMatchTheseThresholds", "No sessions match these thresholds.")}</p>` : html`
+      <section class="preview" aria-label=${messages.t("previewLabel")}>
+        <h2>${messages.t("preview")}</h2>
+        ${preview.projects.length === 0 ? html`<p class="empty">${messages.t("empty")}</p>` : html`
           ${this.renderSelectionControls(preview, selectedCwds)}
-          <div class="table-scroll" tabindex="0" aria-label=${t("ui.sessionCleanupDialog.cleanupProjectsTable", "Cleanup projects table")}>
+          <div class="table-scroll" tabindex="0" aria-label=${messages.t("tableLabel")}>
             <table>
               <thead>
-                <tr><th>${t("ui.sessionCleanupDialog.cleanUp2", "Clean up")}</th><th>${t("ui.sessionCleanupDialog.projectWorkspacePath", "Project/workspace path")}</th><th>${t("ui.sessionCleanupDialog.archive", "Archive")}</th><th>${t("ui.sessionCleanupDialog.deleteArchived", "Delete archived")}</th></tr>
+                <tr><th>${messages.t("cleanupColumn")}</th><th>${messages.t("pathColumn")}</th><th>${messages.t("archiveColumn")}</th><th>${messages.t("deleteColumn")}</th></tr>
               </thead>
               <tbody>
                 ${preview.projects.map((project) => this.renderProjectRow(project, selected.has(project.cwd)))}
               </tbody>
               <tfoot>
-                <tr><th colspan="2">${t("ui.sessionCleanupDialog.selectedTotal", "Selected total")}</th><td>${selectedPreview.totals.archiveCount}</td><td>${selectedPreview.totals.deleteCount}</td></tr>
+                <tr><th colspan="2">${messages.t("totals")}</th><td>${localization.number(selectedPreview.totals.archiveCount)}</td><td>${localization.number(selectedPreview.totals.deleteCount)}</td></tr>
               </tfoot>
             </table>
           </div>
         `}
-        ${preview.skippedBusySessionIds === undefined || preview.skippedBusySessionIds.length === 0 ? null : html`<p class="hint">${t("ui.sessionCleanupDialog.skippedBusyCount", "Skipped {count} busy sessions.", { count: preview.skippedBusySessionIds.length })}</p>`}
+        ${preview.skippedBusySessionIds === undefined || preview.skippedBusySessionIds.length === 0 ? null : html`<p class="hint">${messages.t("skipped", { count: preview.skippedBusySessionIds.length })}</p>`}
       </section>
     `;
   }
@@ -128,38 +132,38 @@ export class SessionCleanupDialog extends LitElement {
   private renderSelectionControls(preview: SessionCleanupPreviewResponse, selectedCwds: readonly string[]): TemplateResult {
     const disabled = this.loading || this.running;
     return html`
-      <div class="selection-controls" role="group" aria-label=${t("ui.sessionCleanupDialog.projectSelection", "Project selection")}>
-        <span>${t("ui.sessionCleanupDialog.selectedProjects", "Selected {count} / {total} projects", { count: selectedCwds.length, total: preview.projects.length })}</span>
-        <button ?disabled=${disabled || selectedCwds.length === preview.projects.length} @click=${() => { this.selectAllProjects(); }}>${t("ui.sessionCleanupDialog.selectAll", "Select all")}</button>
-        <button ?disabled=${disabled || selectedCwds.length === 0} @click=${() => { this.deselectAllProjects(); }}>${t("ui.sessionCleanupDialog.deselectAll", "Deselect all")}</button>
+      <div class="selection-controls" role="group" aria-label=${messages.t("selectionLabel")}>
+        <span>${messages.t("selection", { selected: selectedCwds.length, total: preview.projects.length })}</span>
+        <button ?disabled=${disabled || selectedCwds.length === preview.projects.length} @click=${() => { this.selectAllProjects(); }}>${messages.t("selectAll")}</button>
+        <button ?disabled=${disabled || selectedCwds.length === 0} @click=${() => { this.deselectAllProjects(); }}>${messages.t("deselectAll")}</button>
       </div>
-      ${selectedCwds.length === 0 ? html`<p class="hint" role="status">${t("ui.sessionCleanupDialog.selectAtLeastOneProjectToRunCleanup", "Select at least one project to run cleanup.")}</p>` : null}
+      ${selectedCwds.length === 0 ? html`<p class="hint" role="status">${messages.t("selectRequired")}</p>` : null}
     `;
   }
 
   private renderProjectRow(project: SessionCleanupProjectSummary, selected: boolean): TemplateResult {
     return html`
       <tr class=${selected ? "" : "unselected"}>
-        <td class="select-cell"><input type="checkbox" aria-label=${t("ui.sessionCleanupDialog.cleanUp", "Clean up {cwd}", { cwd: project.cwd })} .checked=${selected} ?disabled=${this.running} @change=${(event: Event) => { this.setProjectSelected(project.cwd, checkedValue(event)); }}></td>
+        <td class="select-cell"><input type="checkbox" aria-label=${messages.t("selectProject", { path: project.cwd })} .checked=${selected} ?disabled=${this.running} @change=${(event: Event) => { this.setProjectSelected(project.cwd, checkedValue(event)); }}></td>
         <th title=${project.cwd} dir="auto">${project.cwd}</th>
-        <td>${project.archiveCount}</td>
-        <td>${project.deleteCount}</td>
+        <td>${localization.number(project.archiveCount)}</td>
+        <td>${localization.number(project.deleteCount)}</td>
       </tr>
     `;
   }
 
   private renderResult(result: SessionCleanupExecuteResponse): TemplateResult {
     return html`
-      <section class="result" aria-label=${t("ui.sessionCleanupDialog.cleanupResult", "Cleanup result")}>
-        <h2>${t("ui.sessionCleanupDialog.cleanupComplete", "Cleanup complete")}</h2>
-        <p>${t("ui.sessionCleanupDialog.resultCounts", "Archived {archived} sessions; permanently deleted {deleted} archived sessions.", { archived: result.archivedSessionIds.length, deleted: result.deletedSessionIds.length })}</p>
+      <section class="result" aria-label=${messages.t("resultLabel")}>
+        <h2>${messages.t("complete")}</h2>
+        <p>${messages.t("result", { archived: result.archivedSessionIds.length, deleted: result.deletedSessionIds.length })}</p>
       </section>
     `;
   }
 
   private updateDraft(patch: Partial<SessionCleanupDraft>): void {
     this.draft = { ...this.draft, ...patch };
-    this.formError = "";
+    this.formError = undefined;
   }
 
   private selectedPreview(): SessionCleanupPreviewResponse | undefined {
@@ -172,12 +176,12 @@ export class SessionCleanupDialog extends LitElement {
 
   private selectAllProjects(): void {
     this.selectedProjectCwds = this.preview?.projects.map((project) => project.cwd) ?? [];
-    this.formError = "";
+    this.formError = undefined;
   }
 
   private deselectAllProjects(): void {
     this.selectedProjectCwds = [];
-    this.formError = "";
+    this.formError = undefined;
   }
 
   private setProjectSelected(cwd: string, selected: boolean): void {
@@ -187,33 +191,34 @@ export class SessionCleanupDialog extends LitElement {
     if (selected) selectedCwds.add(cwd);
     else selectedCwds.delete(cwd);
     this.selectedProjectCwds = preview.projects.map((project) => project.cwd).filter((projectCwd) => selectedCwds.has(projectCwd));
-    this.formError = "";
+    this.formError = undefined;
   }
 
   private previewCleanup(): void {
     const validation = validateSessionCleanupDraft(this.draft);
     if (!validation.ok) {
-      this.formError = validation.error;
+      this.formError = () => messages.t(validation.code);
       return;
     }
-    this.formError = "";
+    this.formError = undefined;
     void this.onPreview?.(validation.request);
   }
 
   private runCleanup(): void {
     const validation = validateSessionCleanupDraft(this.draft);
     if (!validation.ok) {
-      this.formError = validation.error;
+      this.formError = () => messages.t(validation.code);
       return;
     }
     const selectedPreview = this.selectedPreview();
     const selectedProjectCwds = this.selectedProjectCwdsForPreview();
     if (!this.canCleanup || !canRunSessionCleanup({ draft: this.draft, preview: selectedPreview, previewRequest: this.previewRequest })) {
-      this.formError = selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? t("ui.sessionCleanupDialog.selectAtLeastOneProjectToRunCleanup", "Select at least one project to run cleanup.") : t("ui.sessionCleanupDialog.previewBeforeRunningCleanup", "Preview before running cleanup.");
+      const key = selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? "selectRequired" : "previewRequired";
+      this.formError = () => messages.t(key);
       return;
     }
-    if (selectedPreview === undefined || !confirmSessionCleanup(selectedPreview, (message) => confirm(message))) return;
-    this.formError = "";
+    if (selectedPreview === undefined || !confirm(messages.t("confirm", { archive: selectedPreview.totals.archiveCount, delete: selectedPreview.totals.deleteCount }))) return;
+    this.formError = undefined;
     void this.onRun?.({ ...validation.request, projectCwds: selectedProjectCwds });
   }
 
@@ -221,7 +226,7 @@ export class SessionCleanupDialog extends LitElement {
     @layer pi-web-base {
     :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
     modal-surface { --modal-surface-backdrop-padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); --modal-surface-width: min(760px, 100%); --modal-surface-max-height: min(760px, 100%); --modal-surface-radius: 14px; }
-    header, footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--pi-border); }
+    header, footer { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--pi-border); }
     footer { border-top: 1px solid var(--pi-border); border-bottom: 0; justify-content: end; }
     .body { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; gap: 14px; padding: 16px; }
     .eyebrow { display: block; color: var(--pi-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
@@ -230,7 +235,7 @@ export class SessionCleanupDialog extends LitElement {
     h2 { font-size: 15px; }
     .intro, .hint, .empty { color: var(--pi-muted); }
     fieldset { margin: 0; padding: 0; border: 0; display: grid; gap: 10px; }
-    .toggle-row { display: grid; grid-template-columns: auto minmax(0, max-content) 88px auto; align-items: center; gap: 8px; color: var(--pi-text); }
+    .toggle-row { display: grid; grid-template-columns: auto minmax(0, 1fr) 88px; align-items: center; gap: 8px; color: var(--pi-text); }
     input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--pi-accent); }
     input.days { box-sizing: border-box; width: 88px; min-width: 0; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 8px 9px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, var(--pi-font, system-ui, sans-serif)); }
     input.days:disabled { opacity: .55; }
@@ -238,16 +243,17 @@ export class SessionCleanupDialog extends LitElement {
     .warning { border-color: var(--pi-warning-border); background: var(--pi-warning-surface); color: var(--pi-text); }
     .unavailable { border-color: var(--pi-warning-border); background: var(--pi-warning-surface); color: var(--pi-warning); }
     .dialog-error { border-color: var(--pi-danger); background: color-mix(in srgb, var(--pi-danger) 10%, var(--pi-bg)); color: var(--pi-danger); }
-    .result { border-color: var(--pi-success-border); background: var(--pi-success-bg); }
+    .feedback { flex-shrink: 0; }
+    .result { margin: 12px 16px; border-color: var(--pi-success-border); background: var(--pi-success-bg); }
     .preview { display: grid; gap: 10px; min-width: 0; }
     .selection-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .selection-controls span { color: var(--pi-muted); }
     .selection-controls button { padding: 5px 7px; font-size: 12px; }
     .table-scroll { max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; -webkit-overflow-scrolling: touch; border: 1px solid var(--pi-border); border-radius: 10px; }
     table { width: 100%; min-width: 620px; border-collapse: collapse; }
-    th, td { border-bottom: 1px solid var(--pi-border-muted); padding: 8px 10px; text-align: right; }
+    th, td { border-bottom: 1px solid var(--pi-border-muted); padding: 8px 10px; text-align: end; }
     thead th:first-child, td.select-cell { width: 72px; text-align: center; }
-    th:nth-child(2), td:nth-child(2) { text-align: left; }
+    th:nth-child(2), td:nth-child(2) { text-align: start; }
     tbody tr.unselected { opacity: .58; }
     tbody th { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-weight: 500; }
     tfoot th, tfoot td { border-bottom: 0; font-weight: 700; }
@@ -262,7 +268,6 @@ export class SessionCleanupDialog extends LitElement {
       modal-surface { --modal-surface-place-items: stretch; --modal-surface-backdrop-padding: 0; --modal-surface-width: 100%; --modal-surface-height: 100dvh; --modal-surface-max-height: none; --modal-surface-border: 0; --modal-surface-radius: 0; }
       .toggle-row { grid-template-columns: auto minmax(0, 1fr); }
       .toggle-row input.days { grid-column: 2; }
-      .toggle-row span:last-child { grid-column: 2; }
       table { min-width: 560px; }
       thead th:first-child, td.select-cell { width: 58px; }
     }

@@ -119,7 +119,8 @@ describe("WorkspaceRemovalService", () => {
         "target.workspacePath": hostPath("/board-views/roadmap"),
       },
       failureNotice: {
-        message: "工作区移除失败，请查看终端输出。",
+        message: "Workspace removal failed. See terminal output.",
+        presentation: { kind: "workspaceRemovalCommandFailed" },
         context: { targetWorkspaceId: target.id },
       },
     }]);
@@ -128,6 +129,20 @@ describe("WorkspaceRemovalService", () => {
       command: "boardctl view disconnect roadmap --keep-files",
       workspaceId: terminals.runOptions[0]?.workspaceId,
     });
+  });
+
+  it("forwards explicit provider title provenance to the required Terminal without deriving it from text", async () => {
+    const target = hostWorkspace("target", "/linked", false);
+    const titlePresentation = { kind: "workspaceRemoval" as const, label: "feature/<img>" };
+    const terminals = terminalHost();
+    const service = new WorkspaceRemovalService(removalProvider({
+      ownerPluginId: "neutral",
+      target,
+      workspaces: [target, hostWorkspace("main", "/repo", true)],
+      prepare: () => Promise.resolve({ title: "Delete workspace: feature/<img>", command: "tool remove", titlePresentation }),
+    }), terminals);
+    await service.remove(project, target.id, removalPrecondition(target));
+    expect(terminals.runOptions[0]?.titlePresentation).toEqual(titlePresentation);
   });
 
   it.each([
@@ -238,7 +253,8 @@ describe("WorkspaceRemovalService", () => {
 
     expect(records).toEqual([{
       severity: "error",
-      message: "工作区移除失败：workspace has unsubmitted changes",
+      message: "Workspace removal failed: workspace has unsubmitted changes",
+      presentation: { kind: "workspaceRemovalFailed", detail: "workspace has unsubmitted changes" },
       source: "workspace.delete",
       scope: { projectId: project.id },
       context: { targetWorkspaceId: target.id, projectId: project.id, workspaceId: target.id },
@@ -672,7 +688,8 @@ describe("WorkspaceRemovalService management scope", () => {
     await expect(service.remove(project, "feature", "remove-feature")).rejects.toThrow("workspace has unsubmitted changes");
     expect(records).toEqual([{
       severity: "error",
-      message: "工作区移除失败：workspace has unsubmitted changes",
+      message: "Workspace removal failed: workspace has unsubmitted changes",
+      presentation: { kind: "workspaceRemovalFailed", detail: "workspace has unsubmitted changes" },
       source: "workspace.delete",
       scope: { projectId: project.id },
       context: { targetWorkspaceId: "feature", projectId: project.id, workspaceId: "feature" },

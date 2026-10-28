@@ -20,7 +20,7 @@ it("keeps command details and complete output while updating live status and err
   view.execution = { type: "toolExecution", toolName: "bash", summary: command, args: { command }, status: "running" };
   document.body.append(view);
   await view.updateComplete;
-  expect(view.renderRoot.querySelector(".status-label")?.textContent).toBe("Running");
+  expect(view.renderRoot.querySelector(".status-label")?.textContent).toBe("running");
   const details = view.renderRoot.querySelector<HTMLDetailsElement>(".text-body");
   expect(details?.open).toBe(false);
   expect(view.renderRoot.querySelector(".detail-target-value")).toBeNull();
@@ -28,7 +28,7 @@ it("keeps command details and complete output while updating live status and err
   const output = "long line ".repeat(1000);
   view.execution = { ...view.execution, status: "success", resultText: output };
   await view.updateComplete;
-  expect(view.renderRoot.querySelector(".status-label")?.textContent).toBe("Done");
+  expect(view.renderRoot.querySelector(".status-label")?.textContent).toBe("done");
   expect(view.renderRoot.querySelector(".detail-result")).toBeNull();
   expect(details?.open).toBe(false);
   if (details === null) throw new Error("Expected text disclosure");
@@ -42,7 +42,7 @@ it("keeps command details and complete output while updating live status and err
 
   view.execution = { ...view.execution, status: "error", resultText: "Command failed" };
   await view.updateComplete;
-  expect(view.renderRoot.querySelector(".status-label")?.textContent).toBe("Failed");
+  expect(view.renderRoot.querySelector(".status-label")?.textContent).toBe("failed");
   expect(view.renderRoot.querySelector(".error-text")?.textContent).toBe("Command failed");
   expect(details.open).toBe(true);
 });

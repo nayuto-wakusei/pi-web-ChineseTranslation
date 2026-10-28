@@ -26,6 +26,10 @@ export interface AppState {
   sessionSearchError: string;
   sessionSearchTarget: SessionSearchTarget | undefined;
   messages: ChatLine[];
+  /** Selected conversation delivery/freshness, independent of runtime activity. */
+  conversationSync?: "catching-up" | "checked" | "stale" | "interrupted" | undefined;
+  /** Time of the last accepted history snapshot, not a guarantee of live delivery. */
+  conversationRefreshedAt?: number | undefined;
   messagePageStart: number;
   messagePageEnd: number;
   messagePageLeafId?: string | null | undefined;
@@ -116,7 +120,7 @@ export interface SessionSearchTarget {
 
 export type AuthDialogState =
   | { step: "method"; target: AuthDialogTarget }
-  | { step: "starting"; target: AuthDialogTarget; title: string; mcpSession: { id: string; cwd: string }; error?: string }
+  | { step: "starting"; target: AuthDialogTarget; title: string; mode?: "login" | "logout"; mcpSession: { id: string; cwd: string }; error?: string }
   | { step: "providers"; mode: "login"; authType?: "oauth" | "api_key"; providers: AuthProviderOption[]; target: AuthDialogTarget }
   | { step: "apiKey"; provider: AuthProviderOption; value: string; saving?: boolean; error?: string; target: AuthDialogTarget }
   | { step: "oauth"; flow: OAuthFlowState; responding?: boolean; inputValue?: string; error?: string; target: AuthDialogTarget; mcpSession?: { id: string; cwd: string } }

@@ -198,14 +198,14 @@ describe("shared content rendering", () => {
     await settleDeferredContent(host);
     expect(button(host, "z / diagram").getAttribute("aria-pressed")).toBe("true");
     expect(host.shadowRoot?.querySelector(".diagram")).not.toBeNull();
-    button(host, "源码").click();
+    button(host, "Raw").click();
     await settleDeferredContent(host);
     element.remove();
     document.body.append(element);
     await settleDeferredContent(element);
     await settleDeferredContent(host);
     expect(button(host, "z / diagram").getAttribute("aria-pressed")).toBe("false");
-    expect(button(host, "源码").getAttribute("aria-pressed")).toBe("true");
+    expect(button(host, "Raw").getAttribute("aria-pressed")).toBe("true");
     expect(host.shadowRoot?.querySelector("pre")).not.toBeNull();
     element.text = "```diagram\nchanged\n```";
     await settleDeferredContent(element);
@@ -278,10 +278,10 @@ describe("shared content rendering", () => {
     await settleDeferredContent(host);
     expect(draw.mock.calls[1]?.[0].signal.aborted).toBe(true);
     expect(draw).toHaveBeenCalledTimes(3);
-    button(host, "源码").click();
+    button(host, "Raw").click();
     await settleDeferredContent(host);
     expect(draw.mock.calls[2]?.[0].signal.aborted).toBe(true);
-    button(host, "复制源码").click();
+    button(host, "Copy source").click();
     expect(writeClipboardText).toHaveBeenLastCalledWith("two");
   });
 
@@ -292,7 +292,7 @@ describe("shared content rendering", () => {
     const [first, second] = hosts;
     if (first === undefined || second === undefined) throw new Error("Expected two diagrams");
     for (const host of hosts) await settleDeferredContent(host);
-    const raw = button(first, "源码");
+    const raw = button(first, "Raw");
     raw.focus();
     raw.click();
     await settleDeferredContent(first);
@@ -301,11 +301,11 @@ describe("shared content rendering", () => {
     expect(first.shadowRoot?.getElementById(raw.getAttribute("aria-controls") ?? "")).not.toBeNull();
     expect(first.shadowRoot?.querySelector("pre")?.textContent).toBe("first");
     expect(second.shadowRoot?.querySelector(".diagram")?.textContent).toBe("second");
-    button(second, "复制源码").click();
+    button(second, "Copy source").click();
     await Promise.resolve();
     await settleDeferredContent(second);
     expect(writeClipboardText).toHaveBeenLastCalledWith("second");
-    expect(second.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe("已复制源码");
+    expect(second.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe("Copied source");
   });
 
   it("does not expose chat intent or source policy through public Markdown even to untyped callers", async () => {
@@ -375,7 +375,7 @@ describe("shared content rendering", () => {
     inputs[0]?.fail(new Error("failed"));
     await settleDeferredContent(host);
     expect(host.shadowRoot?.querySelector("pre")?.textContent).toBe("source");
-    expect(host.shadowRoot?.querySelector('p[role="status"]')?.textContent).toContain("预览失败");
+    expect(host.shadowRoot?.querySelector('p[role="status"]')?.textContent).toContain("Preview failed");
     expect(inputs[0]?.signal.aborted).toBe(true);
   });
 
@@ -401,10 +401,10 @@ describe("shared content rendering", () => {
     expect(host.shadowRoot?.querySelector(".diagram")).toBe(diagram);
     expect(draw).toHaveBeenCalledTimes(1);
     expect(signal?.aborted).toBe(false);
-    button(host, "复制源码").click();
+    button(host, "Copy source").click();
     await settleDeferredContent(host);
     expect(writeClipboardText).toHaveBeenLastCalledWith("A --> B");
-    button(host, "源码").click();
+    button(host, "Raw").click();
     await settleDeferredContent(host);
     expect(host.shadowRoot?.querySelector("pre code")?.textContent).toBe("A --> B");
     expect(signal?.aborted).toBe(true);
@@ -444,17 +444,17 @@ describe("shared content rendering", () => {
     expect(host.shadowRoot?.querySelector("b")?.textContent).toBe("two");
     inputs[1]?.fail(new Error("current"));
     await settleDeferredContent(host);
-    expect(host.shadowRoot?.textContent).toContain("预览失败");
-    expect(button(host, "源码").getAttribute("aria-pressed")).toBe("true");
+    expect(host.shadowRoot?.textContent).toContain("Preview failed");
+    expect(button(host, "Raw").getAttribute("aria-pressed")).toBe("true");
     expect(host.shadowRoot?.querySelector("pre code")?.textContent).toBe("two");
-    button(host, "复制源码").click();
+    button(host, "Copy source").click();
     expect(writeClipboardText).toHaveBeenLastCalledWith("two");
 
     button(host, "test / diagram").click();
     await settleDeferredContent(host);
     expect(host.shadowRoot?.querySelector("b")?.textContent).toBe("two");
     const failed = await mount("```diagram\nthrow\n```", renderer(() => { throw new Error("sync"); }));
-    expect((await hostIn(failed.element)).shadowRoot?.textContent).toContain("预览失败");
+    expect((await hostIn(failed.element)).shadowRoot?.textContent).toContain("Preview failed");
   });
 
   it("rejects accidental async render callbacks without leaking rejected promises", async () => {
@@ -463,7 +463,7 @@ describe("shared content rendering", () => {
     Reflect.set(invalid, "render", () => Promise.reject(new Error("async callback is unsupported")));
     const { element } = await mount("```diagram\nsource\n```", invalid);
     const host = await hostIn(element);
-    expect(host.shadowRoot?.textContent).toContain("预览失败");
+    expect(host.shadowRoot?.textContent).toContain("Preview failed");
     expect(host.shadowRoot?.querySelector("pre code")?.textContent).toBe("source");
   });
 
@@ -495,7 +495,7 @@ describe("shared content rendering", () => {
     await renderPublicMarkdown(capability.renderMarkdown({ ...request, allowManualPreview: true }), root);
     await settleDeferredContent(host);
     expect(draw).toHaveBeenCalledOnce();
-    button(host, "源码").click();
+    button(host, "Raw").click();
     await settleDeferredContent(host);
     await renderPublicMarkdown(capability.renderMarkdown({ ...request, allowManualPreview: true }), root);
     await settleDeferredContent(host);
@@ -512,7 +512,7 @@ describe("shared content rendering", () => {
     await renderPublicMarkdown(capability.renderMarkdown({ machineId: "remote", text, toSafeHtml: renderWorkspaceMarkdownHtml }), root);
     expect(root.querySelector("pi-web-content-renderer")).not.toBeNull();
     expect(root.querySelector("img,svg,script")).toBeNull();
-    expect(root.textContent).toContain("已省略图片");
+    expect(root.textContent).toContain("Image omitted");
     expect(select).toHaveBeenCalledWith(expect.objectContaining({ machineId: "remote", text: "safe", language: "diagram" }));
     await renderPublicMarkdown(capability.renderMarkdown({ machineId: "remote", text, truncated: true, toSafeHtml: renderWorkspaceMarkdownHtml }), root);
     expect(root.querySelector("pi-web-content-renderer")).toBeNull();
@@ -534,7 +534,7 @@ describe("shared content rendering", () => {
     await settleDeferredContent(second);
     expect(host.renderRoot.querySelector("select")).toBeNull();
     expect([...host.renderRoot.querySelectorAll('.views button')].map((view) => view.textContent.trim()))
-      .toEqual(["test / diagram", "z-other / diagram", "源码"]);
+      .toEqual(["test / diagram", "z-other / diagram", "Raw"]);
     expect(draw).toHaveBeenCalledTimes(2); // New last automatic becomes the default.
     for (const item of [host, second]) {
       button(item, "test / diagram").click();
@@ -553,25 +553,25 @@ describe("shared content rendering", () => {
     expect(button(host, "z-other / diagram").getAttribute("aria-pressed")).toBe("true");
     inputs[0]?.fail(new Error("current"));
     await settleDeferredContent(host);
-    expect(host.shadowRoot?.textContent).toContain("预览失败");
-    expect(button(host, "源码").getAttribute("aria-pressed")).toBe("true");
+    expect(host.shadowRoot?.textContent).toContain("Preview failed");
+    expect(button(host, "Raw").getAttribute("aria-pressed")).toBe("true");
     expect(button(host, "z-other / diagram").getAttribute("aria-pressed")).toBe("false");
     button(host, "test / diagram").click();
     await settleDeferredContent(host);
     expect(inputs[0]?.signal.aborted).toBe(true);
     inputs[0]?.fail(new Error("stale"));
     await settleDeferredContent(host);
-    expect(host.shadowRoot?.textContent).not.toContain("预览失败");
+    expect(host.shadowRoot?.textContent).not.toContain("Preview failed");
     expect(host.shadowRoot?.querySelector(".diagram")?.textContent).toBe("first");
-    button(host, "复制源码").click();
+    button(host, "Copy source").click();
     expect(writeClipboardText).toHaveBeenLastCalledWith("first");
-    button(host, "源码").click();
+    button(host, "Raw").click();
     await settleDeferredContent(host);
     button(host, "z-other / diagram").click();
     await settleDeferredContent(host);
     expect(draw).toHaveBeenCalledTimes(2);
     expect(button(host, "z-other / diagram").getAttribute("aria-pressed")).toBe("true");
-    expect(button(host, "源码").getAttribute("aria-pressed")).toBe("false");
+    expect(button(host, "Raw").getAttribute("aria-pressed")).toBe("false");
     button(host, "test / diagram").click();
     await settleDeferredContent(host);
     expect(inputs[1]?.signal.aborted).toBe(true);
@@ -598,7 +598,7 @@ it("replaces a closed fence and keeps raw source available", async () => {
     expect(host.shadowRoot?.querySelector(".diagram")?.textContent).toBe("A --> B");
     const root = host.shadowRoot;
     if (root === null) throw new Error("Expected renderer shadow root");
-    const raw = [...root.querySelectorAll("button")].find((button) => button.textContent.trim() === "源码");
+    const raw = [...root.querySelectorAll("button")].find((button) => button.textContent.trim() === "Raw");
     raw?.click();
     await settleDeferredContent(host);
     expect(host.shadowRoot?.querySelector("pre code")?.textContent).toBe("A --> B");

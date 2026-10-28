@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { localization } from "./localization/browser";
 import type { TerminalCommandRun, Workspace } from "./api";
-import { canDeleteWorkspace, isWorkspaceDeletionPending, latestWorkspaceDeletionRuns, pendingWorkspaceDeletionIds, workspaceDeleteOperation, workspaceDeletionMetadata, workspaceRemovalConfirmation } from "./workspaceDeletion";
+import { canDeleteWorkspace, isWorkspaceDeletionPending, latestWorkspaceDeletionRuns, pendingWorkspaceDeletionIds, workspaceDeleteOperation, workspaceDeletionMetadata, workspaceRemovalConfirmation, workspaceRemovalActionLabel } from "./workspaceDeletion";
 
 const workspace: Workspace = {
   id: "w1",
@@ -33,8 +34,34 @@ function run(id: string, workspaceId: string, createdAt: string, status: Termina
   };
 }
 
+afterEach(async () => { await localization.setPreferences({ language: "en", formatLocale: "en" }); });
+
 describe("workspace deletion state", () => {
-  it("derives removal eligibility and confirmation from provider metadata", () => {
+  it("localizes explicit Git removal provenance live without translating raw provider text", async () => {
+    const label = "<review> {branch}";
+    const path = "/repo/work tree";
+    const retained: Workspace = { ...workspace, removal: {
+      actionLabel: "Delete workspace",
+      confirmation: `Delete workspace ${label}?\n\nThis will run git worktree remove and delete:\n${path}\n\nThe Git branch will not be deleted.`,
+      precondition: "v1.retained",
+      localization: { kind: "gitWorktree", label, path },
+    } };
+    expect(workspaceRemovalConfirmation(retained)).toBe(retained.removal?.confirmation);
+    expect(workspaceRemovalActionLabel(retained)).toBe("Delete workspace");
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(workspaceRemovalConfirmation(retained)).not.toBe(retained.removal?.confirmation);
+      expect(workspaceRemovalConfirmation(retained)).toContain(label);
+      expect(workspaceRemovalConfirmation(retained)).toContain(path);
+      expect(workspaceRemovalConfirmation(retained)).toContain("git worktree remove");
+      expect(workspaceRemovalActionLabel(retained)).not.toBe("Delete workspace");
+      expect(workspaceRemovalConfirmation(workspace)).toBe(workspace.removal?.confirmation);
+      expect(workspaceRemovalActionLabel(workspace)).toBe(workspace.removal?.actionLabel);
+      expect(retained.removal?.precondition).toBe("v1.retained");
+    }
+  });
+
+  it("derives provider-neutral eligibility and confirmation only from removal presentation", () => {
     expect(canDeleteWorkspace(workspace)).toBe(true);
     expect(workspaceRemovalConfirmation(workspace)).toBe("确认移除该工作区？");
     expect(canDeleteWorkspace({ ...workspace, isGitRepo: false, isGitWorktree: false })).toBe(true);

@@ -180,7 +180,7 @@ describe("ChatView tool-image gallery", () => {
     const descriptions = [1, 2, 3, 1, 2].map((index, image) => t("ui.chatView.toolImageDescription", "{tool} image {index} of {count}", { tool: chatToolOutputLabel("read"), index, count: image < 3 ? 3 : 2 }));
     for (const [index, image] of thumbnails.entries()) {
       expect(image).toHaveProperty("thumbnail", true);
-      expect(image).toHaveProperty("description", descriptions[index]);
+      expect(typeof image.description === "function" ? image.description() : image.description).toBe(descriptions[index]);
     }
 
     imageTrigger(thumbnails[1]).click();

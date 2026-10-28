@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { Window } from "happy-dom";
 import { expect, it, vi } from "vitest";
+import { LocalizationService } from "../src/client/src/localization/service.js";
+import { createPluginLocalization } from "../src/client/src/plugins/localization.js";
 
 it("loads the self-contained highlighting artifact outside the checkout and keeps code escaped", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pi-web-highlight-artifact-"));
@@ -21,7 +23,7 @@ it("loads the self-contained highlighting artifact outside the checkout and keep
     await copyFile(join(root, "browser/pi-web-plugin.js"), isolated);
     const plugin = (await import(pathToFileURL(isolated).href)).default;
     const html = (strings, ...values) => ({ strings, values });
-    const activation = plugin.activate({ html, translate: (_key, fallback) => fallback });
+    const activation = plugin.activate({ html, localization: createPluginLocalization(new LocalizationService(), "code-highlight", "code-highlight", new AbortController().signal) });
     activation.start({ capabilities: { resolve: (token) => token.id === "syntax-highlighting"
       ? { supports: () => false, highlight: () => Promise.resolve(undefined) }
       : { createController: () => undefined, registerRoot: () => () => undefined, subscribe: () => () => undefined } } });

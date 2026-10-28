@@ -122,9 +122,24 @@ export function canonicalEntryActionHeaders(groups: readonly ChatGroup[]): Reado
   return new Set(Array.from(entries.values(), ({ message }) => message));
 }
 
-export function summarizeChatGroup(messages: ChatLine[]): string {
-  if (messages.every((message) => message.source === "compaction")) return t("client.chatGroups.compaction.summaries.e2309c", "{value1} compaction summaries", { value1: String(messages.length) });
-  if (messages.every((message) => message.source === "branch_summary")) return t("client.chatGroups.branch.summaries.c232fa", "{value1} branch summaries", { value1: String(messages.length) });
+export interface ChatGroupSummary {
+  kind: "compaction" | "branch" | "events";
+  count: number;
+  roles: Partial<Record<ChatLine["role"], number>>;
+}
+
+export function summarizeChatGroup(messages: ChatLine[], format?: (summary: ChatGroupSummary) => string): string {
+  if (format !== undefined) {
+    const roles: ChatGroupSummary["roles"] = {};
+    for (const message of messages) roles[message.role] = (roles[message.role] ?? 0) + 1;
+    return format({
+      kind: messages.every((message) => message.source === "compaction") ? "compaction"
+        : messages.every((message) => message.source === "branch_summary") ? "branch" : "events",
+      count: messages.length, roles,
+    });
+  }
+  if (messages.every((message) => message.source === "compaction")) return `${String(messages.length)} history compaction ${messages.length === 1 ? "summary" : "summaries"}`;
+  if (messages.every((message) => message.source === "branch_summary")) return `${String(messages.length)} branch ${messages.length === 1 ? "summary" : "summaries"}`;
   const counts = messages.reduce<Record<string, number>>((acc, message) => {
     acc[message.role] = (acc[message.role] ?? 0) + 1;
     return acc;

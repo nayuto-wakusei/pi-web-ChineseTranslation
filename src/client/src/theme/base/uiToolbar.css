@@ -8,6 +8,8 @@
     min-height: 32px;
     padding: 0;
   }
+  .ui-toolbar { border-bottom: 1px solid var(--pi-border-muted); }
+  .ui-toolbar--borderless { border-bottom: 0; }
   .ui-toolbar--primary, .ui-tabs--primary { --ui-control-size: 44px; --ui-control-padding: 10px 12px; min-height: 44px; }
   :is(.ui-toolbar, .ui-tabs) .ui-button--icon { width: var(--ui-control-size, 32px); height: auto; }
   .ui-toolbar-title { flex: 1 1 auto; display: flex; align-items: center; min-width: 0; justify-content: space-between; text-align: left; font: inherit; font-size: 12px; color: var(--pi-muted); text-transform: inherit; }

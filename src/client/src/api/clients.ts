@@ -146,7 +146,9 @@ export const piWebApi = {
 
 export const machinesApi = {
   machines: () => request("api/machines", parseMachinesResponse),
+  machine: (machineId: string) => request(`api/machines/${encodeURIComponent(machineId)}`, parseMachine),
   addMachine: (input: { name: string; baseUrl: string; token?: string }) => request("api/machines", parseMachine, { method: "POST", body: JSON.stringify(input) }),
+  updateMachine: (machineId: string, input: { name: string }) => request(`api/machines/${encodeURIComponent(machineId)}`, parseMachine, { method: "PATCH", body: JSON.stringify(input) }),
   deleteMachine: (machineId: string) => request(`api/machines/${encodeURIComponent(machineId)}`, (value) => value, { method: "DELETE" }),
   health: (machineId: string) => request(`api/machines/${encodeURIComponent(machineId)}/health`, parseMachineHealth),
   runtime: (machineId: string, refresh = false) => request(`api/machines/${encodeURIComponent(machineId)}/runtime${refresh ? "?refresh=1" : ""}`, parseMachineRuntime, refresh ? { cache: "no-store" } : {}),
@@ -168,6 +170,7 @@ export const configApi = {
     return request(`${machinePrefix(target.machineId)}/models${query === "" ? "" : `?${query}`}`, parseModelSelectionResponse);
   },
   config: (machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse),
+  updateConfig: (update: { set?: PiWebConfigValues; unset?: string[] }, machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse, { method: "PATCH", body: JSON.stringify(update) }),
   saveConfig: (config: PiWebConfigValues, machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse, { method: "PUT", body: JSON.stringify({ config }) }),
 };
 
@@ -296,6 +299,7 @@ export const sessionsApi = {
   pin: (session: SessionRef, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin`, parseSessionPinResponse, { method: "PUT", body: sessionBody(session) }),
   unpin: (session: SessionRef, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin${sessionQuery(session)}`, parseSessionPinResponse, { method: "DELETE" }),
   unreadCatalog: (machineId = "local") => request(`${machinePrefix(machineId)}/sessions/unread`, parseSessionUnreadCatalogSnapshot, { cache: "no-store" }),
+  markUnread: (session: SessionRef, machineId = "local") => request(sessionPath(session, "unread", machineId), parseSessionUnreadCatalogSnapshot, { method: "POST", body: JSON.stringify({ cwd: session.cwd }) }),
   acknowledgeUnread: (session: SessionRef, catalogId: string, throughCompletionOrder: number, machineId = "local") => {
     const body: SessionUnreadAcknowledgeRequest = { cwd: session.cwd, catalogId, throughCompletionOrder };
     return request(sessionPath(session, "unread/acknowledge", machineId), parseSessionUnreadCatalogSnapshot, { method: "POST", body: JSON.stringify(body) });
@@ -311,7 +315,7 @@ export const sessionsApi = {
   messages: (session: SessionLookup, options?: { limit?: number; before?: number }, machineId = "local") => request(messagePath(session, options, machineId), parseMessagePage),
   status: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "status", machineId), parseSessionStatus),
   streamSnapshot: (session: SessionLookup, machineId = "local") => request(streamSnapshotPath(session, machineId), parseSessionStreamSnapshot),
-  transcriptSnapshot: (session: SessionLookup, options?: { limit?: number }, machineId = "local") => request(transcriptSnapshotPath(session, options, machineId), parseSessionTranscriptSnapshot),
+  transcriptSnapshot: (session: SessionLookup, options?: { limit?: number; signal?: AbortSignal; timeoutMs?: number }, machineId = "local") => request(transcriptSnapshotPath(session, options, machineId), parseSessionTranscriptSnapshot, { ...(options?.signal === undefined ? {} : { signal: options.signal }), ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }) }),
   models: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "models", machineId), parseModelSelectionResponse),
   modelCatalog: (session: SessionLookup, machineId = "local") => request(sessionQueryPath(session, "models/catalog", machineId), parseSessionModelCatalogResponse),
   setModelEnabled: (session: SessionLookup, provider: string, modelId: string, enabled: boolean, machineId = "local") => request(sessionPath(session, "models/enabled", machineId), parseSessionModelCatalogResponse, { method: "POST", body: sessionBody(session, { provider, modelId, enabled }) }),

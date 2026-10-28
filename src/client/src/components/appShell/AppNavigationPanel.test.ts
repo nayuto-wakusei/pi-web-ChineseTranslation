@@ -79,7 +79,7 @@ describe("brand visibility", () => {
     document.body.append(panel);
     await panel.updateComplete;
 
-    const button = panel.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="显示操作"]');
+    const button = panel.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Show Actions"]');
     expect(button).not.toBeNull();
     button?.click();
     expect(onShowActions).toHaveBeenCalledOnce();
@@ -228,6 +228,35 @@ describe("machine status wiring", () => {
 });
 
 describe("stable list inputs", () => {
+  it("forwards Mark as unread through a stable callback to the latest parent handler", async () => {
+    const panel = await mountPanel({}, machine("local"));
+    const read = session("read");
+    const oldMarkUnread = vi.fn();
+    panel.sessions = [read];
+    panel.onMarkSessionUnread = oldMarkUnread;
+    panel.onSelectSession = vi.fn();
+    await panel.updateComplete;
+    const sessions = section(panel, "session-list", SessionList);
+    await sessions.updateComplete;
+    const callback = sessions.onMarkUnread;
+
+    const markUnread = vi.fn();
+    panel.onMarkSessionUnread = markUnread;
+    await panel.updateComplete;
+    await sessions.updateComplete;
+    expect(sessions.onMarkUnread).toBe(callback);
+
+    control(sessions, ".action-menu-toggle").click();
+    await sessions.updateComplete;
+    control(sessions, 'button[title="Mark session as unread"]').click();
+    await sessions.updateComplete;
+    expect(markUnread).toHaveBeenCalledExactlyOnceWith(read);
+    expect(oldMarkUnread).not.toHaveBeenCalled();
+    expect(panel.onSelectSession).not.toHaveBeenCalled();
+    expect(sessions.shadowRoot?.querySelector(".action-menu-panel")).toBeNull();
+  });
+
+
   it("skips unchanged lists on panel updates while invoking the latest callbacks", async () => {
     const panel = await mountPanel({}, machine("local"));
     const currentSession = session("session-1");

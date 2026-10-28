@@ -7,6 +7,7 @@ export interface DeploymentIdentityRouteOptions {
   /** Root of the built client assets; must be the fastify-static root so `sendFile` resolves. */
   clientDist: string;
   flavor: () => Promise<PiWebDeploymentFlavor>;
+  installationName?: () => Promise<string | undefined>;
 }
 
 /**
@@ -25,6 +26,7 @@ export function registerDeploymentIdentityAssetRoutes(app: FastifyInstance, opti
 
   app.get(DEPLOYMENT_MANIFEST_PATH, async (_request, reply) => {
     const manifest = await readFile(join(options.clientDist, DEPLOYMENT_MANIFEST_PATH.slice(1)), "utf8");
-    return reply.type(DEPLOYMENT_MANIFEST_CONTENT_TYPE).send(deploymentManifestForFlavor(manifest, await options.flavor()));
+    return reply.header("Cache-Control", "no-cache").type(DEPLOYMENT_MANIFEST_CONTENT_TYPE)
+      .send(deploymentManifestForFlavor(manifest, await options.flavor(), await options.installationName?.()));
   });
 }

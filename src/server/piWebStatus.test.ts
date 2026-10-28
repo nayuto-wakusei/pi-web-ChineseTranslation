@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { VERSION as PI_CODING_AGENT_VERSION } from "../piSdk.js";
 import { comparePackageVersions, getPiWebRuntime, getPiWebStatus, getPiWebVersionStatus, updateCommandFor } from "./piWebStatus.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
+import { piWebRuntimeIdentity } from "../shared/piWebRuntime.js";
 import type { PiWebRuntimeComponent } from "../shared/apiTypes.js";
 import { loadNodeTranslator } from "../localization.js";
 import { createTranslator } from "../shared/i18n.js";
@@ -63,6 +64,23 @@ describe("PI WEB status", () => {
     expect(runtime.components.web).not.toHaveProperty("deprecatedAgentInputs");
     expect(runtime.components.sessiond.runtimeVersion).toBe("1.0.0");
   });
+  it("reports each process's factual engine separately", async () => {
+    const daemon = daemonWithRuntime({ ...runningSessiondRuntime(), runtime: { name: "bun", version: "1.3.99" } });
+    const status = await getPiWebVersionStatus(daemon);
+    const runtime = await getPiWebRuntime(daemon);
+    expect(status.components.web.runtime).toEqual(piWebRuntimeIdentity());
+    expect(runtime.components.web.runtime).toEqual(piWebRuntimeIdentity());
+    expect(status.components.sessiond.runtime).toEqual({ name: "bun", version: "1.3.99" });
+    expect(runtime.components.sessiond.runtime).toEqual({ name: "bun", version: "1.3.99" });
+  });
+
+  it("does not attribute this process's engine to a legacy or unavailable daemon", async () => {
+    const legacy = await getPiWebVersionStatus(daemonWithRuntime(runningSessiondRuntime()));
+    expect(legacy.components.sessiond).not.toHaveProperty("runtime");
+    const unavailable = await getPiWebVersionStatus({ request: () => Promise.reject(new Error("offline")) });
+    expect(unavailable.components.sessiond).not.toHaveProperty("runtime");
+  });
+
   it("compares semver-shaped CalVer versions", () => {
     expect(comparePackageVersions("1.202605.9", "1.202605.8")).toBeGreaterThan(0);
     expect(comparePackageVersions("1.202605.8", "1.202605.8")).toBe(0);
@@ -349,10 +367,9 @@ describe("PI WEB status", () => {
 
       expect(status.components.sessiond.available).toBe(false);
       expect(status.components.sessiond.error).toBe("runtime check returned HTTP 500");
-      const message = status.messages.find((entry) => entry.id === "sessiond-unavailable");
-      expect(message?.title).toBe("无法获取会话守护进程版本");
-      expect(message?.body).toContain("PI WEB 无法检查会话守护进程版本");
-      expect(message?.body).toContain("runtime check returned HTTP 500");
+      const notice = status.messages.find((message) => message.id === "sessiond-unavailable");
+      expect(notice).toMatchObject({ severity: "info", title: "Session daemon version unknown" });
+      expect(notice?.body).toContain("The last check could not determine the session daemon version.");
     } finally {
       await rm(home, { recursive: true, force: true });
     }

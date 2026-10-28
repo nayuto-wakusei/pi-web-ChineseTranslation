@@ -141,7 +141,7 @@ function optionButtons(picker: CommandPicker): HTMLButtonElement[] {
 }
 
 function closeButton(picker: CommandPicker): HTMLButtonElement {
-  return requiredElement(picker.shadowRoot?.querySelector<HTMLButtonElement>("header button[aria-label='关闭']"), "command-picker Close button");
+  return requiredElement(picker.shadowRoot?.querySelector<HTMLButtonElement>("header button[aria-label='Close']"), "command-picker Close button");
 }
 
 function selectedOptionIndex(picker: CommandPicker): number {

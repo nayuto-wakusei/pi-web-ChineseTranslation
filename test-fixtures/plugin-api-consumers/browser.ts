@@ -18,7 +18,26 @@ import type {
   StylesheetIntegrationCapabilityV1,
   ThemeContribution,
   ThemeContributionV5,
+  MaintenanceTerminal,
+  TerminalCommandRun,
 } from "@chainingintention/pi-web-cn/plugin-api";
+
+export interface WorkspaceRunExtension extends TerminalCommandRun {
+  pluginTag?: string;
+}
+
+export async function readWorkspaceCommandIdentity(context: WorkspacePanelContext): Promise<{ projectId: string; workspaceId: string }> {
+  const { run } = await context.terminal.runCommand({ title: "Build", command: "npm run build" });
+  return { projectId: run.projectId, workspaceId: run.workspaceId };
+}
+
+export async function readMaintenanceCommandScope(terminal: MaintenanceTerminal): Promise<"maintenance"> {
+  const { run } = await terminal.runCommand({ title: "Update", command: "pi-web update" });
+  // @ts-expect-error Machine maintenance output cannot be used as a workspace run.
+  const workspaceRun: TerminalCommandRun = run;
+  void workspaceRun;
+  return run.scope;
+}
 
 export function checkStylesheets(integration: StylesheetIntegrationCapabilityV1, root: ShadowRoot): void {
   const release = integration.registerRoot(root, { sharedUi: true });

@@ -2,6 +2,8 @@ import { parseMcpAuthServersResponse } from "./parsers";
 import { parseWorkspaceProviderResolution } from "./parsers";
 import { parseSessionStreamEvent, parseRealtimeStreamEvent } from "./parsers";
 import { describe, expect, it } from "vitest";
+import { ASK_USER_COMMENT_MAX_LENGTH } from "../../../shared/apiTypes";
+import { parseMachine } from "./parsers";
 
 describe("slash command argument hints", () => {
   it("retains protocol sources and treats argument hints as optional for older hosts", () => {
@@ -409,6 +411,22 @@ describe("API parsers", () => {
     });
   });
 
+  it("preserves known presentation metadata across startup, session and global wire boundaries", () => {
+    const base = { sessionId: "test", phase: "active", label: "raw fallback", detail: "raw detail", at: "now" };
+    const startup = { ...base, startupPresentation: { intent: "create", stage: "extensions", catalogRefreshing: true } };
+    expect(parseSessionStartupProgressEvent({ type: "session.startup", activity: startup })).toEqual({ type: "session.startup", activity: startup });
+    for (const runtimePresentation of [{ kind: "runningTool" }, { kind: "model", value: "raw-model" }, { kind: "compactionFailed", detailKind: "compactionFailed" }]) {
+      const activity = { ...base, runtimePresentation };
+      const event = { type: "activity.update", activity };
+      expect(parseSessionStreamEvent(event)).toEqual(event);
+      expect(parseRealtimeStreamEvent(event)).toEqual(event);
+    }
+    for (const runtimePresentation of [null, "invalid", { kind: "future" }, { kind: "model", value: 3 }, { kind: "runningTool", detailKind: "future" }]) {
+      expect(parseSessionStreamEvent({ type: "activity.update", activity: { ...base, runtimePresentation } })).toEqual({ type: "activity.update", activity: base });
+    }
+    expect(parseSessionStartupProgressEvent({ type: "session.startup", activity: { ...base, startupPresentation: { intent: "create", stage: "future", catalogRefreshing: true } } })).toEqual({ type: "session.startup", activity: base });
+  });
+
   it("carries the startup marker so an opening session is not mistaken for a working one", () => {
     const activity = { sessionId: "session-1", phase: "active", label: "Opening session", detail: "Starting the Pi session", at: "2026-07-20T00:00:01.000Z", startup: true };
 
@@ -539,6 +557,16 @@ describe("API parsers", () => {
       { severity: "error", message: "bad skill", source: "skill", path: "/skills/a.md" },
       { severity: "warning", message: "subscription active", source: "anthropic", dismiss: { id: "anthropicExtraUsage" } },
       { severity: "info", message: "heads up", source: "runtime" },
+    ]);
+  });
+
+  it("keeps known warning provenance and ignores malformed or future cosmetic metadata", () => {
+    const warning = { severity: "warning", message: "English fallback", dismiss: { id: "opaque-id" } };
+    const presentations = [{ kind: "anthropicSubscriptionAuth" }, { kind: "future" }, null, [], "invalid", { kind: 1 }];
+    const parsed = parseSessionStatus({ ...statusWire(), warnings: presentations.map((presentation) => ({ ...warning, presentation })) });
+    expect(parsed.warnings).toEqual([
+      { ...warning, presentation: { kind: "anthropicSubscriptionAuth" } },
+      ...presentations.slice(1).map(() => warning),
     ]);
   });
 
@@ -1341,6 +1369,25 @@ describe("Upstream transport and navigation contracts", () => {
     });
   });
 
+  it.each([
+    { kind: "gitWorktree", label: "review", path: "/repo/review" },
+    { kind: "future" },
+    { kind: "gitWorktree", label: 42, path: "/repo/review" },
+    null,
+  ])("retains valid optional removal localization and ignores unknown cosmetics: %j", (localization) => {
+    const removal = parseWorkspace({
+      id: "w1", projectId: "p1", path: "/repo/review", label: "review", isMain: false,
+      removal: { actionLabel: "Delete workspace", confirmation: "Raw confirmation", precondition: "v1.token", localization },
+      effectiveConfig: {},
+    }).removal;
+    expect(removal?.confirmation).toBe("Raw confirmation");
+    expect(removal?.precondition).toBe("v1.token");
+    if (localization?.kind === "gitWorktree" && typeof localization.label === "string") {
+      expect(removal?.localization).toEqual(localization);
+      expect(Object.isFrozen(removal?.localization)).toBe(true);
+    } else expect(removal).not.toHaveProperty("localization");
+  });
+
   it("freezes host-owned workspace snapshots recursively", () => {
     const workspace = parseWorkspace({
       id: "w1",
@@ -1564,4 +1611,86 @@ describe("Upstream transport and navigation contracts", () => {
     ])("rejects malformed metadata instead of passing it to plugins: $label", ({ value }) => {
       expect(() => parseSessionInfo({ ...session, metadata: value })).toThrow("Invalid session metadata");
     });
+  });
+
+it("preserves remote naming metadata and supports older machine responses", () => {
+    const machine = { id: "remote", name: "Alias", kind: "remote", createdAt: "now", updatedAt: "now" };
+    expect(parseMachine(machine)).toEqual(machine);
+    expect(parseMachine({ ...machine, nameOverride: "Alias", reportedName: "Build lab" })).toMatchObject({ nameOverride: "Alias", reportedName: "Build lab" });
+    expect(() => parseMachine({ ...machine, nameOverride: 42 })).toThrow();
+  });
+
+it("retains deployment defaults and setting source metadata, rejecting malformed metadata", () => {
+    const response = { path: "config.json", exists: true, config: {}, effectiveConfig: {}, envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false }, defaultsConfig: { basePaths: [], environmentFacts: false, extensionDialogsTimeoutMs: 0 }, defaultsPath: "defaults.json", enforcedSettings: { "/quietMode": "PI_WEB_QUIET_MODE" }, configSources: { "/basePaths": "defaults" } };
+    expect(parsePiWebConfigResponse(response)).toEqual({ ...response, envOverrides: { ...response.envOverrides, agentCommand: false, agentDir: false, agentSessionDir: false } });
+    expect(() => parsePiWebConfigResponse({ ...response, enforcedSettings: { "/quietMode": true } })).toThrow("configuration source");
+    expect(() => parsePiWebConfigResponse({ ...response, defaultsConfig: { basePaths: [42] } })).toThrow();
+  });
+
+it("parses and validates installation identity in config responses", () => {
+    const response = { path: "config.json", exists: true, config: { installationName: " Build lab " }, effectiveConfig: {}, envOverrides: { host: false, port: false, allowedHosts: false, maxUploadBytes: false, spawnSessions: false, subsessions: false, askUser: false } };
+    expect(parsePiWebConfigResponse(response).config.installationName).toBe("Build lab");
+    expect(() => parsePiWebConfigResponse({ ...response, config: { installationName: 42 } })).toThrow("installationName");
+  });
+
+it("preserves and validates gateway localization defaults in both response fields", () => {
+    const defaultLocalization = { language: "fr", formatLocale: "de-DE", timeZone: "UTC", hourCycle: "h23" };
+    const response = { path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false } };
+    for (const field of ["config", "effectiveConfig"] as const) {
+      expect(parsePiWebConfigResponse({ ...response, [field]: { defaultLocalization } })[field]).toEqual({ defaultLocalization });
+      expect(() => parsePiWebConfigResponse({ ...response, [field]: { defaultLocalization: { timeZone: "Invalid/Zone" } } })).toThrow("PI WEB config defaultLocalization");
+    }
+  });
+
+it("preserves quiet mode and rejects invalid values in both config fields", () => {
+    const response = {
+      path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false },
+    };
+    for (const field of ["config", "effectiveConfig"] as const) {
+      expect(parsePiWebConfigResponse(response)[field]).not.toHaveProperty("quietMode");
+      for (const quietMode of [true, false]) {
+        expect(parsePiWebConfigResponse({ ...response, [field]: { quietMode } })[field]).toEqual({ quietMode });
+      }
+      for (const quietMode of ["true", 1, null, {}, []]) {
+        expect(() => parsePiWebConfigResponse({ ...response, [field]: { quietMode } })).toThrow("quietMode");
+      }
+    }
+  });
+
+it.each([
+    { kind: "compactionCancelled" }, { kind: "automaticCompactionCancelled" }, { kind: "compactionFailed" },
+    { kind: "future" }, { kind: 42 }, null, [], "compactionFailed",
+  ].map((presentation) => ({ presentation })))("preserves known notification provenance and ignores cosmetic future/malformed metadata $presentation", ({ presentation }) => {
+    const inbox = notificationInboxWire();
+    const notification = { ...notificationWire(1), presentation };
+    const expected = presentation !== null && !Array.isArray(presentation) && typeof presentation === "object"
+      && typeof presentation.kind === "string" && ["compactionCancelled", "automaticCompactionCancelled", "compactionFailed"].includes(presentation.kind)
+      ? presentation : undefined;
+    expect(parseSessionNotificationInboxSnapshot({ ...inbox, notifications: [notification] }).notifications[0]?.presentation).toEqual(expected);
+    const event = {
+      type: "notifications.inbox", daemonInstanceId: "daemon-a", catalogRevision: 2,
+      summary: inbox.summary, dismissThrough: inbox.dismissThrough,
+      delta: { kind: "added", notification },
+    };
+    const parsed = parseSessionNotificationInboxEvent(event);
+    if (parsed.delta.kind !== "added") throw new Error("Expected added notification");
+    expect(parsed.delta.notification.presentation).toEqual(expected);
+    expect(parsed.delta.notification.message).toBe(notification.message);
+  });
+
+it("preserves comments when parsing the recorded response", () => {
+    const outcome = parseAskUserOutcome({
+      ...askOutcomeWire(),
+      questions: [{ ...askAnsweredRecordWire(), comment: "Use the existing cluster." }, askUnansweredRecordWire()],
+    });
+    expect(outcome.questions[0]).toMatchObject({ answered: true, values: ["pg"], comment: "Use the existing cluster." });
+  });
+
+it.each([7, "", "x".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1)])("rejects malformed recorded comments (case %#)", (comment) => {
+    expect(() => parseAskUserOutcome({
+      ...askOutcomeWire(),
+      questions: [{ ...askAnsweredRecordWire(), comment }, askUnansweredRecordWire()],
+    })).toThrow();
   });

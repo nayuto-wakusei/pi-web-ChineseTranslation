@@ -1,18 +1,22 @@
+
 import type { PluginCapability } from "../../server-plugin-api.js";
 import type { TerminalCommandRun } from "../../shared/apiTypes.js";
 import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../shared/requiredTerminalPlugin.js";
 import { requireTerminalCommandRun } from "../../shared/terminalCommandRun.js";
 
 export interface RequiredTerminalCommandFailureNotice {
+  readonly presentation?: { kind: "workspaceRemovalCommandFailed" };
   readonly message: string;
   readonly context: Readonly<Record<string, string>>;
 }
 
 export interface RunTerminalCommandOptions {
+  scope?: "workspace";
   projectId: string;
   workspaceId: string;
   cwd: string;
   origin: string;
+  titlePresentation?: import("../../shared/terminalTitlePresentation.js").TerminalTitlePresentation;
   title: string;
   command: string;
   metadata?: unknown;

@@ -33,6 +33,8 @@ import {
 import {
   closePluginBackendChannelWebSocket,
   createBoundedTextWebSocketSender,
+  decodeBoundedPluginBackendChannelTextFrame,
+  PluginBackendChannelTransportFrameError,
   markPluginBackendChannelUpgradeRequest,
   setPluginBackendChannelSocketPayloadLimit,
 } from "../webSocketBridge.js";
@@ -161,10 +163,12 @@ class PluginBackendChannelSocketController {
     let text: string;
     let envelope: ReturnType<typeof parsePluginBackendChannelClientEnvelope>;
     try {
-      text = decodeTextFrame(data);
+      text = decodeBoundedPluginBackendChannelTextFrame(data, isBinary,
+        this.state === "awaiting-open" ? PLUGIN_BACKEND_CHANNEL_OPEN_FRAME_MAX_BYTES : PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES,
+        "Plugin backend channel frame");
       envelope = parsePluginBackendChannelClientEnvelope(text);
     } catch (error) {
-      void this.fail("invalid-frame", boundedErrorMessage(error), 1008);
+      void this.fail("invalid-frame", boundedErrorMessage(error), error instanceof PluginBackendChannelTransportFrameError ? error.closeCode : 1008);
       return;
     }
 
@@ -434,17 +438,6 @@ class ChannelRouteWriter implements PluginBackendChannelTransport {
     this.pending.length = 0;
     this.pendingBytes = 0;
   }
-}
-
-function decodeTextFrame(data: RawData): string {
-  const bytes = typeof data === "string"
-    ? new TextEncoder().encode(data)
-    : data instanceof ArrayBuffer
-      ? new Uint8Array(data)
-      : Array.isArray(data)
-        ? Buffer.concat(data)
-        : data;
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
 function decodeCloseReason(reason: Buffer): string {

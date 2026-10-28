@@ -1,3 +1,6 @@
+import { LocalizationController } from "../../localization/browser";
+import { appShellMessages } from "../../appShellMessages";
+
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import "../../plugins/uiPresentation";
 import type { UiPresentationRuntime } from "../../plugins/uiPresentationRuntime";
@@ -34,6 +37,7 @@ export type NavigationFocusTarget = NavigationSection | "chat";
 export class AppNavigationPanel extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
@@ -111,11 +115,13 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onRenameSession?: (session: SessionInfo, name: string) => void | Promise<void>;
   @property({ attribute: false }) onDetachParentSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onMarkSessionRead?: (session: SessionInfo) => void | Promise<void>;
+  @property({ attribute: false }) onMarkSessionUnread?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onMarkSessionsRead?: (sessions: SessionInfo[]) => void | Promise<void>;
   @property({ attribute: false }) onReloadSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onCleanupSessions?: () => void | Promise<void>;
   @property({ attribute: false }) onArchivedCollapsed?: () => void | Promise<void>;
   @property({ attribute: false }) onSelectMachine?: (machine: Machine) => void | Promise<void>;
+  @property({ attribute: false }) onEditMachine?: (machine: Machine) => void;
   @property({ attribute: false }) onRemoveMachine?: (machine: Machine) => void | Promise<void>;
   @property({ attribute: false }) onFocusNavigationTarget?: (target: NavigationFocusTarget) => void | Promise<void>;
   @property({ attribute: false }) onCancelKeyboardNavigation?: () => void | Promise<void>;
@@ -210,7 +216,7 @@ export class AppNavigationPanel extends LitElement {
     if (this.compact) return null;
     return html`<navigation-section-resize-handle
       slot=${section === "projects" ? "project-resize" : "workspace-resize"}
-      .sectionLabel=${section === "projects" ? t("ui.projectList.projects", "Projects") : t("ui.workspaceList.workspaces", "Workspaces")}
+      .sectionLabel=${section === "projects" ? appShellMessages.t("projects") : appShellMessages.t("workspaces")}
       .controls=${`navigation-${section}`}
       .measurement=${this.sectionMeasurements[section]}
       .onResize=${(height: number) => { this.sectionSizes.resize(section, height); }}
@@ -288,6 +294,7 @@ export class AppNavigationPanel extends LitElement {
     deleteArchivedSessions: (sessions: SessionInfo[]) => this.onDeleteArchivedSessions?.(sessions),
     detachParentSession: (session: SessionInfo) => this.onDetachParentSession?.(session),
     markSessionRead: (session: SessionInfo) => this.onMarkSessionRead?.(session),
+    markSessionUnread: (session: SessionInfo) => this.onMarkSessionUnread?.(session),
     markSessionsRead: (sessions: SessionInfo[]) => this.onMarkSessionsRead?.(sessions),
     reloadSession: (session: SessionInfo) => this.onReloadSession?.(session),
     cleanupSessions: () => this.onCleanupSessions?.(),
@@ -314,6 +321,7 @@ export class AppNavigationPanel extends LitElement {
           <machine-switcher
             .machines=${this.machines}
             .selected=${this.selectedMachine}
+            .onEdit=${this.onEditMachine}
             .locationIndicator=${this.locationIndicator}
             .statuses=${this.machineStatuses}
             .activities=${this.machineActivities}
@@ -328,9 +336,9 @@ export class AppNavigationPanel extends LitElement {
         ${showHeaderActions ? html`<div class="header-actions">
           ${this.refreshControl}
           ${this.onShowActions === undefined ? null : html`
-            <button type="button" class="ui-button actions-button" title="${t("client.actions.show.actions.a514ad", "Show actions")}" aria-label="${t("client.actions.show.actions.a514ad", "Show actions")}" @click=${() => { this.onShowActions?.(); }}>
+            <button type="button" class="ui-button actions-button" title=${appShellMessages.t("showActions")} aria-label=${appShellMessages.t("showActions")} @click=${() => { this.onShowActions?.(); }}>
               <svg class="actions-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M13 2 4 14h7l-1 8 10-13h-7V2Z"></path></svg>
-              <span class="actions-label">${t("ui.appNavigationPanel.actions", "Actions")}</span>
+              <span class="actions-label">${appShellMessages.t("actions")}</span>
             </button>
           `}
         </div>` : null}
@@ -346,6 +354,7 @@ export class AppNavigationPanel extends LitElement {
           .statusSnapshots=${this.machineStatusSnapshots}
           .collapsible=${this.collapsible}
           .collapsed=${this.machinesCollapsed}
+          .onEdit=${this.onEditMachine}
           .onToggleCollapsed=${() => { this.onToggleMachines?.(); }}
           .onSelect=${(machine: Machine) => this.onSelectMachine?.(machine)}
           .onRemove=${(machine: Machine) => this.onRemoveMachine?.(machine)}
@@ -518,6 +527,7 @@ export class AppNavigationPanel extends LitElement {
         .onRename=${this.childCallbacks.renameSession}
         .onDetachParent=${this.childCallbacks.detachParentSession}
         .onMarkRead=${this.childCallbacks.markSessionRead}
+        .onMarkUnread=${this.childCallbacks.markSessionUnread}
         .onMarkReadMany=${this.childCallbacks.markSessionsRead}
         .onReload=${this.childCallbacks.reloadSession}
         .onCleanup=${this.childCallbacks.cleanupSessions}

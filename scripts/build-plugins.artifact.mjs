@@ -9,6 +9,9 @@ import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PiWebPluginCatalog, PI_WEB_PLUGIN_ARTIFACT_MAX_BYTES, PI_WEB_PLUGIN_ARTIFACT_MAX_ENTRIES } from "../src/server/piWebPluginCatalog.js";
 import { PluginRegistry } from "../src/client/src/plugins/registry.js";
+import { FileIconService, fileIconsCapabilityToken } from "../src/client/src/fileIconService.js";
+import { LocalizationService } from "../src/client/src/localization/service.js";
+import { createPluginLocalization } from "../src/client/src/plugins/localization.js";
 
 // Delivery-only: run after npm run build. Never build or mutate checkout artifacts here.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -56,7 +59,7 @@ describe("plugin delivery artifacts", () => {
       if (!isRecord(imported)) throw new Error(`Built server plugin did not import as a module: ${plugin.id}`);
       const pluginExport = imported["default"];
       if (!isRecord(pluginExport)) throw new Error(`Built server plugin has no default object export: ${plugin.id}`);
-      expect(pluginExport["apiVersion"]).toBe(3);
+      expect(pluginExport["apiVersion"]).toBe(["pi-web.terminal", "pi-web.audio"].includes(plugin.id) ? 5 : 3);
       expect(typeof pluginExport["activate"]).toBe("function");
     }
     // npm 10 can still execute prepare with --ignore-scripts. Pack a copy of
@@ -77,10 +80,11 @@ describe("plugin delivery artifacts", () => {
     expect(packagedFiles.filter(isTestArtifact)).toEqual([]);
     expect(packagedFiles).toEqual(expect.arrayContaining([
       "dist/cli.js", "dist/server/app.js", "dist/server/index.js", "dist/server/sessiond.js",
+      "dist/bin/pi-web.sh", "dist/bin/pi-web-server.sh", "dist/bin/pi-web-sessiond.sh", "dist/runtimePreflight.js",
       "dist/plugin-api.d.ts", "dist/server-plugin-api.d.ts", "dist/server-plugin-api.js",
       "dist/shared/pluginApiTypes.d.ts", "dist/shared/pluginCatalogTypes.d.ts", "dist/shared/pluginCatalogTypes.js",
       "plugin-api.d.ts", "server-plugin-api.d.ts", "dist/client/index.html",
-      "examples/session-bridge-plugin/package.json",
+      "examples/workspace-provider-plugin/package.json",
       "dist/pi-web-plugins/git/workspace-discovery-notify.cjs",
     ]));
     expect(packagedFiles.some((path) => path.includes("/node_modules/") || /^examples\/[^/]+\/dist\//u.test(path))).toBe(false);
@@ -183,9 +187,12 @@ describe("plugin delivery artifacts", () => {
       browserRoot: expect.objectContaining({ path: "browser" }),
     })]);
     const browserModule = snapshot.plugins[0].browserModule.filePath;
-      expect(moduleSpecifiers(await readFile(browserModule, "utf8"))).toEqual(["./worktreeDialog.js"]);
-      expect((await import(pathToFileURL(browserModule).href)).default).toMatchObject({ name: "Workflows", apiVersion: 5 });
-      expect(metadata.piWeb.plugins[0].serverModule).toBe("server-plugin.js");
+    expect(moduleSpecifiers(await readFile(browserModule, "utf8"))).toEqual(["./worktreeDialog.js", "./workflows.messages.js"]);
+    expect((await import(pathToFileURL(browserModule).href)).default).toMatchObject({ name: "Workflows", apiVersion: 5 });
+    expect(metadata.piWeb.plugins[0].serverModule).toBe("server-plugin.js");
+    const serverModule = join(source, metadata.piWeb.plugins[0].serverModule);
+    expect(moduleSpecifiers(await readFile(serverModule, "utf8"))).toEqual([]);
+    expect((await import(pathToFileURL(serverModule).href)).default).toMatchObject({ name: "Workflows", apiVersion: 5 });
     enabled = false;
     expect((await catalog.snapshot()).plugins[0].enabled).toBe(false);
     // Disabling web contributions leaves Pi prompt resources installed.
@@ -272,9 +279,10 @@ describe("plugin delivery artifacts", () => {
         const secondImported = await import(secondModuleUrl.href);
         const template = (strings, ...values) => ({ strings, values });
         await imported.default.activate({
-          apiVersion: 4,
+          apiVersion: 5,
           pluginId: "files",
           runtimePluginId: "files",
+          localization: createPluginLocalization(new LocalizationService(), "files", "files", new AbortController().signal),
           html: template,
           svg: template,
           signal: new AbortController().signal,
@@ -282,7 +290,7 @@ describe("plugin delivery artifacts", () => {
         });
         const firstElementConstructor = customElements.get("pi-web-files-panel");
         const firstCodeViewerConstructor = customElements.get("pi-web-files-code-viewer");
-        const registry = new PluginRegistry();
+        const registry = new PluginRegistry({ hostCapabilities: [{ capability: fileIconsCapabilityToken, value: new FileIconService().capability }] });
         await registry.register({ id: "remote-1.files", sourcePluginId: "files", machineId: "remote-1", plugin: imported.default });
         await registry.register({ id: "remote-2.files", sourcePluginId: "files", machineId: "remote-2", plugin: secondImported.default });
         const panels = registry.getWorkspacePanels();
@@ -311,8 +319,8 @@ describe("plugin delivery artifacts", () => {
             secondElementConstructor: customElements.get("pi-web-files-panel"),
             firstCodeViewerConstructor,
             secondCodeViewerConstructor: customElements.get("pi-web-files-code-viewer"),
-            firstContextBound: firstRendered?.values.includes(firstContext) === true,
-            secondContextBound: secondRendered?.values.includes(secondContext) === true,
+            firstContextBound: firstRendered?.values.some((value) => value?.workspace === firstContext.workspace && value?.catalog?.machineId === firstContext.machine.id) === true,
+            secondContextBound: secondRendered?.values.some((value) => value?.workspace === secondContext.workspace && value?.catalog?.machineId === secondContext.machine.id) === true,
             firstRuntime: firstRendered?.values.find((value) => value instanceof imported.FilesRuntime),
             secondRuntime: secondRendered?.values.find((value) => value instanceof secondImported.FilesRuntime),
           },
@@ -324,8 +332,8 @@ describe("plugin delivery artifacts", () => {
           },
         };
       });
-      expect(builtModule.default).toMatchObject({ apiVersion: 4, name: "Files" });
-      expect(secondBuiltModule.default).toMatchObject({ apiVersion: 4, name: "Files" });
+      expect(builtModule.default).toMatchObject({ apiVersion: 5, name: "Files" });
+      expect(secondBuiltModule.default).toMatchObject({ apiVersion: 5, name: "Files" });
       expect(secondBuiltModule.FilesRuntime).not.toBe(builtModule.FilesRuntime);
       expect(registrations.panelMachineIds).toEqual(["remote-1", "remote-2"]);
       expect(registrations.firstElementConstructor).toBeDefined();

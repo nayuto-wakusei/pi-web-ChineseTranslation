@@ -108,6 +108,7 @@ export function registerAppTestHooks(): void {
       navigationPreferences: new NavigationPreferenceStore(join(tempDir, "navigation-preferences.json")),
       workspaceCatalog,
       machines: new MachineService(new MachineStore(join(tempDir, "machines.json")), {
+        localName: () => piWebConfig.installationName,
         remoteClientFactory: () => {
           if (remoteClient === undefined) throw new Error("No remote machine client configured");
           return remoteClient;

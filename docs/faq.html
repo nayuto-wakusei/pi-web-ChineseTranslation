@@ -105,6 +105,7 @@
             <a href="#worktree-list-out-of-date">A worktree I created is missing</a>
             <a href="#navigation-order">如何排列导航？</a>
             <a href="#chat-images">聊天图片如何加载？</a>
+            <a href="#chat-updates">聊天更新停止</a>
             <a href="#sessions-stop">Sessions stop unexpectedly</a>
             <a href="#model-response-terminated">模型响应 terminated</a>
             <a href="#provider-extension-no-effect">提供器扩展不生效</a>
@@ -344,6 +345,21 @@
               </p>
             </article>
 
+            <article id="chat-updates" class="faq-item">
+              <h2>Chat updates stopped</h2>
+              <p>
+                The session keeps running when you leave the browser. When you return, PI WEB reconnects and checks
+                for new messages without clearing your draft or reading position. While the conversation is visible,
+                it also checks history every 30 seconds. Activity indicators and chat delivery are separate:
+                activity can continue while chat messages are delayed.
+              </p>
+              <p>
+                Routine checks are silent. If the chat may be out of date or could not refresh, a notice above the conversation offers
+                <strong>Refresh messages</strong>. The notice stays until the conversation recovers.
+                Refreshing reconnects the conversation; it does not restart the session or resend your prompt.
+              </p>
+            </article>
+
             <article id="sessions-stop" class="faq-item">
               <h2>Sessions stop unexpectedly</h2>
               <p>
@@ -363,9 +379,10 @@
             <article id="model-response-terminated" class="faq-item">
               <h2>模型响应约五分钟后出现 terminated</h2>
               <p>
-                约五分钟出现 <code>(SYSTEM) Model response failed: terminated</code>，表示模型流空闲超过 Pi 的 <code>httpIdleTimeoutMs</code>（默认五分钟）。
+                在 Node.js 下，约五分钟出现 <code>(SYSTEM) Model response failed: terminated</code>，表示模型流空闲超过 Pi 的 <code>httpIdleTimeoutMs</code>（默认五分钟）。
                 只在最后输出大块结果的慢后端（如本地 vLLM）可能超过此期限。
               </p>
+              <p>Bun session daemons do not apply <code>httpIdleTimeoutMs</code>. Startup logs report this limitation; Bun's native timeout and proxy behavior remain unchanged. Use Node.js if you need this setting. The steps below apply to Node.js.</p>
               <p>
                 在有效 agent 目录的 <code>settings.json</code>（默认 <code>~/.pi/agent/settings.json</code>）增加或禁用期限，
                 合法值见 <a href="https://pi.dev/docs/latest/settings">Pi 设置参考</a>。daemon 只在启动时应用，之后需重启，可能中断活跃会话；先等重要工作结束。

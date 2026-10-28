@@ -4,7 +4,7 @@ import { open, opendir, readdir, readFile, realpath, stat } from "node:fs/promis
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DefaultPackageManager, SettingsManager } from "../piSdk.js";
-import { loadPiWebConfig, piWebDataDir, type PiWebConfig } from "../config.js";
+import { effectivePiWebConfig, piWebDataDir, type PiWebConfig } from "../config.js";
 import type { PiWebPluginScope, PiWebPluginSettings } from "../shared/apiTypes.js";
 import { isPiWebBundledPluginId, isPiWebPluginId, isReservedPiWebPluginId } from "../shared/pluginIds.js";
 import { REQUIRED_TERMINAL_PLUGIN_ID } from "../shared/requiredTerminalPlugin.js";
@@ -170,7 +170,7 @@ export class PiWebPluginCatalog {
     this.packageProviderForAgentDir = packageProvider === false || packageProvider !== undefined
       ? undefined
       : (agentDir) => new DefaultPiPackageProvider(cwd, agentDir);
-    this.configProvider = options.configProvider ?? (() => loadPiWebConfig({ cwd }).config);
+    this.configProvider = options.configProvider ?? (() => effectivePiWebConfig({ cwd }).config);
     this.directoryEntryNamesProvider = options.directoryEntryNamesProvider ?? defaultDirectoryEntryNamesProvider;
     this.warningSink = options.warningSink ?? ((message) => { console.warn(message); });
   }

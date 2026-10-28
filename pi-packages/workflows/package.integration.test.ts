@@ -1,12 +1,12 @@
-import { copyFile, cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DefaultResourceLoader, SettingsManager } from "../../src/piSdk.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { KNOWN_AUTO_INSTALLABLE_PI_PACKAGES, resolveShippedPiPackagePath } from "../../src/server/knownAutoInstallPiPackages.js";
 import { ActiveProfilePiPackageService, createDefaultPiPackageService } from "../../src/server/piPackageService.js";
-import { DefaultPiPackageProvider } from "../../src/server/piWebPluginCatalog.js";
 import { reconcileAutoInstallablePiPackages } from "../../src/server/sessiond/autoInstallPiPackages.js";
+import { createAutoInstallPiPackageProfile } from "../../src/server/sessiond/autoInstallPiPackageSources.js";
 import { PiPackageDismissalStore } from "../../src/server/storage/piPackageDismissalStore.js";
 
 const known = KNOWN_AUTO_INSTALLABLE_PI_PACKAGES.find(({ id }) => id === "@jmfederico/pi-web-workflows");
@@ -52,8 +52,7 @@ describe("shipped Workflows Pi package", () => {
     );
     const reconcile = () => reconcileAutoInstallablePiPackages({
       profileDir: agentDir,
-      packageProvider: new DefaultPiPackageProvider(cwd, agentDir),
-      installer: service,
+      ...createAutoInstallPiPackageProfile(agentDir),
       dismissalChecker: dismissals,
       packageRoot: root,
       knownPackages: [known],
@@ -78,6 +77,28 @@ describe("shipped Workflows Pi package", () => {
     await reconcile();
     expect((await service.list()).packages).toHaveLength(1);
     expect((await loadPrompts()).map(({ name }) => name)).toEqual(["worktree"]);
+  });
+
+  it("loads the current resources after migrating an obsolete installation", async () => {
+    const old = join(root, "old-workflows");
+    await mkdir(join(old, "prompts"), { recursive: true });
+    await writeFile(join(old, "package.json"), JSON.stringify({ name: known.id }));
+    await writeFile(join(old, "prompts", "obsolete.md"), "Old installed prompt");
+    const settings = SettingsManager.create(cwd, agentDir);
+    settings.setPackages([old, { source, themes: [] }]);
+    await settings.flush();
+
+    await reconcileAutoInstallablePiPackages({
+      profileDir: agentDir,
+      ...createAutoInstallPiPackageProfile(agentDir),
+      dismissalChecker: { isDismissed: () => Promise.resolve(false) },
+      packageRoot: root,
+      knownPackages: [known],
+    });
+
+    expect((await loadPrompts()).map(({ name, filePath }) => ({ name, filePath }))).toEqual([
+      { name: "worktree", filePath: join(source, "prompts", "worktree.md") },
+    ]);
   });
 
   it("allows Pi resource filters to disable its prompts without removing the package", async () => {

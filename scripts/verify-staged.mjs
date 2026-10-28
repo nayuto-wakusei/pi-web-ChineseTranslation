@@ -83,7 +83,7 @@ export function createValidationSteps(plan) {
   ];
 
   if (plan.lint.mode === "full") {
-    steps.push({ label: "full ESLint validation (configuration changed)", npmArgs: ["run", "lint"] });
+    steps.push({ label: "full ESLint validation (configuration or large staged change)", npmArgs: ["run", "lint"] });
   } else if (plan.lint.mode === "scoped") {
     steps.push({
       label: `ESLint validation for ${String(plan.lint.files.length)} staged file(s)`,
@@ -92,7 +92,8 @@ export function createValidationSteps(plan) {
   }
 
   if (plan.tests.mode === "full") {
-    steps.push({ label: "full Vitest validation (configuration changed)", npmArgs: ["test"] });
+    // Retain the scoped hook's single-worker isolation for real-process tests.
+    steps.push({ label: "full Vitest validation (configuration or large staged change)", npmArgs: ["test", "--", "--maxWorkers", "1"] });
   } else if (plan.tests.mode === "related") {
     steps.push({
       label: `Vitest validation related to ${String(plan.tests.files.length)} staged input(s)`,
@@ -162,6 +163,8 @@ function normalizeRepoPath(path) {
 }
 
 function scopedValidation(files, mode) {
+  // Leave room for executable paths and quoting below Windows' command-line limit.
+  if (JSON.stringify(files).length > 24_000) return { mode: "full", files: [] };
   return files.length > 0 ? { mode, files } : { mode: "skip", files: [] };
 }
 

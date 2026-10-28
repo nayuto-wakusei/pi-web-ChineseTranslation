@@ -133,6 +133,6 @@ describe("PiWebApp session creation focus", () => {
     expect(startSession).not.toHaveBeenCalled();
     expect(appState(app).sessions).toHaveLength(1);
     expect(appState(app).sessions[0]?.id).toMatch(/^creating:/);
-    expect(appState(app).activity).toMatchObject({ phase: "error", label: "会话创建失败" });
+    expect(appState(app).activity).toMatchObject({ phase: "error", label: "Session creation failed" });
   });
 });

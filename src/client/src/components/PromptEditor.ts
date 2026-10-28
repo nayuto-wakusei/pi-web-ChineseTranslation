@@ -1,5 +1,7 @@
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
+import { LocalizationController } from "../localization/browser";
+import { promptEditorMessages as messages } from "../promptEditorMessages";
 import { defaultKeymap, history, historyKeymap, indentWithTab, insertNewlineAndIndent } from "@codemirror/commands";
 import { markdown, deleteMarkupBackward, insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState, Compartment } from "@codemirror/state";
@@ -25,10 +27,12 @@ import type { CompletionItem } from "../promptCompletionTypes";
 import { promptEditorStyles } from "./shared";
 import { renderAttachIcon, renderPhotosIcon, renderCameraIcon, renderSendIcon, renderQueueIcon, renderSteerIcon, renderStopIcon, renderThinkingGauge } from "./promptEditorIcons";
 import { thinkingGauge, thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
+
+function thinkingLevelLabel(level: string | undefined): string {
+  return thinkingLevelDisplayLabel(level, t);
+}
 import { AnchoredPopupController } from "./anchoredPopup";
 import "./AutocompleteMenu";
-
-function promptPlaceholderText(): string { return t("ui.promptEditor.messagePiForCommandsForTrackedFilesSpace", "Message pi... Use / for commands, @ for tracked files, @ space for all files, # for models"); }
 
 // Image inputs let mobile browsers offer photo-library sources; capture is a
 // separate camera preference, not a guarantee of a specific native chooser.
@@ -45,7 +49,7 @@ function createAttachSourceMenuMedia(): Pick<MediaQueryList, "matches"> | undefi
 function createPromptPlaceholder(): HTMLElement {
   const hint = document.createElement("span");
   hint.className = "prompt-placeholder";
-  hint.dataset["placeholder"] = promptPlaceholderText();
+  hint.dataset["placeholder"] = messages.t("placeholder");
   return hint;
 }
 
@@ -59,6 +63,7 @@ export class PromptEditor extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this, undefined, () => { this.editorLabelsDirty = true; });
   }
 
   @property() defaultStreamingBehavior: "steer" | "followUp" = "steer";
@@ -104,9 +109,9 @@ export class PromptEditor extends LitElement {
   @state() private selectedIndex = 0;
   @state() private attachments: readonly PendingAttachment[] = [];
   @state() private attachmentDelivery: PromptAttachmentDelivery = loadAttachmentDelivery();
-  @state() private attachmentError: string | undefined = undefined;
+  @state() private attachmentError: true | undefined = undefined;
   @state() private chipSendingKey: string | undefined = undefined;
-  @state() private chipError: string | undefined = undefined;
+  @state() private chipError: { kind: "retry" } | { kind: "failed"; error: string } | undefined = undefined;
   @state() private attachSourceOpen = false;
   private readonly attachPopup = new AnchoredPopupController(this, () => {
     if (!this.attachSourceOpen || !this.attachButton || !this.attachSourcePanel) return undefined;
@@ -123,6 +128,8 @@ export class PromptEditor extends LitElement {
   private fileCompletionTimer: ReturnType<typeof setTimeout> | undefined;
   private fileCompletionAbort: AbortController | undefined;
   private editor: EditorView | undefined;
+  private editorLabelsDirty = true;
+  private readonly editorLabelsCompartment = new Compartment();
   private readonly editableCompartment = new Compartment();
   private readonly readOnlyCompartment = new Compartment();
   private readonly mobilePromptEnterMedia = createMobilePromptEnterMedia();
@@ -152,7 +159,7 @@ export class PromptEditor extends LitElement {
     // object reference each time. When nothing else changed, only re-render if a
     // status field the template actually displays differs, so streaming does not
     // disturb the editor DOM (and any in-progress touch gesture survives).
-    if (changed.has("status") && changed.size === 1) {
+    if (!this.editorLabelsDirty && changed.has("status") && changed.size === 1) {
       return !sessionStatusRenderEqual(changed.get("status"), this.status);
     }
     return true;
@@ -167,6 +174,10 @@ export class PromptEditor extends LitElement {
   }
 
   protected override updated(changed: PropertyValues) {
+    if (this.editorLabelsDirty) {
+      this.editorLabelsDirty = false;
+      this.editor?.dispatch({ effects: this.editorLabelsCompartment.reconfigure(this.editorLabels()) });
+    }
     if (changed.has("disabled")) this.updateEditorDisabledState();
     if (changed.has("sessionId") || changed.has("machineId")) this.syncEditorDoc();
   }
@@ -191,30 +202,30 @@ export class PromptEditor extends LitElement {
       <footer class=${shellMode ? "shell-mode" : ""} ?data-active-work=${this.canStop} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
         <div class="editor-wrap">
           <div class="editor-input">
-            <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label=${t("ui.promptEditor.messagePi", "Message pi")} aria-disabled=${this.disabled ? "true" : "false"}></div>
+            <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label=${messages.t("message")} aria-disabled=${this.disabled ? "true" : "false"}></div>
             ${this.chatNavigation === undefined ? null : html`<div class="editor-chat-navigation">${this.chatNavigation}</div>`}
             <input class="attachment-input" type="file" multiple hidden @change=${(event: Event) => { void this.handleFileInput(event); }} />
             <input class="attachment-image-input" type="file" multiple accept="image/*" hidden @change=${(event: Event) => { void this.handleFileInput(event); }} />
             <input class="attachment-camera-input" type="file" accept="image/*" capture="environment" hidden @change=${(event: Event) => { void this.handleFileInput(event); }} />
-            <button type="button" class="editor-attach icon-button ui-button ui-button--icon" ?disabled=${busy} title=${t("ui.promptEditor.attachFiles", "Attach files")} aria-label=${t("ui.promptEditor.attachFiles", "Attach files")} aria-controls=${sourceMenu ? "attach-source-panel" : nothing} aria-expanded=${sourceMenu ? String(this.attachSourceOpen) : nothing} @click=${() => { this.handleAttachClick(); }}>${renderAttachIcon()}</button>
-            <div id="attach-source-panel" class="attach-source-panel ui-menu" popover="auto" role="group" aria-label=${t("ui.promptEditor.attachmentSource", "Attachment source")}>
-              <button type="button" class="ui-button ui-menu-item" ?disabled=${busy} title=${t("ui.promptEditor.chooseFromPhotoLibrary", "Choose from your photo library")} @click=${() => { this.openAttachmentPicker(this.attachmentImageInput); }}><span class="attach-source-icon" aria-hidden="true">${renderPhotosIcon()}</span><span class="attach-source-label">${t("ui.promptEditor.photos", "Photos")}</span></button>
-              <button type="button" class="ui-button ui-menu-item" ?disabled=${busy} title=${t("ui.promptEditor.takePhoto", "Take a new photo")} @click=${() => { this.openAttachmentPicker(this.attachmentCameraInput); }}><span class="attach-source-icon" aria-hidden="true">${renderCameraIcon()}</span><span class="attach-source-label">${t("ui.promptEditor.camera", "Camera")}</span></button>
-              <button type="button" class="ui-button ui-menu-item" ?disabled=${busy} title=${t("ui.promptEditor.browseFiles", "Browse documents and other files")} @click=${() => { this.openAttachmentPicker(this.attachmentInput); }}><span class="attach-source-icon" aria-hidden="true">${renderAttachIcon()}</span><span class="attach-source-label">${t("ui.promptEditor.files", "Files")}</span></button>
+            <button type="button" class="editor-attach icon-button ui-button ui-button--icon" ?disabled=${busy} title=${messages.t("attach")} aria-label=${messages.t("attach")} aria-controls=${sourceMenu ? "attach-source-panel" : nothing} aria-expanded=${sourceMenu ? String(this.attachSourceOpen) : nothing} @click=${() => { this.handleAttachClick(); }}>${renderAttachIcon()}</button>
+            <div id="attach-source-panel" class="attach-source-panel ui-menu" popover="auto" role="group" aria-label=${messages.t("source")}>
+              <button type="button" class="ui-button ui-menu-item" ?disabled=${busy} title=${messages.t("photosTitle")} @click=${() => { this.openAttachmentPicker(this.attachmentImageInput); }}><span class="attach-source-icon" aria-hidden="true">${renderPhotosIcon()}</span><span class="attach-source-label">${messages.t("photos")}</span></button>
+              <button type="button" class="ui-button ui-menu-item" ?disabled=${busy} title=${messages.t("cameraTitle")} @click=${() => { this.openAttachmentPicker(this.attachmentCameraInput); }}><span class="attach-source-icon" aria-hidden="true">${renderCameraIcon()}</span><span class="attach-source-label">${messages.t("camera")}</span></button>
+              <button type="button" class="ui-button ui-menu-item" ?disabled=${busy} title=${messages.t("filesTitle")} @click=${() => { this.openAttachmentPicker(this.attachmentInput); }}><span class="attach-source-icon" aria-hidden="true">${renderAttachIcon()}</span><span class="attach-source-label">${messages.t("files")}</span></button>
             </div>
-            ${shellMode ? html`<div class="mode-hint">${t("ui.promptEditor.shellCommand", "Shell command")}${shellInputMode.excludeFromContext ? t("ui.promptEditor.excludedFromContext", " · Excluded from context") : ""}</div>` : null}
-            ${this.isCompacting && !shellMode ? html`<div class="mode-hint">${t("ui.promptEditor.compactingHistoryMessagesWillQueue", "Compacting history · Messages will queue")}</div>` : null}
+            ${shellMode ? html`<div class="mode-hint">${messages.t("shell", { excluded: shellInputMode.excludeFromContext ? "yes" : "no" })}</div>` : null}
+            ${this.isCompacting && !shellMode ? html`<div class="mode-hint">${messages.t("compacting")}</div>` : null}
           </div>
           ${this.renderPromptChips()}
           ${this.renderAttachments()}
           <autocomplete-menu .onClose=${() => { this.closeCompletions(); }} .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
-        <div class="actions ui-toolbar ui-toolbar--primary">
+        <div class="actions ui-toolbar ui-toolbar--primary ui-toolbar--borderless">
           ${this.renderCompactStatus()}
           <div class="ui-toolbar-group">
-            <button class="ui-button ui-button--icon icon-button send-button ${keyboardSteers ? "" : "default-send-action"}" ?disabled=${busy} title=${queuesInput ? t("ui.promptEditor.queueAfterCurrentActivity", "Queue until the current activity finishes") : t("ui.promptEditor.sendMessage", "Send message")} aria-label=${queuesInput ? t("ui.promptEditor.queueMessage", "Queue message") : t("ui.promptEditor.sendMessage", "Send message")} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
-            ${this.canSteer && !this.isCompacting ? html`<button class="ui-button ui-button--icon icon-button steer-button ${keyboardSteers ? "default-send-action" : ""}" ?disabled=${busy} title=${t("ui.promptEditor.steerTheCurrentResponseBeforeTheNextModel", "Steer the current response before the next model call")} aria-label=${t("ui.promptEditor.steerCurrentResponse", "Steer current response")} @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
-            <button class="ui-button ui-button--icon icon-button stop-button" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? t("ui.promptEditor.stopCurrentWorkAndClearQueuedMessages", "Stop current work and clear queued messages") : t("ui.promptEditor.noTaskIsRunning", "Nothing running")} aria-label=${t("ui.promptEditor.stop", "Stop current work")} @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
+            <button class="ui-button ui-button--icon icon-button send-button ${keyboardSteers ? "" : "default-send-action"}" ?disabled=${busy} title=${messages.t(queuesInput ? "queueTitle" : "send")} aria-label=${messages.t(queuesInput ? "queue" : "send")} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
+            ${this.canSteer && !this.isCompacting ? html`<button class="ui-button ui-button--icon icon-button steer-button ${keyboardSteers ? "default-send-action" : ""}" ?disabled=${busy} title=${messages.t("steerTitle")} aria-label=${messages.t("steer")} @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
+            <button class="ui-button ui-button--icon icon-button stop-button" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? t("ui.promptEditor.stopCurrentWorkAndClearQueuedMessages", "Stop current work and clear queued messages") : messages.t("idle")} aria-label=${messages.t("stop")} @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
           </div>
         </div>
       </footer>
@@ -255,12 +266,14 @@ export class PromptEditor extends LitElement {
   private renderCompactStatus() {
     const status = this.status;
     if (status === undefined) return null;
-    const model = status.model?.id ?? t("ui.promptEditor.noModel", "No model");
+    const model = status.model?.id ?? messages.t("noModel");
     const provider = status.model?.provider !== undefined && status.model.provider !== "" ? `${status.model.provider}/` : "";
     return html`
-      <div class="compact-status" aria-label="${t("ui.promptEditor.sessionStatus", "Session status")}">
-        <button class="ui-button select-model" title="${t("client.actions.choose.model.1afed6", "Choose model")}" @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
-        <button class="ui-button ui-button--icon select-thinking icon-button" title=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} aria-label=${t("ui.promptEditor.thinkingLevel", "Thinking level: {thinkingLevel}", { thinkingLevel: thinkingLevelDisplayLabel(status.thinkingLevel, t) })} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
+      <div class="compact-status" aria-label=${messages.t("status")}>
+        <div class="ui-toolbar-group ui-toolbar-group--bounded">
+          <button class="ui-button select-model" title=${messages.t("selectModel")} @click=${() => this.onSelectModel?.()}>${provider}${model}</button>
+          <button class="ui-button ui-button--icon select-thinking icon-button" title=${messages.t("thinking", { level: thinkingLevelLabel(status.thinkingLevel) })} aria-label=${messages.t("thinking", { level: thinkingLevelLabel(status.thinkingLevel) })} @click=${() => this.onSelectThinking?.()}>${renderThinkingGauge(thinkingGauge(status.thinkingLevel, this.availableThinkingLevels))}</button>
+        </div>
       </div>
     `;
   }
@@ -268,14 +281,14 @@ export class PromptEditor extends LitElement {
   private renderPromptChips() {
     if (this.promptChips.length === 0 && this.chipError === undefined) return null;
     return html`
-      <div class="prompt-chips" aria-label=${t("ui.promptEditor.pendingPluginContext", "Pending plugin context")}>
+      <div class="prompt-chips" aria-label=${messages.t("context")}>
         ${this.promptChips.map((chip) => html`
           <div class="prompt-chip" title=${chip.text}>
-            <span>${chip.label}</span>
-            <button type="button" class="ui-button ui-button--compact ui-button--icon" aria-label=${t("ui.promptEditor.remove", "Remove {name}", { name: chip.label })} ?disabled=${this.disabled} @click=${() => this.onRemoveChip?.(chip)}>×</button>
+            <span dir="auto">${chip.label}</span>
+            <button type="button" class="ui-button ui-button--compact ui-button--icon" aria-label=${messages.t("remove", { name: chip.label })} ?disabled=${this.disabled} @click=${() => this.onRemoveChip?.(chip)}>×</button>
           </div>
         `)}
-        ${this.chipError === undefined ? null : html`<div class="chip-error" role="alert">${this.chipError}</div>`}
+        ${this.chipError === undefined ? null : html`<div class="chip-error" role="alert">${this.chipError.kind === "retry" ? messages.t("retry") : messages.t("submitFailed", { error: this.chipError.error })}</div>`}
       </div>
     `;
   }
@@ -285,22 +298,22 @@ export class PromptEditor extends LitElement {
     const canUseInlineDelivery = promptAttachmentsCanUseInlineDelivery(this.attachments);
     const delivery = this.effectiveAttachmentDelivery();
     return html`
-      <div class="attachments" aria-label="${t("ui.promptEditor.pendingAttachments", "Pending attachments")}">
+      <div class="attachments" aria-label=${messages.t("attachments")}>
         ${this.attachments.map((attachment) => html`
           <div class=${`attachment-chip ${isInlinePromptAttachment(attachment) ? "attachment-chip-image" : "attachment-chip-file"}`} title=${attachment.name}>
             ${this.renderAttachmentPreview(attachment)}
-            <button type="button" class="attachment-remove ui-button ui-button--compact ui-button--icon" title="${t("ui.promptEditor.removeAttachment", "Remove attachment")}" aria-label=${t("ui.promptEditor.remove", "Remove {name}", { name: attachment.name })} @click=${() => { this.removeAttachment(attachment.id); }}>×</button>
+            <button type="button" class="ui-button ui-button--compact ui-button--icon attachment-remove" title=${messages.t("removeAttachment")} aria-label=${messages.t("remove", { name: attachment.name })} @click=${() => { this.removeAttachment(attachment.id); }}>×</button>
           </div>
         `)}
         ${this.attachments.length > 0 ? html`
-          <label class="attachment-delivery" title=${canUseInlineDelivery ? t("ui.promptEditor.howAttachmentsAreSentToTheAgent", "How attachments are sent to the agent") : t("ui.promptEditor.regularFilesAreSavedToTheWorkspaceAnd", "Regular files are saved to the workspace and referenced")}>
-            <select class="ui-select" aria-label=${t("ui.promptEditor.attachmentDelivery", "Attachment delivery")} .value=${delivery} @change=${(event: Event) => { this.changeDelivery(event); }}>
-              <option value="inline" ?disabled=${!canUseInlineDelivery}>${t("ui.promptEditor.attachToMessage", "Attach to message")}${canUseInlineDelivery ? "" : t("ui.promptEditor.imagesOnly", " (images only)")}</option>
+          <label class="attachment-delivery" title=${messages.t(canUseInlineDelivery ? "deliveryTitle" : "filesDeliveryTitle")}>
+            <select class="ui-select" aria-label=${messages.t("delivery")} .value=${delivery} @change=${(event: Event) => { this.changeDelivery(event); }}>
+              <option value="inline" ?disabled=${!canUseInlineDelivery}>${messages.t("inline", { available: canUseInlineDelivery ? "yes" : "no" })}</option>
               <option value="folder">${attachmentFolderDeliveryLabel(this.attachmentsFolder)}</option>
             </select>
           </label>
         ` : null}
-        ${this.attachmentError !== undefined ? html`<div class="attachment-error">${this.attachmentError}</div>` : null}
+        ${this.attachmentError !== undefined ? html`<div class="attachment-error">${messages.t("readFailed")}</div>` : null}
       </div>
     `;
   }
@@ -311,7 +324,7 @@ export class PromptEditor extends LitElement {
     }
     return html`
       <div class="attachment-file-preview" aria-hidden="true">${fileExtensionLabel(attachment.name)}</div>
-      <span class="attachment-file-name">${attachment.name}</span>
+      <span class="attachment-file-name" dir="auto">${attachment.name}</span>
     `;
   }
 
@@ -395,7 +408,7 @@ export class PromptEditor extends LitElement {
       const key = draftStorageKey(this.machineId, this.sessionId);
       if (key !== undefined) saveStagedAttachments(key, this.attachments);
     }
-    if (error !== undefined) this.attachmentError = error;
+    if (error !== undefined) this.attachmentError = true;
   }
 
   private currentAttachments(): PromptAttachment[] {
@@ -426,8 +439,8 @@ export class PromptEditor extends LitElement {
             keyup: (event) => this.handleEditorKeyUp(event),
             blur: () => this.resetEditorModifierState(),
           }),
-          placeholder(createPromptPlaceholder),
-          EditorView.contentAttributes.of({ "aria-placeholder": promptPlaceholderText() }),
+          this.editorLabelsCompartment.of(this.editorLabels()),
+          promptArgumentHintExtension,
           this.editableCompartment.of(EditorView.editable.of(!this.disabled)),
           this.readOnlyCompartment.of(EditorState.readOnly.of(this.disabled)),
           EditorView.updateListener.of((update) => {
@@ -447,6 +460,13 @@ export class PromptEditor extends LitElement {
         ],
       }),
     });
+  }
+
+  private editorLabels() {
+    return [
+      placeholder(createPromptPlaceholder),
+      EditorView.contentAttributes.of({ "aria-placeholder": messages.t("placeholder"), "aria-label": messages.t("message") }),
+    ];
   }
 
   private syncEditorDoc() {
@@ -496,7 +516,7 @@ export class PromptEditor extends LitElement {
     const version = ++this.requestVersion;
     this.selectedIndex = 0;
     if (trigger === undefined) {
-      this.completions = [];
+      if (this.completions.length > 0) this.completions = [];
       return;
     }
     if (trigger.kind === "command" && this.sessionId !== undefined && this.sessionId !== "" && this.cwd !== undefined && this.cwd !== "") {
@@ -678,10 +698,10 @@ export class PromptEditor extends LitElement {
         // Do not erase edits made during delivery, or the next conversation.
         if (draft === this.draft && pending === this.attachments) this.resetComposer();
       } else {
-        this.chipError = t("ui.promptEditor.contextKeptForRetry", "Message not submitted. Context kept for retry.");
+        this.chipError = { kind: "retry" };
       }
     } catch (error) {
-      if (key === this.composerKey()) this.chipError = t("ui.promptEditor.messageNotSubmitted", "Message not submitted: {error}", { error: String(error) });
+      if (key === this.composerKey()) this.chipError = { kind: "failed", error: String(error) };
     } finally {
       if (this.chipSendingKey === key) this.chipSendingKey = undefined;
     }
@@ -756,14 +776,14 @@ function pendingToPromptAttachment(attachment: PendingAttachment): PromptAttachm
 }
 
 export function attachmentFolderDeliveryLabel(folder: string): string {
-  return t("ui.main.bbbb5df3357e", "Save to {arg0}", { arg0: folder });
+  return messages.t("folder", { folder });
 }
 
 function fileExtensionLabel(name: string): string {
   const trimmed = name.trim();
   const dotIndex = trimmed.lastIndexOf(".");
   if (dotIndex >= 0 && dotIndex < trimmed.length - 1) return trimmed.slice(dotIndex + 1, dotIndex + 5).toUpperCase();
-  return t("ui.toolExecutionView.file", "File");
+  return messages.t("file");
 }
 
 function readFileAsBase64(file: File): Promise<string> {

@@ -1,0 +1,14 @@
+{
+  "name": "@pi-web/language-spanish-plugin",
+  "private": true,
+  "piWeb": {
+    "plugins": [
+      {
+        "id": "language-spanish",
+        "browserRoot": ".",
+        "module": "pi-web-plugin.js",
+        "defaultEnabled": false
+      }
+    ]
+  }
+}

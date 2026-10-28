@@ -261,7 +261,7 @@ describe("SessionController archive and cleanup", () => {
     expect(state.sessions.find((session) => session.id === oldSession.id)).toMatchObject({ archived: true });
     expect(state.sessions.find((session) => session.id === failedSession.id)?.archived).toBeUndefined();
     expect(state.selectedSession?.id).toBe(failedSession.id);
-    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("归档失败，1 个会话处理失败：failed-session: busy");
+    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("Archive failed for 1 session: failed-session: busy");
   });
 
   it("uses bulk archive when the runtime omits capability metadata", async () => {
@@ -360,7 +360,7 @@ describe("SessionController archive and cleanup", () => {
     expect(deleteCalls).toEqual([{ ids: [deletedSession.id, failedSession.id], machineId: "local" }]);
     expect(state.sessions.map((session) => session.id)).toEqual([failedSession.id]);
     expect(state.selectedSession?.id).toBe(failedSession.id);
-    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("删除失败，1 个会话处理失败：failed-archived: busy");
+    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("Delete failed for 1 session: failed-archived: busy");
   });
 
   it("applies cleanup execution results and refreshes the current workspace sessions", async () => {
@@ -534,7 +534,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     expect(state.sessions.find((session) => session.id === oldSession.id)).toMatchObject({ archived: true });
     expect(state.sessions.find((session) => session.id === failedSession.id)?.archived).toBeUndefined();
     expect(state.selectedSession?.id).toBe(failedSession.id);
-    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("归档失败，1 个会话处理失败：failed-session: busy");
+    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("Archive failed for 1 session: failed-session: busy");
   });
 
   it("follows archived-session deletion when the user selects it before the request settles", async () => {
@@ -608,6 +608,6 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     expect(deleteCalls).toEqual([{ ids: [deletedSession.id, failedSession.id], machineId: "local" }]);
     expect(state.sessions.map((session) => session.id)).toEqual([failedSession.id]);
     expect(state.selectedSession?.id).toBe(failedSession.id);
-    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("删除失败，1 个会话处理失败：failed-archived: busy");
+    expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("Delete failed for 1 session: failed-archived: busy");
   });
 });

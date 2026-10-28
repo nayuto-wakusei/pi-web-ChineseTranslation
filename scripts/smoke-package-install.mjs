@@ -106,6 +106,16 @@ try {
   const host = hosts[0];
   process.env["PI_WEB_PI_PACKAGE_DIR"] = host.hostRoot;
   await smokeInstalledServices(packageRoot);
+  for (const preference of ["auto", "node"]) {
+    const launcherEnv = { ...process.env, PI_WEB_RUNTIME: preference };
+    const cli = join(globalPrefix, "bin", "pi-web");
+    const selected = await execFileAsync(cli, ["--print-runtime"], { env: launcherEnv, encoding: "utf8", timeout: 30_000 });
+    assert.equal(selected.stdout.trim(), "node");
+    const prerequisites = await execFileAsync(join(globalPrefix, "bin", "pi-web-sessiond"), ["--check-runtime"], { env: launcherEnv, encoding: "utf8", timeout: 30_000 });
+    assert.equal(prerequisites.stdout.trim(), "node");
+    const version = await execFileAsync(cli, ["--version"], { env: launcherEnv, encoding: "utf8", timeout: 30_000 });
+    assert.ok(version.stdout.includes(JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")).version));
+  }
   await smokeInstalledTypebox(packageRoot, host);
   await smokePiPackageExtension(packageRoot, host);
   await smokeInstalledPluginApi({ packageRoot, fixtureRoot: root, repoRoot });
@@ -256,7 +266,9 @@ async function smokeInstalledPiSdk(packageRoot, host, options = {}) {
   } : {};
   await runFixture(runtimePath, packageRoot, host, selectionEnv);
   const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
-  const cliPath = join(packageRoot, manifest.bin["pi-web"]);
+  // Explicit interpreter tests use the JS entry; launcher policy has its own
+  // installed-package smoke so these restricted-PATH SDK fixtures stay focused.
+  const cliPath = join(packageRoot, "dist", "cli.js");
   for (const args of [["--version"], ["--help"]]) {
     const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
       cwd: root, env: { ...process.env, PI_WEB_PI_PACKAGE_DIR: host.hostRoot, ...selectionEnv },
@@ -386,6 +398,9 @@ async function smokeInstalledSessionDaemon(packageRoot, host, layout, options = 
 }
 
 async function smokeInstalledTerminalService(packageRoot) {
+  const { checkTerminalPrerequisites } = await import(pathToFileURL(join(packageRoot, "dist", "server", "diagnostics", "terminalPrerequisites.js")).href);
+  const readiness = await checkTerminalPrerequisites();
+  assert.ok(readiness.ok, readiness.lines.join("\n"));
   const requireFromPackage = createRequire(join(packageRoot, "package.json"));
   const nodePtyPackageJsonPath = requireFromPackage.resolve("node-pty/package.json");
   const nodePtyPackage = JSON.parse(await readFile(nodePtyPackageJsonPath, "utf8"));
@@ -395,9 +410,10 @@ async function smokeInstalledTerminalService(packageRoot) {
 
   const terminalModuleUrl = pathToFileURL(join(packageRoot, "dist", "pi-web-plugins", "terminal", "terminalService.js")).href;
   const { TerminalService } = await import(terminalModuleUrl);
+  const { createDefaultPtyProvider } = await import(new URL("./ptyComposition.js", terminalModuleUrl).href);
   const previousShell = process.env["SHELL"];
   process.env["SHELL"] = "/bin/sh";
-  const service = new TerminalService();
+  const service = new TerminalService(createDefaultPtyProvider());
   try {
     const run = service.runCommand({
       origin: "package-smoke",

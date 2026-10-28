@@ -1,9 +1,10 @@
 import { constants } from "node:fs";
 import { open, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { effectiveAttachmentsConfig, effectiveUploadsConfig, parseAttachmentsConfig, parsePathAccessConfig, parseUploadsConfig, type PiWebConfig } from "../../config.js";
+import { effectiveAttachmentsConfig, effectiveUploadsConfig, overlayPiWebConfig, parseAttachmentsConfig, parsePathAccessConfig, parseUploadsConfig, type PiWebConfig } from "../../config.js";
 import type { JsonObject, JsonValue, PiWebAttachmentsConfig, PiWebPathAccessConfig, PiWebUploadsConfig } from "../../shared/apiTypes.js";
 import { isPiWebPluginId, piWebPluginIdPattern } from "../../shared/pluginIds.js";
+import { piWebConfigNamespaceFields } from "../../shared/configResolution.js";
 
 export const PROJECT_PI_WEB_CONFIG_PATH = ".pi-web/config.json";
 
@@ -54,19 +55,44 @@ export async function loadProjectPiWebConfig(projectPath: string, signal?: Abort
   }
 }
 
-export async function loadEffectiveProjectPathAccess(projectPath: string, globalConfig: PiWebConfig): Promise<PiWebPathAccessConfig | undefined> {
+/** JSON-pointer provenance from the same resolution that supplied globalConfig. */
+export type EnforcedProjectSettings = Readonly<Record<string, string>>;
+
+export async function loadEffectiveProjectPathAccess(projectPath: string, globalConfig: PiWebConfig, enforcedSettings: EnforcedProjectSettings = {}): Promise<PiWebPathAccessConfig | undefined> {
   const projectConfig = await loadProjectPiWebConfig(projectPath);
-  return mergePathAccessConfigs(globalConfig.pathAccess, projectConfig.config.pathAccess);
+  // Base enforcement does not suppress additions. Additions enforcement does
+  // suppress both machine and project contributions, including an empty list.
+  return mergePathAccessConfigs(
+    { allowedPaths: globalConfig.basePaths ?? [] },
+    globalConfig.pathAccess,
+    enforcedSettings["/pathAccess"] === undefined && enforcedSettings["/pathAccess/allowedPaths"] === undefined ? projectConfig.config.pathAccess : undefined,
+  );
 }
 
-export async function loadEffectiveProjectUploadsConfig(projectPath: string, globalConfig: PiWebConfig): Promise<PiWebUploadsConfig> {
+export async function loadEffectiveProjectUploadsConfig(projectPath: string, globalConfig: PiWebConfig, enforcedSettings: EnforcedProjectSettings = {}): Promise<PiWebUploadsConfig> {
   const projectConfig = await loadProjectPiWebConfig(projectPath);
-  return effectiveUploadsConfig({ uploads: { ...(globalConfig.uploads ?? {}), ...(projectConfig.config.uploads ?? {}) } });
+  return effectiveUploadsConfig(overlayProjectFolders(globalConfig, { uploads: projectConfig.config.uploads ?? {} }, enforcedSettings));
 }
 
-export async function loadEffectiveProjectAttachmentsConfig(projectPath: string, globalConfig: PiWebConfig): Promise<PiWebAttachmentsConfig> {
+export async function loadEffectiveProjectAttachmentsConfig(projectPath: string, globalConfig: PiWebConfig, enforcedSettings: EnforcedProjectSettings = {}): Promise<PiWebAttachmentsConfig> {
   const projectConfig = await loadProjectPiWebConfig(projectPath);
-  return effectiveAttachmentsConfig({ attachments: { ...(globalConfig.attachments ?? {}), ...(projectConfig.config.attachments ?? {}) } });
+  return effectiveAttachmentsConfig(overlayProjectFolders(globalConfig, { attachments: projectConfig.config.attachments ?? {} }, enforcedSettings));
+}
+
+/** Restore only enforced fields after the project's independently resolved settings. */
+function overlayProjectFolders(globalConfig: PiWebConfig, project: Pick<PiWebConfig, "uploads" | "attachments">, enforced: EnforcedProjectSettings): PiWebConfig {
+  const result = overlayPiWebConfig(globalConfig, project);
+  for (const key of ["uploads", "attachments"] as const) {
+    if (project[key] === undefined) continue;
+    const container = result[key];
+    if (container === undefined) continue;
+    for (const field of piWebConfigNamespaceFields(key) ?? []) {
+      if (enforced[`/${key}`] === undefined && enforced[`/${key}/${field}`] === undefined) continue;
+      const value: unknown = Object.getOwnPropertyDescriptor(globalConfig[key] ?? {}, field)?.value;
+      Object.defineProperty(container, field, { value, enumerable: true, configurable: true, writable: true });
+    }
+  }
+  return result;
 }
 
 export function mergePathAccessConfigs(...configs: (PiWebPathAccessConfig | undefined)[]): PiWebPathAccessConfig | undefined {
@@ -76,6 +102,7 @@ export function mergePathAccessConfigs(...configs: (PiWebPathAccessConfig | unde
 
 function parseProjectPiWebConfig(value: Record<string, unknown>, path: string): ProjectPiWebConfig {
   const version = value["version"];
+  if (Object.hasOwn(value, "basePaths")) throw new Error(`PI WEB project config basePaths is not supported; path bases are global: ${path}`);
   return {
     ...(version !== undefined ? { version: parseProjectConfigVersion(version, path) } : {}),
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], path) } : {}),

@@ -1,8 +1,9 @@
-import { t } from "../i18n";
+
 import { api as defaultApi, type Project } from "../api";
 import { BrowserErrorReporter, machineBrowserErrorScope, projectBrowserErrorScope } from "../browserErrors";
 import { selectedMachineId, type GetState, type NavigationDestinationOptions, type NavigationSelection, type SetState } from "./types";
 import type { WorkspaceController } from "./workspaceController";
+import { projectWorkspaceMessages as messages, ProjectWorkspaceError, reportProjectWorkspaceError } from "./projectWorkspaceMessages";
 
 /**
  * Trust choice the add-project dialog submits with the path. `changed` is
@@ -96,7 +97,7 @@ export class ProjectController {
       if (this.navigateToProject !== undefined) await this.navigateToProject(project, { expected });
       else await this.workspaces.selectProject(project);
     } catch (error) {
-      this.browserErrors.report(projectBrowserErrorScope(machineId, project.id), String(error));
+      reportProjectWorkspaceError(this.browserErrors, projectBrowserErrorScope(machineId, project.id), error);
     }
   }
 
@@ -108,7 +109,7 @@ export class ProjectController {
   private async applyTrustChoice(project: Project, trusted: boolean, machineId: string): Promise<void> {
     const workspaces = await (this.api.workspaces ?? defaultApi.workspaces)(project.id, machineId);
     const mainWorkspace = workspaces.find((workspace) => workspace.projectId === project.id && workspace.isMain);
-    if (mainWorkspace === undefined) throw new Error(t("ui.main.7800af593e97", "Could not save trust choice for project {arg0}: the primary workspace is unavailable", { arg0: project.id }));
+    if (mainWorkspace === undefined) throw new ProjectWorkspaceError(() => messages.t("trustUnavailable", { id: project.id }));
     await (this.api.setWorkspaceTrust ?? defaultApi.setWorkspaceTrust)(project.id, mainWorkspace.id, trusted, machineId);
   }
 

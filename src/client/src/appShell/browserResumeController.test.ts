@@ -26,7 +26,41 @@ function frameHarness() {
 }
 
 describe("BrowserResumeController", () => {
-  it("batches overlapping focus and visible signals into one app refresh", async () => {
+  it("renews subscriptions after backgrounding or network recovery, but not ordinary focus", async () => {
+    const windowTarget = new EventTarget();
+    const documentTarget = new EventTarget();
+    const frames = frameHarness();
+    let visible = true;
+    const refresh = vi.fn();
+    const controller = new BrowserResumeController({
+      onResumeSignal: () => undefined,
+      refreshAfterResume: refresh,
+      onRefreshError: (error) => { throw error; },
+    }, { windowTarget, documentTarget, isDocumentVisible: () => visible, scheduleFrame: frames.scheduleFrame });
+    controller.connect();
+    windowTarget.dispatchEvent(new Event("focus"));
+    frames.runNext();
+    await Promise.resolve();
+    expect(refresh).toHaveBeenLastCalledWith(false);
+    visible = false;
+    documentTarget.dispatchEvent(new Event("visibilitychange"));
+    visible = true;
+    windowTarget.dispatchEvent(new Event("focus"));
+    documentTarget.dispatchEvent(new Event("visibilitychange"));
+    frames.runNext();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(refresh).toHaveBeenLastCalledWith(true);
+    windowTarget.dispatchEvent(new Event("online"));
+    frames.runNext();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(refresh).toHaveBeenCalledTimes(3);
+    expect(refresh).toHaveBeenLastCalledWith(true);
+    controller.disconnect();
+  });
+
+  it("batches overlapping focus, visibility, pageshow, and online signals into one app refresh", async () => {
     const windowTarget = new EventTarget();
     const documentTarget = new EventTarget();
     const frames = frameHarness();

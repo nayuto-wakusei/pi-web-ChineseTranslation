@@ -87,8 +87,8 @@ describe("plugin context → composer → server submission", () => {
     const onRemove = vi.fn();
     prompt.setChip?.({ id: "note", label: "Selected note", text: "Context", onRemove });
     const editor = await host.refresh();
-    expect(editor.shadowRoot?.querySelector('[aria-label="待发送的插件上下文"]')?.textContent).toContain("Selected note");
-    editor.shadowRoot?.querySelector<HTMLButtonElement>('[aria-label="移除 Selected note"]')?.click();
+    expect(editor.shadowRoot?.querySelector("[aria-label=\"Pending plugin context\"]")?.textContent).toContain("Selected note");
+    editor.shadowRoot?.querySelector<HTMLButtonElement>("[aria-label=\"Remove Selected note\"]")?.click();
     await host.refresh();
     expect(onRemove).toHaveBeenCalledExactlyOnceWith("user");
     expect(editor.shadowRoot?.querySelector(".prompt-chip")).toBeNull();
@@ -135,7 +135,7 @@ describe("plugin context → composer → server submission", () => {
     const editor = await host.refresh();
     editor.replaceText("Question");
     editor.shadowRoot?.querySelector<HTMLButtonElement>(".send-button")?.click();
-    await vi.waitFor(() => { expect(editor.shadowRoot?.querySelector('[role="alert"]')?.textContent).toContain("上下文已保留"); });
+    await vi.waitFor(() => { expect(editor.shadowRoot?.querySelector('[role="alert"]')?.textContent).toContain("Context kept for retry"); });
     expect(editor.view?.state.doc.toString()).toBe("Question");
     expect(onRemove).not.toHaveBeenCalled();
     expect(editor.shadowRoot?.querySelector(".prompt-chip")).not.toBeNull();

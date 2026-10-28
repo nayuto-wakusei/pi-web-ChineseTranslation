@@ -72,7 +72,7 @@ it.each([false, true].flatMap((previews) => ["```text\ndisplayed\n```", "", unde
     { type: "text", text: "original", ...(displayText === undefined ? {} : { displayText }) },
     { type: "thinking", text: "original reasoning", ...(displayText === undefined ? {} : { displayText }) },
   ]);
-  const copy = view.renderRoot.querySelector<HTMLButtonElement>('[aria-label="Copy Assistant message"]');
+  const copy = view.renderRoot.querySelector<HTMLButtonElement>('[aria-label="Copy assistant message"]');
   expect(copy).not.toBeNull();
   copy?.click();
   await view.updateComplete;

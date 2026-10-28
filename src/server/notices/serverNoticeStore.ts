@@ -1,3 +1,5 @@
+import { parseServerNoticePresentation } from "../../shared/serverNoticePresentation.js";
+import type { ServerNoticePresentation } from "../../shared/serverNoticePresentation.js";
 import { randomUUID } from "node:crypto";
 import type { JsonObject, JsonValue, ServerNotice, ServerNoticeScope, ServerNoticeSeverity, ServerNoticeSnapshot } from "../../shared/apiTypes.js";
 import type { JsonObject as PluginJsonObject, JsonValue as PluginJsonValue } from "../../shared/pluginApiTypes.js";
@@ -9,6 +11,7 @@ import {
 } from "../../shared/serverNoticeContract.js";
 
 export interface ServerNoticeInput {
+  presentation?: ServerNoticePresentation;
   severity: ServerNoticeSeverity;
   message: string;
   source?: string;
@@ -66,6 +69,7 @@ export class ServerNoticeStore {
     // changing the store so any validation/generation failure is atomic.
     const scope = input.scope === undefined ? undefined : parseServerNoticeScope(input.scope, "Notice scope");
     const context = input.context === undefined ? undefined : copyJsonObject(input.context);
+    const presentation = parseServerNoticePresentation(input.presentation);
     const id = `${this.daemonInstanceId}:${this.createNoticeId()}`;
     if (this.notices.has(id)) throw new Error(`Notice id already exists: ${id}`);
     const nextRevision = incrementSafe(this.revision, "Notice revision exhausted");
@@ -73,6 +77,7 @@ export class ServerNoticeStore {
       id,
       severity: input.severity,
       message: input.message,
+      ...(presentation === undefined ? {} : { presentation: Object.freeze(presentation) }),
       createdAt: this.now().toISOString(),
       ...(input.source === undefined ? {} : { source: input.source }),
       ...(scope === undefined ? {} : { scope }),
@@ -133,6 +138,7 @@ function requireSeverity(value: unknown): asserts value is ServerNoticeSeverity 
 function copyNotice(notice: ServerNotice): ServerNotice {
   return {
     ...notice,
+    ...(notice.presentation === undefined ? {} : { presentation: { ...notice.presentation } }),
     ...(notice.scope === undefined ? {} : { scope: { ...notice.scope } }),
     ...(notice.context === undefined ? {} : { context: copyJsonObject(notice.context) }),
   };

@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RemoteMachineClient } from "./machineClient.js";
 
@@ -83,6 +84,60 @@ describe("RemoteMachineClient", () => {
     await expectation;
 
     expect(fetchSignal?.aborted).toBe(true);
+  });
+
+  it.each(["deadline", "caller cancellation"] as const)("bounds a stalled JSON body through %s after headers arrive", async (stop) => {
+    let bodyReadStarted!: () => void;
+    const bodyReading = new Promise<void>((resolve) => { bodyReadStarted = resolve; });
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.write('{"name":');
+    });
+    await new Promise<void>((resolve) => { server.listen(0, "127.0.0.1", resolve); });
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected TCP server address");
+    const controller = new AbortController();
+    const client = new RemoteMachineClient({ baseUrl: `http://127.0.0.1:${String(address.port)}` }, async (input, init) => {
+      const response = await fetch(input, init);
+      const readText = response.text.bind(response);
+      vi.spyOn(response, "text").mockImplementation(() => { bodyReadStarted(); return readText(); });
+      return response;
+    });
+    try {
+      const pending = client.requestJson("GET", "/identity", undefined, { timeoutMs: stop === "deadline" ? 100 : 30_000, signal: controller.signal });
+      const rejected = expect(pending).rejects.toMatchObject({
+        statusCode: stop === "deadline" ? 504 : 502,
+        message: stop === "deadline" ? "Remote machine request timed out" : "Remote machine request cancelled",
+      });
+      await bodyReading;
+      if (stop === "caller cancellation") controller.abort();
+      await rejected;
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => { server.close((error) => { if (error === undefined) resolve(); else reject(error); }); });
+    }
+  });
+
+  it.each(["deadline", "caller cancellation"] as const)("retains resource cancellation through body close: %s", async (stop) => {
+    vi.useFakeTimers();
+    const source = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([0xff])); } });
+    const fetchImpl = vi.fn<typeof fetch>(() => Promise.resolve(new Response(source)));
+    const client = new RemoteMachineClient({ baseUrl: "https://remote.example.test/" }, fetchImpl);
+    const controller = new AbortController();
+    try {
+      const response = await client.request("GET", "/resource", undefined, { signal: controller.signal, streamLifetimeMs: 1000, timeoutMs: 10, range: "bytes=0-" });
+      const body = response.body;
+      if (body === undefined) throw new Error("Missing body");
+      const failed = new Promise<Error>((resolve) => { body.once("error", resolve); });
+      expect(new Headers(onlyFetchCall(fetchImpl).init.headers).get("range")).toBe("bytes=0-");
+      expect(new Headers(onlyFetchCall(fetchImpl).init.headers).get("accept-encoding")).toBe("identity");
+      await vi.advanceTimersByTimeAsync(20);
+      expect(onlyFetchCall(fetchImpl).init.signal?.aborted).toBe(false);
+      if (stop === "caller cancellation") controller.abort();
+      else await vi.advanceTimersByTimeAsync(1000);
+      expect(await failed).toBeInstanceOf(Error);
+      expect(onlyFetchCall(fetchImpl).init.signal?.aborted).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
 
   it("requests compression for the remote hop even when configured headers use different casing", async () => {

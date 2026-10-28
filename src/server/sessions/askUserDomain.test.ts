@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH,
+  ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH,
   type AskUserQuestion,
 } from "../../shared/apiTypes.js";
 import { AskUserValidationError, createAskUserOutcome, createAskUserRequest, renderAskUserAnswersText, resolveAskUserRequest } from "./askUserDomain.js";
@@ -118,6 +118,57 @@ describe("ask outcomes", () => {
     }, closedAt)).toMatchObject({ questions: [{ answered: true, values: ["yes", "no"], otherText: "maybe later" }], answeredCount: 1 });
   });
 
+  it("keeps a trimmed comment beside the answer without making it one", () => {
+    const outcome = createAskUserOutcome(request([question("q1"), question("q2")]), {
+      answers: [{ id: "q1", values: ["yes"], comment: "  only while the rollout is staged  " }, { id: "q2", values: [], comment: "just thinking out loud" }],
+    }, closedAt);
+    expect(outcome.questions[0]).toMatchObject({ answered: true, values: ["yes"], comment: "only while the rollout is staged" });
+    // A comment on its own never counts as an answer, so q2 stays unanswered.
+    expect(outcome.questions[1]).toMatchObject({ answered: false, values: [] });
+    expect(outcome.questions[1]).not.toHaveProperty("comment");
+    expect(outcome).toMatchObject({ answeredCount: 1, unansweredIds: ["q2"] });
+  });
+
+  it.each([
+    { multiple: false, values: [], otherText: "custom" },
+    { multiple: true, values: ["yes", "no"], otherText: "custom" },
+    { multiple: true, values: ["yes"], otherText: "" },
+    { multiple: true, values: ["yes"], otherText: "   " },
+  ])("drops hidden comments when custom text is supplied: %j", ({ multiple, values, otherText }) => {
+    const outcome = createAskUserOutcome(request([question("q1", { multiple })]), {
+      answers: [{ id: "q1", values, otherText, comment: "hidden comment" }],
+    }, closedAt);
+
+    expect(outcome.questions[0]).toEqual({
+      question: question("q1", multiple ? { multiple: true } : {}),
+      answered: true, values,
+      ...(otherText.trim() === "" ? {} : { otherText }),
+    });
+    expect(renderAskUserAnswersText(outcome)).not.toContain("hidden comment");
+  });
+
+  it.each([undefined, "a note", "   "])("drops comments on optionless questions (%j)", (otherText) => {
+    const outcome = createAskUserOutcome(request([question("q1", { options: [] })]), {
+      answers: [{ id: "q1", values: [], otherText, comment: "hidden comment" }],
+    }, closedAt);
+
+    expect(outcome.questions[0]).toMatchObject({ answered: otherText === "a note", values: [] });
+    expect(outcome.questions[0]).not.toHaveProperty("comment");
+  });
+
+  it.each([
+    { values: [], otherText: "custom" },
+    { values: [] },
+    { values: ["yes"], otherText: "" },
+  ])("still validates hidden comments: %j", (answer) => {
+    const ask = request();
+    for (const comment of [3, "x".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1)]) {
+      expect(() => createAskUserOutcome(ask, {
+        answers: [{ id: "q1", ...answer, comment }],
+      }, closedAt)).toThrow(AskUserValidationError);
+    }
+  });
+
   it("answers optionless questions with custom text", () => {
     expect(createAskUserOutcome(request([question("q1", { options: [] })]), { answers: [{ id: "q1", values: [], otherText: "a note" }] }, closedAt))
       .toMatchObject({ questions: [{ answered: true, values: [], otherText: "a note" }] });
@@ -132,6 +183,8 @@ describe("ask outcomes", () => {
     { answers: [{ id: "q1", values: ["yes", "no"] }], error: "accepts a single answer" },
     { answers: [{ id: "q1", values: ["yes"], otherText: "also this" }], error: "accepts a single answer" },
     { answers: [{ id: "q1", values: [], otherText: "x".repeat(ASK_USER_OTHER_TEXT_MAX_LENGTH + 1) }], error: "exceeds its length limit" },
+    { answers: [{ id: "q1", values: ["yes"], comment: "x".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1) }], error: "Comment of question q1 exceeds its length limit" },
+    { answers: [{ id: "q1", values: ["yes"], comment: 3 }], error: "Comment of question q1 must be a string" },
   ])("rejects submissions that do not fit the durable payload: $error", ({ answers, error }) => {
     expect(() => createAskUserOutcome(request(), { answers }, closedAt)).toThrow(error);
   });
@@ -163,5 +216,12 @@ describe("outcome rendering", () => {
 
   it("describes a cancelled outcome as a human skip", () => {
     expect(renderAskUserAnswersText(createAskUserOutcome(request(), undefined, closedAt))).toContain("The user skipped these questions.");
+  });
+
+  it("includes an accompanying comment in the model-facing text", () => {
+    const outcome = createAskUserOutcome(request([question("q1")]), {
+      answers: [{ id: "q1", values: ["yes"], comment: "only for the staging cluster" }],
+    }, closedAt);
+    expect(renderAskUserAnswersText(outcome)).toContain('Answered: selected yes; comment: "only for the staging cluster"');
   });
 });

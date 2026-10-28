@@ -27,3 +27,4 @@ export type { JsonObject, JsonPrimitive, PiWebDeprecatedAgentInput, WorkspacePro
 export type { SessionTranscriptSnapshot } from "../../shared/apiTypes";
 export type { McpAuthServerOption, McpAuthServersResponse } from "../../shared/apiTypes";
 export type { SessionQueueMessageMutation, SessionQueueMessageMutationRequest } from "../../shared/apiTypes";
+export type { AnyTerminalCommandRun, MaintenanceTerminalCommandRun } from "../../shared/apiTypes";

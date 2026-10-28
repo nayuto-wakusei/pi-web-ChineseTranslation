@@ -63,10 +63,10 @@ describe("PiWebApp model dialog", () => {
     expect(listModelCatalog).toHaveBeenCalledOnce();
     const dialog = appModelDialog(app);
     expect(dialog?.defaultValue).toBe("anthropic/claude-sonnet-4-5");
-    expect(dialog?.title).toBe("选择模型");
+    expect(dialog?.title).toBe("Select Model");
     expect(dialog?.selectedValue).toBe("openai/gpt-5");
     expect(dialog?.options).toEqual([
-      { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
       { value: "anthropic/claude-sonnet-4-5", label: "claude-sonnet-4-5", description: "anthropic" },
     ]);
     expect(dialog?.catalog).toEqual(catalog);
@@ -82,9 +82,9 @@ describe("PiWebApp model dialog", () => {
       modelDialog: {
         instanceId: 1,
         origin: modelDialogOrigin,
-        title: "选择模型",
+        title: "Select Model",
         selectedValue: "openai/gpt-5",
-        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" }],
+        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" }],
         catalog: [{ provider: "openai", id: "gpt-5", enabled: true }],
       },
     });
@@ -106,7 +106,7 @@ describe("PiWebApp model dialog", () => {
     expect(listModels).toHaveBeenCalledOnce();
     expect(listModelCatalog).toHaveBeenCalledOnce();
     expect(appModelDialog(app)?.options).toEqual([
-      { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
       { value: "openai/gpt-4o", label: "gpt-4o", description: "openai" },
     ]);
     expect(appModelDialog(app)?.catalog).toEqual([
@@ -153,7 +153,7 @@ describe("PiWebApp model dialog", () => {
     expect(listModels).toHaveBeenCalledTimes(2);
     expect(listModelCatalog).toHaveBeenCalledTimes(2);
     expect(appModelDialog(app)?.options).toEqual([
-      { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
       { value: "openai/gpt-4o", label: "gpt-4o", description: "openai" },
     ]);
   });
@@ -187,9 +187,9 @@ describe("PiWebApp model dialog", () => {
       modelDialog: {
         instanceId: 1,
         origin: modelDialogOrigin,
-        title: "选择模型",
+        title: "Select Model",
         selectedValue: "openai/gpt-5",
-        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" }],
+        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" }],
         catalog: [
           { provider: "openai", id: "gpt-5", enabled: true },
           { provider: "openai", id: "gpt-4o", enabled: false },
@@ -211,7 +211,7 @@ describe("PiWebApp model dialog", () => {
     // Enabled-mode options hold the fresh catalog's enabled rows only;
     // disabled rows (anthropic/claude-sonnet-4-5) stay out of the Enabled list.
     expect(dialog?.options).toEqual([
-      { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
       { value: "openai/gpt-4o", label: "gpt-4o", description: "openai" },
     ]);
   });
@@ -222,9 +222,9 @@ describe("PiWebApp model dialog", () => {
     const dialog = {
       instanceId: 1,
       origin: modelDialogOrigin,
-      title: "选择模型",
+      title: "Select Model",
       selectedValue: "openai/gpt-5",
-      options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" }],
+      options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" }],
       catalog: [{ provider: "openai", id: "gpt-5", enabled: true }],
     };
     setAppState(app, {
@@ -244,7 +244,7 @@ describe("PiWebApp model dialog", () => {
     expect(setModelScope).toHaveBeenCalledWith("current");
     expect(appModelDialog(app)?.catalog).toEqual(freshCatalog);
     expect(appModelDialog(app)?.options).toEqual([
-      { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
     ]);
   });
 
@@ -254,7 +254,7 @@ describe("PiWebApp model dialog", () => {
     setAppState(app, {
       selectedSession,
       sessions: [selectedSession],
-      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "选择模型", options: [], catalog: [] },
+      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] },
     });
     const before = appModelDialog(app);
     vi.spyOn(SessionController.prototype, "setModelEnabled").mockResolvedValue(undefined);
@@ -267,7 +267,7 @@ describe("PiWebApp model dialog", () => {
   it("does not restore the dialog when a toggle settles after it was closed", async () => {
     const app = new PiWebApp();
     const selectedSession = session("session-1");
-    setAppState(app, { selectedSession, sessions: [selectedSession], modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "选择模型", options: [], catalog: [] } });
+    setAppState(app, { selectedSession, sessions: [selectedSession], modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] } });
     let resolveToggle: ((catalog: { provider: string; id: string; enabled: boolean }[]) => void) | undefined;
     vi.spyOn(SessionController.prototype, "setModelEnabled").mockImplementation(() => new Promise((resolve) => { resolveToggle = resolve; }));
 
@@ -286,7 +286,7 @@ describe("PiWebApp model dialog", () => {
       selectedSession,
       sessions: [selectedSession],
       status: sessionStatus(selectedSession.id, { provider: "openai", id: "gpt-5" }),
-      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "选择模型", options: [], catalog: [] },
+      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] },
     });
 
     applyAppStatePatch(app, { status: sessionStatus(selectedSession.id, { provider: "openai", id: "gpt-4o" }) });
@@ -300,7 +300,7 @@ describe("PiWebApp model dialog", () => {
     setAppState(app, {
       selectedSession: replacement,
       sessions: [replacement],
-      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "选择模型", options: [], catalog: [] },
+      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] },
     });
     const setModelScope = vi.spyOn(SessionController.prototype, "setModelScope");
 
@@ -313,7 +313,7 @@ describe("PiWebApp model dialog", () => {
   it("does not apply a stale response to a replacement dialog", async () => {
     const app = new PiWebApp();
     const selectedSession = session("session-1");
-    const original = { instanceId: 1, origin: modelDialogOrigin, title: "选择模型", options: [], catalog: [] };
+    const original = { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] };
     const replacement = { instanceId: 2, origin: modelDialogOrigin, title: "Replacement", options: [], catalog: [] };
     setAppState(app, { selectedSession, sessions: [selectedSession], modelDialog: original });
     let resolveScope: ((catalog: { provider: string; id: string; enabled: boolean }[]) => void) | undefined;

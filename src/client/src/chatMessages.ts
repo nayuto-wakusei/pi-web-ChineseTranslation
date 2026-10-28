@@ -1,8 +1,10 @@
-import { t } from "./i18n";
+import { argumentSummaryPresentation, summarizeArgs } from "./chatPresentation";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE } from "../../shared/apiTypes";
 import { parseAskUserOutcome, parseAskUserRequest } from "./api/parsers";
 import { isSessionMediaId, validImageDimensions } from "../../shared/sessionMedia";
 import type { ChatLine, ChatPart, ToolExecutionPart, ToolPreview } from "./components/shared";
+
+export { summarizeArgs } from "./chatPresentation";
 
 export function normalizeMessages(messages: unknown[], transcriptStart?: number): ChatLine[] {
   const lines: ChatLine[] = [];
@@ -100,8 +102,8 @@ export function normalizeMessage(message: unknown): ChatLine[] {
 function assistantErrorLine(message: unknown): ChatLine | undefined {
   if (getString(message, "role") !== "assistant" || getString(message, "stopReason") !== "error") return undefined;
   const errorMessage = getString(message, "errorMessage")?.trim();
-  const detail = errorMessage === undefined || errorMessage === "" ? t("client.chatMessages.the.model.returned.an.error.8306e3", "The model returned an error.") : errorMessage;
-  return textMessage("system", t("client.chatMessages.model.response.failed.f24385", "Model response failed: {value1}", { value1: detail }));
+  const detail = errorMessage === undefined || errorMessage === "" ? "The model returned an error." : errorMessage;
+  return { role: "system", parts: [{ type: "text", text: `Model response failed: ${detail}`, presentation: { kind: "modelError", detail: errorMessage ?? "" } }] };
 }
 
 function isChatLine(message: unknown): message is ChatLine {
@@ -172,16 +174,22 @@ function normalizeModel(message: unknown): NonNullable<ChatLine["meta"]>["model"
 
 function normalizeBashExecution(message: unknown): ChatLine {
   const command = getString(message, "command") ?? "";
-  const lines = getBoolean(message, "excludeFromContext") === true ? [t("client.chatMessages.excluded.from.context.858b78", "Excluded from context"), "", `$ ${command}`] : [`$ ${command}`];
+  const lines = getBoolean(message, "excludeFromContext") === true ? ["excluded from context", "", `$ ${command}`] : [`$ ${command}`];
   const output = getProperty(message, "output");
   if (output != null) lines.push("", stringifyPrimitive(output));
   const exitCode = getProperty(message, "exitCode");
-  if (exitCode != null) lines.push("", t("client.shellMessages.exit.code.2beadf", "Exit code {value1}", { value1: stringifyPrimitive(exitCode) }));
-  if (getBoolean(message, "cancelled") === true) lines.push("", t("client.shellMessages.cancelled.a37778", "Cancelled"));
-  if (getBoolean(message, "truncated") === true) lines.push("", t("client.shellMessages.output.truncated.07e9bf", "Output truncated"));
+  if (exitCode != null) lines.push("", `exit ${stringifyPrimitive(exitCode)}`);
+  if (getBoolean(message, "cancelled") === true) lines.push("", "cancelled");
+  if (getBoolean(message, "truncated") === true) lines.push("", "output truncated");
   const fullOutputPath = getString(message, "fullOutputPath");
-  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", t("client.shellMessages.full.output.89763a", "Full output: {value1}", { value1: fullOutputPath }));
-  return { role: "bash", parts: [{ type: "text", text: lines.join("\n") }] };
+  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", `full output: ${fullOutputPath}`);
+  return { role: "bash", parts: [{ type: "text", text: lines.join("\n"), presentation: {
+    kind: "bash", command, excluded: getBoolean(message, "excludeFromContext") === true,
+    cancelled: getBoolean(message, "cancelled") === true, truncated: getBoolean(message, "truncated") === true,
+    ...(output == null ? {} : { output: stringifyPrimitive(output) }),
+    ...(exitCode == null ? {} : { exitCode: stringifyPrimitive(exitCode) }),
+    ...(fullOutputPath === undefined || fullOutputPath === "" ? {} : { fullOutputPath }),
+  } }] };
 }
 
 function normalizeRole(role: unknown): ChatLine["role"] {
@@ -216,7 +224,7 @@ function normalizeContent(content: unknown, message: unknown): ChatPart[] {
       const toolCallId = getString(part, "id");
       const skillRead = toolName === "read" ? parseSkillReadPath(getString(args, "path")) : undefined;
       if (skillRead !== undefined) return [{ type: "skillRead", ...skillRead, ...(toolCallId === undefined ? {} : { toolCallId }) }];
-      return [{ type: "toolCall", ...(toolCallId === undefined ? {} : { toolCallId }), toolName, summary: summarizeArgs(args), ...(args === undefined ? {} : { args }) }];
+      return [{ type: "toolCall", ...(toolCallId === undefined ? {} : { toolCallId }), toolName, summary: summarizeArgs(args), ...argumentSummaryPresentation(args), ...(args === undefined ? {} : { args }) }];
     }
     if (type === "image") {
       return normalizeImage(part);
@@ -242,7 +250,7 @@ function normalizeImage(part: unknown): ChatPart[] {
     const data = getString(part, "data");
     if (data !== undefined && data !== "" && mimeType !== undefined && mimeType !== "") return [{ type: "image", mimeType, data, ...dimensions }];
   }
-  return [{ type: "text", text: "[image]" }];
+  return [{ type: "text", text: "[image]", presentation: { kind: "imagePlaceholder" } }];
 }
 
 function askUserRecordPart(message: unknown): Extract<ChatPart, { type: "askUserRecord" }> | undefined {
@@ -364,6 +372,7 @@ function toolExecutionFromCall(part: Extract<ChatPart, { type: "toolCall" }>): T
     ...(part.toolCallId === undefined ? {} : { toolCallId: part.toolCallId }),
     toolName: part.toolName,
     summary: part.summary,
+    ...(part.summaryPresentation === undefined ? {} : { summaryPresentation: part.summaryPresentation }),
     ...(part.args === undefined ? {} : { args: part.args }),
     status: "pending",
   };
@@ -402,29 +411,8 @@ export function previewFromDetails(details: unknown): ToolPreview | undefined {
 
 function objectFallback(value: unknown): ChatPart[] {
   if (value == null) return [];
-  if (typeof value === "object") return [{ type: "text", text: summarizeArgs(value) }];
+  if (typeof value === "object") return [{ type: "text", text: summarizeArgs(value), presentation: { kind: "arguments", args: value } }];
   return [{ type: "text", text: stringifyPrimitive(value) }];
-}
-
-export function summarizeArgs(args: unknown): string {
-  if (!isRecord(args)) return stringifyPrimitive(args);
-  const command = getString(args, "command");
-  if (command !== undefined) return command;
-  const path = getString(args, "path");
-  if (path !== undefined) return path;
-  if (typeof args["oldText"] === "string" && typeof args["newText"] === "string") return "edit text replacement";
-  const edits = args["edits"];
-  if (Array.isArray(edits)) return `${String(edits.length)} edit${edits.length === 1 ? "" : "s"}`;
-  const entries = Object.entries(args).filter(([, value]) => value != null).slice(0, 3);
-  return entries.map(([key, value]) => `${key}: ${shortValue(value)}`).join(" · ");
-}
-
-function shortValue(value: unknown): string {
-  if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}…` : value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return `${String(value.length)} item${value.length === 1 ? "" : "s"}`;
-  if (typeof value === "object" && value !== null) return "object";
-  return "";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

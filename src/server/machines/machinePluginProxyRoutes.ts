@@ -14,6 +14,7 @@ interface RemotePluginManifestEntry {
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
+  pairedResourceVersion?: 1;
   source?: string;
   scope?: string;
   machineSpecific?: boolean;
@@ -185,7 +186,8 @@ function parseRemoteManifest(value: unknown): RemotePluginManifest {
     const backendRevision = parseRemoteBackendRevision(entry["backendRevision"]);
     const pairedRequestVersion = parseRemotePairedCapabilityVersion(entry["pairedRequestVersion"]);
     const pairedChannelVersion = parseRemotePairedCapabilityVersion(entry["pairedChannelVersion"]);
-    if ((pairedRequestVersion !== undefined || pairedChannelVersion !== undefined) && backendRevision === undefined) {
+    const pairedResourceVersion = parseRemotePairedCapabilityVersion(entry["pairedResourceVersion"]);
+    if ((pairedRequestVersion !== undefined || pairedChannelVersion !== undefined || pairedResourceVersion !== undefined) && backendRevision === undefined) {
       throw new Error("Invalid remote PI WEB plugin manifest entry");
     }
     return {
@@ -194,6 +196,7 @@ function parseRemoteManifest(value: unknown): RemotePluginManifest {
       ...(backendRevision === undefined ? {} : { backendRevision }),
       ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
       ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
+      ...(pairedResourceVersion === undefined ? {} : { pairedResourceVersion }),
       ...(source === undefined ? {} : { source }),
       ...(scope === undefined ? {} : { scope }),
       ...(parseRemoteMachineSpecific(entry["machineSpecific"])),

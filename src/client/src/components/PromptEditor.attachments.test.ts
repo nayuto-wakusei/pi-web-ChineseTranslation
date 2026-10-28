@@ -49,8 +49,8 @@ describe("PromptEditor attachments folder label", () => {
   });
 
   it("labels the folder delivery option with the workspace-effective folder", () => {
-    expect(attachmentFolderDeliveryLabel(".pi-web/attachments")).toBe("保存到 .pi-web/attachments");
-    expect(attachmentFolderDeliveryLabel("docs/inbox")).toBe("保存到 docs/inbox");
+    expect(attachmentFolderDeliveryLabel(".pi-web/attachments")).toBe("Save to .pi-web/attachments");
+    expect(attachmentFolderDeliveryLabel("docs/inbox")).toBe("Save to docs/inbox");
   });
 });
 
@@ -80,7 +80,7 @@ describe("PromptEditor folder delivery sends the displayed folder", () => {
 
     // Label/save parity: the delivery label and the folder sent with the save
     // request come from the same workspace-effective prop.
-    expect(attachmentFolderDeliveryLabel(editor.attachmentsFolder)).toBe("保存到 project-attachments");
+    expect(attachmentFolderDeliveryLabel(editor.attachmentsFolder)).toBe("Save to project-attachments");
     expect(sent).toHaveLength(1);
     expect(sent[0]).toEqual(["check this", undefined, [expect.objectContaining({ name: "notes.txt" })], "folder", "project-attachments"]);
   });

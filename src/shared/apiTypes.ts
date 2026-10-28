@@ -1,7 +1,14 @@
+import type { ServerNoticePresentation } from "./serverNoticePresentation.js";
+import type { CommandResultPresentation } from "./commandResultPresentation.js";
+import type { CommandOutputPresentation } from "./commandOutputPresentation.js";
+import type { SessionNotificationPresentation } from "./sessionNotificationPresentation.js";
+import type { RuntimeActivityPresentation } from "./sessionActivityPresentation.js";
 import type { MachineStatusUiEvent } from "./machineStatus.js";
 export type { ManagedAgentsStatus, ManagedAgentsDecision } from "./managedAgents.js";
 import type { ThinkingLevel } from "./thinkingLevels.js";
 import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
+import type { PiWebDefaultLocalization } from "./defaultLocalization.js";
+export type { PiWebDefaultLocalization, LocalizationHourCycle } from "./defaultLocalization.js";
 import type {
   DeleteWorkspaceFileResponse,
   FileContentMediaType,
@@ -24,6 +31,8 @@ import type {
   PiWebStatusResponse,
   PiWebStatusSeverity,
   PiWebVersionResponse,
+  AnyTerminalCommandRun,
+  MaintenanceTerminalCommandRun,
   TerminalCommandRun,
   TerminalCommandRunHandle,
   TerminalCommandRunStatus,
@@ -56,6 +65,8 @@ export type {
   PiWebStatusResponse,
   PiWebStatusSeverity,
   PiWebVersionResponse,
+  AnyTerminalCommandRun,
+  MaintenanceTerminalCommandRun,
   TerminalCommandRun,
   TerminalCommandRunHandle,
   TerminalCommandRunStatus,
@@ -95,6 +106,10 @@ export const PI_WEB_CAPABILITIES = {
 export type PiWebCapability = typeof PI_WEB_CAPABILITIES[keyof typeof PI_WEB_CAPABILITIES];
 
 export interface Machine {
+  /** Explicit remote display-name override; absent when following the remote installation. */
+  nameOverride?: string;
+  /** Last discovered remote installation name, when available. */
+  reportedName?: string;
   id: string;
   name: string;
   kind: MachineKind;
@@ -178,10 +193,19 @@ export interface PiWebThemePreference {
 }
 
 export interface PiWebConfigValues {
+  /** Installation identity shared with federated gateways and the PWA manifest. */
+  installationName?: string;
   /** App-wide theme default; browser-local theme preferences take precedence. */
   defaultTheme?: PiWebThemePreference;
+  /** Gateway-wide localization defaults; browser-local preferences take precedence. */
+  defaultLocalization?: PiWebDefaultLocalization;
   /** Gateway-wide send behavior while streaming; defaults to steer. */
   defaultStreamingBehavior?: "steer" | "followUp";
+  /**
+   * Collapse transcript event groups (tool calls, thinking, results) into one
+   * summary line by default, including the growing live group. Off by default.
+   */
+  quietMode?: boolean;
   host?: string;
   port?: number;
   allowedHosts?: string[] | true;
@@ -193,6 +217,9 @@ export interface PiWebConfigValues {
   /** Durable metadata-only audit records for ordinary-mode tool calls. */
   auditLog?: PiWebAuditLogConfig;
   /** External filesystem roots PI WEB may expose outside a workspace. */
+  /** Deployment base roots; combined with independently configurable path additions. */
+  basePaths?: string[];
+  /** Additional external filesystem roots PI WEB may expose outside a workspace. */
   pathAccess?: PiWebPathAccessConfig;
   /** Workspace-relative defaults for manual file uploads. */
   uploads?: PiWebUploadsConfig;
@@ -400,6 +427,13 @@ export interface PiWebConfigResponse {
   config: PiWebConfigValues;
   effectiveConfig: PiWebConfigValues;
   envOverrides: PiWebConfigEnvOverrides;
+  /** JSON-pointer setting identifiers mapped to controlling environment variable names. */
+  enforcedSettings?: Record<string, string>;
+  /** JSON-pointer setting identifiers mapped to their winning configuration source. */
+  configSources?: Record<string, string>;
+  /** Optional deployment-owned defaults, never written by Settings. */
+  defaultsPath?: string;
+  defaultsConfig?: PiWebConfigValues;
 }
 
 export interface Project {
@@ -497,6 +531,8 @@ export type ServerNoticeScope =
 
 /** One independent server-created event retained until dismissal, eligible plugin eviction, or daemon end. */
 export interface ServerNotice {
+  /** Optional generated presentation; message remains the English/raw fallback. */
+  presentation?: ServerNoticePresentation;
   id: string;
   severity: ServerNoticeSeverity;
   message: string;
@@ -578,6 +614,8 @@ export type SessionNotificationSeverity = "info" | "warning" | "error";
 export interface SessionNotification {
   id: string;
   message: string;
+  /** Optional PI WEB-owned wording; absent for extension-authored notifications. */
+  presentation?: SessionNotificationPresentation;
   truncated: boolean;
   severity: SessionNotificationSeverity;
   receivedAt: string;
@@ -752,6 +790,8 @@ export interface SessionCleanupExecuteResponse extends SessionCleanupPreviewResp
 }
 
 export interface SessionActivity {
+  /** Optional runtime-owned presentation; label/detail stay compatible raw fallbacks. */
+  runtimePresentation?: RuntimeActivityPresentation;
   sessionId: string;
   phase: "active" | "idle" | "error";
   label: string;
@@ -765,6 +805,14 @@ export interface SessionActivity {
    * work to report. `isSessionActive()` reads this to keep the two apart.
    */
   startup?: boolean;
+  /** Optional structured browser presentation; raw label/detail remain the wire fallback.
+   * Independent of `startup`: pending browser rows retain this when re-attributing progress.
+   */
+  startupPresentation?: {
+    intent: "create" | "open";
+    stage: "runtime" | "extensions";
+    catalogRefreshing: boolean;
+  };
 }
 
 export interface SessionQueueMessageMutation {
@@ -802,6 +850,8 @@ export const ASK_USER_ID_MAX_LENGTH = 128;
 export const ASK_USER_TEXT_MAX_LENGTH = 1_000;
 /** Length bound for the free text a user types as a custom answer. */
 export const ASK_USER_OTHER_TEXT_MAX_LENGTH = 4_000;
+/** Length bound for the free text a user types alongside a question's selection. */
+export const ASK_USER_COMMENT_MAX_LENGTH = 4_000;
 
 /** One selectable option of an {@link AskUserQuestion}. */
 export interface AskUserQuestionOption {
@@ -859,6 +909,8 @@ export interface AskUserAnswer {
   values: string[];
   /** Free text typed as the question's custom answer. */
   otherText?: string;
+  /** Optional context for offered selections; omitted for custom answers. */
+  comment?: string;
 }
 
 /** Answers for some or all questions of a recorded request. */
@@ -876,6 +928,7 @@ export interface AskUserQuestionRecord {
   answered: boolean;
   values: string[];
   otherText?: string;
+  comment?: string;
 }
 
 /**
@@ -1209,6 +1262,8 @@ export type SessionWarningSeverity = "info" | "warning" | "error";
 export interface SessionWarning {
   severity: SessionWarningSeverity;
   message: string;
+  /** Cosmetic provenance for PI WEB-owned notices; message remains the English fallback. */
+  presentation?: { kind: "anthropicSubscriptionAuth" };
   source?: string;
   path?: string;
   dismiss?: { id: string };
@@ -1280,6 +1335,8 @@ export interface ActiveAgentProfileDescriptor {
 }
 
 export interface PiWebRuntimeComponent {
+  /** Actual JavaScript engine of the reporting process, absent on older peers. */
+  runtime?: import("./piWebRuntime.js").PiWebRuntimeIdentity;
   component: PiWebServiceComponent;
   label: string;
   runtimeVersion?: string;
@@ -1325,11 +1382,28 @@ export type SessionTreeNodeKind =
   | "custom"
   | "other";
 
+/** Safe display provenance; text values are never translation keys. */
+export type SessionTreeSummaryPart = { type: "text"; text: string } | { type: "image" };
+export type SessionTreeSummaryStatus =
+  | "message" | "user-message" | "assistant-response" | "assistant-error" | "assistant-aborted"
+  | "hidden-custom-message" | "compaction-summary" | "branch-summary";
+export type SessionTreeSummaryField = "shell" | "model" | "thinking-level" | "session-name" | "label" | "custom-entry" | "entry";
+export type SessionTreeSummaryPresentation =
+  | { type: "status"; status: SessionTreeSummaryStatus }
+  | { type: "content"; parts: SessionTreeSummaryPart[]; fallback: SessionTreeSummaryStatus }
+  | { type: "named"; field: SessionTreeSummaryField; value?: string }
+  | { type: "assistant-tools"; names: string[] }
+  | { type: "tool-result"; isError: boolean; toolName?: string; parts: SessionTreeSummaryPart[] }
+  | { type: "custom-message"; customType?: string; parts: SessionTreeSummaryPart[] };
+
 export interface SessionTreeNode {
   id: string;
   parentId: string | null;
   kind: SessionTreeNodeKind;
+  /** English compatibility preview for older clients. */
   summary: string;
+  /** Absent on older servers; clients must retain summary as a raw fallback. */
+  summaryPresentation?: SessionTreeSummaryPresentation;
   timestamp?: string;
   label?: string;
 }
@@ -1416,10 +1490,10 @@ export interface SessionTranscriptSnapshot extends SessionStreamSnapshot {
 }
 
 export type CommandResult =
-  | { type: "done"; message?: string; session?: SessionInfo; promptDraft?: string }
-  | { type: "select"; requestId: string; title: string; options: CommandOption[] }
+  | { type: "done"; message?: string; presentation?: CommandResultPresentation; session?: SessionInfo; promptDraft?: string }
+  | { type: "select"; requestId: string; title: string; presentation?: CommandResultPresentation; options: CommandOption[] }
   | { type: "tree"; tree: SessionTreeSnapshot }
-  | { type: "unsupported"; message: string };
+  | { type: "unsupported"; message: string; presentation?: CommandResultPresentation };
 
 /**
  * Transport-level per-session sequence stamp. `SessionEventHub.publish` assigns a
@@ -1445,7 +1519,7 @@ type SessionUiEventBody =
   | { type: "message.end"; message?: unknown }
   | { type: "status.update"; status: SessionStatus }
   | { type: "activity.update"; activity: SessionActivity }
-  | { type: "command.output"; level: "info" | "success" | "error"; message: string; notificationId?: string }
+  | { type: "command.output"; level: "info" | "success" | "error"; message: string; notificationId?: string; presentation?: CommandOutputPresentation }
   | SessionNotificationInboxEvent
   | { type: "session.error"; message: string }
   /** Technical details for the browser console, never transcript or notification content. */

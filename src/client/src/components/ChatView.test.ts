@@ -12,6 +12,7 @@ import type { ChatLine } from "./shared";
 import {
   ChatView,
   chatActivityText,
+  chatMessageAnchorKey,
   chatEventAnchorKey,
   chatGroupAnchorKey,
   chatGroupScrollMarkerId,
@@ -59,14 +60,14 @@ describe("chatQueuedMessageSections", () => {
     expect(sections).toEqual([
       {
         source: "client",
-        heading: "等待会话启动后发送",
-        detail: "后端会话就绪后将自动发送",
+        heading: "Queued until session starts",
+        detail: "Will send once the backend session is ready",
         messages: [{ kind: "followUp", text: "queued before start" }],
       },
       {
         source: "server",
-        heading: "排队中的消息",
-        detail: "1 条待处理",
+        heading: "Queued messages",
+        detail: "1 pending",
         messages: [{ kind: "steer", text: "server queued" }],
       },
     ]);
@@ -107,7 +108,7 @@ describe("ChatView queued-message clear wiring", () => {
     document.body.append(view);
     try {
       await view.updateComplete;
-      const clear = view.renderRoot.querySelector<HTMLButtonElement>('button[aria-label="清空队列"]');
+      const clear = view.renderRoot.querySelector<HTMLButtonElement>('button[aria-label="Clear queue"]');
       if (clear === null) throw new Error("Expected clear queue button");
       clear.click();
       expect(onClearServerQueue).toHaveBeenCalledOnce();
@@ -297,24 +298,24 @@ describe("ChatView notification tray wiring", () => {
 describe("chatMessageMetadataLabel", () => {
   it("uses one full date and model label without a model prefix", () => {
     const timestamp = "2026-07-10T19:15:30.000Z";
-    const formattedTimestamp = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp));
+    const formattedTimestamp = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp));
 
     expect(chatMessageMetadataLabel({
       role: "assistant",
       parts: [],
       meta: { timestamp, model: { provider: "provider", id: "model" } },
-    })).toBe(`${formattedTimestamp} · provider/model`);
+    })).toBe(`${formattedTimestamp} and provider/model`);
   });
 
   it("appends the localized thinking level after the model when present", () => {
     const timestamp = "2026-07-10T19:15:30.000Z";
-    const formattedTimestamp = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp));
+    const formattedTimestamp = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp));
 
     expect(chatMessageMetadataLabel({
       role: "assistant",
       parts: [],
       meta: { timestamp, model: { provider: "provider", id: "model" }, thinkingLevel: "high" },
-    })).toBe(`${formattedTimestamp} · provider/model · 高`);
+    })).toBe(`${formattedTimestamp}, provider/model, and 高`);
   });
 });
 
@@ -510,3 +511,21 @@ function queuedStatus(queuedMessages: QueuedSessionMessage[]): SessionStatus {
     cost: 0,
   };
 }
+
+it("never derives scroll-anchor keys from display indexes or empty entry IDs", () => {
+    for (const key of [chatMessageAnchorKey, chatEventAnchorKey, chatGroupAnchorKey]) {
+      expect(key(40)).toBeUndefined();
+      expect(key(41, { role: "assistant", parts: [] })).toBeUndefined();
+      expect(key(42, { entryId: "", role: "assistant", parts: [] })).toBeUndefined();
+    }
+  });
+it("keeps durable entry keys independent of normalized indexes and separates entry slices", () => {
+    const reply: ChatLine = { entryId: "entry-1", role: "user", parts: [{ type: "text", text: "Question" }] };
+    const invocation: ChatLine = { ...reply, parts: [{ type: "skillInvocation", name: "testing", location: "SKILL.md", content: "Instructions" }] };
+    for (const key of [chatMessageAnchorKey, chatEventAnchorKey, chatGroupAnchorKey]) {
+      expect(key(495, reply)).toBe(key(453, reply));
+      expect(key(495, reply)).not.toBe(key(495, invocation));
+      expect(key(495, reply)).not.toBe(key(495, { ...reply, entryId: "entry-2" }));
+    }
+    expect(chatMessageAnchorKey(495, reply)).not.toBe(chatEventAnchorKey(495, reply));
+  });

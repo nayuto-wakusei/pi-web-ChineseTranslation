@@ -1,0 +1,24 @@
+import { message } from "../localization/service";
+import { sessionNotificationSources } from "../../../shared/sessionNotificationPresentation";
+
+export default {
+  compactionCancelled: message(sessionNotificationSources.compactionCancelled, "Notification after manual compaction is cancelled"),
+  automaticCompactionCancelled: message(sessionNotificationSources.automaticCompactionCancelled, "Notification after automatic compaction is cancelled"),
+  compactionFailed: message(sessionNotificationSources.compactionFailed, "Compaction failure notification; provider diagnostics are separate and unchanged"),
+  dismissFailed: message<{ detail: string }>("Failed to dismiss notification: {detail}", "Notification dismissal failure; detail is an untranslated runtime diagnostic"),
+  dismissAllFailed: message<{ detail: string }>("Failed to dismiss session notifications: {detail}", "Clear notification inbox failure; detail is an untranslated runtime diagnostic"),
+  info: message("Info", "Informational notification severity"),
+  warning: message("Warning", "Warning notification severity"),
+  error: message("Error", "Error notification severity"),
+  announcement: message<{ severity: string }>("{severity, select, error {Error notification received.} warning {Warning notification received.} other {Info notification received.}}", "Live announcement of a new notification, without reading its user-supplied message"),
+  heading: message<{ count: number }>("Notifications ({count, number})", "Session notification tray heading"),
+  dismissEmpty: message<{ severity: string }>("{severity, select, error {Dismiss error notification} warning {Dismiss warning notification} other {Dismiss info notification}}", "Dismiss accessible name when the notification message is empty"),
+  dismiss: message<{ summary: string }>("Dismiss notification: {summary}", "Dismiss accessible name; summary is unchanged notification content"),
+  overflow: message<{ count: number }>("{count, plural, one {# older notification not shown.} other {# older notifications not shown.}}", "Notifications discarded because the inbox reached its limit"),
+  truncated: message<{ limit: number }>("Message truncated at {limit, number} KiB.", "Notification message byte limit"),
+  expand: message("Expand notifications", "Expand notification tray"),
+  collapse: message("Collapse notifications", "Collapse notification tray"),
+  clearAll: message("Clear all notifications", "Clear notification tray accessible name"),
+  clear: message("Clear", "Clear notification tray button"),
+  dismissTitle: message("Dismiss notification", "Dismiss notification button tooltip"),
+};

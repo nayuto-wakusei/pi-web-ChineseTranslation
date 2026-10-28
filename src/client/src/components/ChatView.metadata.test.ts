@@ -54,11 +54,11 @@ it("keeps conversational roles available to assistive technology without repeate
 
   const headers = [...(view.shadowRoot?.querySelectorAll(".msg-header") ?? [])];
   expect(headers).toHaveLength(3);
-  expect(headers[0]?.querySelector(".visually-hidden")?.textContent).toBe("User");
-  expect(headers[1]?.querySelector(".visually-hidden")?.textContent).toBe("Assistant");
+  expect(headers[0]?.querySelector(".visually-hidden")?.textContent).toBe("user");
+  expect(headers[1]?.querySelector(".visually-hidden")?.textContent).toBe("assistant");
   expect(headers[0]?.querySelector(".label")).toBeNull();
   expect(headers[1]?.querySelector(".label")).toBeNull();
-  expect(headers[2]?.querySelector(".label")?.textContent).toBe("System");
+  expect(headers[2]?.querySelector(".label")?.textContent).toBe("system");
   expect(view.shadowRoot?.querySelectorAll('button[aria-label="Message information"]')).toHaveLength(3);
 });
 

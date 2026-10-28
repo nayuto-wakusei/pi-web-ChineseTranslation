@@ -3,6 +3,62 @@ import type { SessionRef, SessionUnreadCatalogSnapshot, SessionUnreadEvent, Sess
 import { SessionUnreadController, type SessionUnreadApi } from "./sessionUnread";
 
 describe("SessionUnreadController", () => {
+  it("marks unread and replays a newer clear arriving before the response", async () => {
+    const response = deferred<SessionUnreadCatalogSnapshot>();
+    const markUnread = vi.fn(() => response.promise);
+    const controller = new SessionUnreadController({ api: fakeApi({ markUnread }) });
+    const session = ref("session-1");
+    controller.applyEvent("remote", unreadEvent("catalog-a", 1, summary(session.id, 1)));
+    const request = controller.markUnread("remote", session);
+    controller.applyEvent("remote", unreadEvent("catalog-a", 2, null, session));
+    response.resolve(snapshot("catalog-a", 1, [summary(session.id, 1)]));
+    await request;
+    expect(markUnread).toHaveBeenCalledWith(session, "remote");
+    expect(controller.isUnread("remote", session)).toBe(false);
+  });
+
+  it("surfaces failed manual unread writes without changing the projection", async () => {
+    const error = new Error("Write failed");
+    const controller = new SessionUnreadController({ api: fakeApi({ markUnread: () => Promise.reject(error) }) });
+    await expect(controller.markUnread("local", ref("session-1"))).rejects.toBe(error);
+    expect(controller.isUnread("local", ref("session-1"))).toBe(false);
+  });
+
+  it("acknowledges only the exact rendered epoch, order, and session identity", async () => {
+    const acknowledgeUnread = vi.fn().mockResolvedValue(snapshot("catalog-a", 3, []));
+    const controller = new SessionUnreadController({ api: fakeApi({ acknowledgeUnread }) });
+    const session = ref("session-1");
+    controller.applyEvent("local", unreadEvent("catalog-a", 1, summary(session.id, 1)));
+    const rendered = controller.completion("local", session);
+    if (rendered === undefined) throw new Error("Expected completion token");
+    await controller.acknowledgeRendered("local", { ...session, cwd: "/other" }, rendered);
+    controller.applyEvent("local", unreadEvent("catalog-a", 2, summary(session.id, 2)));
+    await controller.acknowledgeRendered("local", session, rendered);
+    expect(acknowledgeUnread).not.toHaveBeenCalled();
+    const latest = controller.completion("local", session);
+    if (latest === undefined) throw new Error("Expected latest completion token");
+    await controller.acknowledgeRendered("local", session, { ...latest, catalogId: "previous-epoch" });
+    expect(acknowledgeUnread).not.toHaveBeenCalled();
+    await controller.acknowledgeRendered("local", session, latest);
+    expect(acknowledgeUnread).toHaveBeenCalledWith(session, "catalog-a", 2, "local");
+  });
+
+  it("does not capture or acknowledge rendered boundaries from a stale projection", async () => {
+    const response = deferred<SessionUnreadCatalogSnapshot>();
+    const acknowledgeUnread = vi.fn();
+    const controller = new SessionUnreadController({ api: fakeApi({ unreadCatalog: () => response.promise, acknowledgeUnread }) });
+    const session = ref("session-1");
+    controller.applyEvent("local", unreadEvent("catalog-a", 1, summary(session.id, 1)));
+    const rendered = controller.completion("local", session);
+    if (rendered === undefined) throw new Error("Expected completion token");
+    const refreshing = controller.refresh("local");
+    expect(controller.completion("local", session)).toBeUndefined();
+    await controller.acknowledgeRendered("local", session, rendered);
+    expect(acknowledgeUnread).not.toHaveBeenCalled();
+    response.resolve(snapshot("catalog-a", 1, [summary(session.id, 1)]));
+    await refreshing;
+  });
+
   it("restores the durable server snapshot for a new browser controller", async () => {
     const api = fakeApi({ snapshots: [snapshot("catalog-a", 2, [summary("session-2", 2), summary("session-1", 1)])] });
     const controller = new SessionUnreadController({ api });
@@ -285,6 +341,7 @@ interface FakeApiOptions {
   snapshots?: SessionUnreadCatalogSnapshot[] | undefined;
   unreadCatalog?: SessionUnreadApi["unreadCatalog"] | undefined;
   acknowledgeUnread?: SessionUnreadApi["acknowledgeUnread"] | undefined;
+  markUnread?: SessionUnreadApi["markUnread"] | undefined;
 }
 
 function fakeApi(options: FakeApiOptions = {}): SessionUnreadApi {
@@ -296,6 +353,7 @@ function fakeApi(options: FakeApiOptions = {}): SessionUnreadApi {
         ? Promise.reject(new Error("Unexpected unread snapshot request"))
         : Promise.resolve(next);
     }),
+    markUnread: options.markUnread ?? (() => Promise.reject(new Error("Unexpected mark unread"))),
     acknowledgeUnread: options.acknowledgeUnread ?? (() => (
       Promise.reject(new Error("Unexpected unread acknowledgement"))
     )),

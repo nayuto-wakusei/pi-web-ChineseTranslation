@@ -2,6 +2,7 @@ import type { JsonValue, Workspace } from "../api";
 import type { PluginBackend, PluginBackendScope } from "../../../plugin-api";
 import {
   openPairedPluginBackendChannel,
+  pairedPluginBackendResourceUrl,
   requestPairedPluginBackend,
   type PluginBackendChannel,
   type PluginBackendChannelOptions,
@@ -28,6 +29,12 @@ export type PluginPeerChannelOpener = (
   options: PluginBackendChannelOptions,
 ) => Promise<PluginBackendChannel>;
 
+export type PluginPeerResourceUrlBuilder = (
+  target: PluginBackendRequestTarget,
+  operation: string,
+  input: JsonValue,
+) => string;
+
 /** Expose only the capabilities contributed by this exact revision-paired package. */
 export function createPluginPeer(
   binding: WorkspacePluginBinding,
@@ -35,27 +42,23 @@ export function createPluginPeer(
   machineId: string,
   request: PluginPeerRequester = requestPairedPluginBackend,
   openChannel: PluginPeerChannelOpener = openPairedPluginBackendChannel,
+  resourceUrl: PluginPeerResourceUrlBuilder = pairedPluginBackendResourceUrl,
 ): PluginPeer | undefined {
-  if (binding.pairedRequestVersion !== 1 && binding.pairedChannelVersion !== 1) return undefined;
+  if (binding.pairedRequestVersion !== 1 && binding.pairedChannelVersion !== 1 && binding.pairedResourceVersion !== 1) return undefined;
   const target = pluginBackendTarget(binding, workspace, machineId);
   if (target === undefined) return undefined;
-  if (binding.pairedRequestVersion === 1 && binding.pairedChannelVersion === 1) {
-    return {
-      request: (operation: string, input: JsonValue, options?: PluginPeerRequestOptions) => request(target, operation, input, options),
-      openChannel: (operation, input, options) => openChannel(target, operation, input, options),
-    };
-  }
+  const resource = (operation: string, input: JsonValue) => resourceUrl(target, operation, input);
+  const resources = binding.pairedResourceVersion === 1 ? { resourceUrl: resource } : {};
+  const opener: NonNullable<PluginPeer["openChannel"]> = (operation, input, options) => openChannel(target, operation, input, options);
   if (binding.pairedRequestVersion === 1) {
     return {
       request: (operation: string, input: JsonValue, options?: PluginPeerRequestOptions) => request(target, operation, input, options),
+      ...(binding.pairedChannelVersion === 1 ? { openChannel: opener } : {}),
+      ...resources,
     };
   }
-  if (binding.pairedChannelVersion === 1) {
-    return {
-      openChannel: (operation, input, options) => openChannel(target, operation, input, options),
-    };
-  }
-  return undefined;
+  if (binding.pairedChannelVersion === 1) return { openChannel: opener, ...resources };
+  return { resourceUrl: resource };
 }
 
 /** Fixed machine and package revision; callback selection cannot retarget retained peers. */
@@ -65,9 +68,11 @@ export function createPluginBackend(
   lifetimeSignal?: AbortSignal,
   request: PluginPeerRequester = requestPairedPluginBackend,
   openChannel: PluginPeerChannelOpener = openPairedPluginBackendChannel,
+  resourceUrl: PluginPeerResourceUrlBuilder = pairedPluginBackendResourceUrl,
 ): PluginBackend | undefined {
-  if (binding.backendRevision === undefined || (binding.pairedRequestVersion !== 1 && binding.pairedChannelVersion !== 1)) return undefined;
+  if (binding.backendRevision === undefined || (binding.pairedRequestVersion !== 1 && binding.pairedChannelVersion !== 1 && binding.pairedResourceVersion !== 1)) return undefined;
   const backendRevision = binding.backendRevision;
+  const { sourcePluginId, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion } = binding;
   const signalFor = (signal?: AbortSignal) => lifetimeSignal === undefined ? signal
     : signal === undefined ? lifetimeSignal : AbortSignal.any([lifetimeSignal, signal]);
   return Object.freeze({
@@ -77,7 +82,7 @@ export function createPluginBackend(
       if (scope.kind !== "machine" && (typeof scope.projectId !== "string" || scope.projectId === "")) throw new Error("Project id is required");
       if (scope.kind === "workspace" && (typeof scope.workspaceId !== "string" || scope.workspaceId === "")) throw new Error("Workspace id is required");
       const target: PluginBackendRequestTarget = Object.freeze({
-        pluginId: binding.sourcePluginId,
+        pluginId: sourcePluginId,
         backendRevision,
         machineId,
         scope: scope.kind,
@@ -94,8 +99,14 @@ export function createPluginBackend(
         signal?.throwIfAborted();
         return openChannel(target, operation, input, { ...options, ...(signal === undefined ? {} : { signal }) });
       };
-      if (binding.pairedRequestVersion === 1) return Object.freeze({ request: requester, ...(binding.pairedChannelVersion === 1 ? { openChannel: opener } : {}) });
-      return Object.freeze({ openChannel: opener });
+      const resource = (operation: string, input: JsonValue) => {
+        lifetimeSignal?.throwIfAborted();
+        return resourceUrl(target, operation, input);
+      };
+      const resources = pairedResourceVersion === 1 ? { resourceUrl: resource } : {};
+      if (pairedRequestVersion === 1) return Object.freeze({ request: requester, ...(pairedChannelVersion === 1 ? { openChannel: opener } : {}), ...resources });
+      if (pairedChannelVersion === 1) return Object.freeze({ openChannel: opener, ...resources });
+      return Object.freeze({ resourceUrl: resource });
     },
   });
 }

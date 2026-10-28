@@ -3,6 +3,8 @@ import type { TerminalCommandRun, WorkspacePanelTerminal } from "@chainingintent
 import { afterEach, expect, it, vi } from "vitest";
 import { createWorkspacePanelContext } from "../../src/testSupport/plugin";
 import { defineTasksPanelElement, PiWebTasksPanel } from "./tasksPanelElement";
+import { createTasksLocalization } from "./tasksLocalization";
+import { chinesePluginLocalization } from "../localization.testSupport";
 
 defineTasksPanelElement();
 afterEach(() => { document.body.replaceChildren(); });
@@ -25,6 +27,7 @@ it.each(["succeeded", "failed", "rejected"] as const)("shows a task's final resu
     encoding: "utf8", truncated: false, binary: false, size: 0, modifiedAt: "now",
   }) };
   const panel = new PiWebTasksPanel();
+  panel.translations = createTasksLocalization(await chinesePluginLocalization("workspace-tasks"));
   panel.context = context;
   document.body.append(panel);
   await vi.waitFor(() => { expect(panel.shadowRoot?.querySelector("[data-task-id]")).not.toBeNull(); });
@@ -55,6 +58,7 @@ it("keeps task controls explicitly non-submitting inside an external form", asyn
   const submit = vi.fn((event: Event) => { event.preventDefault(); });
   form.addEventListener("submit", submit);
   const panel = new PiWebTasksPanel();
+  panel.translations = createTasksLocalization(await chinesePluginLocalization("workspace-tasks"));
   panel.context = context;
   form.append(panel);
   document.body.append(form);

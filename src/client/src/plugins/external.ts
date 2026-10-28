@@ -14,6 +14,7 @@ export interface PluginManifestEntry {
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
+  pairedResourceVersion?: 1;
   source?: string;
   scope?: string;
   machineSpecific: boolean;
@@ -83,6 +84,7 @@ export async function loadExternalPlugins(manifestUrl = "pi-web-plugins/manifest
         ...(entry.backendRevision === undefined ? {} : { backendRevision: entry.backendRevision }),
         ...(entry.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: entry.pairedRequestVersion }),
         ...(entry.pairedChannelVersion === undefined ? {} : { pairedChannelVersion: entry.pairedChannelVersion }),
+        ...(entry.pairedResourceVersion === undefined ? {} : { pairedResourceVersion: entry.pairedResourceVersion }),
       });
     } catch (error) {
       failures.push({ entry, error });
@@ -139,13 +141,15 @@ function parseManifest(value: unknown): PluginManifest {
     const backendRevision = parseBackendRevision(entry["backendRevision"]);
     const pairedRequestVersion = parsePairedCapabilityVersion(entry["pairedRequestVersion"]);
     const pairedChannelVersion = parsePairedCapabilityVersion(entry["pairedChannelVersion"]);
-    if ((pairedRequestVersion !== undefined || pairedChannelVersion !== undefined) && backendRevision === undefined) throw new Error("Invalid plugin manifest entry");
+    const pairedResourceVersion = parsePairedCapabilityVersion(entry["pairedResourceVersion"]);
+    if ((pairedRequestVersion !== undefined || pairedChannelVersion !== undefined || pairedResourceVersion !== undefined) && backendRevision === undefined) throw new Error("Invalid plugin manifest entry");
     return {
       id,
       module: entry["module"],
       ...(backendRevision === undefined ? {} : { backendRevision }),
       ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
       ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
+      ...(pairedResourceVersion === undefined ? {} : { pairedResourceVersion }),
       ...(source === undefined ? {} : { source }),
       ...(scope === undefined ? {} : { scope }),
       machineSpecific: parseMachineSpecific(entry["machineSpecific"]),

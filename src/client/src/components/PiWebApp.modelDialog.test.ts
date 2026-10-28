@@ -46,7 +46,7 @@ describe("PiWebApp model dialog", () => {
   it.each(["model", "thinking"] as const)("does not apply a pending %s pin to another session's dialog", async (kind) => {
     const app = new PiWebApp();
     const origin = { machineId: "local", sessionId: "session-1", cwd: "/repo" };
-    const dialog = { instanceId: 1, origin, title: "选择", options: [], defaultValue: "previous" };
+    const dialog = { instanceId: 1, origin, title: "Select", options: [], defaultValue: "previous" };
     setAppState(app, { selectedSession: session("session-1"), modelDialog: dialog, thinkingDialog: dialog });
     const pending = deferred<SessionDefaults>();
     const setDefaults = vi.spyOn(SessionController.prototype, "setSessionDefaults").mockReturnValue(pending.promise);
@@ -144,10 +144,10 @@ describe("PiWebApp model dialog", () => {
     expect(appModelDialog(app)).toEqual({
       instanceId: 1,
       origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
-      title: "选择模型",
+      title: "Select Model",
       selectedValue: "openai/gpt-5",
       options: [
-        { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
+        { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
         { value: "anthropic/claude-sonnet-4-5", label: "claude-sonnet-4-5", description: "anthropic" },
       ],
       catalog,
@@ -174,7 +174,7 @@ describe("PiWebApp model dialog", () => {
     expect(appModelDialog(app)).toEqual({
       instanceId: 1,
       origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
-      title: "选择模型",
+      title: "Select Model",
       options: [{ value: "openai/gpt-5", label: "gpt-5", description: "openai" }],
       defaultsLoading: false,
     });
@@ -190,9 +190,9 @@ describe("PiWebApp model dialog", () => {
       modelDialog: {
         instanceId: 1,
         origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
-        title: "选择模型",
+        title: "Select Model",
         selectedValue: "openai/gpt-5",
-        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" }],
+        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" }],
         catalog: [{ provider: "openai", id: "gpt-5", enabled: true }],
       },
     });
@@ -208,7 +208,7 @@ describe("PiWebApp model dialog", () => {
     expect(setModelEnabled).toHaveBeenCalledWith("openai", "gpt-4o", true);
     expect(appModelDialog(app)?.catalog).toEqual(freshCatalog);
     expect(appModelDialog(app)?.options).toEqual([
-      { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
       { value: "openai/gpt-4o", label: "gpt-4o", description: "openai" },
     ]);
   });
@@ -223,9 +223,9 @@ describe("PiWebApp model dialog", () => {
       modelDialog: {
         instanceId: 1,
         origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
-        title: "选择模型",
+        title: "Select Model",
         selectedValue: "openai/gpt-5",
-        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" }],
+        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" }],
         catalog: [{ provider: "openai", id: "gpt-5", enabled: true }],
       },
     });
@@ -240,7 +240,7 @@ describe("PiWebApp model dialog", () => {
     expect(setModelScope).toHaveBeenCalledWith("current");
     expect(appModelDialog(app)?.catalog).toEqual(freshCatalog);
     expect(appModelDialog(app)?.options).toEqual([
-      { value: "openai/gpt-5", label: "gpt-5 ✓ 当前", description: "openai" },
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
     ]);
   });
 });

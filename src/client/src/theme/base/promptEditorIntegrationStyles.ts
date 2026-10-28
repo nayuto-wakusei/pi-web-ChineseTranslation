@@ -10,6 +10,8 @@ export const promptEditorIntegrationStyles = css`
   .markdown-editor .cm-editor { box-sizing: border-box; width: 100%; min-height: 54px; max-height: 220px; resize: none; overflow: hidden; border-radius: 0; border: 0; background: var(--pi-bg); color: var(--pi-text); font: var(--pi-control-font-size, 16px)/1.4 var(--pi-control-font-family, var(--pi-font, system-ui, sans-serif)); padding-block: 12px; }
   .markdown-editor .cm-scroller { max-height: 196px; overflow-y: auto; font-family: var(--pi-control-font-family, var(--pi-font, system-ui, sans-serif)); line-height: 1.4; }
   .markdown-editor .cm-content { min-height: 2.8em; padding: 0 52px 0 16px; caret-color: var(--pi-text); text-align: start; unicode-bidi: plaintext; }
+  :host(:dir(rtl)) .markdown-editor .cm-content { padding: 0 16px 0 52px; }
+  :host(:dir(rtl)) .editor-input:has(.editor-chat-navigation) .cm-content { padding-left: 66px; }
   .markdown-editor .cm-line { padding: 0; unicode-bidi: plaintext; }
   .markdown-editor .cm-placeholder { color: var(--pi-dim); }
   /* CodeMirror measures this element for the empty-document caret. Keep the

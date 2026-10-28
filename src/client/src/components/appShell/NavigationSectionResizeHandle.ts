@@ -1,5 +1,7 @@
+import { LocalizationController } from "../../localization/browser";
+import { appShellMessages as m } from "../../appShellMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
-import { t } from "../../i18n";
+
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { NAVIGATION_SECTION_MIN_HEIGHT, navigationSectionHeightFromDrag, navigationSectionHeightFromKeyboard } from "../../appShell/navigationSectionResizeController";
@@ -21,6 +23,7 @@ interface ActiveResize {
 export class NavigationSectionResizeHandle extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
@@ -102,8 +105,8 @@ export class NavigationSectionResizeHandle extends LitElement {
   override render() {
     return html`<div
       role="separator" tabindex="0" aria-orientation="horizontal"
-      aria-label=${t("ui.navigation.resizeSection", "Resize {section}", { section: this.sectionLabel })}
-      title=${t("ui.navigation.resizeSectionReset", "Resize {section}. Double-click or double-tap to reset.", { section: this.sectionLabel })}
+      aria-label=${m.t("resizeSection", { section: this.sectionLabel })}
+      title=${m.t("resizeHint", { label: m.t("resizeSection", { section: this.sectionLabel }) })}
       aria-controls=${this.controls}
       aria-valuemin="44" aria-valuemax=${String(Math.round(this.measurement.maxHeight))}
       aria-valuenow=${String(Math.round(this.measurement.height))}

@@ -7,8 +7,11 @@ export type { GlobalSessionEvent, RealtimeEvent, SessionUiEvent } from "../../sh
 
 export type BrowserRealtimeEvent = Exclude<RealtimeEvent, { type: "notifications.summary" }>;
 
+export type SessionConnectionState = "connecting" | "open";
+
 export class SessionSocket {
   private socket: WebSocket | undefined;
+  private onConnectionState: ((state: SessionConnectionState) => void) | undefined;
   private session: SessionRef | undefined;
   private onEvent: ((event: SessionUiEvent) => void) | undefined;
   private reconnectTimer?: number;
@@ -27,6 +30,7 @@ export class SessionSocket {
     onReconnect?: () => void,
     machineId = "local",
     onInitialOpen?: () => void,
+    onConnectionState?: (state: SessionConnectionState) => void,
   ): void {
     this.close();
     this.machineId = machineId;
@@ -34,12 +38,23 @@ export class SessionSocket {
     this.onEvent = onEvent;
     this.onReconnect = onReconnect;
     this.onInitialOpen = onInitialOpen;
+    this.onConnectionState = onConnectionState;
     this.shouldReconnect = true;
     this.open();
   }
 
   setHandler(onEvent: (event: SessionUiEvent) => void): void {
     this.onEvent = onEvent;
+  }
+
+  reconnect(): void {
+    if (!this.shouldReconnect) return;
+    // Browser resumes can leave an apparently OPEN transport that no longer works.
+    window.clearTimeout(this.reconnectTimer);
+    const previous = this.socket;
+    this.socket = undefined;
+    closeSocketQuietly(previous);
+    this.open();
   }
 
   close(): void {
@@ -51,6 +66,7 @@ export class SessionSocket {
     this.onEvent = undefined;
     this.onReconnect = undefined;
     this.onInitialOpen = undefined;
+    this.onConnectionState = undefined;
     this.hasOpened = false;
     this.machineId = "local";
   }
@@ -59,12 +75,15 @@ export class SessionSocket {
     const session = this.session;
     if (session === undefined || session.id === "" || session.cwd === "" || !this.shouldReconnect) return;
     const socket = sessionEvents(session, this.machineId, this.scope);
+    socket.binaryType = "arraybuffer";
     this.socket = socket;
+    this.onConnectionState?.("connecting");
     socket.onopen = () => {
       if (this.socket !== socket) return;
       this.reconnectDelay = 500;
       const isReconnect = this.hasOpened;
       this.hasOpened = true;
+      this.onConnectionState?.("open");
       if (isReconnect) this.onReconnect?.();
       else this.onInitialOpen?.();
     };
@@ -73,6 +92,7 @@ export class SessionSocket {
     socket.onclose = () => {
       if (this.socket !== socket) return;
       this.socket = undefined;
+      this.onConnectionState?.("connecting");
       this.scheduleReconnect();
     };
   }
@@ -115,6 +135,15 @@ export class RealtimeSocket {
     this.onEvent = onEvent;
     this.onOpen = onOpen;
     this.shouldReconnect = true;
+    this.open();
+  }
+
+  reconnect(): void {
+    if (!this.shouldReconnect) return;
+    window.clearTimeout(this.reconnectTimer);
+    const previous = this.socket;
+    this.socket = undefined;
+    closeSocketQuietly(previous);
     this.open();
   }
 

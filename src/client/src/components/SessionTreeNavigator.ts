@@ -1,5 +1,9 @@
+import { LocalizationController, localization } from "../localization/browser";
+import { sessionTreeMessages as messages } from "../sessionTreeMessages";
+import { sessionTreeSummary } from "../sessionTreeSummary";
+import type definitions from "./sessionTree.messages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
-import { t } from "../i18n";
+
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNodeKind, SessionTreeSnapshot, SessionTreeSummaryChoice } from "../api";
@@ -22,26 +26,27 @@ export interface SessionTreeKindPresentation {
 }
 
 const SESSION_TREE_KIND_PRESENTATION = {
-  user: { label: t("ui.chatView.user", "User"), tone: "user", bookkeeping: false },
-  assistant: { label: t("ui.chatView.assistant", "Assistant"), tone: "assistant", bookkeeping: false },
-  "tool-result": { label: t("ui.sessionTreeNavigator.toolResult", "Tool result"), tone: "tool", bookkeeping: false },
-  bash: { label: t("ui.toolExecutionView.command", "Command"), tone: "shell", bookkeeping: false },
-  "custom-message": { label: t("ui.sessionTreeNavigator.customMessage", "Custom message"), tone: "context", bookkeeping: false },
-  compaction: { label: t("ui.sessionTreeNavigator.contextCompaction", "Context compaction"), tone: "context", bookkeeping: false },
-  "branch-summary": { label: t("ui.sessionTreeNavigator.branchSummary", "Branch summary"), tone: "context", bookkeeping: false },
-  "model-change": { label: t("ui.sessionTreeNavigator.model", "Model"), tone: "metadata", bookkeeping: true },
-  "thinking-level-change": { label: t("ui.sessionTreeNavigator.thinkingLevel", "Thinking level"), tone: "metadata", bookkeeping: true },
-  "session-info": { label: t("ui.sessionTreeNavigator.sessionInformation", "Session information"), tone: "metadata", bookkeeping: true },
-  label: { label: t("ui.sessionTreeNavigator.label", "Label"), tone: "metadata", bookkeeping: true },
-  custom: { label: t("ui.main.custom", "Custom"), tone: "metadata", bookkeeping: true },
-  other: { label: t("ui.settingsShortcutsPanel.other", "Other"), tone: "metadata", bookkeeping: true },
-} as const satisfies Record<SessionTreeNodeKind, SessionTreeKindPresentation>;
+  user: { label: "kind_user", tone: "user", bookkeeping: false },
+  assistant: { label: "kind_assistant", tone: "assistant", bookkeeping: false },
+  "tool-result": { label: "kind_tool_result", tone: "tool", bookkeeping: false },
+  bash: { label: "kind_bash", tone: "shell", bookkeeping: false },
+  "custom-message": { label: "kind_custom_message", tone: "context", bookkeeping: false },
+  compaction: { label: "kind_compaction", tone: "context", bookkeeping: false },
+  "branch-summary": { label: "kind_branch_summary", tone: "context", bookkeeping: false },
+  "model-change": { label: "kind_model_change", tone: "metadata", bookkeeping: true },
+  "thinking-level-change": { label: "kind_thinking_level_change", tone: "metadata", bookkeeping: true },
+  "session-info": { label: "kind_session_info", tone: "metadata", bookkeeping: true },
+  label: { label: "kind_label", tone: "metadata", bookkeeping: true },
+  custom: { label: "kind_custom", tone: "metadata", bookkeeping: true },
+  other: { label: "kind_other", tone: "metadata", bookkeeping: true },
+} as const satisfies Record<SessionTreeNodeKind, Omit<SessionTreeKindPresentation, "label"> & { label: keyof typeof definitions }>;
 
 @customElement("session-tree-navigator")
 export class SessionTreeNavigator extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @property({ attribute: false }) tree: SessionTreeSnapshot = EMPTY_TREE;
@@ -58,8 +63,9 @@ export class SessionTreeNavigator extends LitElement {
   @state() private customInstructions = "";
   @state() private busy = false;
   @state() private aborting = false;
-  @state() private error = "";
-  @state() private statusMessage = "";
+  // Keep operation diagnostics and status live when the locale changes.
+  @state() private error: "" | (() => string) = "";
+  @state() private statusMessage: "" | (() => string) = "";
 
   private model: SessionTreeModel = buildSessionTreeModel(EMPTY_TREE);
   private pendingFocus: PendingFocus | undefined;
@@ -81,16 +87,22 @@ export class SessionTreeNavigator extends LitElement {
 
   override render(): TemplateResult {
     return html`
-      <modal-surface .onClose=${() => { this.requestDismissal(); }} .onBusyEscape=${() => { this.requestBusyEscape(); }} .busy=${this.busy} .initialFocus=${this.selectedId === undefined ? ".close-button" : "[data-tree-node-id][tabindex='0']"} .label=${t("ui.sessionTreeNavigator.browseSessionTree", "Browse session tree")}>
-          <header>
-            <div>
-              <span class="eyebrow">${t("ui.sessionTreeNavigator.conversationHistory", "Conversation history")}</span>
-              <h1 id="session-tree-heading">${t("ui.sessionTreeNavigator.browseSessionTree", "Browse session tree")}</h1>
-            </div>
-            <button class="close-button" ?disabled=${this.busy} title="${t("ui.sessionTreeNavigator.closeSessionTree", "Close session tree")}" aria-label="${t("ui.sessionTreeNavigator.closeSessionTree", "Close session tree")}" @click=${() => { this.onCancel?.(); }}>×</button>
-          </header>
-          ${this.step === "tree" ? this.renderTreeStep() : this.renderActionStep()}
-          ${this.renderFooter()}
+      <modal-surface
+        .label=${messages.t("title")}
+        .initialFocus=${this.selectedId === undefined ? ".close-button" : "[data-tree-node-id][tabindex='0']"}
+        ?busy=${this.busy}
+        .onClose=${() => { this.requestDismissal(); }}
+        .onBusyEscape=${() => { this.requestBusyEscape(); }}
+      >
+        <header>
+          <div>
+            <span class="eyebrow">${messages.t("eyebrow")}</span>
+            <h1>${messages.t("title")}</h1>
+          </div>
+          <button class="close-button" ?disabled=${this.busy} title=${messages.t("close")} aria-label=${messages.t("close")} @click=${() => { this.onCancel?.(); }}>×</button>
+        </header>
+        ${this.step === "tree" ? this.renderTreeStep() : this.renderActionStep()}
+        ${this.renderFooter()}
       </modal-surface>
     `;
   }
@@ -100,18 +112,18 @@ export class SessionTreeNavigator extends LitElement {
     return html`
       <div class="body tree-step">
         <div class="tree-intro">
-          <p>${t("ui.main.accac83dc4d6", "Select the history entry where you would like to continue.")}</p>
-          <div class="legend" aria-label="${t("ui.sessionTreeNavigator.sessionTreeMarkers", "Session tree markers")}">
-            <span><span class="marker active-path-marker" aria-hidden="true"></span>${t("ui.sessionTreeNavigator.activePath", "Active path")}</span>
-            <span><span class="marker active-leaf-marker" aria-hidden="true"></span>${t("ui.sessionTreeNavigator.activeLeaf", "Active leaf")}</span>
+          <p>${messages.t("intro")}</p>
+          <div class="legend" aria-label=${messages.t("markers")}>
+            <span><span class="marker active-path-marker" aria-hidden="true"></span>${messages.t("activePath")}</span>
+            <span><span class="marker active-leaf-marker" aria-hidden="true"></span>${messages.t("activeLeaf")}</span>
           </div>
         </div>
-        ${this.statusMessage === "" ? null : html`<div class="dialog-status" role="status">${this.statusMessage}</div>`}
-        ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
+        ${this.statusMessage === "" ? null : html`<div class="dialog-status" role="status">${this.statusMessage()}</div>`}
+        ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error()}</div>`}
         ${rows.length === 0 ? html`
-          <div class="empty" role="status">${t("ui.sessionTreeNavigator.thisSessionContainsNoSelectableHistoryEntries", "This session contains no selectable history entries.")}</div>
+          <div class="empty" role="status">${messages.t("empty")}</div>
         ` : html`
-          <div class="tree" role="tree" aria-label="${t("ui.sessionTreeNavigator.fullSessionHistory", "Full session history")}">
+          <div class="tree" role="tree" aria-label=${messages.t("history")}>
             ${rows.map((row) => this.renderTreeRow(row))}
           </div>
         `}
@@ -147,21 +159,21 @@ export class SessionTreeNavigator extends LitElement {
       >
         <span
           class=${`disclosure${row.childIds.length === 0 ? " leaf" : ""}`}
-          title=${row.childIds.length === 0 ? t("ui.sessionTreeNavigator.noChildEntries", "No child entries") : expanded ? t("ui.sessionTreeNavigator.collapseBranch", "Collapse branch") : t("ui.sessionTreeNavigator.expandBranch", "Expand branch")}
+          title=${row.childIds.length === 0 ? messages.t("noChildren") : expanded ? messages.t("collapse") : messages.t("expand")}
           aria-hidden="true"
           @click=${(event: MouseEvent) => { this.toggleNode(row.node.id, event); }}
         >${row.childIds.length === 0 ? "·" : expanded ? "▾" : "▸"}</span>
         <span class="metadata">
           ${this.renderKindBadge(kindPresentation)}
           <span class="badges">
-            ${row.activePath && !row.activeLeaf ? html`<span class="badge path">${t("ui.sessionTreeNavigator.activePath", "Active path")}</span>` : null}
-            ${row.activeLeaf ? html`<span class="badge leaf">${t("ui.sessionTreeNavigator.activeLeaf", "Active leaf")}</span>` : null}
+            ${row.activePath && !row.activeLeaf ? html`<span class="badge path">${messages.t("activePath")}</span>` : null}
+            ${row.activeLeaf ? html`<span class="badge leaf">${messages.t("activeLeaf")}</span>` : null}
           </span>
         </span>
         <span class="entry">
-          <span class="summary" dir="auto">${row.node.summary}</span>
-          ${row.node.label === undefined ? null : html`<span class="label" title=${row.node.label}>${row.node.label}</span>`}
-          ${row.node.timestamp === undefined ? null : html`<time datetime=${row.node.timestamp}>${row.node.timestamp}</time>`}
+          <span class="summary" dir="auto">${sessionTreeSummary(row.node)}</span>
+          ${row.node.label === undefined ? null : html`<span class="label" dir="auto" title=${row.node.label}>${row.node.label}</span>`}
+          ${row.node.timestamp === undefined ? null : html`<time datetime=${row.node.timestamp}>${sessionTreeTimestamp(row.node.timestamp)}</time>`}
         </span>
       </div>
     `;
@@ -171,67 +183,73 @@ export class SessionTreeNavigator extends LitElement {
   }
   private renderActionStep(): TemplateResult {
     const selectedNode = this.selectedId === undefined ? undefined : this.model.nodesById.get(this.selectedId);
-    const validation = validateSessionTreeSummaryChoice(this.summaryMode, this.customInstructions);
+    const validation = this.validateSummaryChoice();
     return html`
       <div class="body confirmation-step">
         <div class="confirmation-card">
           <div>
-            <span class="eyebrow">${t("ui.sessionTreeNavigator.selectedEntry", "Selected entry")}</span>
-            <h2>${t("ui.main.f3c6c9300115", "Choose how to continue")}</h2>
+            <span class="eyebrow">${messages.t("selected")}</span>
+            <h2>${messages.t("choose")}</h2>
           </div>
-          ${selectedNode === undefined ? html`<div class="empty">${t("ui.sessionTreeNavigator.theSelectedHistoryEntryIsNoLongerAvailable", "The selected history entry is no longer available.")}</div>` : html`
+          ${selectedNode === undefined ? html`<div class="empty">${messages.t("unavailableEntry")}</div>` : html`
             <div class="selected-entry">
               ${this.renderKindBadge(sessionTreeKindPresentation(selectedNode.kind))}
-              <strong dir="auto">${selectedNode.summary}</strong>
+              <strong dir="auto">${sessionTreeSummary(selectedNode)}</strong>
               <p>${this.selectedEntryDescription(selectedNode.kind)}</p>
             </div>
           `}
           <fieldset ?disabled=${this.busy}>
-            <legend>${t("ui.main.5069774980d8", "How would you like to continue?")}</legend>
-            ${this.renderOperationOption("continue", t("ui.main.689bd86d4d1c", "Continue in this session"), t("ui.main.a832b2f7249f", "Branch from the selected entry in this session file and keep its other branches."))}
-            ${this.renderOperationOption("fork", t("ui.main.845e53aa3f7c", "Fork into new session"), t("ui.main.f69557cbab5d", "Create and switch to a separate session file while leaving the original unchanged."))}
+            <legend>${messages.t("operation")}</legend>
+            ${this.renderOperationOption("continue", messages.t("continueOption"), messages.t("continueDescription"))}
+            ${this.renderOperationOption("fork", messages.t("forkOption"), messages.t("forkDescription"))}
           </fieldset>
           ${this.operation === "continue" ? html`
             <fieldset ?disabled=${this.busy}>
-              <legend>${t("ui.sessionTreeNavigator.abandonedBranchSummary", "Abandoned branch summary")}</legend>
-              ${this.renderSummaryOption("none", t("ui.sessionTreeNavigator.skipSummary", "Skip summary"), t("ui.sessionTreeNavigator.switchBranchesWithoutAddingASummaryEntry", "Switch branches without adding a summary entry."))}
-              ${this.renderSummaryOption("default", t("ui.sessionTreeNavigator.generateSummary", "Generate summary"), t("ui.sessionTreeNavigator.askPiToSummarizeTheContextYouAre", "Ask Pi to summarize the context you are leaving."))}
-              ${this.renderSummaryOption("custom", t("ui.sessionTreeNavigator.summarizeWithCustomFocus", "Summarize with custom focus"), t("ui.sessionTreeNavigator.guidePiTowardDetailsRelevantToTheNew", "Guide Pi toward details relevant to the new branch."))}
+              <legend>${messages.t("summary")}</legend>
+              ${this.renderSummaryOption("none", messages.t("none"), messages.t("noneDescription"))}
+              ${this.renderSummaryOption("default", messages.t("default"), messages.t("defaultDescription"))}
+              ${this.renderSummaryOption("custom", messages.t("custom"), messages.t("customDescription"))}
               ${this.summaryMode === "custom" ? html`
                 <label class="custom-focus" for="session-tree-custom-focus">
-                  <span>${t("ui.sessionTreeNavigator.customSummaryFocus", "Custom summary focus")}</span>
+                  <span>${messages.t("customFocus")}</span>
                   <textarea
                     id="session-tree-custom-focus"
+                    dir="auto"
                     rows="5"
                     maxlength=${String(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH)}
                     .value=${this.customInstructions}
                     @input=${(event: InputEvent) => { this.handleCustomInstructionsInput(event); }}
                   ></textarea>
-                  <span class="character-count">${this.customInstructions.length} / ${SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH}</span>
+                  <span class="character-count">${messages.t("characterCount", { count: this.customInstructions.length, max: SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH })}</span>
                 </label>
                 ${validation.ok ? null : html`<div class="validation-error" role="alert">${validation.error}</div>`}
               ` : null}
             </fieldset>
           ` : null}
           <div class="side-effects-note" role="note">
-            <strong>${t("ui.sessionTreeNavigator.onlyConversationContextIsAffected", "Only conversation context is affected.")}</strong>${t("ui.main.93b34a54b41f", "Continuing or forking does not undo filesystem changes, shell commands, tool calls, or other side effects.")}
+            <strong>${messages.t("sideEffectsTitle")}</strong> ${messages.t("sideEffects")}
           </div>
-          ${this.statusMessage === "" ? null : html`<div class="dialog-status" role="status">${this.statusMessage}</div>`}
-          ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error}</div>`}
+          ${this.statusMessage === "" ? null : html`<div class="dialog-status" role="status">${this.statusMessage()}</div>`}
+          ${this.error === "" ? null : html`<div class="dialog-error" role="alert">${this.error()}</div>`}
         </div>
       </div>
     `;
   }
 
+  private validateSummaryChoice() {
+    return validateSessionTreeSummaryChoice(this.summaryMode, this.customInstructions, (code) =>
+      code === "required" ? messages.t("required") : messages.t("tooLong", { max: SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH }));
+  }
+
   private selectedEntryDescription(kind: SessionTreeNodeKind): string {
     if (this.operation === "fork") {
       return kind === "user"
-        ? t("ui.main.31853eda65e0", "The new session will branch before this user message, and its text will return to the prompt editor as the new session draft.")
-        : t("ui.main.51b8f85261ba", "The new session will include this entry and all history leading to it.");
+        ? messages.t("forkUser")
+        : messages.t("forkOther");
     }
     return sessionTreeEntryReturnsToEditor(kind)
-      ? t("ui.sessionTreeNavigator.thisMessageSTextReturnsToThePrompt", "This message's text returns to the prompt editor for optional editing and resubmission.")
-      : t("ui.main.c3432d0efd76", "The prompt editor will be empty after continuing from this entry in this session.");
+      ? messages.t("continueUser")
+      : messages.t("continueOther");
   }
 
   private renderOperationOption(operation: NavigatorOperation, label: string, description: string): TemplateResult {
@@ -268,9 +286,9 @@ export class SessionTreeNavigator extends LitElement {
     if (this.step === "tree") {
       return html`
         <footer>
-          <button @click=${() => { this.onCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
+          <button @click=${() => { this.onCancel?.(); }}>${messages.t("cancel")}</button>
           <span class="footer-spacer"></span>
-          <button class="primary" ?disabled=${this.selectedId === undefined} @click=${() => { this.continueToAction(); }}>${t("ui.main.ea0ef2ae7245", "Next")}</button>
+          <button class="primary" ?disabled=${this.selectedId === undefined} @click=${() => { this.continueToAction(); }}>${messages.t("next")}</button>
         </footer>
       `;
     }
@@ -279,10 +297,10 @@ export class SessionTreeNavigator extends LitElement {
     const summarizing = continuing && this.summaryMode !== "none";
     return html`
       <footer>
-        <button ?disabled=${this.busy} @click=${() => { this.returnToTree(); }}>${t("ui.sessionTreeNavigator.back", "Back")}</button>
+        <button ?disabled=${this.busy} @click=${() => { this.returnToTree(); }}>${messages.t("back")}</button>
         <span class="footer-spacer"></span>
         ${this.busy && summarizing ? html`
-          <button class="danger" ?disabled=${this.aborting} @click=${() => { void this.abortNavigation(); }}>${this.aborting ? t("ui.sessionTreeNavigator.cancelling", "Cancelling…") : t("ui.sessionTreeNavigator.cancelSummary", "Cancel summary")}</button>
+          <button class="danger" ?disabled=${this.aborting} @click=${() => { void this.abortNavigation(); }}>${this.aborting ? messages.t("cancelling") : messages.t("cancelSummary")}</button>
         ` : null}
         <button class="primary" ?disabled=${this.busy || this.selectedId === undefined} @click=${() => { void this.submitSelectedOperation(); }}>
           ${this.primaryActionLabel()}
@@ -328,7 +346,10 @@ export class SessionTreeNavigator extends LitElement {
 
   private handleTreeKeyDown(event: KeyboardEvent): void {
     if (event.key === "Escape") return;
-    const next = transitionSessionTreeKey(this.model, { selectedId: this.selectedId, foldedIds: this.foldedIds }, event.key);
+    const key = localization.direction === "rtl"
+      ? event.key === "ArrowLeft" ? "ArrowRight" : event.key === "ArrowRight" ? "ArrowLeft" : event.key
+      : event.key;
+    const next = transitionSessionTreeKey(this.model, { selectedId: this.selectedId, foldedIds: this.foldedIds }, key);
     if (!next.handled) return;
     event.preventDefault();
     event.stopPropagation();
@@ -343,7 +364,7 @@ export class SessionTreeNavigator extends LitElement {
 
   private continueToAction(): void {
     if (this.busy || this.selectedId === undefined || !this.model.nodesById.has(this.selectedId)) return;
-    if (!validateSessionTreeSummaryChoice(this.summaryMode, this.customInstructions).ok) {
+    if (!this.validateSummaryChoice().ok) {
       this.summaryMode = "none";
       this.customInstructions = "";
     }
@@ -384,9 +405,9 @@ export class SessionTreeNavigator extends LitElement {
   }
 
   private primaryActionLabel(): string {
-    if (!this.busy) return this.operation === "continue" ? t("ui.main.ae07f9cb8a7e", "Continue from here") : t("ui.main.845e53aa3f7c", "Fork into new session");
-    if (this.operation === "fork") return t("ui.main.a45a4265c22a", "Forking…");
-    return this.summaryMode === "none" ? t("ui.main.3f87d4e5ac2e", "Continuing…") : t("ui.sessionTreeNavigator.summarizing", "Summarizing…");
+    if (!this.busy) return this.operation === "continue" ? messages.t("continueAction") : messages.t("forkAction");
+    if (this.operation === "fork") return messages.t("forking");
+    return this.summaryMode === "none" ? messages.t("continuing") : messages.t("summarizing");
   }
 
   private submitSelectedOperation(): Promise<void> {
@@ -394,7 +415,7 @@ export class SessionTreeNavigator extends LitElement {
   }
   private async submitNavigation(): Promise<void> {
     if (this.busy || this.selectedId === undefined) return;
-    const validation = validateSessionTreeSummaryChoice(this.summaryMode, this.customInstructions);
+    const validation = this.validateSummaryChoice();
     if (!validation.ok) {
       this.error = "";
       this.statusMessage = "";
@@ -404,7 +425,7 @@ export class SessionTreeNavigator extends LitElement {
     }
     const navigate = this.onNavigate;
     if (navigate === undefined) {
-      this.error = t("ui.sessionTreeNavigator.sessionTreeNavigationIsUnavailableCloseAndReopen", "Session tree navigation is unavailable. Close and reopen /tree, then retry.");
+      this.error = () => messages.t("navigationUnavailable");
       return;
     }
 
@@ -421,16 +442,16 @@ export class SessionTreeNavigator extends LitElement {
       this.aborting = false;
       if (!result.cancelled) return;
       this.step = "tree";
-      this.statusMessage = result.aborted === true
-        ? t("ui.sessionTreeNavigator.summaryCancelledTheSelectedHistoryEntryIsUnchanged", "Summary cancelled. The selected history entry is unchanged.")
-        : t("ui.sessionTreeNavigator.navigationCancelledTheSelectedHistoryEntryIsUnchanged", "Navigation cancelled. The selected history entry is unchanged.");
+      this.statusMessage = () => result.aborted === true
+        ? messages.t("summaryCancelled")
+        : messages.t("navigationCancelled");
       this.pendingFocus = "tree";
     } catch (error: unknown) {
       if (generation !== this.operationGeneration) return;
       this.busy = false;
       this.aborting = false;
       this.statusMessage = "";
-      this.error = t("ui.sessionTreeNavigator.unableToNavigateSessionHistory", "Unable to navigate session history: {errorMessageerror}", { errorMessageerror: errorMessage(error) });
+      this.error = () => messages.t("navigationFailed", { error: errorMessage(error) });
     }
   }
 
@@ -438,7 +459,7 @@ export class SessionTreeNavigator extends LitElement {
     if (this.busy || this.selectedId === undefined) return;
     const fork = this.onFork;
     if (fork === undefined) {
-      this.error = t("ui.main.8c3057119b0c", "Fork from the session tree is unavailable. Close and reopen /tree, then try again.");
+      this.error = () => messages.t("forkUnavailable");
       return;
     }
 
@@ -452,13 +473,13 @@ export class SessionTreeNavigator extends LitElement {
       if (generation !== this.operationGeneration) return;
       this.busy = false;
       if (!result.cancelled) return;
-      this.statusMessage = t("ui.main.d38652912c3f", "Fork cancelled. No new session was created; your selected history entry is unchanged.");
+      this.statusMessage = () => messages.t("forkCancelled");
       this.pendingFocus = "operation";
     } catch (error: unknown) {
       if (generation !== this.operationGeneration) return;
       this.busy = false;
       this.statusMessage = "";
-      this.error = t("ui.main.390c887eead8", "Could not fork session: {arg0}", { arg0: errorMessage(error) });
+      this.error = () => messages.t("forkFailed", { error: errorMessage(error) });
     }
   }
 
@@ -466,20 +487,20 @@ export class SessionTreeNavigator extends LitElement {
     if (!this.busy || this.summaryMode === "none" || this.aborting) return;
     const abort = this.onAbort;
     if (abort === undefined) {
-      this.error = t("ui.sessionTreeNavigator.unableToCancelTheSummaryFromThisClient", "Unable to cancel the summary from this client.");
+      this.error = () => messages.t("abortUnavailable");
       return;
     }
     const generation = this.operationGeneration;
     this.aborting = true;
     this.error = "";
-    this.statusMessage = t("ui.sessionTreeNavigator.cancellingSummary", "Cancelling summary…");
+    this.statusMessage = () => messages.t("aborting");
     try {
       await abort();
     } catch (error: unknown) {
       if (generation !== this.operationGeneration) return;
       this.aborting = false;
       this.statusMessage = "";
-      this.error = t("ui.sessionTreeNavigator.unableToCancelSummary", "Unable to cancel summary: {errorMessageerror}", { errorMessageerror: errorMessage(error) });
+      this.error = () => messages.t("abortFailed", { error: errorMessage(error) });
     }
   }
 
@@ -521,6 +542,11 @@ export class SessionTreeNavigator extends LitElement {
     footer { min-height: 64px; justify-content: end; padding: 12px max(18px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); border-top: 1px solid var(--pi-border); border-bottom: 0; }
     header > div { min-width: 0; }
     h1, h2, p { margin: 0; }
+    header, footer, .confirmation-card { overflow-wrap: anywhere; }
+    .kind, .badge { max-width: 100%; overflow-wrap: anywhere; }
+    .badges { min-width: 0; flex-wrap: wrap; }
+    :host(:dir(rtl)) .disclosure { transform: scaleX(-1); }
+    :host(:dir(rtl)) .tree-row.selected, :host(:dir(rtl)) .tree-row.active-leaf { box-shadow: inset -3px 0 var(--pi-accent); }
     h1 { font-size: 21px; line-height: 1.25; }
     h2 { margin-top: 2px; font-size: 18px; }
     .eyebrow { display: block; color: var(--pi-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
@@ -625,9 +651,15 @@ export function sessionTreeEntryReturnsToEditor(kind: SessionTreeNodeKind): bool
 }
 
 export function sessionTreeKindPresentation(kind: SessionTreeNodeKind): SessionTreeKindPresentation {
-  return SESSION_TREE_KIND_PRESENTATION[kind];
+  const presentation = SESSION_TREE_KIND_PRESENTATION[kind];
+  return { ...presentation, label: messages.t(presentation.label) };
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function sessionTreeTimestamp(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : localization.date(date, { dateStyle: "medium", timeStyle: "short" });
 }

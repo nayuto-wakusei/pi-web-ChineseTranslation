@@ -21,10 +21,10 @@ describe("conversation activity", () => {
   });
 
   it.each([
-    [{ isCompacting: true, isStreaming: true }, "Compacting context"],
+    [{ isCompacting: true, isStreaming: true }, "compacting"],
     [{ isBashRunning: true }, "bash"],
-    [{ isStreaming: true }, "Running"],
-    [{ pendingMessageCount: 2 }, "Queueing"],
+    [{ isStreaming: true }, "running"],
+    [{ pendingMessageCount: 2 }, "queued"],
   ])("uses status when activity is missing or stale: %j", (status, label) => {
     expect(conversationActivityText({ ...idle, ...status }, undefined, false)).toBe(label);
     expect(conversationActivityText({ ...idle, ...status }, { ...activity, phase: "idle" }, false)).toBe(label);

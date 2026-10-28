@@ -47,7 +47,7 @@ describe("SessionController pending starts", () => {
     expect(temporarySession?.id).toMatch(/^creating:/);
     expect(temporarySession?.persisted).toBe(false);
     expect(fixture.state.sessions.map((session) => session.id)).toEqual([temporarySession?.id]);
-    expect(fixture.state.activity).toMatchObject({ sessionId: temporarySession?.id, phase: "active", label: "正在创建会话" });
+    expect(fixture.state.activity).toMatchObject({ sessionId: temporarySession?.id, phase: "active", label: "Creating session" });
     expect(messageCalls).toEqual([]);
     expect(statusCalls).toEqual([]);
 
@@ -268,7 +268,7 @@ describe("SessionController pending starts", () => {
     expect(temporaryId).toMatch(/^creating:/);
     expect(fixture.state.sessions.map((session) => session.id)).toEqual([temporaryId]);
     expect(fixture.state.sessions[0]?.persisted).toBe(false);
-    expect(fixture.state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "会话创建失败" });
+    expect(fixture.state.activity).toMatchObject({ sessionId: temporaryId, phase: "error", label: "Session creation failed" });
     expect(Object.values(fixture.state.browserErrors).map((error) => error.message).join("\n")).toContain("backend unavailable");
 
     await controller.deleteCachedNewSession(fixture.state.sessions[0]);
@@ -542,7 +542,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     expect(state.activity).toBeUndefined();
     expect(state.error).toBe("");
     const scope = workspaceBrowserErrorScope("local", workspace.projectId, workspace.id);
-    expect(state.browserErrors[browserErrorScopeKey(scope)]?.message).toContain("导航已改变");
+    expect(state.browserErrors[browserErrorScopeKey(scope)]?.message).toContain("navigation changed");
   });
 
   it("leaves a stale completed pending selection unselected without losing its queued send", async () => {
@@ -678,7 +678,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     await start;
 
     const originScope = workspaceBrowserErrorScope("local", workspace.projectId, workspace.id);
-    expect(state.browserErrors[browserErrorScopeKey(originScope)]?.message).toBe("启动会话失败：late backend failure");
+    expect(state.browserErrors[browserErrorScopeKey(originScope)]?.message).toBe("Failed to start session: late backend failure");
     expect(visibleBrowserErrors(state.browserErrors, {
       machineId: "local",
       projectId: otherWorkspace.projectId,
@@ -688,7 +688,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
       machineId: "local",
       projectId: workspace.projectId,
       workspaceId: workspace.id,
-    })).toEqual([{ scope: originScope, message: "启动会话失败：late backend failure" }]);
+    })).toMatchObject([{ scope: originScope, message: "Failed to start session: late backend failure" }]);
     expect(state.sessions).toEqual([]);
     expect(temporaryId).toMatch(/^creating:/);
   });

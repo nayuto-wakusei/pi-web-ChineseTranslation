@@ -91,6 +91,7 @@
             <strong>On this page</strong>
             <a href="#requirements">Requirements</a>
             <a href="#user-services">User service install</a>
+            <a href="#bun">Best-effort Bun support</a>
             <a href="#one-line">One-line install</a>
             <a href="#pi-package">Install through Pi</a>
             <a href="#manual-run">WSL / manual run</a>
@@ -107,9 +108,9 @@
             <section id="requirements">
               <h2>Requirements</h2>
               <ul>
-                <li><strong>Node.js 22.19.0 or newer</strong> and npm.</li>
-                <li><strong>Pi Coding Agent <code>0.86.1</code>、<code>0.87.0</code> 或 <code>1.3.0</code></strong> 已安装并配置，当前用户可以运行 <code>pi</code> 命令；开发依赖使用 <code>1.3.0</code>，peer 范围保留这三个明确版本。</li>
-                <li>A shell login environment that exposes Node, npm, Pi, git, and any tools your agents need.</li>
+                <li><strong>Node.js 22.19.0 or newer</strong> and npm (recommended), or <a href="#bun">Bun on a best-effort basis</a>.</li>
+                <li><strong>Pi Coding Agent 0.86.1、0.87.0 或 1.3.0</strong> installed as an npm SDK package through npm or Bun and configured so the <code>pi</code> command works for your user. Binary-only installations without the SDK are not supported.</li>
+                <li>A shell login environment that exposes your runtime, Pi, git, and any tools your agents need. The package launchers use POSIX <code>sh</code>. Pi's Bash tool and some service scripts still require Bash.</li>
                 <li>For the automatic installer: a supported per-user service manager.</li>
               </ul>
               <p>PI WEB reuses an installed Pi npm SDK rather than installing a private runtime. If Pi is not installed, run <code>npm install -g @earendil-works/pi-coding-agent@1.3.0</code> first. SDK selection prefers <code>PI_WEB_PI_PACKAGE_DIR</code>, then ordinary npm resolution, then the first <code>pi</code> executable on PATH. The override is an SDK package root, not an executable or agent-data directory; standalone binaries without an SDK package are unsupported. Installing through <code>/pi-web</code> preserves the hosting Pi installation in native services.</p>
@@ -143,6 +144,27 @@
               <p>Then open <a href="http://127.0.0.1:8504">http://127.0.0.1:8504</a>.</p>
               <p>If preflight fails, no config or existing services are changed. Follow the detected shell guidance: zsh services read <code>~/.zprofile</code>, not interactive-only <code>~/.zshrc</code>; bash uses <code>~/.bash_profile</code> or <code>~/.profile</code>.</p>
               <p>On Linux servers, also consider <code>sudo loginctl enable-linger "$USER"</code> so user services survive logout/reboot.</p>
+            </section>
+
+            <section id="bun">
+              <h2>Best-effort Bun support</h2>
+              <p>Bun support is provided on a best-effort basis. The maintainers use Node.js, not Bun, for day-to-day development. Reported Bun bugs will be addressed where possible, but Bun compatibility is not guaranteed. Node.js remains the recommended runtime.</p>
+              <p>PI WEB can run without Node.js using Bun's native terminals. Linux is verified with Bun 1.4.3; macOS service installation has not been verified with Bun. Bun must provide <code>Bun.Terminal</code> and <code>Bun.spawn</code>; an older Bun cannot use <code>node-pty</code> as a fallback.</p>
+              <div class="code-card">
+                <div class="copy-row">
+                  <strong>Bun global install</strong>
+                  <button class="copy-button" data-copy="#bun-install">Copy</button>
+                </div>
+                <pre id="bun-install"><code><span class="comment"># Keep using your existing Pi SDK installation. If Pi is not installed:</span>
+<span class="prompt">$</span> bun add --global --bun @earendil-works/pi-coding-agent
+<span class="prompt">$</span> bun add --global @jmfederico/pi-web
+<span class="prompt">$</span> PI_WEB_RUNTIME=bun pi-web install
+<span class="prompt">$</span> PI_WEB_RUNTIME=bun pi-web doctor</code></pre>
+              </div>
+              <p><code>PI_WEB_RUNTIME</code> selects <code>node</code>, <code>bun</code>, or <code>auto</code> (the default). Auto prefers a supported Node.js, then Bun, regardless of which package manager installed PI WEB. An explicit selection fails rather than silently switching engines. <code>pi-web --print-runtime</code> reports the launcher's selection without starting a service. Service preflight checks sessiond's terminal prerequisites using the selected service interpreter before replacing definitions. Once running, doctor reports the activated Terminal plugin's state; recovery safe start is shown as disabled, not as a healthy terminal service.</p>
+              <p>The installer retains an explicit runtime preference in the service definitions. Services choose the interpreter again at each start. Rerun <code>pi-web install</code> to replace older definitions that launch an interpreter directly; changing definitions or restarting sessiond interrupts active sessions. For manual operation, prefix both <code>pi-web-sessiond</code> and <code>pi-web-server</code> with <code>PI_WEB_RUNTIME=bun</code>.</p>
+              <p>Bun terminals do not load <code>node-pty</code>, so its optional native build can be skipped. Node terminals still require a working <code>node-pty</code> installation. Pi extensions may load other native modules whose Bun compatibility PI WEB cannot guarantee; an incompatible native module can abort the daemon. The agent's <code>httpIdleTimeoutMs</code> setting is not applied under Bun; see <a href="faq#model-response-terminated">HTTP timeout troubleshooting</a>. Both runtimes enforce PI WEB's channel message limits. Node can also apply these limits during message assembly; Bun's native transport buffers messages before delivering them to PI WEB.</p>
+              <p>For Bun global installations, update with <code>bun add --global @jmfederico/pi-web@latest</code>, then restart the web/API service before sessiond. Automatic <code>pi-web update</code> is not provided for Bun global installs. Development service scripts still use the Node/npm toolchain; Bun support here covers the installed application.</p>
             </section>
 
             <section id="one-line">
@@ -358,7 +380,8 @@ server {
             </section>
 
             <section id="update">
-              <h2>更新安装</h2>
+              <span id="updates"></span><h2>更新安装</h2>
+              <p>设置中的更新面板在所选机器的 <code>$PI_WEB_DATA_DIR/maintenance</code> 中启动维护终端，不依赖项目或工作区选择。维护终端与工作区终端并列显示，只由更新等操作创建，完成后仍可继续交互。<code>pi-web version --check</code> 查询新版；普通版本命令不联网检查。</p>
               <p>使用 <code>pi-web update [--yes] [--force]</code>，先检查显示的实际安装、Pi profile 和重启目标。更新可能中断会话与终端，应在允许中断的维护窗口执行；非交互环境必须显式 <code>--yes</code>，它不绕过安全检查。</p>
               <p>npm-global 更新针对当前安装的 <code>@chainingintention/pi-web-cn</code> 和 npm root，确认前查询精确版本，执行时固定该版本。<code>--force</code> 允许已是当前版本时重新安装。Pi 包仅自动更新用户范围的受支持远程来源。</p>
               <p>本地 checkout 必须干净并可 fast-forward；不自动合并或删除修改。任一拉取、安装或构建步骤失败，不继续重启。自动原生服务更新仅支持 Linux/macOS 的已识别服务；Windows、未知安装或不支持的嵌套执行使用原安装工具或 PI WEB 外的宿主终端处理。</p>

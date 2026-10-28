@@ -20,7 +20,7 @@ describe("settings-shortcuts-panel send behavior", () => {
     expect(select.value).toBe("steer");
     select.value = "followUp";
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(onSave).toHaveBeenLastCalledWith({ shortcuts: { "core:other": "mod+o" }, defaultStreamingBehavior: "followUp" });
+    expect(onSave).toHaveBeenLastCalledWith({ defaultStreamingBehavior: "followUp" });
     panel.configResponse = configResponse({ defaultStreamingBehavior: "followUp" });
     await panel.updateComplete;
     expect(select.value).toBe("followUp");

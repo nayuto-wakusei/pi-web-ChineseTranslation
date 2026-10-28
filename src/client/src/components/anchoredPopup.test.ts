@@ -44,6 +44,36 @@ describe("anchored transient popup", () => {
     expect(anchoredPopupStyle(anchor, { minWidth: 210 }, panel)).toMatchObject({ left: "auto", "min-width": "48px" });
   });
 
+  it("aligns start and end to RTL inline edges without squeezing a left-edge action menu", () => {
+    const anchor = document.createElement("button");
+    anchor.style.direction = "rtl";
+    document.body.append(anchor);
+    vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(new DOMRect(8, 20, 32, 32));
+    const end = anchoredPopupStyle(anchor, { minWidth: 120 });
+    expect(end["left"]).toBe("8px");
+    expect(end["min-width"]).toBe("120px");
+    const start = anchoredPopupStyle(anchor, { placement: "below-start", minWidth: 120 });
+    expect(start["right"]).toBe(`${String(window.innerWidth - 40)}px`);
+    expect(start["max-width"]).toBe("40px");
+  });
+
+  it("opens inline-start action strips into the viewport at either direction's trailing edge", () => {
+    vi.stubGlobal("visualViewport", { offsetLeft: 0, offsetTop: 0, width: 360, height: 900 });
+    const anchor = document.createElement("button");
+    document.body.append(anchor);
+    const rect = vi.spyOn(anchor, "getBoundingClientRect");
+    anchor.style.direction = "ltr";
+    rect.mockReturnValue(new DOMRect(324, 68, 28, 28));
+    expect(anchoredPopupStyle(anchor, { placement: "inline-start-end", padding: 8 })).toMatchObject({
+      "max-width": "316px", right: `${String(window.innerWidth - 324)}px`, left: "auto",
+    });
+    anchor.style.direction = "rtl";
+    rect.mockReturnValue(new DOMRect(8, 68, 28, 28));
+    expect(anchoredPopupStyle(anchor, { placement: "inline-start-end", padding: 8 })).toMatchObject({
+      "max-width": "316px", left: "36px", right: "auto",
+    });
+  });
+
   it("keeps the native panel in its themed root and reconciles native dismissal once", async () => {
     const { host, panel } = await mount();
     expect(panel.getRootNode()).toBe(host.shadowRoot);

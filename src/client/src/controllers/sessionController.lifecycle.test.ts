@@ -66,7 +66,7 @@ describe("SessionController first coherent snapshot ownership", () => {
     let initialOpen: (() => void) | undefined;
     const socket: SessionEventSocket = {
       connect(_session, _onEvent, _onReconnect, _machineId, onInitialOpen) { initialOpen = onInitialOpen; },
-      setHandler: vi.fn(), close: vi.fn(),
+      setHandler: vi.fn(), close: vi.fn(), reconnect: vi.fn(),
     };
     const refresh = vi.fn(() => Promise.resolve());
     const fixture = createSessionControllerTestFixture({

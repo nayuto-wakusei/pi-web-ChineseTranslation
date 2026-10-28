@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DisplayedMessageActionContext, DisplayedMessageActionContribution, MessageActionAvailabilityContext } from "../../../../plugin-api";
 import { availableDisplayedMessageActions, availableMessageActions } from "../messageActions";
 import { createCoreMessageActions } from "./messageActions";
-import { t } from "../../i18n";
 
 const input: MessageActionAvailabilityContext = {
   machine: { id: "local", name: "Local", kind: "local" },
@@ -11,10 +10,7 @@ const input: MessageActionAvailabilityContext = {
 };
 
 function messageLabel(role: "user" | "assistant", copied: boolean): string {
-  return t("ui.chatView.message", "{copied} {role} message", {
-    copied: copied ? t("ui.toolExecutionView.copied", "Copied") : t("bundled.updates.copy.63d90d", "Copy"),
-    role: role === "user" ? t("ui.chatView.user", "User") : t("ui.chatView.assistant", "Assistant"),
-  });
+  return `${copied ? "Copied" : "Copy"} ${role} message`;
 }
 
 function copyAction(writeText: (text: string) => Promise<boolean>): DisplayedMessageActionContribution {
@@ -57,7 +53,7 @@ describe("core display Copy action", () => {
       const available = availableDisplayedMessageActions(actions, displayInput);
       expect(available).toHaveLength(1);
       expect(available[0]).toMatchObject({
-        action: { id: "message.copy", title: t("ui.chatView.copyMessage", "Copy message"), target: "display" },
+        action: { id: "message.copy", title: "Copy message", target: "display" },
         enabled: true,
         ariaLabel: messageLabel(role, false),
       });
@@ -96,14 +92,14 @@ describe("core display Copy action", () => {
     expect(writeText).toHaveBeenCalledExactlyOnceWith("**Original**\n\nSecond  line");
     expect(confirm).not.toHaveBeenCalled();
     expect(context).not.toHaveProperty("history");
-    expect(feedback).toMatchObject({ title: t("ui.toolExecutionView.copied", "Copied"), ariaLabel: messageLabel(role, true) });
+    expect(feedback).toMatchObject({ title: "Copied", ariaLabel: messageLabel(role, true) });
     expect(feedback).toHaveProperty("icon");
     expect(feedback).not.toMatchObject({ icon: action.icon });
   });
 
   it("fails visibly instead of returning success feedback when the clipboard helper reports failure", async () => {
     const writeText = vi.fn<(text: string) => Promise<boolean>>().mockResolvedValue(false);
-    await expect(copyAction(writeText).run(invocation())).rejects.toThrow(t("ui.messageActions.clipboardFailed", "Unable to copy message to the clipboard."));
+    await expect(copyAction(writeText).run(invocation())).rejects.toThrow("Unable to copy message to the clipboard.");
     expect(writeText).toHaveBeenCalledExactlyOnceWith("**Original**\n\nSecond  line");
   });
 

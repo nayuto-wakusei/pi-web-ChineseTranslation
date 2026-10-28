@@ -1,0 +1,10 @@
+{
+  "name": "@pi-web/audio-plugin",
+  "private": true,
+  "type": "module",
+  "piWeb": {
+    "plugins": [
+      { "id": "pi-web.audio", "browserRoot": ".", "module": "pi-web-plugin.js", "serverModule": "server.js", "machineSpecific": true }
+    ]
+  }
+}

@@ -18,8 +18,8 @@ describe("settings-packages-panel layout", () => {
 
     expect(rendered).toContain(unsupportedMessage);
     expect(rendered).not.toContain("受信代码警告");
-    expect(rendered).not.toContain("Pi 包来源");
-    expect(rendered).not.toContain("已配置的 Pi 包");
+    expect(rendered).not.toContain("Pi package source");
+    expect(rendered).not.toContain("Configured Pi packages");
     expect(rendered).not.toContain("尚未配置 Pi 包");
   });
 
@@ -32,12 +32,12 @@ describe("settings-packages-panel layout", () => {
 
     expectTextOrder(rendered, [
       "Failed to load Pi packages from Lab Mac (remote machine): Could not reach Lab Mac.",
-      "Lab Mac（远程机器） 的 Pi 包列表不可用，请重新加载。",
+      "Pi package list unavailable for Lab Mac (remote machine). Choose Refresh package list to try again.",
     ]);
-    expect(rendered).not.toContain("尚未配置 Pi 包");
-    expect(rendered).not.toContain("受信代码警告");
-    expect(rendered).not.toContain("Pi 包来源");
-    expect(rendered).not.toContain("已配置的 Pi 包");
+    expect(rendered).not.toContain("No Pi packages configured");
+    expect(rendered).not.toContain("Trusted code warning");
+    expect(rendered).not.toContain("Pi package source");
+    expect(rendered).not.toContain("Configured Pi packages");
   });
 
   it("shows trust guidance, install controls, and empty state only after a package response loaded", () => {
@@ -47,15 +47,15 @@ describe("settings-packages-panel layout", () => {
     const rendered = flattenTemplateContent(panel.render());
 
     expectTextOrder(rendered, [
-      "Pi 包",
-      "管理 ",
-      "本机（本地网关）",
-      "受信代码警告：",
-      "Pi 包来源",
-      "已配置的 Pi 包",
-      "本机（本地网关） 的 Pi 设置中尚未配置 Pi 包。",
+      "Pi packages",
+      "Managing Pi packages on ",
+      "本机 (local gateway)",
+      "Trusted code warning:",
+      "Pi package source",
+      "Configured Pi packages",
+      "No Pi packages configured in Pi settings on 本机 (local gateway) yet.",
     ]);
-    expect(rendered).not.toContain("Pi 包列表不可用");
+    expect(rendered).not.toContain("Pi package list unavailable");
   });
 
   it("orders package errors before the trusted-code warning while preserving loaded data", () => {
@@ -68,9 +68,9 @@ describe("settings-packages-panel layout", () => {
 
     expectTextOrder(rendered, [
       "Failed to refresh gateway PI WEB plugins after updating packages.",
-      "受信代码警告：",
-      "Pi 包来源",
-      "已配置的 Pi 包",
+      "Trusted code warning:",
+      "Pi package source",
+      "Configured Pi packages",
       "npm:@acme/tools",
     ]);
   });

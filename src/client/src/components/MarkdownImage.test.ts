@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { readMarkdownImageDimensions, rememberMarkdownImageDimensions } from "../formatting/markdownImageDimensions";
 import { MarkdownImage } from "./MarkdownImage";
-import { t } from "../i18n";
+import { imageMessages } from "../imageMessages";
 import { imageButton, loadIntrinsicDimensions, nativeImage, settleImage } from "./imagePresentation.testSupport";
 
 const previewUrl = "https://example.test/nested/api/preview?path=private";
@@ -140,7 +140,7 @@ it("keeps outside images src-free until explicit approval, including after sourc
   const show = imageButton(presentation, ".placeholder");
   expect(native.hasAttribute("src")).toBe(false);
   expect(show.hidden).toBe(false);
-  expect(show.textContent).toContain(t("images.show", "Show image"));
+  expect(show.textContent).toContain(imageMessages.t("show"));
   expect(show.textContent).toContain("/private/example.png");
   expect(imageButton(presentation).hidden).toBe(true);
   show.click();
@@ -177,7 +177,7 @@ it("preserves the native image and approval on benign props updates but not a ne
   expect(nativeImage(presentation)).toBe(native);
   expect(native.src).toBe(previewUrl);
   expect(native.alt).toBe("Updated description");
-  expect(imageButton(presentation).getAttribute("aria-label")).toBe(t("images.enlarge", "Enlarge {description}", { description: "Updated description" }));
+  expect(imageButton(presentation).getAttribute("aria-label")).toBe(imageMessages.t("enlarge", { description: "Updated description" }));
 
   image.intentKey = "native-new-intent";
   await settleImage(image);

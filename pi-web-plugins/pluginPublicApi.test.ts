@@ -85,7 +85,8 @@ async function pluginSourceFiles(root: string): Promise<string[]> {
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
     if (entry.isDirectory()) files.push(...await pluginSourceFiles(path));
-    else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) files.push(path);
+    // Test fixtures may use host harnesses; production modules must stay public/package-local.
+    else if (entry.isFile() && entry.name.endsWith(".ts") && !/\.(?:test|testSupport)\.ts$/u.test(entry.name)) files.push(path);
   }
   return files;
 }

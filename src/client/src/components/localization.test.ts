@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import chinesePlugin from "../../../../pi-web-plugins/zh-cn/pi-web-plugin";
+import { initializeClientLocalization } from "../localizationBootstrap";
+import { localization } from "../localization/browser";
 import componentMessages from "../../../../pi-web-plugins/zh-cn/components.json";
 import clientMessages from "../../../../pi-web-plugins/zh-cn/client.json";
 import { setClientTranslations } from "../i18n";
@@ -11,6 +14,7 @@ import { ToolExecutionView } from "./ToolExecutionView";
 import { installDeferredContent, settleDeferredContent } from "../formatting/deferredContent.testSupport";
 
 const dictionary = { ...componentMessages, ...clientMessages };
+beforeAll(() => initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }])));
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -21,7 +25,8 @@ afterEach(() => {
 });
 
 describe("component localization", () => {
-  it.each(["en", "zh-CN"])("keeps remote activity copy unchanged in %s", (locale) => {
+  it.each(["en", "zh-CN"])("keeps remote activity copy unchanged in %s", async (locale) => {
+    await localization.setPreferences({ language: locale, formatLocale: locale });
     setClientTranslations(locale, locale === "en" ? {} : dictionary);
     for (const label of ["Idle", "Running tool", "远端提示 <tag> {count}"]) {
       expect(chatActivityText("idle", { sessionId: "s", phase: "idle", label, at: "now" })).toBe(label);
@@ -29,6 +34,7 @@ describe("component localization", () => {
   });
   it.each(["en", "zh-CN"])("preserves tool names, paths, results and status values in %s", async (locale) => {
     installDeferredContent();
+    await localization.setPreferences({ language: locale, formatLocale: locale });
     setClientTranslations(locale, locale === "en" ? {} : dictionary);
     const execution = {
       type: "toolExecution" as const,
@@ -55,11 +61,12 @@ describe("component localization", () => {
     expect(view.shadowRoot?.querySelector(".path")?.textContent).toBe(execution.args.path);
     expect(view.shadowRoot?.textContent).toContain(execution.resultText);
     expect(view.shadowRoot?.querySelector("script")).toBeNull();
-    expect(view.shadowRoot?.querySelector(".status-label")?.textContent).toBe(locale === "en" ? "Done" : "完成");
+    expect(view.shadowRoot?.querySelector(".status-label")?.textContent).toBe(locale === "en" ? "done" : "已完成");
     expect(execution).toEqual(before);
   });
 
-  it.each(["en", "zh-CN"])("formats dates with UI language %s, not the browser language", (locale) => {
+  it.each(["en", "zh-CN"])("formats dates with UI language %s, not the browser language", async (locale) => {
+    await localization.setPreferences({ language: locale, formatLocale: locale });
     setClientTranslations(locale, locale === "en" ? {} : dictionary);
     const timestamp = "2026-10-20T12:00:00.000Z";
     const message = { role: "assistant" as const, parts: [], meta: { timestamp } };
@@ -73,6 +80,7 @@ describe("component localization", () => {
     ["en", "Thinking level: High"],
     ["zh-CN", "思考级别：高"],
   ])("localizes thinking control labels in %s without changing status values", async (locale, label) => {
+    await localization.setPreferences({ language: locale, formatLocale: locale });
     setClientTranslations(locale, locale === "en" ? {} : dictionary);
     const editor = new PromptEditor();
     editor.status = {
@@ -99,6 +107,7 @@ describe("component localization", () => {
     ["en", "Enter password", "Password", "Assistant"],
     ["zh-CN", "输入密码", "密码", "助手"],
   ])("renders accessible labels in %s without translating remote errors", async (locale, heading, password, role) => {
+    await localization.setPreferences({ language: locale, formatLocale: locale });
     setClientTranslations(locale, locale === "en" ? {} : dictionary);
     const dialog = new NormalAuthDialog();
     dialog.error = "远端原始错误 <script>alert(1)</script>";
@@ -113,9 +122,10 @@ describe("component localization", () => {
   });
 
   it.each([
-    ["en", "Answered 0/1", "Questions"],
-    ["zh-CN", "已回答 0/1", "问题"],
+    ["en", "0 of 1 answered", "Questions"],
+    ["zh-CN", "已回答 0 / 1", "问题"],
   ])("localizes complete progress messages in %s while preserving model content", async (locale, progress, heading) => {
+    await localization.setPreferences({ language: locale, formatLocale: locale });
     setClientTranslations(locale, locale === "en" ? {} : dictionary);
     const card = new AskUserCard();
     card.open = true;

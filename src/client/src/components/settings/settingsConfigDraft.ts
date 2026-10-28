@@ -1,5 +1,14 @@
-import { t } from "../../i18n.js";
 import type { PiWebConfigValues } from "../../api";
+
+export type SettingsConfigValidation =
+  | { kind: "port" }
+  | { kind: "externalPath"; value: string }
+  | { kind: "folderRelative" | "folderTraversal"; field: "upload" | "attachment" };
+
+/** Structured validation provenance; message preserves non-UI callers' English compatibility. */
+export class SettingsConfigValidationError extends Error {
+  constructor(readonly validation: SettingsConfigValidation, message: string) { super(message); }
+}
 
 export interface GatewayServerConfigDraft {
   host: string;
@@ -9,6 +18,7 @@ export interface GatewayServerConfigDraft {
 }
 
 export interface MachineAccessConfigDraft {
+  installationName: string;
   allowedPathsText: string;
   uploadDefaultFolder: string;
   attachmentDefaultFolder: string;
@@ -19,13 +29,24 @@ export interface AgentProfileConfigDraft {
   dir: string;
 }
 
-/** Rebase untouched fields while retaining edits made since the baseline. */
-export function reconcileConfigDraft<T extends object>(draft: T, baseline: T, incoming: T): T {
-  const next = { ...draft };
-  for (const key in incoming) {
-    if (draft[key] === baseline[key]) next[key] = incoming[key];
-  }
-  return next;
+export function emptyAgentProfileConfigDraft(): AgentProfileConfigDraft {
+  return { command: "", dir: "" };
+}
+
+export function agentProfileDraftFromConfig(config: PiWebConfigValues): AgentProfileConfigDraft {
+  return { command: config.agent?.command ?? "", dir: config.agent?.dir ?? "" };
+}
+
+export function agentProfileConfigPatchFromDraft(draft: AgentProfileConfigDraft): PiWebConfigValues {
+  const command = draft.command.trim();
+  const dir = draft.dir.trim();
+  return { agent: { ...(command === "" ? {} : { command }), ...(dir === "" ? {} : { dir }) } };
+}
+
+export function agentProfileDraftMatchesConfig(draft: AgentProfileConfigDraft, config: PiWebConfigValues): boolean {
+  const normalizedDraft = agentProfileConfigPatchFromDraft(draft).agent ?? {};
+  const configured = config.agent ?? {};
+  return normalizedDraft.command === configured.command && normalizedDraft.dir === configured.dir;
 }
 
 export function emptyGatewayServerConfigDraft(): GatewayServerConfigDraft {
@@ -33,11 +54,7 @@ export function emptyGatewayServerConfigDraft(): GatewayServerConfigDraft {
 }
 
 export function emptyMachineAccessConfigDraft(): MachineAccessConfigDraft {
-  return { allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "" };
-}
-
-export function emptyAgentProfileConfigDraft(): AgentProfileConfigDraft {
-  return { command: "", dir: "" };
+  return { installationName: "", allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "" };
 }
 
 export function gatewayServerDraftFromConfig(config: PiWebConfigValues): GatewayServerConfigDraft {
@@ -51,34 +68,20 @@ export function gatewayServerDraftFromConfig(config: PiWebConfigValues): Gateway
 
 export function machineAccessDraftFromConfig(config: PiWebConfigValues): MachineAccessConfigDraft {
   return {
+    installationName: config.installationName ?? "",
     allowedPathsText: config.pathAccess?.allowedPaths?.join("\n") ?? "",
     uploadDefaultFolder: config.uploads?.defaultFolder ?? "",
     attachmentDefaultFolder: config.attachments?.defaultFolder ?? "",
   };
 }
 
-export function agentProfileDraftFromConfig(config: PiWebConfigValues): AgentProfileConfigDraft {
-  return {
-    command: config.agent?.command ?? "",
-    dir: config.agent?.dir ?? "",
-  };
-}
-
-export function agentProfileConfigPatchFromDraft(draft: AgentProfileConfigDraft): PiWebConfigValues {
-  const command = draft.command.trim();
-  const dir = draft.dir.trim();
-  return {
-    agent: {
-      ...(command === "" ? {} : { command }),
-      ...(dir === "" ? {} : { dir }),
-    },
-  };
-}
-
-export function agentProfileDraftMatchesConfig(draft: AgentProfileConfigDraft, config: PiWebConfigValues): boolean {
-  const normalizedDraft = agentProfileConfigPatchFromDraft(draft).agent ?? {};
-  const configured = config.agent ?? {};
-  return normalizedDraft.command === configured.command && normalizedDraft.dir === configured.dir;
+// Refresh untouched fields without replacing edits made against the previous snapshot.
+export function reconcileConfigDraft<T extends object>(draft: T, previous: T, incoming: T): T {
+  const result = { ...incoming };
+  for (const key in draft) {
+    if (draft[key] !== previous[key]) result[key] = draft[key];
+  }
+  return result;
 }
 
 export function gatewayServerConfigFromDraft(draft: GatewayServerConfigDraft, baseConfig: PiWebConfigValues = {}): PiWebConfigValues {
@@ -88,7 +91,7 @@ export function gatewayServerConfigFromDraft(draft: GatewayServerConfigDraft, ba
   if (host !== "") config.host = host;
   if (port !== "") {
     const parsed = Number(port);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new Error(t("ui.settingsConfigDraft.portMustBeAnIntegerFrom1To", "Port must be an integer from 1 to 65535."));
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new SettingsConfigValidationError({ kind: "port" }, "Port must be an integer from 1 to 65535.");
     config.port = parsed;
   }
   config.allowedHosts = draft.allowedHostsMode === "all" ? true : parseAllowedHostsText(draft.allowedHostsText);
@@ -97,9 +100,10 @@ export function gatewayServerConfigFromDraft(draft: GatewayServerConfigDraft, ba
 
 export function machineAccessConfigPatchFromDraft(draft: MachineAccessConfigDraft): PiWebConfigValues {
   const allowedPaths = parseAllowedPathsText(draft.allowedPathsText);
-  const uploadDefaultFolder = normalizeWorkspaceRelativeFolder(draft.uploadDefaultFolder, t("ui.main.d70e26e84489", "Upload default folder"));
-  const attachmentDefaultFolder = normalizeWorkspaceRelativeFolder(draft.attachmentDefaultFolder, t("ui.main.14cfd18bd406", "Attachment default folder"));
+  const uploadDefaultFolder = normalizeWorkspaceRelativeFolder(draft.uploadDefaultFolder, "upload");
+  const attachmentDefaultFolder = normalizeWorkspaceRelativeFolder(draft.attachmentDefaultFolder, "attachment");
   return {
+    installationName: draft.installationName.trim(),
     pathAccess: { allowedPaths },
     uploads: uploadDefaultFolder === "" ? {} : { defaultFolder: uploadDefaultFolder },
     attachments: attachmentDefaultFolder === "" ? {} : { defaultFolder: attachmentDefaultFolder },
@@ -108,11 +112,16 @@ export function machineAccessConfigPatchFromDraft(draft: MachineAccessConfigDraf
 
 function preservedGatewayConfigRemainder(baseConfig: PiWebConfigValues): PiWebConfigValues {
   return {
+    ...(baseConfig.installationName === undefined ? {} : { installationName: baseConfig.installationName }),
     ...(baseConfig.shortcuts === undefined ? {} : { shortcuts: baseConfig.shortcuts }),
     ...(baseConfig.defaultTheme === undefined ? {} : { defaultTheme: baseConfig.defaultTheme }),
+    ...(baseConfig.defaultLocalization === undefined ? {} : { defaultLocalization: baseConfig.defaultLocalization }),
     ...(baseConfig.defaultStreamingBehavior === undefined ? {} : { defaultStreamingBehavior: baseConfig.defaultStreamingBehavior }),
+    ...(baseConfig.quietMode === undefined ? {} : { quietMode: baseConfig.quietMode }),
     ...(baseConfig.plugins === undefined ? {} : { plugins: baseConfig.plugins }),
     ...(baseConfig.normalAuth === undefined ? {} : { normalAuth: baseConfig.normalAuth }),
+    ...(baseConfig.sessionNaming === undefined ? {} : { sessionNaming: baseConfig.sessionNaming }),
+    ...(baseConfig.sessionArchive === undefined ? {} : { sessionArchive: baseConfig.sessionArchive }),
     ...(baseConfig.pathAccess === undefined ? {} : { pathAccess: baseConfig.pathAccess }),
     ...(baseConfig.uploads === undefined ? {} : { uploads: baseConfig.uploads }),
     ...(baseConfig.attachments === undefined ? {} : { attachments: baseConfig.attachments }),
@@ -121,8 +130,6 @@ function preservedGatewayConfigRemainder(baseConfig: PiWebConfigValues): PiWebCo
     ...(baseConfig.subsessions === undefined ? {} : { subsessions: baseConfig.subsessions }),
     ...(baseConfig.askUser === undefined ? {} : { askUser: baseConfig.askUser }),
     ...(baseConfig.agent === undefined ? {} : { agent: baseConfig.agent }),
-    ...(baseConfig.sessionNaming === undefined ? {} : { sessionNaming: baseConfig.sessionNaming }),
-    ...(baseConfig.sessionArchive === undefined ? {} : { sessionArchive: baseConfig.sessionArchive }),
   };
 }
 
@@ -133,17 +140,18 @@ function parseAllowedHostsText(value: string): string[] {
 function parseAllowedPathsText(value: string): string[] {
   const paths = value.split("\n").map((path) => path.trim()).filter((path) => path !== "");
   const invalid = paths.find((path) => !isAbsoluteishAllowedPath(path));
-  if (invalid !== undefined) throw new Error(t("ui.settingsConfigDraft.allowedExternalPathsMustBeAbsoluteOrStart", "Allowed external paths must be absolute or start with ~: {invalid}", { invalid: invalid }));
+  if (invalid !== undefined) throw new SettingsConfigValidationError({ kind: "externalPath", value: invalid }, `Allowed external paths must be absolute paths or start with ~: ${invalid}`);
   return paths;
 }
 
-function normalizeWorkspaceRelativeFolder(value: string, label: string): string {
+function normalizeWorkspaceRelativeFolder(value: string, field: "upload" | "attachment"): string {
+  const label = field === "upload" ? "Upload default folder" : "Attachment default folder";
   const trimmed = value.trim();
   if (trimmed === "") return "";
-  if (isAbsoluteLike(trimmed)) throw new Error(t("ui.main.4b7d0c261f32", "{arg0} must be a workspace-relative path.", { arg0: label }));
+  if (isAbsoluteLike(trimmed)) throw new SettingsConfigValidationError({ kind: "folderRelative", field }, `${label} must be workspace-relative.`);
   const parts = trimmed.split(/[\\/]+/u).filter((part) => part !== "" && part !== ".");
   if (parts.length === 0) return "";
-  if (parts.some((part) => part === "..")) throw new Error(t("ui.main.36766761e71a", "{arg0} must not contain path traversal.", { arg0: label }));
+  if (parts.some((part) => part === "..")) throw new SettingsConfigValidationError({ kind: "folderTraversal", field }, `${label} must not contain path traversal.`);
   return parts.join("/");
 }
 

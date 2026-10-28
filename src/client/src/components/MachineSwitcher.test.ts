@@ -138,16 +138,15 @@ describe("single-machine info bubble", () => {
     expect(info?.querySelector(".machine-chevron")).toBeNull();
   });
 
-  it("keeps the upstream single-machine name visible without a location URL in browser mode", async () => {
+  it("renders the static machine name in browser mode", async () => {
     const switcher = await mountSwitcher([machine("local", "local")], {});
 
-    expect(switcher.shadowRoot?.querySelector(".machine-info")).not.toBeNull();
-    expect(switcher.shadowRoot?.querySelector(".machine-switcher-label")?.textContent).toBe("local");
+    expect(switcher.shadowRoot?.querySelector(".machine-info")?.textContent).toContain("local");
     expect(switcher.shadowRoot?.querySelector(".machine-info-url")).toBeNull();
     expect(switcher.shadowRoot?.querySelector(".machine-switcher-button")).toBeNull();
   });
 
-  it("carries the upstream machine icon, name and PWA URL", async () => {
+  it("carries the machine name, icon and URL", async () => {
     const switcher = await mountSwitcher([machine("local", "local")], {}, {}, true);
 
     const info = switcher.shadowRoot?.querySelector<HTMLElement>(".machine-info");
@@ -180,14 +179,14 @@ describe("single-machine info bubble", () => {
     expect(await switcher.focusSelectedOrFirst()).toBe(false);
   });
 
-  it("renders the upstream gateway identity while no machines are loaded", async () => {
+  it("renders PI-WEB while no machines are loaded", async () => {
     const switcher = new MachineSwitcher();
     switcher.machines = [];
     switcher.locationIndicator = true;
     document.body.append(switcher);
     await switcher.updateComplete;
 
-    expect(switcher.shadowRoot?.querySelector(".machine-switcher-label")?.textContent).toBe("PI-WEB");
+    expect(switcher.shadowRoot?.querySelector(".machine-info")?.textContent).toContain("PI-WEB");
     expect(switcher.shadowRoot?.querySelector(".machine-switcher-button")).toBeNull();
   });
 });

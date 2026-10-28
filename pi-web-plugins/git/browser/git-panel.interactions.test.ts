@@ -2,6 +2,10 @@
 import { html, render, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JsonValue, WorkspacePanelContext } from "../../../src/plugin-api.js";
+import { chinesePluginLocalization } from "../../localization.testSupport.js";
+import { beforeEach } from "vitest";
+let localization: Awaited<ReturnType<typeof chinesePluginLocalization>>;
+beforeEach(async () => { localization = await chinesePluginLocalization("git"); });
 import { createGitBrowserContributions } from "./git-panel.js";
 import type { GitStatusFile } from "./git-contract.js";
 import { GIT_FILE_VIEW_STORAGE_KEY } from "./gitFileViewPreference.js";
@@ -69,14 +73,14 @@ describe("independent Git panel migrated interactions", () => {
     expect(panel.button("全部展开")).toBeDefined();
   });
 
-  it("renders M/A/D/U state labels with working-tree state taking precedence", async () => {
+  it("renders Git state labels with working-tree state taking precedence", async () => {
     const panel = await mountPanel([
       file("m.ts", { index: "added", workingTree: "modified" }),
       file("a.ts", { index: "added", workingTree: "unmodified" }),
       file("d.ts", { workingTree: "deleted" }),
       file("u.ts", { workingTree: "untracked" }),
     ]);
-    for (const [name, label] of [["m.ts", "M"], ["a.ts", "A"], ["d.ts", "D"], ["u.ts", "U"]] as const) {
+    for (const [name, label] of [["m.ts", "M"], ["a.ts", "A"], ["d.ts", "D"], ["u.ts", "?"]] as const) {
       expect(panel.row(name)?.querySelector(".ui-file-meta")?.textContent).toBe(label);
     }
   });
@@ -106,7 +110,7 @@ async function mountPanel(files: GitStatusFile[], submodules: string[] = []) {
     if (!isRecord(input) || typeof input["path"] !== "string") throw new Error("Missing diff input");
     return Promise.resolve({ path: input["path"], staged: input["staged"] === true, hash: "diff", diff: "", truncated: false });
   });
-  const panel = createGitBrowserContributions("git", "git", html, svg).workspacePanels?.[0];
+  const panel = createGitBrowserContributions("git", "git", html, svg, () => undefined, localization, () => undefined).workspacePanels?.[0];
   if (panel === undefined) throw new Error("Missing Git panel");
   const context: WorkspacePanelContext = {
     machine: { id: "local", name: "Local", kind: "local" },

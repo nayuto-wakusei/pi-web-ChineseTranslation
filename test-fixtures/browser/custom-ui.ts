@@ -1,3 +1,5 @@
+import { initializeClientLocalization } from "../../src/client/src/localizationBootstrap";
+import { localization } from "../../src/client/src/localization/browser";
 import { api, configApi, piPackagesApi, pluginsApi, workspacesApi, trustApi, type Machine, type PiWebConfigResponse, type PiWebConfigValues, type SessionInfo } from "../../src/client/src/api";
 import { AppNavigationPanel } from "../../src/client/src/components/appShell/AppNavigationPanel";
 import { AppContextBar } from "../../src/client/src/components/appShell/AppContextBar";
@@ -11,15 +13,14 @@ import { NavigationSectionsController, type NavigationSection } from "../../src/
 import type { ThemePreference } from "../../src/client/src/theme";
 import { PluginRegistry } from "../../src/client/src/plugins/registry";
 import { pluginStyles } from "../../src/client/src/plugins/styles";
-import { setClientTranslations, t } from "../../src/client/src/i18n";
+import { t } from "../../src/client/src/i18n";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../../src/shared/pluginRecoveryCommands";
 import type { UiPresentationContextV1 } from "../../src/plugin-api";
 import chinesePlugin from "../../pi-web-plugins/zh-cn/pi-web-plugin";
 import plugin from "../../pi-web-plugins/custom-ui-codex/pi-web-plugin";
 
-const [catalog] = chinesePlugin.activate().contributions.localizations;
-if (catalog === undefined) throw new Error("Missing Chinese catalog");
-setClientTranslations(catalog.locale, catalog.messages);
+await initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }]));
+await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
 api.commands = () => Promise.resolve([]);
 api.files = () => Promise.resolve([]);
 api.models = () => Promise.resolve({ models: [] });

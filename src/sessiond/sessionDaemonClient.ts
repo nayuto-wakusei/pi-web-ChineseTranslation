@@ -24,7 +24,8 @@ export interface SessionDaemonClientOptions {
 
 export interface SessionDaemonRequestOptions {
   signal?: AbortSignal;
-  headers?: Record<string, string>;
+  headers?: Record<string, string> & { range?: string };
+  timeoutMs?: number;
 }
 
 export interface SessionDaemonStreamResponse {
@@ -56,8 +57,11 @@ export class SessionDaemonClient {
 
   /** Stream binary resources without UTF-8 decoding or buffering the response. */
   requestStream(path: string, options: SessionDaemonRequestOptions = {}): Promise<SessionDaemonStreamResponse> {
+    const range = options.headers?.range;
+    if (range !== undefined && (range.length > 256 || /[\r\n]/u.test(range))) return Promise.reject(new Error("Invalid resource Range header"));
     return new Promise((resolve, reject) => {
       const onResponse = (response: http.IncomingMessage): void => {
+        clearTimeout(headerTimeout);
         resolve({
           statusCode: response.statusCode ?? 500,
           headers: Object.fromEntries(Object.entries(response.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : value ?? ""])),
@@ -73,7 +77,9 @@ export class SessionDaemonClient {
       const request = url === undefined
         ? http.request({ ...requestOptions, agent: SESSIOND_SOCKET_AGENT, socketPath: this.socketPath, path }, onResponse)
         : (url.protocol === "https:" ? https : http).request(url, requestOptions, onResponse);
-      request.on("error", (error) => { reject(normalizeSessionDaemonRequestError(error, options.signal)); });
+      request.on("error", (error) => { clearTimeout(headerTimeout); reject(normalizeSessionDaemonRequestError(error, options.signal)); });
+      const headerTimeout = setTimeout(() => { request.destroy(new Error("Session daemon resource headers timed out")); }, options.timeoutMs ?? 30_000);
+      headerTimeout.unref();
       request.end();
     });
   }

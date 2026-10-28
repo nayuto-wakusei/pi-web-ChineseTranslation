@@ -1,10 +1,12 @@
-import { t } from "../i18n";
+
 import { html, nothing } from "lit";
+import { localizedArgumentSummary, localizedChatText } from "../localizedChatPresentation";
+import { chatTranscriptMessages as messages } from "../chatTranscriptMessages";
 import { live } from "lit/directives/live.js";
 import { cache } from "lit/directives/cache.js";
 import { MessageActionsMenu } from "./chat/MessageActionsMenu";
 import { renderSessionWarningIcon } from "./shared";
-import { chatToolOutputLabel, chatMessageGroupClassName, chatMessageGroupLabel } from "./chat/transcriptLabels";
+import { chatToolOutputLabel, chatMessageGroupClassName, chatMessageGroupLabel, localizedChatGroupSummary } from "./chat/transcriptLabels";
 import { chatMessageHasHeader, summarizeChatGroup, type ChatDisplayGroup, type ChatGroup } from "../chatGroups";
 import type { ChatBehaviors } from "../chatBehaviors";
 import type { AskUserSubmission, SessionRef } from "../api";
@@ -51,7 +53,7 @@ export interface TranscriptRenderContext {
   questionIds: ReadonlySet<string>;
   askDraftSessionId: string;
   onSubmitAsk: ((askId: string, submission: AskUserSubmission) => void | Promise<void>) | undefined;
-  openImageGallery: (images: readonly { part: Extract<ChatPart, { type: "image" }>; description: string }[], selectedIndex: number) => void;
+  openImageGallery: (images: readonly { part: Extract<ChatPart, { type: "image" }>; description: () => string }[], selectedIndex: number) => void;
 }
 
 export function renderMessage(context: TranscriptRenderContext, message: ChatLine, index: number, entryActionHeaders: ReadonlySet<ChatLine>) {
@@ -63,7 +65,7 @@ export function renderMessage(context: TranscriptRenderContext, message: ChatLin
       <article class=${`${hasHeader ? `msg ${message.role}${conversationClass}` : shellClass} ui-transcript-surface`} data-index=${index} data-scroll-anchor-id=${context.anchors.message(index, message) ?? nothing}>
         ${conversationClass !== "" ? html`
           <div class="conversation-content">
-            ${renderMessageHeader(context, message, String(index), index, entryActionHeaders, message.role, true)}
+            ${renderMessageHeader(context, message, String(index), index, entryActionHeaders, undefined, true)}
             <div class="conversation-body">${message.parts.map((part, partIndex) => renderPart(context, part, message, index, partIndex))}</div>
           </div>
           ${renderMessageMetadata(context, message, String(index))}
@@ -86,7 +88,7 @@ export function renderToolImageOutputs(context: TranscriptRenderContext, group: 
       part, output, anchor: outputIndex > 0 && partIndex === 0 ? context.anchors.message(output.index, output.message) : undefined,
     }]));
     const images = parts.map((image, imageIndex) => ({ ...image,
-      description: t("ui.chatView.toolImageDescription", "{tool} image {index} of {count}", { tool: chatToolOutputLabel(image.output.toolName), index: imageIndex + 1, count: parts.length }),
+      description: () => messages.t("toolImage", { name: image.output.toolName ?? "", named: image.output.toolName === undefined || image.output.toolName === "" ? "no" : "yes", index: imageIndex + 1, total: parts.length }),
     }));
     return html`
       <article class="msg tool-image-output conversation-message ui-transcript-surface" data-index=${first.index} data-scroll-anchor-id=${context.anchors.message(first.index, first.message) ?? nothing}>
@@ -102,9 +104,9 @@ export function renderToolImageOutputs(context: TranscriptRenderContext, group: 
         </div>
         ${outputs.length === 1 ? null : html`
           <details class="image-output-sources" ?open=${live(sourcesOpen)} @toggle=${(event: Event) => { context.disclosure.toggle(sourcesKey, event, false); }}>
-            <summary class="ui-transcript-disclosure">${t("ui.chatView.imageSources", "Sources ({count})", { count: outputs.length })}</summary>
-            ${sourcesOpen ? outputs.map((output, outputIndex) => html`<section class="image-output-source" aria-label=${t("ui.chatView.imageOutput", "Output {index}", { index: outputIndex + 1 })}>
-              ${renderMessageHeader(context, output.message, `image-source:${String(output.index)}`, output.index, entryActionHeaders, `${chatToolOutputLabel(output.toolName)} · ${String(outputIndex + 1)}`)}
+            <summary class="ui-transcript-disclosure">${messages.t("sources", { count: outputs.length })}</summary>
+            ${sourcesOpen ? outputs.map((output, outputIndex) => html`<section class="image-output-source" aria-label=${messages.t("output", { index: outputIndex + 1 })}>
+              ${renderMessageHeader(context, output.message, `image-source:${String(output.index)}`, output.index, entryActionHeaders, messages.t("sourceHeader", { name: output.toolName ?? "", named: output.toolName === undefined || output.toolName === "" ? "no" : "yes", index: outputIndex + 1 }))}
             </section>`) : nothing}
           </details>
         `}
@@ -120,14 +122,16 @@ function isToolExecutionOnlyMessage(message: ChatLine): boolean {
 
 // Detached cached bodies retain nested native/tool state without rendering while closed.
 // Inline question forms remain standalone readable messages, outside these groups.
-export function renderMessageGroup(context: TranscriptRenderContext, group: Extract<ChatGroup, { kind: "group" }>, defaultOpen: boolean, entryActionHeaders: ReadonlySet<ChatLine>, disclosure: TranscriptGroupDisclosure) {
+// `live` distinguishes the growing tail group; the disclosure object owns the
+// expanded state so quiet mode can collapse the same group without relabeling it.
+export function renderMessageGroup(context: TranscriptRenderContext, group: Extract<ChatGroup, { kind: "group" }>, live: boolean, entryActionHeaders: ReadonlySet<ChatLine>, disclosure: TranscriptGroupDisclosure) {
     const { messages, startIndex } = group;
     const { open, anchor, toggle } = disclosure;
     return html`
-      <details class=${`${chatMessageGroupClassName(defaultOpen)} ui-transcript-surface ui-transcript-activity`} data-index=${startIndex} data-scroll-anchor-id=${anchor ?? nothing} ?open=${open} @toggle=${toggle}>
+      <details class=${`${chatMessageGroupClassName(live)} ui-transcript-surface ui-transcript-activity`} data-index=${startIndex} data-scroll-anchor-id=${anchor ?? nothing} ?open=${open} @toggle=${toggle}>
         <summary class="ui-transcript-disclosure ui-transcript-heading">
-          <span class="label">${chatMessageGroupLabel(defaultOpen)}</span>
-          <span>${summarizeChatGroup(messages.map((event) => event.message))}</span>
+          <span class="label">${chatMessageGroupLabel(live)}</span>
+          <span>${summarizeChatGroup(messages.map((event) => event.message), localizedChatGroupSummary)}</span>
         </summary>
         ${cache(open ? renderMessageGroupBody(context, group, entryActionHeaders) : nothing)}
       </details>
@@ -168,24 +172,19 @@ function renderGroupedParts(context: TranscriptRenderContext, message: ChatLine,
   `);
 }
 
-export function renderMessageHeader(context: TranscriptRenderContext, message: ChatLine, key: string, index: number, entryActionHeaders: ReadonlySet<ChatLine>, label: string = message.role, metadataBelow = false) {
+export function renderMessageHeader(context: TranscriptRenderContext, message: ChatLine, key: string, index: number, entryActionHeaders: ReadonlySet<ChatLine>, label?: string, metadataBelow = false) {
     const meta = context.metadata.label(message);
     const expanded = context.metadata.expandedKey === key;
     const detailId = `message-meta-${key}`;
-    const conversation = label === "user" || label === "assistant";
-    const roleLabels: Record<ChatLine["role"], string> = {
-      user: t("ui.chatView.user", "User"), assistant: t("ui.chatView.assistant", "Assistant"),
-      tool: t("ui.chatView.tool", "Tool"), system: t("ui.chatView.system", "System"),
-      bash: t("ui.chatView.command", "Command"), skill: t("ui.chatView.skill", "Skill"),
-    };
-    const displayedLabel = label === message.role ? roleLabels[message.role] : label;
+    const conversation = label === undefined && (message.role === "user" || message.role === "assistant");
+    const heading = label ?? messages.t("role", { role: message.role });
     return html`
       <div class=${conversation ? "msg-header conversation-header" : "msg-header"}>
-        <span class=${conversation ? "visually-hidden" : "label"}>${displayedLabel}</span>
+        <span class=${conversation ? "visually-hidden" : "label"}>${heading}</span>
         <pi-message-actions-menu>
           <div class="msg-actions-strip">
             ${renderMessageActions(context, message, key, context.messages[index - context.messageStart] ?? message, entryActionHeaders.has(message))}
-            <button type="button" class="msg-meta ui-button ui-button--icon ui-button--small" title=${meta} aria-label=${t("ui.chatView.messageInformation", "Message information")} aria-controls=${detailId} aria-expanded=${String(expanded)} @click=${(event: MouseEvent) => {
+            <button type="button" class="msg-meta ui-button ui-button--icon ui-button--small" title=${meta} aria-label=${messages.t("information")} aria-controls=${detailId} aria-expanded=${String(expanded)} @click=${(event: MouseEvent) => {
               context.metadata.expand(expanded ? undefined : key);
               const menu = event.currentTarget instanceof HTMLElement ? event.currentTarget.closest("pi-message-actions-menu") : null;
               if (menu instanceof MessageActionsMenu) menu.close();
@@ -204,7 +203,7 @@ function renderMessageMetadata(context: TranscriptRenderContext, message: ChatLi
 export function renderPart(context: TranscriptRenderContext, part: ChatPart, message: ChatLine, messageIndex: number, partIndex: number) {
     const intentKey = JSON.stringify([context.machineId, context.sessionId, message.entryId ?? message.streamId ?? messageIndex, partIndex]);
     if (part.type === "text" || part.type === "thinking") {
-      const text = part.displayText ?? part.text;
+      const text = part.type === "text" && part.presentation !== undefined ? localizedChatText(part.presentation) : part.displayText ?? part.text;
       if (text === "") return null;
       if (part.type === "thinking") {
         const disclosureKey = `thinking:${intentKey}`;
@@ -212,11 +211,12 @@ export function renderPart(context: TranscriptRenderContext, part: ChatPart, mes
         return html`
           <details class="part thinking ui-transcript-surface ui-transcript-activity" ?open=${live(open)}
             @toggle=${(event: Event) => { context.disclosure.toggle(disclosureKey, event, true); }}>
-            <summary class="ui-transcript-disclosure ui-transcript-heading"><svg class="thinking-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 14a5 5 0 1 1 8-1H9l-3 2v-1Z"/><circle cx="4" cy="17" r="1"/></svg>${t("ui.chatView.thinking", "Thinking")}</summary>
+            <summary class="ui-transcript-disclosure ui-transcript-heading"><svg class="thinking-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 14a5 5 0 1 1 8-1H9l-3 2v-1Z"/><circle cx="4" cy="17" r="1"/></svg>${messages.t("thinking")}</summary>
             ${open ? html`<formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} .contentRendering=${context.contentRendering} .contentRendererVersion=${context.contentRendererVersion} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${text}></formatted-text>` : nothing}
           </details>
         `;
       }
+      if (part.presentation !== undefined && part.presentation.kind !== "bash" && part.presentation.kind !== "liveShell") return html`<div class="part generated-text" dir="auto">${text}</div>`;
       if (message.role === "bash") return html`<pre class="part shell-output">${text}</pre>`;
       return html`<formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} class="part" .contentRendering=${context.contentRendering} .contentRendererVersion=${context.contentRendererVersion} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${text}></formatted-text>`;
     }
@@ -225,7 +225,7 @@ export function renderPart(context: TranscriptRenderContext, part: ChatPart, mes
       const open = context.disclosure.isOpen(key, false);
       return html`
       <details class="part skill-invocation" ?open=${live(open)} @toggle=${(event: Event) => { context.disclosure.toggle(key, event, false); }}>
-        <summary class="ui-transcript-disclosure"><b>[${t("ui.chatView.skill", "Skill")}]</b> ${part.name}</summary>
+        <summary class="ui-transcript-disclosure"><b>${messages.t("skill")}</b> <bdi>${part.name}</bdi></summary>
         ${open ? html`<small>${part.location}</small>
         <formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} .contentRendering=${context.contentRendering} .contentRendererVersion=${context.contentRendererVersion} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${part.content}></formatted-text>` : nothing}
       </details>
@@ -233,8 +233,8 @@ export function renderPart(context: TranscriptRenderContext, part: ChatPart, mes
     }
     if (part.type === "skillRead") return html`
       <div class="part skill-read">
-        <strong>${t("ui.chatView.loadedSkill", "Loaded {name}", { name: part.name })}</strong>
-        <small>${t("ui.chatView.readSkillPath", "read {path}", { path: part.path })}</small>
+        <strong dir="auto">${messages.t("loadedSkill", { name: part.name })}</strong>
+        <small dir="auto">${messages.t("readSkill", { path: part.path })}</small>
       </div>
     `;
     if (part.type === "askUserQuestion") {
@@ -260,14 +260,14 @@ export function renderPart(context: TranscriptRenderContext, part: ChatPart, mes
         .session=${context.session} .machineId=${context.machineId}
       ></pi-web-transcript-image>`;
     }
-    if (part.type === "toolCall") return html`<div class="part tool-line ui-transcript-surface ui-transcript-activity ui-transcript-tool"><div class="ui-transcript-heading"><span aria-hidden="true">▶</span> ${part.toolName}<span class="summary">${part.summary}</span></div></div>`;
+    if (part.type === "toolCall") return html`<div class="part tool-line ui-transcript-surface ui-transcript-activity ui-transcript-tool"><div class="ui-transcript-heading"><span aria-hidden="true">▶</span> ${part.toolName}<span class="summary">${part.summaryPresentation === undefined ? part.summary : localizedArgumentSummary(part.summaryPresentation)}</span></div></div>`;
     if (part.type === "toolExecution") return html`<tool-execution-view class="part" .execution=${part}></tool-execution-view>`;
     if (part.type === "toolResult") {
       const key = `tool-result:${intentKey}`;
       const open = context.disclosure.isOpen(key, part.isError);
       return html`
       <details class=${`part tool-result ui-transcript-surface ui-transcript-activity ui-transcript-tool${part.isError ? " error" : ""}`} ?open=${live(open)} @toggle=${(event: Event) => { context.disclosure.toggle(key, event, part.isError); }}>
-        <summary class="ui-transcript-disclosure ui-transcript-heading">${part.isError ? "✖" : "✓"} ${t("ui.chatView.toolResult", "{toolName} result", { toolName: part.toolName })}${part.isError ? t("ui.chatView.toolResultFailed", " · Failed") : ""}</summary>
+        <summary class="ui-transcript-disclosure ui-transcript-heading">${part.isError ? "✖" : "✓"} ${messages.t("toolResult", { name: part.toolName, failed: part.isError ? "yes" : "no" })}</summary>
         ${open ? html`<formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} .contentRendering=${context.contentRendering} .contentRendererVersion=${context.contentRendererVersion} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${part.text}></formatted-text>` : nothing}
       </details>
     `;
@@ -281,7 +281,7 @@ export function renderMessageActions(context: TranscriptRenderContext, message: 
   if (actions.length === 0) return null;
   const error = context.actions.errorMessage(key);
   return html`
-    <div class="msg-actions" aria-label=${t("ui.chatView.messageActions", "Message actions")}>
+    <div class="msg-actions" aria-label=${messages.t("actions")}>
       ${actions.map(({ action, enabled, ariaLabel }) => {
         const presentation = context.actions.presentation(key, action.id);
         const icon = presentation?.icon ?? action.icon;

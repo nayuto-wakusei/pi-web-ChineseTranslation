@@ -1,11 +1,7 @@
 // @vitest-environment happy-dom
-import { translateChinese } from "../../pi-web-plugins/localization.testSupport.js";
-import { setTranslator } from "./i18n.js";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { isMarkdownDocumentPath, renderRelayDocumentHtml } from "./markdownDocument";
-
-beforeEach(() => { setTranslator(translateChinese); });
 
 describe("isMarkdownDocumentPath", () => {
   it("matches .md documents case-insensitively", () => {
@@ -17,6 +13,15 @@ describe("isMarkdownDocumentPath", () => {
 });
 
 describe("renderRelayDocumentHtml", () => {
+  it("caches by translated table label and treats translations only as attribute text", () => {
+    const source = "| User |\n| --- |\n| `code` |";
+    for (const label of ["Table", "Tabelle", '"><img src=x onerror="bad()">']) {
+      const fragment = fragmentOf(renderRelayDocumentHtml(source, label));
+      expect(fragment.querySelector(".table-scroll")?.getAttribute("aria-label")).toBe(label);
+      expect(fragment.querySelector("img")).toBeNull();
+      expect(fragment.querySelector("code")?.textContent).toBe("code");
+    }
+  });
   it("renders GFM markdown: headings, emphasis, lists, and code fences", () => {
     const fragment = fragmentOf(renderRelayDocumentHtml([
       "# Status",
@@ -85,7 +90,7 @@ describe("renderRelayDocumentHtml", () => {
 
     const wrapper = fragment.querySelector(".table-scroll");
     expect(wrapper?.getAttribute("role")).toBe("region");
-    expect(wrapper?.getAttribute("aria-label")).toBe("表格");
+    expect(wrapper?.getAttribute("aria-label")).toBe("Table");
     expect(wrapper?.querySelector("table")).not.toBeNull();
     expect(wrapper?.querySelectorAll("td")).toHaveLength(2);
   });

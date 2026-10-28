@@ -49,7 +49,7 @@ describe("project status indicator", () => {
     expect(unreadDot(rowFor(list, "project-a"))).toBeNull();
     const dot = unreadDot(rowFor(list, "project-b"));
     expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("title")).toBe("此项目中有未读会话");
+    expect(dot?.getAttribute("title")).toBe("Unread sessions in this project");
   });
 
   it("clears the dot once a newer snapshot reports nothing unread", async () => {
@@ -71,7 +71,7 @@ describe("project status indicator", () => {
     const row = rowFor(list, "project-a");
     const ring = row.querySelector(".unread-ring");
     expect(ring?.querySelector(".activity-indicator.session")).not.toBeNull();
-    expect(ring?.getAttribute("title")).toBe("此项目中有未读会话 · 项目活动中");
+    expect(ring?.getAttribute("title")).toBe("Unread sessions in this project · Project active");
     expect(row.querySelector(".activity-indicator.unread")).toBeNull();
   });
 
@@ -134,7 +134,7 @@ describe("project unread indicator", () => {
     expect(unreadDot(rowFor(list, "project-a"))).toBeNull();
     const dot = unreadDot(rowFor(list, "project-b"));
     expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("title")).toBe("此项目中有未读会话");
+    expect(dot?.getAttribute("title")).toBe("Unread sessions in this project");
   });
 
   it("clears the dot once the project is no longer tracked as unread", async () => {
@@ -155,7 +155,7 @@ describe("project unread indicator", () => {
     const row = rowFor(list, "project-a");
     const ring = row.querySelector(".unread-ring");
     expect(ring?.querySelector(".activity-indicator.session")).not.toBeNull();
-    expect(ring?.getAttribute("title")).toBe("此项目中有未读会话 · 项目活动中");
+    expect(ring?.getAttribute("title")).toBe("Unread sessions in this project · Project active");
     expect(row.querySelector(".activity-indicator.unread")).toBeNull();
   });
 });

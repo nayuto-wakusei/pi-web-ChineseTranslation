@@ -50,6 +50,59 @@ describe("config routes", () => {
     }
   });
 
+  it("accepts canonical localization defaults and empty resets through the gateway API", async () => {
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config: {
+      defaultLocalization: { language: "EN-us", formatLocale: "de-de", timeZone: "utc", hourCycle: "h12" },
+    } } });
+    expect(response.statusCode).toBe(200);
+    const config = { defaultLocalization: { language: "en-US", formatLocale: "de-DE", timeZone: "UTC", hourCycle: "h12" } };
+    expect(savedConfig).toEqual(config);
+    expect(parsePiWebConfigResponseBody(response.json())).toMatchObject({ config, effectiveConfig: config });
+    const reset = await app.inject({ method: "PUT", url: "/api/config", payload: { config: { defaultLocalization: {} } } });
+    expect(reset.statusCode).toBe(200);
+    expect(savedConfig.defaultLocalization).toEqual({});
+  });
+
+  it.each([null, [], { language: "en_US" }, { language: "ar-XB" }, { formatLocale: "en-XA" }, { timeZone: "invalid" }, { hourCycle: "12" }, { extra: true }])("rejects invalid localization defaults %j in API updates and responses", async (defaultLocalization) => {
+    const config = { defaultLocalization };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ error: string }>().error).toContain("defaultLocalization");
+    expect(service.write).not.toHaveBeenCalled();
+    for (const field of ["config", "effectiveConfig"]) {
+      expect(() => parsePiWebConfigResponseBody({ ...responseFor({}, true), [field]: config })).toThrow("defaultLocalization");
+    }
+  });
+
+  it("isolates gateway localization defaults from selected-machine reads and writes", async () => {
+    const defaultLocalization = { language: "fr", timeZone: "UTC" };
+    savedConfig.defaultLocalization = defaultLocalization;
+    const read = await app.inject({ method: "GET", url: "/api/machines/local/config" });
+    expect(read.json<PiWebConfigResponse>().config).not.toHaveProperty("defaultLocalization");
+    expect(read.json<PiWebConfigResponse>().effectiveConfig).not.toHaveProperty("defaultLocalization");
+    const rejected = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { defaultLocalization: {} } } });
+    expect(rejected.statusCode).toBe(400);
+    expect(service.write).not.toHaveBeenCalled();
+    const accepted = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { askUser: false } } });
+    expect(accepted.statusCode).toBe(200);
+    expect(savedConfig.defaultLocalization).toEqual(defaultLocalization);
+    expect(accepted.json<PiWebConfigResponse>().config).not.toHaveProperty("defaultLocalization");
+  });
+
+  it.each(["/api/config", "/api/machines/local/config"])("updates and clears installation identity through %s", async (url) => {
+    const response = await app.inject({ method: "PUT", url, payload: { config: { installationName: "  Build lab  " } } });
+    expect(response.statusCode).toBe(200);
+    expect(parsePiWebConfigResponseBody(response.json()).config.installationName).toBe("Build lab");
+    const cleared = await app.inject({ method: "PUT", url, payload: { config: { installationName: "" } } });
+    expect(cleared.statusCode).toBe(200);
+    expect(savedConfig.installationName).toBe("");
+  });
+
+  it.each([null, 42, "x".repeat(121), "Lab\nOffice"])("rejects malformed installation identity %j", async (installationName) => {
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config: { installationName } } });
+    expect(response.statusCode).toBe(400);
+    expect(service.write).not.toHaveBeenCalled();
+  });
   it("returns the PI WEB config contract", async () => {
     const response = await app.inject({ method: "GET", url: "/api/config" });
 
@@ -151,6 +204,85 @@ describe("config routes", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toHaveProperty("error");
     expect(service.write).not.toHaveBeenCalled();
+  });
+
+  it.each(["steer", "followUp"] as const)("accepts defaultStreamingBehavior %s through config routes and response parsing", async (defaultStreamingBehavior) => {
+    const config = { defaultStreamingBehavior };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(200);
+    expect(savedConfig).toEqual(config);
+    expect(parsePiWebConfigResponseBody(response.json())).toMatchObject({ config, effectiveConfig: config });
+  });
+
+  it.each(["", "followup", "queue", null, false, 42, {}, []])("rejects invalid defaultStreamingBehavior %j before writing and in responses", async (defaultStreamingBehavior) => {
+    const config = { defaultStreamingBehavior };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ error: string }>().error).toContain("defaultStreamingBehavior");
+    expect(service.write).not.toHaveBeenCalled();
+    const valid = responseFor({}, true);
+    for (const field of ["config", "effectiveConfig"]) {
+      expect(() => parsePiWebConfigResponseBody({ ...valid, [field]: config })).toThrow("defaultStreamingBehavior");
+    }
+  });
+
+  it("keeps defaultStreamingBehavior gateway-only", async () => {
+    savedConfig.defaultStreamingBehavior = "steer";
+    const read = await app.inject({ method: "GET", url: "/api/machines/local/config" });
+    expect(read.json<PiWebConfigResponse>().config).not.toHaveProperty("defaultStreamingBehavior");
+    expect(read.json<PiWebConfigResponse>().effectiveConfig).not.toHaveProperty("defaultStreamingBehavior");
+    const write = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { defaultStreamingBehavior: "followUp" } } });
+    expect(write.statusCode).toBe(400);
+    expect(service.write).not.toHaveBeenCalled();
+    expect(savedConfig.defaultStreamingBehavior).toBe("steer");
+  });
+
+  it.each([true, false])("accepts quietMode %s through config routes and response parsing", async (quietMode) => {
+    const config = { quietMode };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(200);
+    expect(savedConfig).toEqual(config);
+    expect(parsePiWebConfigResponseBody(response.json())).toMatchObject({ config, effectiveConfig: config });
+  });
+
+  it.each(["true", 1, null, {}, []])("rejects invalid quietMode %j before writing and in responses", async (quietMode) => {
+    const config = { quietMode };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ error: string }>().error).toContain("quietMode");
+    expect(service.write).not.toHaveBeenCalled();
+    const valid = responseFor({}, true);
+    for (const field of ["config", "effectiveConfig"]) {
+      expect(() => parsePiWebConfigResponseBody({ ...valid, [field]: config })).toThrow("quietMode");
+    }
+  });
+
+  it("keeps quietMode gateway-only", async () => {
+    savedConfig.quietMode = true;
+    const read = await app.inject({ method: "GET", url: "/api/machines/local/config" });
+    expect(read.json<PiWebConfigResponse>().config).not.toHaveProperty("quietMode");
+    expect(read.json<PiWebConfigResponse>().effectiveConfig).not.toHaveProperty("quietMode");
+    const write = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { quietMode: false } } });
+    expect(write.statusCode).toBe(400);
+    expect(service.write).not.toHaveBeenCalled();
+    expect(savedConfig.quietMode).toBe(true);
+  });
+
+  it("rejects malformed theme defaults before writing", async () => {
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config: { defaultTheme: { themeId: "themes:pi-web-dark", auto: "yes" } } } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ error: string }>().error).toContain("defaultTheme");
+    expect(service.write).not.toHaveBeenCalled();
+  });
+
+  it("keeps theme defaults gateway-only in selected-machine reads and writes", async () => {
+    savedConfig.defaultTheme = { themeId: "themes:pi-web-light", auto: true };
+    const read = await app.inject({ method: "GET", url: "/api/machines/local/config" });
+    expect(read.json<PiWebConfigResponse>().config).not.toHaveProperty("defaultTheme");
+    const write = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { defaultTheme: { themeId: "themes:classic", auto: false } } } });
+    expect(write.statusCode).toBe(400);
+    expect(service.write).not.toHaveBeenCalled();
+    expect(savedConfig.defaultTheme.themeId).toBe("themes:pi-web-light");
   });
 
   it("rejects invalid path access payloads before writing", async () => {

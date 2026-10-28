@@ -31,6 +31,28 @@ describe("createPiWebStatusCache", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
+  it("rechecks an unreachable daemon instead of serving a cached failure", async () => {
+    const unavailable = status("failed");
+    unavailable.components.sessiond.available = false;
+    const recovery = createDeferred<PiWebStatusResponse>();
+    const load = vi.fn()
+      .mockResolvedValueOnce(unavailable)
+      .mockResolvedValueOnce(unavailable)
+      .mockImplementationOnce(() => recovery.promise);
+    const cache = createPiWebStatusCache(load);
+
+    await expect(cache.get()).resolves.toBe(unavailable);
+    await expect(cache.get()).resolves.toBe(unavailable);
+    const retry = cache.get();
+    const concurrentRetry = cache.get();
+    recovery.resolve(status("recovered"));
+
+    await expect(retry).resolves.toMatchObject({ generatedAt: "recovered" });
+    await expect(concurrentRetry).resolves.toMatchObject({ generatedAt: "recovered" });
+    await expect(cache.get()).resolves.toMatchObject({ generatedAt: "recovered" });
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
   it("explicitly refreshes and replaces a fresh cached status", async () => {
     let now = 1_000;
     const load = vi.fn()

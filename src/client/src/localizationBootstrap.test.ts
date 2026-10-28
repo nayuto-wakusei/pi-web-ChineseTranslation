@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { clientLocale, setClientTranslations, t } from "./i18n";
 import { applyDocumentLocalization, initializeClientLocalization } from "./localizationBootstrap";
 import type { PiWebPluginRegistration } from "./plugins/types";
+import chinesePlugin from "../../../pi-web-plugins/zh-cn/pi-web-plugin";
+import { localization } from "./localization/browser";
+import "./authMessages";
 
 function languagePlugin(machineId?: string): PiWebPluginRegistration {
   return {
@@ -25,9 +28,17 @@ afterEach(() => {
 
 describe("gateway localization bootstrap", () => {
   it("initializes Chinese before consumers evaluate their labels", async () => {
-    await initializeClientLocalization(() => Promise.resolve([languagePlugin()]));
-    expect(t("hello", "Hello")).toBe("你好");
+    await initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }]));
+    expect(t("ui.common.close", "Close")).toBe("关闭");
     expect(clientLocale()).toBe("zh-CN");
+    await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
+    await localization.setPreferences({ language: "en", formatLocale: "en" });
+    expect(t("ui.common.close", "Close")).toBe("Close");
+    await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
+    expect(t("ui.common.close", "Close")).toBe("关闭");
+    await localization.setPreferences({ language: "ar", formatLocale: "ar" });
+    expect(t("ui.common.close", "Close")).toBe("Close");
+    expect(document.documentElement.lang).toBe(localization.language);
   });
 
   it("uses English when disabled and never adopts remote-machine translations", async () => {

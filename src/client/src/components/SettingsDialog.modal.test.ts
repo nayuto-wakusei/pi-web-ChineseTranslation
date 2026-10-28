@@ -25,7 +25,7 @@ describe("settings-dialog modal surface", () => {
     const dialog = await mountDialog();
 
     expect(deepActiveElement()).toBe(dialogSection(dialog));
-    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("PI WEB 设置");
+    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("PI WEB settings");
   });
 
   it("closes on Escape", async () => {

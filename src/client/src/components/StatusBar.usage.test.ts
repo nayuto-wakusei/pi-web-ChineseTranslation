@@ -16,7 +16,7 @@ it("renders host-provided context and session cost with semantic labels and keep
   bar.onToggleWarnings = vi.fn();
   document.body.append(bar);
   await bar.updateComplete;
-  expect(bar.shadowRoot?.querySelector(".context")?.textContent).toBe("25.0%/128k");
+  expect(bar.shadowRoot?.querySelector(".context")?.textContent).toBe("25.0%/128K");
   expect(bar.shadowRoot?.querySelector(".context")?.getAttribute("title")).toBe("上下文用量");
   expect(bar.shadowRoot?.querySelector(".cost")?.textContent).toBe("$0.12");
   expect(bar.shadowRoot?.querySelector(".cost")?.getAttribute("title")).toBe("会话花费");
@@ -26,6 +26,6 @@ it("renders host-provided context and session cost with semantic labels and keep
   bar.status = { ...bar.status, cost: 0 };
   delete bar.status.contextUsage;
   await bar.updateComplete;
-  expect(bar.shadowRoot?.querySelector(".context")?.textContent).toBe("上下文未知");
+  expect(bar.shadowRoot?.querySelector(".context")?.textContent).toBe("context unknown");
   expect(bar.shadowRoot?.querySelector(".cost")?.textContent).toBe("$0");
 });

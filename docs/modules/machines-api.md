@@ -51,6 +51,8 @@
 
 逐条队列控件等新增功能依据目标机器公布的 capability 显示，不从网关版本推测远端支持。插件 v5 的 catalog 和 backend 捕获原机器，backend 的 machine/project/workspace scope 由目标宿主解析，并核对实际后端 revision；切换选择不重定向已保留的服务。具体公共契约见[插件指南](../plugins.md#scoped-discovery-and-backend)。
 
+机器显示名称由目标机器 installationName 提供，本地显示名可覆盖远端报告名称；显示名不改变资源身份。只有网关名称影响 PWA 名称，切远端不重命名已安装应用。配置 PATCH、资源字节流与维护终端同样携带目标机器；旧远端不支持时明确失败，不落到网关执行。资源响应保留取消、范围和允许的元数据，管理请求保留授权上下文。
+
 ## HTTP 与 WebSocket 边界
 
 下表是**服务端路由模式**，不是浏览器应直接拼接的根路径：

@@ -60,12 +60,88 @@ describe("isBrowserRemoteOAuthMachine", () => {
   });
 });
 
+describe("provider authentication entry points", () => {
+  it.each([
+    { step: "method", target: { machineId: "local" } },
+    { step: "logout", target: { machineId: "local" }, providers: [] },
+  ] satisfies AuthDialogState[])("keeps the $step dialog separate from MCP actions", async (state) => {
+    const dialog = await mountDialog(state);
+    expect(dialog.shadowRoot?.textContent).not.toContain("MCP");
+  });
+});
+
+describe("unified MCP authentication dialog", () => {
+  it("keeps the authorization link and redirect input together in the modal", async () => {
+    const onOAuthRespond = vi.fn();
+    const dialog = await mountDialog(oauthState({ target: "mcp", auth: { url: "https://auth.example/authorize" }, prompt: { requestId: "redirect", message: "Paste the redirected URL", promptType: "text" } }), { onOAuthRespond });
+    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("MCP authentication");
+    expect(oauthAuthorizationLink(dialog).getAttribute("href")).toBe("https://auth.example/authorize");
+    expect(promptInput(dialog).getAttribute("type")).toBe("text");
+    expect(dialog.shadowRoot?.textContent).toContain("Paste the redirected URL");
+    expect(dialog.shadowRoot?.textContent).toContain("copy the full URL");
+    oauthActionButton(dialog, "Submit").click();
+    expect(onOAuthRespond).toHaveBeenCalledOnce();
+  });
+
+  it("uses shared selection controls and prevents repeat submissions while a response is pending", async () => {
+    const onOAuthRespond = vi.fn();
+    const dialog = await mountDialog(oauthState({ target: "mcp", select: oauthSelect("server", "alpha") }), { onOAuthRespond });
+    requiredElement(oauthSelectButtons(dialog)[0], "MCP server choice").click();
+    expect(onOAuthRespond).toHaveBeenCalledWith("server");
+    dialog.state = { ...oauthState({ target: "mcp", select: oauthSelect("server", "alpha") }), responding: true };
+    await settleDialog(dialog);
+    expect(requiredElement(oauthSelectButtons(dialog)[0], "pending server choice").disabled).toBe(true);
+    expect(oauthActionButton(dialog, "Cancel")).toBeDefined();
+  });
+
+  it("retains Pi's terminal messages without assuming command completion means signed in", async () => {
+    const dialog = await mountDialog(oauthState({ target: "mcp", status: "complete", auth: { url: "https://auth.example/authorize" }, progress: ["No enabled MCP server uses OAuth."] }));
+    expect(dialog.shadowRoot?.textContent).toContain("Operation finished");
+    expect(dialog.shadowRoot?.textContent).toContain("No enabled MCP server uses OAuth.");
+    expect(dialog.shadowRoot?.textContent).not.toContain("Login complete");
+    expect(dialog.shadowRoot?.querySelector(".form a")).toBeNull();
+    expect(oauthActionButton(dialog, "Close")).toBeDefined();
+  });
+
+  it("explains cancellation races and lets the user close without claiming Pi has stopped", async () => {
+    const onCancel = vi.fn();
+    const onOAuthCancel = vi.fn();
+    const dialog = await mountDialog(oauthState({ target: "mcp", cancelRequested: true, prompt: { requestId: "redirect", message: "Paste URL", promptType: "manual_code" } }), { onCancel, onOAuthCancel });
+    expect(dialog.shadowRoot?.textContent).toContain("Waiting for Pi to finish");
+    expect(dialog.shadowRoot?.textContent).toContain("Credentials may have been saved");
+    expect(dialog.shadowRoot?.querySelector("input")).toBeNull();
+    oauthActionButton(dialog, "Close").click();
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onOAuthCancel).not.toHaveBeenCalled();
+  });
+
+  it("names the selected server and explains credential reuse without forcing browser authentication", async () => {
+    const dialog = await mountDialog(oauthState({ target: "mcp", mcpMode: "login", providerName: "Budgeter", status: "complete", progress: ["Signed in to MCP server Budgeter."] }));
+    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("MCP login: Budgeter");
+    expect(dialog.shadowRoot?.textContent).toContain("No browser authorization was requested");
+    expect(dialog.shadowRoot?.textContent).toContain("may have reused existing credentials");
+    expect(dialog.shadowRoot?.querySelector("a")).toBeNull();
+    dialog.state = oauthState({ target: "mcp", mcpMode: "logout", providerName: "Budgeter" });
+    await settleDialog(dialog);
+    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("MCP logout: Budgeter");
+    expect(dialog.shadowRoot?.textContent).toContain("does not disable the server or revoke access");
+  });
+
+  it("renders startup failures inside the same modal", async () => {
+    const onCancel = vi.fn();
+    const dialog = await mountDialog({ step: "starting", target: { machineId: "local" }, mode: "login", error: "MCP extension is disabled" , title: "MCP authentication", mcpSession: { id: "s", cwd: "/repo" }}, { onCancel });
+    expect(dialog.shadowRoot?.querySelector("[role=alert]")?.textContent).toContain("MCP extension is disabled");
+    requiredElement(dialog.shadowRoot?.querySelector<HTMLButtonElement>(".ui-form-actions button"), "Close action").click();
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+});
+
 describe("auth-dialog focus on open", () => {
   it("focuses the dialog section when opened on the method step", async () => {
     const dialog = await mountDialog({ step: "method", target: { machineId: "local", projectId: "project-1" } });
 
     expect(deepActiveElement()).toBe(dialogSection(dialog));
-    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("配置提供商认证");
+    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("Configure provider authentication");
   });
 
   it("focuses the search box when opened on the providers step", async () => {
@@ -144,7 +220,7 @@ describe("auth-dialog focus on open", () => {
     await settleDialog(dialog);
     expect(deepActiveElement()).toBe(dialogSection(dialog));
 
-    oauthActionButton(dialog, "取消").focus();
+    oauthActionButton(dialog, "Cancel").focus();
     dialog.state = oauthState({ select: oauthSelect("select-2", "Account two") });
     await settleDialog(dialog);
     expect(deepActiveElement()).toBe(dialogSection(dialog));
@@ -157,12 +233,12 @@ describe("auth-dialog focus on open", () => {
     const onOAuthCancel = vi.fn<() => void>();
     const prompt = { requestId: "req-1", message: "Enter the code", promptType: "text" } as const;
     const dialog = await mountDialog(oauthState({ prompt }), { onOAuthCancel });
-    oauthActionButton(dialog, "提交").focus();
+    oauthActionButton(dialog, "Submit").focus();
 
     dialog.state = { ...oauthState({ prompt }), responding: true };
     await settleDialog(dialog);
 
-    expect(oauthActionButton(dialog, "提交").disabled).toBe(true);
+    expect(oauthActionButton(dialog, "Submit").disabled).toBe(true);
     expect(deepActiveElement()).toBe(promptInput(dialog));
     pressKey(promptInput(dialog), "Escape");
     expect(onOAuthCancel).toHaveBeenCalledOnce();
@@ -358,14 +434,14 @@ describe("auth-dialog provider search", () => {
 
     await typeIntoSearch(dialog, "zzz");
     expect(optionButtons(dialog)).toHaveLength(0);
-    expect(dialog.shadowRoot?.textContent).toContain("没有匹配的提供商");
+    expect(dialog.shadowRoot?.textContent).toContain("No matching providers");
   });
 
   it("hides the search box when no providers are available", async () => {
     const dialog = await mountDialog({ step: "providers", mode: "login", target: { machineId: "local", projectId: "project-1" }, providers: [] });
 
     expect(dialog.shadowRoot?.querySelector("input")).toBeNull();
-    expect(dialog.shadowRoot?.textContent).toContain("没有可用提供商。");
+    expect(dialog.shadowRoot?.textContent).toContain("No providers available.");
   });
 
   it("resets the search query when the step changes", async () => {
@@ -415,7 +491,7 @@ describe("auth-dialog OAuth prompt keys", () => {
       oauthState({ prompt: { requestId: "req-1", message: "Enter the code", promptType: "text" } }),
       { onOAuthRespond, onOAuthCancel },
     );
-    const cancel = oauthActionButton(dialog, "取消");
+    const cancel = oauthActionButton(dialog, "Cancel");
     cancel.focus();
 
     const event = pressNativeButtonEnter(cancel);
@@ -484,7 +560,7 @@ function promptInput(dialog: AuthDialog): HTMLInputElement {
 }
 
 function searchInput(dialog: AuthDialog): HTMLInputElement {
-  return requiredElement(dialog.shadowRoot?.querySelector<HTMLInputElement>("input[placeholder='搜索提供商']"), "provider search input");
+  return requiredElement(dialog.shadowRoot?.querySelector<HTMLInputElement>("input[placeholder='Search providers']"), "provider search input");
 }
 
 async function typeIntoSearch(dialog: AuthDialog, value: string): Promise<void> {
@@ -495,7 +571,7 @@ async function typeIntoSearch(dialog: AuthDialog, value: string): Promise<void> 
 }
 
 function closeButton(dialog: AuthDialog): HTMLButtonElement {
-  return requiredElement(dialog.shadowRoot?.querySelector<HTMLButtonElement>("header button[aria-label='关闭']"), "auth-dialog Close button");
+  return requiredElement(dialog.shadowRoot?.querySelector<HTMLButtonElement>("header button[aria-label='Close']"), "auth-dialog Close button");
 }
 
 function optionButtons(dialog: AuthDialog): HTMLButtonElement[] {

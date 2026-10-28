@@ -188,6 +188,29 @@ describe("SessionController reload and selection", () => {
 
 
 describe("SessionController upstream navigation and runtime contracts", () => {
+it("returns the restored unselected session for navigation without changing the current selection", async () => {
+    const archivedSession = { ...oldSession, id: "archived", archived: true, archivedAt: "later" };
+    let state: AppState = {
+      ...initialAppState(),
+      selectedWorkspace: workspace,
+      selectedSession: oldSession,
+      sessions: [oldSession, archivedSession],
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      new InMemorySessionSelectionMemory(),
+      { api: { ...defaultApi, restore: () => Promise.resolve({ restored: true }) }, socket: new FakeSocket() },
+    );
+
+    const restored = await controller.restoreSession(archivedSession);
+
+    expect(restored).toEqual({ ...oldSession, id: archivedSession.id });
+    expect(state.sessions).toEqual([oldSession, restored]);
+    expect(state.selectedSession).toBe(oldSession);
+  });
+
   it("reconciles a restored selected session after a view-only navigation change", async () => {
     const archivedSession = { ...oldSession, archived: true, archivedAt: "later" };
     const restoreRequest = deferred<{ restored: true }>();
@@ -281,7 +304,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     state = { ...state, selectedSession: nextSession, sessions: [nextSession] };
     navigationCurrent = false;
     restoreRequest.resolve({ restored: true });
-    await restoring;
+    expect(await restoring).toBeUndefined();
 
     expect(state.selectedSession?.id).toBe(nextSession.id);
     expect(state.sessions).toEqual([nextSession]);
@@ -320,7 +343,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     state = { ...state, selectedSession: nextSession, sessions: [nextSession] };
     navigationCurrent = false;
     restoreRequest.reject(new Error("origin restore unavailable"));
-    await restoring;
+    expect(await restoring).toBeUndefined();
 
     const scope = sessionBrowserErrorScope("local", archivedSession.id, {
       cwd: archivedSession.cwd,

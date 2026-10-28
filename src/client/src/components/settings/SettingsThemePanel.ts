@@ -1,7 +1,10 @@
-import { t } from "../../i18n";
+import { LocalizationController } from "../../localization/browser";
+import { themeMessages as messages } from "./settingsAppearanceMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import type { PiWebConfigResponse } from "../../api";
+import { enforcedSetting, settingControls, type ResetSettings } from "./settingsConfigUpdate";
 import type { QualifiedThemeContribution } from "../../plugins/types";
 import { DEFAULT_THEME_PREFERENCE, findAvailableTheme, type ThemePreference } from "../../theme";
 import { uiButtonStyles } from "../ui/controlStyles";
@@ -12,9 +15,12 @@ import { uiSettingsStyles } from "../ui/settingsStyles";
 export class SettingsThemePanel extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
+  @property({ attribute: false }) configResponse: PiWebConfigResponse | undefined;
+  @property({ attribute: false }) onReset?: ResetSettings;
   @property({ attribute: false }) themes: readonly QualifiedThemeContribution[] = [];
   @property({ attribute: false }) preference: ThemePreference = DEFAULT_THEME_PREFERENCE;
   @property({ attribute: false }) defaultPreference: ThemePreference = DEFAULT_THEME_PREFERENCE;
@@ -29,6 +35,7 @@ export class SettingsThemePanel extends LitElement {
 
   protected override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has("preference")) this.draft = { ...this.preference };
+    if (enforcedSetting(this.configResponse, "/defaultTheme") !== undefined) this.draft = { ...(this.configResponse?.effectiveConfig.defaultTheme ?? this.preference) };
   }
 
   protected override updated(): void {
@@ -41,46 +48,47 @@ export class SettingsThemePanel extends LitElement {
     const selectedTheme = findAvailableTheme(this.themes, this.draft.themeId);
     const selectedAvailable = selectedTheme !== undefined;
     const preference = { ...this.draft, themeId: selectedTheme?.id ?? this.draft.themeId };
-    const busy = this.loading || this.saving;
+    const busy = this.loading || this.saving || enforcedSetting(this.configResponse, "/defaultTheme") !== undefined;
     return html`
       <section class="theme-card ui-settings-section" aria-labelledby="theme-heading">
         <header class="ui-settings-heading">
-          <h3 id="theme-heading">${t("ui.settingsThemePanel.title", "Theme")}</h3>
-          <p>${t("ui.settingsThemePanel.scope", "Choose a theme for this browser, or save the gateway default.")}</p>
+          <h3 id="theme-heading">${messages.t("heading")}</h3>
+          <p>${messages.t("description")}</p>
         </header>
         <div class="current-theme ui-settings-summary" role="status">
-          <strong>${this.hasLocalOverride ? t("ui.settingsThemePanel.local", "Using a theme saved in this browser") : t("ui.settingsThemePanel.default", "Using the default theme")}</strong>
-          <span>${t("ui.settingsThemePanel.current", "Current: {theme}", { theme: this.themeName(this.activeThemeId || this.preference.themeId) })}</span>
-          <span>${t("ui.settingsThemePanel.defaultName", "Default: {theme}", { theme: this.themeName(this.defaultPreference.themeId) })}${this.defaultPreference.auto ? t("ui.settingsThemePanel.systemSuffix", " · Follows system appearance") : ""}</span>
+          <strong>${messages.t(this.hasLocalOverride ? "local" : "default")}</strong>
+          <span>${messages.t("current", { name: this.themeName(this.activeThemeId || this.preference.themeId) })}</span>
+          <span>${messages.t("gateway", { name: this.themeName(this.defaultPreference.themeId), auto: this.defaultPreference.auto ? "yes" : "no" })}</span>
         </div>
         <label class="field ui-form-field">
-          <span>${t("ui.settingsThemePanel.title", "Theme")}</span>
-          <select class="ui-input" aria-label=${t("ui.settingsThemePanel.title", "Theme")} aria-describedby=${selectedAvailable ? "theme-scope-help" : "theme-unavailable-help theme-scope-help"} ?disabled=${busy} @change=${(event: Event) => {
+          <span>${messages.t("heading")}</span>
+          <select class="ui-input" aria-label=${messages.t("heading")} aria-describedby=${selectedAvailable ? "theme-scope-help" : "theme-unavailable-help theme-scope-help"} ?disabled=${busy} @change=${(event: Event) => {
             if (event.target instanceof HTMLSelectElement) this.draft = { ...this.draft, themeId: event.target.value };
           }}>
-            ${!selectedAvailable ? html`<option value=${this.draft.themeId}>${t("ui.settingsThemePanel.unavailable", "{theme} (unavailable)", { theme: this.draft.themeId })}</option>` : null}
+            ${!selectedAvailable ? html`<option value=${this.draft.themeId}>${messages.t("unavailable", { id: this.draft.themeId })}</option>` : null}
             ${this.themes.map((theme) => html`<option value=${theme.id}>${theme.name}</option>`)}
           </select>
         </label>
-        ${!selectedAvailable ? html`<p id="theme-unavailable-help" role="status">${t("ui.settingsThemePanel.unavailableHelp", "This theme is unavailable. Choose an available theme, or enable the plugin that provides it.")}</p>` : null}
+        ${!selectedAvailable ? html`<p id="theme-unavailable-help" role="status">${messages.t("unavailableHelp")}</p>` : null}
         <label class="auto-field ui-checkbox-field">
           <input type="checkbox" .checked=${this.draft.auto} ?disabled=${busy} @change=${(event: Event) => {
             if (event.target instanceof HTMLInputElement) this.draft = { ...this.draft, auto: event.target.checked };
           }}>
-          <span>${t("ui.settingsThemePanel.auto", "Follow system appearance")} <small>${t("ui.settingsThemePanel.autoHelp", "Switch between light and dark versions when this theme supports both.")}</small></span>
+          <span>${messages.t("auto")} <small>${messages.t("autoHelp")}</small></span>
         </label>
         <div class="theme-actions ui-settings-actions">
-          <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${busy || !selectedAvailable} @click=${() => this.onUseLocal?.({ ...preference })}>${t("ui.settingsThemePanel.useLocal", "Use in this browser")}</button>
-          <button class="ui-button ui-button--action" ?disabled=${busy || !selectedAvailable} @click=${() => { void this.onSetDefault?.({ ...preference }); }}>${t("ui.settingsThemePanel.setDefault", "Set gateway default")}</button>
-          <button class="ui-button ui-button--action" ?disabled=${busy || !this.hasLocalOverride} @click=${() => this.onUseDefault?.()}>${t("ui.settingsThemePanel.useDefault", "Use the default")}</button>
+          <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${busy || !selectedAvailable} @click=${() => this.onUseLocal?.({ ...preference })}>${messages.t("useLocal")}</button>
+          <button class="ui-button ui-button--action" ?disabled=${busy || !selectedAvailable} @click=${() => { void this.onSetDefault?.({ ...preference }); }}>${messages.t("setDefault")}</button>
+          <button class="ui-button ui-button--action" ?disabled=${busy || !this.hasLocalOverride} @click=${() => this.onUseDefault?.()}>${messages.t("useDefault")}</button>
         </div>
-        <p class="hint" id="theme-scope-help">${t("ui.settingsThemePanel.scopeHelp", "Setting a default leaves saved browser choices unchanged. Use the default to remove this browser's override.")}</p>
+        ${settingControls(this.configResponse, "/defaultTheme", this.loading || this.saving, this.onReset)}
+        <p class="hint" id="theme-scope-help">${messages.t("scope")}</p>
       </section>
     `;
   }
 
   private themeName(id: string): string {
-    return findAvailableTheme(this.themes, id)?.name ?? t("ui.settingsThemePanel.unavailable", "{theme} (unavailable)", { theme: id });
+    return findAvailableTheme(this.themes, id)?.name ?? messages.t("unavailable", { id });
   }
 
   static override styles = [uiButtonStyles, uiFormStyles, uiSettingsStyles, css`

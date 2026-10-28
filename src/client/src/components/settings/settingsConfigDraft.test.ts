@@ -43,6 +43,7 @@ describe("settings config drafts", () => {
       allowedHostsText: "example.local\n192.168.1.20",
     });
     expect(machineAccessDraftFromConfig(config)).toEqual({
+      installationName: "",
       allowedPathsText: "/tmp\n~/SDKs",
       uploadDefaultFolder: "manual/uploads",
       attachmentDefaultFolder: "saved/attachments",
@@ -107,6 +108,16 @@ describe("settings config drafts", () => {
     })).toEqual({ allowedHosts: ["example.local", "192.168.1.20"] });
   });
 
+  it("preserves installation identity when saving gateway fields", () => {
+    expect(gatewayServerConfigFromDraft(gatewayServerDraftFromConfig({}), { installationName: "Studio" }).installationName).toBe("Studio");
+    expect(machineAccessDraftFromConfig({ installationName: "Studio" }).installationName).toBe("Studio");
+  });
+
+  it("preserves localization defaults when saving gateway fields", () => {
+    const defaultLocalization = { language: "fr", formatLocale: "de-DE", timeZone: "UTC", hourCycle: "h23" as const };
+    expect(gatewayServerConfigFromDraft(gatewayServerDraftFromConfig({}), { defaultLocalization }).defaultLocalization).toEqual(defaultLocalization);
+  });
+
   it("preserves the default theme when saving gateway fields", () => {
     const defaultTheme = { themeId: "themes:pi-web-light", auto: false };
     expect(gatewayServerConfigFromDraft(gatewayServerDraftFromConfig({}), { defaultTheme }).defaultTheme).toEqual(defaultTheme);
@@ -118,15 +129,23 @@ describe("settings config drafts", () => {
     expect(gatewayServerConfigFromDraft(draft)).not.toHaveProperty("defaultStreamingBehavior");
   });
 
+  it.each([true, false])("preserves quietMode %s during gateway edits", (quietMode) => {
+    const draft = gatewayServerDraftFromConfig({ host: "gateway.local" });
+    expect(gatewayServerConfigFromDraft(draft, { quietMode }).quietMode).toBe(quietMode);
+    expect(gatewayServerConfigFromDraft(draft)).not.toHaveProperty("quietMode");
+  });
+
   it("builds selected-machine access/upload patches only from selected-machine-safe fields", () => {
     const patch = machineAccessConfigPatchFromDraft({
+      installationName: " Studio ",
       allowedPathsText: "/tmp\n~/SDKs\n",
       uploadDefaultFolder: " manual\\uploads/. ",
       attachmentDefaultFolder: " saved\\attachments/. ",
     });
 
-    expect(Object.keys(patch)).toEqual(["pathAccess", "uploads", "attachments"]);
+    expect(Object.keys(patch)).toEqual(["installationName", "pathAccess", "uploads", "attachments"]);
     expect(patch).toEqual({
+      installationName: "Studio",
       pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] },
       uploads: { defaultFolder: "manual/uploads" },
       attachments: { defaultFolder: "saved/attachments" },
@@ -134,7 +153,8 @@ describe("settings config drafts", () => {
   });
 
   it("clears selected-machine access/upload settings with safe default patches", () => {
-    expect(machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "" })).toEqual({
+    expect(machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "" })).toEqual({
+      installationName: "",
       pathAccess: { allowedPaths: [] },
       uploads: {},
       attachments: {},
@@ -142,20 +162,25 @@ describe("settings config drafts", () => {
   });
 
   it("rejects invalid selected-machine upload default folders before saving", () => {
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "/tmp/uploads", attachmentDefaultFolder: "" })).toThrow("上传默认文件夹必须是工作区相对路径。");
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "../secret", attachmentDefaultFolder: "" })).toThrow("上传默认文件夹不能包含路径穿越。");
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "../secret" })).toThrow("附件默认文件夹不能包含路径穿越。");
+    expect(() => machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "/tmp/uploads", attachmentDefaultFolder: "" })).toThrow("Upload default folder must be workspace-relative.");
+    expect(() => machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "../secret", attachmentDefaultFolder: "" })).toThrow("Upload default folder must not contain path traversal.");
+  });
+
+  it("rejects invalid selected-machine attachment default folders before saving", () => {
+    expect(() => machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "/tmp/attachments" })).toThrow("Attachment default folder must be workspace-relative.");
+    expect(() => machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "../secret" })).toThrow("Attachment default folder must not contain path traversal.");
   });
 
   it("rejects relative external paths before saving selected-machine access", () => {
     expect(() => machineAccessConfigPatchFromDraft({
+      installationName: "",
       allowedPathsText: "relative/path",
       uploadDefaultFolder: "",
       attachmentDefaultFolder: "",
-    })).toThrow("允许的外部路径必须是绝对路径或以 ~ 开头");
+    })).toThrow("Allowed external paths must be absolute paths or start with ~");
   });
 
   it("rejects absolute attachment folders before saving", () => {
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "/tmp/attachments" })).toThrow("附件默认文件夹必须是工作区相对路径。");
+    expect(() => machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "/tmp/attachments" })).toThrow("Attachment default folder must be workspace-relative.");
   });
 });

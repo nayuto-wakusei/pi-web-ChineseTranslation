@@ -336,6 +336,7 @@ function printComponentVersion(component: PiWebComponentStatus, t: Translator = 
   if (component.available || component.runtimeVersion !== undefined || component.installedVersion !== undefined) {
     console.log(t("version.runningInstalled", "  running: {arg0}; installed: {arg1}", { arg0: formatVersion(component.runtimeVersion, t), arg1: formatVersion(component.installedVersion, t) }));
   }
+  if (component.runtime !== undefined) console.log(`  runtime: ${component.runtime.name === "bun" ? "Bun" : "Node.js"} ${component.runtime.version}`);
   if (component.piVersion !== undefined) console.log(`  pi: ${component.piVersion}`);
   const installation = installationLabel(component.installation);
   if (installation !== undefined) console.log(`  installation: ${installation}`);

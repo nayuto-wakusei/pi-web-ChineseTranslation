@@ -28,10 +28,29 @@ describe("session cleanup UI helpers", () => {
     });
   });
 
-  it("validates threshold inputs before preview or execution", () => {
-    expect(validateSessionCleanupDraft({ ...draft, archiveIdleDays: "1.5" })).toEqual({ ok: false, error: "归档空闲会话天数必须是非负整数天数。" });
-    expect(validateSessionCleanupDraft({ ...draft, deleteArchivedDays: "-1" })).toEqual({ ok: false, error: "删除已归档会话天数必须是非负整数天数。" });
-    expect(validateSessionCleanupDraft({ ...draft, archiveIdleEnabled: false, deleteArchivedEnabled: false })).toEqual({ ok: false, error: "请至少启用一项清理操作。" });
+  it.each([
+    { input: { archiveIdleEnabled: false, deleteArchivedEnabled: false }, code: "disabled", error: "Enable at least one cleanup action." },
+    { input: { archiveIdleDays: " \t" }, code: "archiveRequired", error: "Archive idle sessions after must be set." },
+    { input: { deleteArchivedDays: "" }, code: "deleteRequired", error: "Delete archived sessions after must be set." },
+    ...["1.5", "-1", "abc", "Infinity"].flatMap((value) => [
+      { input: { archiveIdleDays: value }, code: "archiveInvalid", error: "Archive idle sessions after must be a non-negative whole number of days." },
+      { input: { deleteArchivedDays: value }, code: "deleteInvalid", error: "Delete archived sessions after must be a non-negative whole number of days." },
+    ]),
+  ])("returns $code with its compatibility error for $input", ({ input, code, error }) => {
+    expect(validateSessionCleanupDraft({ ...draft, ...input })).toEqual({ ok: false, code, error });
+  });
+
+  it("preserves validation precedence and ignores disabled thresholds", () => {
+    expect(validateSessionCleanupDraft({ ...draft, archiveIdleDays: "", deleteArchivedDays: "-1" })).toEqual({
+      ok: false, code: "archiveRequired", error: "Archive idle sessions after must be set.",
+    });
+    expect(validateSessionCleanupDraft({ ...draft, archiveIdleEnabled: false, archiveIdleDays: "invalid", deleteArchivedDays: " 0 " })).toEqual({
+      ok: true, request: { archiveIdleDays: null, deleteArchivedDays: 0 },
+    });
+    expect(validateSessionCleanupDraft({ ...draft, deleteArchivedEnabled: false, deleteArchivedDays: "", archiveIdleDays: " 30 " })).toEqual({
+      ok: true, request: { archiveIdleDays: 30, deleteArchivedDays: null },
+    });
+    expect(canRunSessionCleanup({ draft: { ...draft, archiveIdleDays: "" }, preview, previewRequest: preview.thresholds })).toBe(false);
   });
 
   it("requires a current preview before cleanup can run", () => {

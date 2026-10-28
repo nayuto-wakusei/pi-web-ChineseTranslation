@@ -6,7 +6,13 @@ import { isKnownAutoInstallablePiPackageId, KNOWN_AUTO_INSTALLABLE_PI_PACKAGES, 
 import { KNOWN_PI_PACKAGES } from "./knownPiPackages.js";
 import { ActiveProfilePiPackageService, createDefaultPiPackageService } from "./piPackageService.js";
 
-const packageId = "@chainingintention/pi-captains-log";
+const packageId = "@example/pi-optional";
+const optionalPackage = {
+  id: packageId,
+  label: "Optional package",
+  description: "An optional test package.",
+  shippedPathSegments: ["dist", "pi-packages", "optional"],
+};
 const tempDirs: string[] = [];
 
 afterEach(async () => {
@@ -14,24 +20,42 @@ afterEach(async () => {
 });
 
 describe("optional shipped Pi packages", () => {
-  it("offers Captain’s Log without granting auto-install permission", () => {
-    expect(KNOWN_PI_PACKAGES.find((entry) => entry.id === packageId)).toMatchObject({
-      shippedPathSegments: ["dist", "pi-packages", "captains-log"],
-    });
+  it("keeps the shipped catalog aligned with the remaining bundled packages", () => {
+    expect(KNOWN_PI_PACKAGES).toEqual(KNOWN_AUTO_INSTALLABLE_PI_PACKAGES);
     expect(isKnownAutoInstallablePiPackageId(packageId)).toBe(false);
     expect(KNOWN_AUTO_INSTALLABLE_PI_PACKAGES.some((entry) => entry.id === packageId)).toBe(false);
   });
 
-  it("leaves the profile unconfigured until explicit install, hides the installed suggestion, and offers it again after removal", async () => {
+  it.each(["user", "project"] as const)("removes a missing relative package from %s settings without removing other entries", async (scope) => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-stale-package-"));
+    tempDirs.push(root);
+    const agentDir = join(root, "profile");
+    const cwd = join(root, "project");
+    const projectDir = join(cwd, ".pi");
+    await mkdir(agentDir);
+    await mkdir(projectDir, { recursive: true });
+    const settingsPath = join(scope === "user" ? agentDir : projectDir, "settings.json");
+    const source = "../missing-package";
+    const other = { source: "../other-package", extensions: [] };
+    await writeFile(settingsPath, JSON.stringify({ packages: [source, other], theme: "dark" }));
+    const service = createDefaultPiPackageService(cwd, agentDir);
+
+    const removed = await service.remove(source, scope);
+
+    expect(removed.removed).toBe(true);
+    expect(removed.packages).toEqual([{ source: other.source, scope, filtered: true }]);
+    expect(JSON.parse(await readFile(settingsPath, "utf8"))).toMatchObject({ packages: [other], theme: "dark" });
+    await expect(createDefaultPiPackageService(cwd, agentDir).list()).resolves.toEqual({ packages: removed.packages });
+  });
+
+  it("installs only on request and allows removing a stale package entry after its shipped directory disappears", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-optional-package-"));
     tempDirs.push(root);
     const agentDir = join(root, "profile");
     const cwd = join(root, "project");
     await mkdir(agentDir);
     await mkdir(cwd);
-    const entry = KNOWN_PI_PACKAGES.find((candidate) => candidate.id === packageId);
-    if (entry === undefined) throw new Error("Captain’s Log missing from Settings catalog");
-    const source = resolveShippedPiPackagePath(entry, root);
+    const source = resolveShippedPiPackagePath(optionalPackage, root);
     await mkdir(source, { recursive: true });
     await writeFile(join(source, "package.json"), JSON.stringify({ name: packageId, pi: { extensions: [] } }));
     const dismiss = vi.fn(() => Promise.resolve());
@@ -40,7 +64,7 @@ describe("optional shipped Pi packages", () => {
       (dir) => createDefaultPiPackageService(cwd, dir),
       { dismiss },
       undefined,
-      undefined,
+      [optionalPackage],
       root,
     );
 
@@ -50,10 +74,15 @@ describe("optional shipped Pi packages", () => {
     await expect(readFile(join(agentDir, "settings.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 
     const installed = await service.install(source);
-    const configuredSource = join("..", "dist", "pi-packages", "captains-log");
+    const configuredSource = join("..", "dist", "pi-packages", "optional");
     expect(installed.packages).toContainEqual(expect.objectContaining({ source: configuredSource, installedPath: source, scope: "user" }));
-    expect(installed.installableKnownPackages?.some((suggestion) => suggestion.id === packageId)).toBe(false);
+    expect(installed.installableKnownPackages ?? []).not.toContainEqual(expect.objectContaining({ id: packageId }));
     expect(JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"))).toMatchObject({ packages: [configuredSource] });
+
+    // An update can remove a shipped optional package without editing the profile.
+    await rm(source, { recursive: true });
+    const afterUpdate = await service.list();
+    expect(afterUpdate.packages).toEqual([{ source: configuredSource, scope: "user", filtered: false }]);
 
     const removed = await service.remove(configuredSource);
     expect(removed.packages).toEqual([]);

@@ -167,6 +167,7 @@ async function createTopology(
   const federatedReceiverPayloadLimits = captureReceiverPayloadLimits(federated.websocketServer);
   registerMachineProxyRoutes(federated, {
     remoteClient: (machineId) => Promise.resolve(machineId === "remote" ? remoteClient : undefined),
+    invalidateReportedName: vi.fn(),
   }, federatedAdmissions);
   await federated.listen({ host: "127.0.0.1", port: 0 });
 

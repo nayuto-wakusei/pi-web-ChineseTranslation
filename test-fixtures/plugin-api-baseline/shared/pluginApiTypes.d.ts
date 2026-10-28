@@ -69,14 +69,22 @@ export interface PluginPeerChannel {
 }
 /**
  * Exact revision-paired path to this package's active server entry.
- * A peer supplies a request handler, a channel handler, or both, but never neither.
+ * A peer supplies at least one request, channel, or resource capability.
+ * `resourceUrl` returns a browser-ready authenticated URL, not a public share link.
+ * Its small JSON selector is visible in URLs; keep secrets in ordinary requests.
  */
 export type PluginPeer = {
     request(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
+    resourceUrl?(operation: string, input: JsonValue): string;
     openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
 } | {
     request?: undefined;
     openChannel(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+    resourceUrl?(operation: string, input: JsonValue): string;
+} | {
+    request?: undefined;
+    openChannel?: undefined;
+    resourceUrl(operation: string, input: JsonValue): string;
 };
 /** Explicitly browser-public session data, keyed by owning package/plugin namespace. */
 export type SessionUiMetadata = Readonly<Record<string, JsonObject>>;
@@ -117,6 +125,8 @@ export interface WorkspaceProviderMetadata {
 export interface WorkspaceRemovalPresentation {
     readonly actionLabel: string;
     readonly confirmation: string;
+    /** Optional provenance for host-localized removal chrome; raw wording remains the fallback. */
+    readonly localization?: import("./workspaceRemovalPresentation.js").WorkspaceRemovalLocalization;
 }
 export interface FileTreeEntry {
     name: string;
@@ -169,12 +179,12 @@ export interface MoveWorkspaceFileResponse {
     modifiedAt: string;
 }
 export type TerminalCommandRunStatus = "queued" | "running" | "succeeded" | "failed";
-export interface TerminalCommandRun {
+interface TerminalCommandRunFields {
     id: string;
     origin: string;
-    projectId: string;
-    workspaceId: string;
     terminalId: string;
+    /** Generated title provenance; title remains the compatible fallback. */
+    titlePresentation?: import("./terminalTitlePresentation.js").TerminalTitlePresentation;
     title: string;
     command: string;
     status: TerminalCommandRunStatus;
@@ -184,9 +194,20 @@ export interface TerminalCommandRun {
     completedAt?: string;
     metadata: Record<string, string>;
 }
-export interface TerminalCommandRunHandle {
-    run: TerminalCommandRun;
-    completed: Promise<TerminalCommandRun>;
+export interface TerminalCommandRun extends TerminalCommandRunFields {
+    scope?: "workspace";
+    projectId: string;
+    workspaceId: string;
+}
+export interface MaintenanceTerminalCommandRun extends TerminalCommandRunFields {
+    scope: "maintenance";
+    projectId?: never;
+    workspaceId?: never;
+}
+export type AnyTerminalCommandRun = TerminalCommandRun | MaintenanceTerminalCommandRun;
+export interface TerminalCommandRunHandle<Run extends AnyTerminalCommandRun = TerminalCommandRun> {
+    run: Run;
+    completed: Promise<Run>;
 }
 export type PiWebServiceComponent = "web" | "sessiond";
 export type PiWebStatusSeverity = "info" | "warning" | "error";
@@ -200,7 +221,13 @@ export interface PiWebInstallationInfo {
     npmRoot?: string;
     dockerMode?: PiWebDockerMode;
 }
+export interface PiWebRuntimeIdentity {
+    name: "node" | "bun";
+    version: string;
+}
 export interface PiWebComponentStatus {
+    /** Actual JavaScript engine of the reporting process, absent on older peers. */
+    runtime?: PiWebRuntimeIdentity;
     component: PiWebServiceComponent;
     label: string;
     runtimeVersion?: string;
@@ -246,3 +273,4 @@ export interface PiWebStatusResponse extends PiWebVersionResponse {
     };
     messages: PiWebStatusMessage[];
 }
+export {};

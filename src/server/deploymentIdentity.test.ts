@@ -74,15 +74,20 @@ describe("deploymentManifestForFlavor", () => {
     const mutated: unknown = JSON.parse(deploymentManifestForFlavor(manifest, "dev"));
     // Icon URLs stay: dev artwork is served in place of the stock files.
     expect(mutated).toEqual({
-      name: "PI WEB (dev)",
-      short_name: "PI WEB (dev)",
+      name: "PI-WEB (dev)",
+      short_name: "PI-WEB (dev)",
       theme_color: "#21132f",
       background_color: "#0d1117",
       icons: [{ src: "./pwa-icon-192.png", sizes: "192x192", type: "image/png" }],
     });
   });
 
-  it("returns the manifest untouched for stable deployments", () => {
-    expect(deploymentManifestForFlavor(manifest, "stable")).toBe(manifest);
+  it.each(["stable", "dev"] as const)("uses the installation name for %s without changing scope or icons", (flavor) => {
+    const result: unknown = JSON.parse(deploymentManifestForFlavor(manifest, flavor, "Build lab"));
+    expect(result).toMatchObject({ name: flavor === "dev" ? "Build lab (dev)" : "Build lab", icons: [{ src: "./pwa-icon-192.png", sizes: "192x192", type: "image/png" }] });
+  });
+
+  it("uses the product default when unnamed", () => {
+    expect(JSON.parse(deploymentManifestForFlavor(manifest, "stable", " "))).toMatchObject({ name: "PI-WEB", short_name: "PI-WEB", theme_color: "#0d1117" });
   });
 });

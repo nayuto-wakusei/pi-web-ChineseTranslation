@@ -25,13 +25,13 @@ test("saved navigation collapse survives viewport changes and remains recoverabl
   await page.goto("/management-shell.html");
   await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
   const panel = page.locator("#navigation-panel");
-  const edge = page.locator('app-panel-edge-control[side="navigation"]');
-  const toggle = edge.getByRole("button");
+  const toggle = page.locator('button[data-panel-toggle="navigation"]:visible');
   await expect(panel).toBeHidden();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: "Expand navigation panel", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1397, height: 812 });
   await expect(page.locator(".shell")).not.toHaveClass(/two-column-layout/);
   await expect(panel).toBeHidden();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(toggle).toBeInViewport();
   await toggle.click();
   await expect(panel).toBeVisible();

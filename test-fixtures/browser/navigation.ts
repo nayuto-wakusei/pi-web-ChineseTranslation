@@ -1,3 +1,5 @@
+import { initializeClientLocalization } from "../../src/client/src/localizationBootstrap";
+import { localization } from "../../src/client/src/localization/browser";
 import { html, render } from "lit";
 import { ActionPalette } from "../../src/client/src/components/ActionPalette";
 import { AppNavigationPanel } from "../../src/client/src/components/appShell/AppNavigationPanel";
@@ -6,13 +8,11 @@ import { CommandPicker } from "../../src/client/src/components/CommandPicker";
 import { ModelPicker } from "../../src/client/src/components/ModelPicker";
 import { AuthDialog } from "../../src/client/src/components/AuthDialog";
 import { NavigationDialog } from "../../src/client/src/components/appShell/NavigationDialog";
-import { setClientTranslations } from "../../src/client/src/i18n";
 import chinesePlugin from "../../pi-web-plugins/zh-cn/pi-web-plugin";
 import "../../src/client/src/plugins/themes/pi-web-light.css";
 
-const [catalog] = chinesePlugin.activate().contributions.localizations;
-if (catalog === undefined) throw new Error("Missing Chinese catalog");
-setClientTranslations(catalog.locale, catalog.messages);
+await initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }]));
+await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
 const style = document.createElement("style");
 style.textContent = `
   body { margin: 0; background: var(--pi-bg); color: var(--pi-text); font-family: var(--pi-font); }

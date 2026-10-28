@@ -15,8 +15,8 @@ import {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("promptEnterBehavior", () => {
-  it("uses only screen width for the default media query", () => {
-    expect(MOBILE_PROMPT_ENTER_MEDIA_QUERY).toBe("(max-width: 760px)");
+  it("keeps touch keyboard behavior independent of control sizing", () => {
+    expect(MOBILE_PROMPT_ENTER_MEDIA_QUERY).toBe("(pointer: coarse), (max-width: 760px)");
   });
 
   it.each([
@@ -24,15 +24,18 @@ describe("promptEnterBehavior", () => {
     { width: 760, coarse: true },
     { width: 761, coarse: false },
     { width: 761, coarse: true },
-  ])("selects the default by width ($width px, coarse pointer: $coarse)", ({ width, coarse }) => {
+    { width: 1024, coarse: true },
+  ])("selects the keyboard default ($width px, coarse pointer: $coarse)", ({ width, coarse }) => {
     const matchMedia = vi.fn((query: string) => ({
       matches: (query.includes("max-width: 760px") && width <= 760) || (query.includes("pointer: coarse") && coarse),
     }));
     vi.stubGlobal("window", { matchMedia });
     const media = createMobilePromptEnterMedia();
 
-    expect(matchMedia).toHaveBeenCalledExactlyOnceWith("(max-width: 760px)");
-    expect(shouldSendPromptOnEnter(media, "auto")).toBe(width > 760);
+    expect(matchMedia).toHaveBeenCalledExactlyOnceWith("(pointer: coarse), (max-width: 760px)");
+    expect(shouldSendPromptOnEnter(media, "auto")).toBe(width > 760 && !coarse);
+    expect(shouldUsePromptEnterShiftShortcut(true, false, media)).toBe(width > 760 && !coarse);
+    expect(shouldUsePromptEnterShiftShortcut(true, true, media)).toBe(true);
     expect(shouldSendPromptOnEnter(media, "send")).toBe(true);
     expect(shouldSendPromptOnEnter(media, "newline")).toBe(false);
   });
@@ -58,7 +61,7 @@ describe("promptEnterBehavior", () => {
     expect(shouldSendPromptOnEnterShortcut(true, undefined, "newline")).toBe(true);
   });
 
-  it("ignores implicit Shift state on narrow screens", () => {
+  it("ignores implicit Shift state in touch or narrow-screen contexts", () => {
     expect(shouldUsePromptEnterShiftShortcut(false, true, { matches: true } satisfies PromptEnterMedia)).toBe(false);
     expect(shouldUsePromptEnterShiftShortcut(true, false, { matches: true } satisfies PromptEnterMedia)).toBe(false);
     expect(shouldUsePromptEnterShiftShortcut(true, true, { matches: true } satisfies PromptEnterMedia)).toBe(true);

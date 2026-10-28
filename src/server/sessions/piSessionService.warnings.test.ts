@@ -142,6 +142,7 @@ describe("anthropicSubscriptionWarning", () => {
     )).toEqual({
       severity: "warning",
       message: ANTHROPIC_SUBSCRIPTION_AUTH_WARNING,
+      presentation: { kind: "anthropicSubscriptionAuth" },
       source: "anthropic",
       dismiss: { id: "anthropicExtraUsage" },
     } satisfies SessionWarning);
@@ -211,6 +212,7 @@ describe("runtime-owned subscription warnings", () => {
       expect((updated.warnings ?? []).filter((warning) => warning.source === "anthropic")).toEqual([{
         severity: "warning",
         message: ANTHROPIC_SUBSCRIPTION_AUTH_WARNING,
+        presentation: { kind: "anthropicSubscriptionAuth" },
         source: "anthropic",
         dismiss: { id: "anthropicExtraUsage" },
       }]);

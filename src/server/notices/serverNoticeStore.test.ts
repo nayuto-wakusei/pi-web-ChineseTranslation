@@ -136,6 +136,20 @@ describe("ServerNoticeStore", () => {
     expect(recorded.context).toEqual({ projectId: "metadata-only", details: { workspaceId: "workspace-1" } });
   });
 
+  it("detaches generated presentation from inputs and snapshots without changing raw text", () => {
+    const store = new ServerNoticeStore();
+    const presentation = { kind: "workspaceRemovalFailed" as const, detail: "raw diagnostic" };
+    const recorded = store.record({ severity: "error", message: "English fallback", presentation }).notice;
+    presentation.detail = "mutated";
+    const snapshot = store.snapshot();
+    const copy = snapshot.notices[0]?.presentation;
+    if (copy?.kind !== "workspaceRemovalFailed") throw new Error("Missing generated presentation");
+    copy.detail = "snapshot mutation";
+    expect(store.snapshot().notices[0]).toEqual(recorded);
+    expect(recorded.presentation).toEqual({ kind: "workspaceRemovalFailed", detail: "raw diagnostic" });
+    expect(recorded.message).toBe("English fallback");
+  });
+
   it("keeps only the newest 25 occurrences from one plugin source", () => {
     let nextId = 0;
     const store = new ServerNoticeStore({

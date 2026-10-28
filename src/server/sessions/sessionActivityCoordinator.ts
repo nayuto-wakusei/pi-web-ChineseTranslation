@@ -1,8 +1,11 @@
+import type { RuntimeActivityPresentation } from "../../shared/sessionActivityPresentation.js";
+
 export interface StoredSessionActivity {
   phase: "active" | "idle" | "error";
   label: string;
   detail?: string;
   at: string;
+  runtimePresentation: RuntimeActivityPresentation;
 }
 
 export class SessionActivityCoordinator {

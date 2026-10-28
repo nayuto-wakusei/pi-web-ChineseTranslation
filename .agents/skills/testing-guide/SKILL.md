@@ -48,6 +48,10 @@ Prefer this order unless the behavior requires a higher layer:
 
 Do not jump to a broad UI or integration test just because it feels more realistic if a lower layer proves the same behavior with less noise and less flake risk.
 
+## Filesystem path assertions
+
+When asserting that existing paths resolve to the same location, apply `realpath()` to both sides. Windows short-path aliases and symlinks can make equivalent paths differ as strings. Compare raw strings only when path spelling is the contract.
+
 ## Test helpers and fakes
 
 - Keep helpers local until reuse is clear. If a pattern appears in multiple files, consolidate deliberately rather than copy-pasting variants.

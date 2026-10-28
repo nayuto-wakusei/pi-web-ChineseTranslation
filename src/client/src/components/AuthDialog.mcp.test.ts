@@ -67,13 +67,13 @@ describe("unified MCP authentication dialog", () => {
 
   it("names the selected server and explains credential reuse without forcing browser authentication", async () => {
     const dialog = await mountDialog(oauthState({ target: "mcp", mcpMode: "login", providerName: "Budgeter", status: "complete", progress: ["Signed in to MCP server Budgeter."] }));
-    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("MCP Login: Budgeter");
+    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("MCP login: Budgeter");
     expect(dialog.shadowRoot?.textContent).toContain("No browser authorization was requested");
     expect(dialog.shadowRoot?.textContent).toContain("may have reused existing credentials");
     expect(dialog.shadowRoot?.querySelector("a")).toBeNull();
     dialog.state = oauthState({ target: "mcp", mcpMode: "logout", providerName: "Budgeter" });
     await settleDialog(dialog);
-    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("MCP Logout: Budgeter");
+    expect(dialogSection(dialog).getAttribute("aria-label")).toBe("MCP logout: Budgeter");
     expect(dialog.shadowRoot?.textContent).toContain("does not disable the server or revoke access");
   });
 

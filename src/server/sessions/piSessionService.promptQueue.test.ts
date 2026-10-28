@@ -449,6 +449,11 @@ describe("PiSessionService prompt, queue, and auth warnings", () => {
 
     const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes(`${TEST_MODEL_PROVIDER}/${TEST_MODEL_ID}`)).length;
     expect(warningCount()).toBe(1);
+    expect(hub.sessionEvents.find(({ event }) => event.type === "command.output")?.event).toEqual({
+      type: "command.output", level: "error",
+      message: `Authentication for ${TEST_MODEL_PROVIDER}/${TEST_MODEL_ID} was removed. Use /model to select another model.`,
+      presentation: { kind: "modelAuthRemoved", provider: TEST_MODEL_PROVIDER, model: TEST_MODEL_ID },
+    });
     expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "auth-session")).toBe(true);
 
     await seedCredential(credentials, "anthropic", { type: "api_key", key: "sk-new" });

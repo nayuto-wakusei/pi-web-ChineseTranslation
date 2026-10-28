@@ -1,6 +1,7 @@
 import {
   PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS,
   PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS,
+  PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS,
   PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS,
   PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
   PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES,
@@ -42,6 +43,7 @@ export const FEDERATED_HTTP_ROUTES = [
     { method: "GET", path },
     { method: "PUT", path },
   ]),
+  { method: "PATCH", path: "/config" },
   { method: "GET", path: "/plugins" },
   { method: "GET", path: "/pi-packages" },
   { method: "POST", path: "/pi-packages/install", timeoutMs: PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS },
@@ -64,6 +66,9 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/projects/:projectId/workspaces" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/agents-instructions" },
   { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/agents-instructions" },
+  ...PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS.map((path): FederatedHttpRouteSpec => ({
+    method: "GET", path, timeoutMs: 30_000, propagateCancellation: true,
+  })),
   ...PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS.map((path): FederatedHttpRouteSpec => ({
     method: "POST",
     path,
@@ -158,6 +163,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/sessions/:sessionId/notifications" },
   { method: "POST", path: "/sessions/:sessionId/notifications/dismiss" },
   { method: "POST", path: "/sessions/:sessionId/notifications/dismiss-all" },
+  { method: "POST", path: "/sessions/:sessionId/unread" },
   { method: "POST", path: "/sessions/:sessionId/unread/acknowledge" },
   { method: "GET", path: "/sessions/:sessionId/stream-snapshot" },
   { method: "GET", path: "/sessions/:sessionId/transcript-snapshot" },

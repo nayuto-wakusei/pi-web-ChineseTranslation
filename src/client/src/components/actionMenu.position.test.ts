@@ -5,7 +5,6 @@ import { installPopoverFake } from "./anchoredPopup.testSupport";
 installPopoverFake();
 
 import { trustApi, workspacesApi } from "../api";
-import { t } from "../i18n";
 import { ProjectList } from "./ProjectList";
 import { WorkspaceList } from "./WorkspaceList";
 import { SessionList } from "./SessionList";
@@ -99,7 +98,7 @@ describe("open action menu positioning", () => {
     expect(frames.size).toBe(0);
 
     bottom = 150;
-    const move = [...(menu()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent.trim() === t("ui.navigation.moveDown", "Move down"));
+    const move = [...(menu()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent.trim() === "Move down");
     if (!move) throw new Error("Missing move action");
     move.click();
     await settle(list);

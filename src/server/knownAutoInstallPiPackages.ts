@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
  * Pi packages PI WEB may install automatically for users out of the box (see
  * the `relay-pi-package-autoinstall` relay). Identity is the package's own
  * declared `name` (its `package.json` "name" field), not the install-source
- * string used to configure it: a locally shipped package is configured by
- * filesystem path today, which is not a stable identity to match against.
+ * string. These identities are reserved for PI WEB-managed bundled copies:
+ * startup reconciliation keeps configured sources on the running installation.
  */
 export interface KnownAutoInstallablePiPackage {
   /** The package's own declared `name`, matched via {@link resolveDeclaredPiPackageName}. */

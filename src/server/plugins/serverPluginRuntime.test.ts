@@ -232,6 +232,43 @@ describe("server plugin runtime", () => {
       await workspaces.closeAll();
     }
   });
+
+  it("discovers resource-only v5 peers and snapshots a bound resource callback", async () => {
+    const peer = {
+      contentType: "application/octet-stream",
+      resource() { return { body: new Uint8Array([1]), contentType: this.contentType }; },
+    };
+    const runtime = await createServerPluginRuntime({
+      catalog: { snapshot: () => Promise.resolve(testSnapshot([entry("resources")])) },
+      logger: testLogger(),
+      importer: () => Promise.resolve({ default: { apiVersion: 5, name: "Resources", activate: () => ({ peer }) } }),
+    });
+    expect(runtime.healthRecords()).toMatchObject([{ state: "active", pairedResourceVersion: 1 }]);
+    const backend = runtime.pairedBackendContributions()[0]?.backend;
+    expect(Object.isFrozen(backend)).toBe(true);
+    expect(backend).not.toHaveProperty("request");
+    expect(backend).not.toHaveProperty("openChannel");
+    peer.resource = () => { throw new Error("Replaced after activation"); };
+    expect(await backend?.resource?.({ scope: { kind: "machine" }, operation: "read", input: null, signal: new AbortController().signal }))
+      .toMatchObject({ contentType: "application/octet-stream", body: new Uint8Array([1]) });
+    await runtime.stop();
+  });
+
+  it.each([
+    { apiVersion: 5, peer: { resource: "invalid" } },
+    { apiVersion: 5, peer: { request: () => null, resource: "invalid" } },
+    { apiVersion: 3, peer: { resource: () => ({ body: new Uint8Array(), contentType: "text/plain" }) } },
+    { apiVersion: 3, peer: { request: () => null, resource: () => ({ body: new Uint8Array(), contentType: "text/plain" }) } },
+  ])("rejects invalid or legacy resource peers (%j)", async ({ apiVersion, peer }) => {
+    const runtime = await createServerPluginRuntime({
+      catalog: { snapshot: () => Promise.resolve(testSnapshot([entry("resources")])) },
+      logger: testLogger(),
+      importer: () => Promise.resolve({ default: { apiVersion, name: "Resources", activate: () => ({ peer }) } }),
+    });
+    expect(runtime.healthRecords()).toMatchObject([{ state: "incompatible" }]);
+    expect(runtime.pairedBackendContributions()).toEqual([]);
+    await runtime.stop();
+  });
   it("activates v3 and v5 with their own version and adapts only legacy workspace contexts", async () => {
     const logger = testLogger();
     const legacyRequest = vi.fn<(context: unknown) => null>(() => null);
@@ -1179,6 +1216,15 @@ describe("server plugin runtime", () => {
       }]);
     }).toThrow("cannot set their source");
     expect(records).toHaveLength(2);
+    const presentation = { kind: "workspaceRemovalFailed" as const, detail: "raw diagnostic" };
+    terminalReporter.record({ severity: "error", message: "Fallback", presentation });
+    presentation.detail = "mutated";
+    expect(records[2]?.input.presentation).toEqual({ kind: "workspaceRemovalFailed", detail: "raw diagnostic" });
+    expect(Object.isFrozen(records[2]?.input.presentation)).toBe(true);
+    for (const metadata of [{ kind: "future" }, { kind: "workspaceRemovalFailed", detail: 42 }]) {
+      Reflect.apply(terminalReporter.record, terminalReporter, [{ severity: "error", message: "Raw fallback", presentation: metadata }]);
+      expect(records.at(-1)?.input).toEqual({ severity: "error", message: "Raw fallback" });
+    }
 
     await runtime.stop();
   });

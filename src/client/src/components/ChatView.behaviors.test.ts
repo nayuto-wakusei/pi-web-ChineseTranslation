@@ -573,3 +573,51 @@ describe("composable normal chat", () => {
     expect(required(view.renderRoot, ".chat-wrap").classList.contains("plain")).toBe(false);
   });
 });
+
+describe("quiet mode", () => {
+  it("collapses the live tail group into an expandable events line", async () => {
+    const view = await mount();
+    view.quietMode = true;
+    view.isSendingPrompt = true;
+    view.messages = [{ role: "assistant", entryId: "quiet-thinking", parts: [{ type: "thinking", text: "Plan the work." }] }];
+    view.messageTotal = 1;
+    await view.updateComplete;
+
+    const group = required(view.renderRoot, ".event-group");
+    expect(group.hasAttribute("open")).toBe(false);
+    expect(required(group, "summary").textContent).toContain("live events");
+    expect(group.classList.contains("live")).toBe(true);
+    expect(group.querySelector(".thinking")).toBeNull();
+
+    await openGroup(view);
+    expect(required(view.renderRoot, ".event-group").hasAttribute("open")).toBe(true);
+    expect(required(required(view.renderRoot, ".event-group"), ".thinking").hasAttribute("open")).toBe(true);
+  });
+
+  it("keeps a live group expanded while further events arrive", async () => {
+    const view = await mount();
+    view.quietMode = true;
+    view.isSendingPrompt = true;
+    view.messages = [{ role: "assistant", entryId: "quiet-call", parts: [{ type: "toolCall", toolName: "read", summary: "file.ts" }] }];
+    view.messageTotal = 1;
+    await view.updateComplete;
+    await openGroup(view);
+
+    view.messages = [...view.messages, { role: "tool", entryId: "quiet-result", parts: [{ type: "toolResult", toolName: "read", text: "File contents", isError: false }] }];
+    view.messageTotal = 2;
+    await view.updateComplete;
+
+    const grown = required(view.renderRoot, ".event-group");
+    expect(grown.hasAttribute("open")).toBe(true);
+    expect(required(grown, "summary").textContent).toContain("2 events");
+  });
+
+  it("leaves the live group expanded when quiet mode is off", async () => {
+    const view = await mount();
+    view.isSendingPrompt = true;
+    view.messages = [{ role: "assistant", entryId: "loud-thinking", parts: [{ type: "thinking", text: "Plan the work." }] }];
+    view.messageTotal = 1;
+    await view.updateComplete;
+    expect(required(view.renderRoot, ".event-group").hasAttribute("open")).toBe(true);
+  });
+});

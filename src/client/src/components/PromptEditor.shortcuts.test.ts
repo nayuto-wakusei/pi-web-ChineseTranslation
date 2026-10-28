@@ -13,12 +13,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function mount(shortcut: string | null, mobile = false) {
-  const media = window.matchMedia("(max-width: 760px)");
-  Object.defineProperty(media, "matches", { value: mobile });
-  vi.spyOn(window, "matchMedia").mockReturnValue(media);
+async function mount(shortcut: string | null | undefined, narrow = false, coarse = false) {
+  const matchMedia = window.matchMedia.bind(window);
+  vi.spyOn(window, "matchMedia").mockImplementation((query) => {
+    const media = matchMedia(query);
+    Object.defineProperty(media, "matches", { value: (query.includes("max-width: 760px") && narrow) || (query.includes("pointer: coarse") && coarse) });
+    return media;
+  });
   const editor = new PromptEditor();
-  editor.shortcuts = { [COMPOSER_SEND_DESKTOP]: shortcut, [COMPOSER_SEND_MOBILE]: shortcut };
+  editor.shortcuts = shortcut === undefined ? {} : { [COMPOSER_SEND_DESKTOP]: shortcut, [COMPOSER_SEND_MOBILE]: shortcut };
   editor.onSend = vi.fn();
   document.body.append(editor);
   await editor.updateComplete;
@@ -135,6 +138,17 @@ describe("composer keyboard handling", () => {
     const editor = await mount("enter");
     press(editor, "Enter", { isComposing: true });
     expect(editor.onSend).not.toHaveBeenCalled();
+  });
+
+  it("keeps Enter as newline on a wide touch screen and requires explicit Shift to send", async () => {
+    const editor = await mount(undefined, false, true);
+    press(editor, "Enter");
+    press(editor, "Enter", { shiftKey: true });
+    expect(editor.view?.state.doc.toString()).toBe("Hello\n\n");
+    expect(editor.onSend).not.toHaveBeenCalled();
+    press(editor, "Shift", { shiftKey: true });
+    press(editor, "Enter", { shiftKey: true });
+    expect(editor.onSend).toHaveBeenCalledOnce();
   });
 
   it("ignores touch autocapitalization but accepts explicit Shift+Enter", async () => {

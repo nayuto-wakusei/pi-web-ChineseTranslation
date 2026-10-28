@@ -103,7 +103,7 @@ async function settle(view: ChatView) {
     expect(Array.from(reply.querySelectorAll<HTMLButtonElement>(".msg-action"), (action) => action.title)).toEqual([
       "Clone session from this message", "Go back to this message", "Copy message", "Inspect slice",
     ]);
-    for (const label of ["Fork", "Go back to this message"]) {
+    for (const label of ["Clone session from this message", "Go back to this message"]) {
       expect(buttons(view).filter((action) => action.getAttribute("aria-label") === label)).toHaveLength(1);
     }
 

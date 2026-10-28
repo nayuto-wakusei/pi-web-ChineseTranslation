@@ -1,12 +1,9 @@
-import { t } from "./i18n.js";
-import { formatFileSize } from "./formatFileSize.js";
-import type { StylesheetIntegrationCapabilityV1, ContentRendererOption, ContentRenderingCapability, FileContentResponse } from "@chainingintention/pi-web-cn/plugin-api";
+import type { StylesheetIntegrationCapabilityV1, FileContentResponse, FilePreviewingCapability, FilePreviewerOption, WorkspaceFilesContextValue } from "@chainingintention/pi-web-cn/plugin-api";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { property } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import { ifDefined } from "lit/directives/if-defined.js";
-import { unsafeHTML } from "lit/directives/unsafe-html.js";
-import { renderWorkspaceMarkdownHtml } from "./workspaceMarkdown";
+import { FilesLocalizationController, formatFileSize, type FilesContent } from "./filesLocalization";
 import { DEFAULT_WORKSPACE_FILE_VIEW_MODE, workspaceFileViewModeStore, type WorkspaceFileViewMode, type WorkspaceFileViewModeStore } from "./workspaceFileViewMode";
 
 export const DEFAULT_MAX_INLINE_PREVIEW_BYTES = 1024 * 1024;
@@ -24,7 +21,7 @@ export type WorkspaceFilePreviewUrlBuilder = (
   options?: WorkspaceFilePreviewUrlOptions,
 ) => string;
 
-export type WorkspaceFilePreviewKind = "image" | "html" | "pdf" | "markdown" | "download" | "code";
+type WorkspaceFileMetadataKind = "image" | "html" | "pdf" | "markdown" | "download" | "code";
 
 export interface WorkspaceFileViewerIdentity {
   machineId: string;
@@ -35,6 +32,11 @@ export interface WorkspaceFileViewerIdentity {
 }
 
 export class WorkspaceFileViewer extends LitElement {
+  private readonly text = new FilesLocalizationController(this);
+  @property({ attribute: false })
+  get content(): FilesContent | undefined { return this.text.content; }
+  set content(value: FilesContent | undefined) { this.text.content = value; }
+
   private integration: StylesheetIntegrationCapabilityV1 | undefined;
   private releaseStyles: (() => void) | undefined;
 
@@ -56,11 +58,14 @@ export class WorkspaceFileViewer extends LitElement {
   override disconnectedCallback(): void {
     this.releaseStyles?.();
     this.releaseStyles = undefined;
+    this.previewGeneration += 1;
+    this.activePreviewerId = undefined;
     super.disconnectedCallback();
   }
 
   @property({ attribute: false }) machineId = "";
-  @property({ attribute: false }) contentRendering: ContentRenderingCapability | undefined;
+  @property({ attribute: false }) filePreviewing: FilePreviewingCapability | undefined;
+  @property({ attribute: false }) files: WorkspaceFilesContextValue | undefined;
   @property({ attribute: false }) projectId = "";
   @property({ attribute: false }) workspaceId = "";
   @property({ attribute: false }) selectedPath: string | undefined;
@@ -81,29 +86,29 @@ export class WorkspaceFileViewer extends LitElement {
    * to a file whose identity key is identical (A → B → A).
    */
   private selectionToken = 0;
-  private failedPreviewToken: number | undefined;
-  private customPreview: TemplateResult | undefined;
-  private rendererId: string | undefined;
-  private rendererChosen = false;
   private preference: WorkspaceFileViewMode | undefined;
-  private rendererOptions: readonly ContentRendererOption[] = [];
+  private previewerOptions: readonly FilePreviewerOption[] = [];
+  // Undefined adopts the preference/default; null explicitly keeps source/download.
+  private previewerChoice: string | null | undefined;
+  private activePreviewerId: string | undefined;
+  private previewGeneration = 0;
+  private previewerFailed = false;
+  private previewerFail: (error: unknown) => void = () => undefined;
 
   protected override willUpdate(changedProperties: PropertyValues<this>): void {
     if (this.mode === undefined || changedProperties.has("modeStore")) {
       this.preference = this.modeStore.adopt();
       this.mode = this.preference ?? DEFAULT_WORKSPACE_FILE_VIEW_MODE;
       this.publishedMode = undefined;
-      this.failedPreviewToken = undefined;
     }
     const nextKey = this.currentFileKey();
     if (nextKey === this.activeFileKey) return;
     this.activeFileKey = nextKey;
-    this.rendererId = undefined;
-    this.rendererChosen = false;
+    this.previewerChoice = undefined;
+    this.activePreviewerId = undefined;
+    this.previewGeneration += 1;
+    this.previewerFailed = false;
     this.selectionToken += 1;
-    // The mode deliberately survives a new selection; only failure state, which
-    // belongs to the bytes that failed, is per selection.
-    this.failedPreviewToken = undefined;
   }
 
   /**
@@ -119,47 +124,56 @@ export class WorkspaceFileViewer extends LitElement {
   }
 
   override render(): TemplateResult {
+    if (this.content === undefined) return html``;
     const selectedPath = this.selectedPath;
-    if (selectedPath === undefined || selectedPath === "") return this.renderStatus(t("ui.workspaceFilesPanel.selectAFile", "Select a file."));
-    if (this.loadError !== undefined) return this.renderStatus(t("ui.main.b2171559ba6a", "Could not load {arg0}: {arg1}", { arg0: selectedPath, arg1: this.loadError }), true);
+    if (selectedPath === undefined || selectedPath === "") return this.renderStatus(this.text.messages.t("selectFile"));
+    if (this.loadError !== undefined) return this.renderStatus(this.text.messages.t("loadFailed", { path: selectedPath, error: this.loadError }), true);
 
     const file = this.file;
-    if (file === undefined) return this.renderStatus(t("ui.workspaceFilesPanel.loading", "Loading {selectedFilePath}…", { selectedFilePath: selectedPath }));
+    if (file === undefined) return this.renderStatus(this.text.messages.t("loadingFile", { path: selectedPath }));
     if (file.path !== selectedPath) {
-      return this.renderStatus(t("ui.main.372b83bb0612", "Could not preview {arg0}: the loaded content belongs to {arg1}.", { arg0: selectedPath, arg1: file.path }), true);
+      return this.renderStatus(this.text.messages.t("wrongFile", { selected: selectedPath, loaded: file.path }), true);
     }
 
-    const token = this.selectionToken;
-    const kind = workspaceFilePreviewKind(file);
-    const request = { machineId: this.machineId, text: file.content, filePath: file.path, ...(file.language === undefined ? {} : { language: file.language }) };
-    const eligible = kind === "code" && !file.truncated && file.size > 0 && file.size <= this.maxInlinePreviewBytes;
-    this.rendererOptions = eligible ? this.contentRendering?.listRenderers(request) ?? [] : [];
-    if (!this.rendererChosen || !this.rendererOptions.some(({ id }) => id === this.rendererId)) {
-      this.rendererChosen = false;
-      this.rendererId = (this.rendererOptions.filter(({ renderMode }) => renderMode === "automatic").at(-1) ?? this.rendererOptions[0])?.id;
-    }
-    this.mode = this.preference ?? (this.rendererOptions.find(({ id }) => id === this.rendererId)?.renderMode === "automatic" ? "preview" : DEFAULT_WORKSPACE_FILE_VIEW_MODE);
-    this.customPreview = eligible
-      ? this.contentRendering?.renderText({ ...request, controls: "external", allowManualPreview: this.preference === "preview", ...(this.rendererId === undefined ? {} : { rendererId: this.rendererId }) })
-      : undefined;
+    const kind = workspaceFileMetadataKind(file);
+    const pluginPreview = this.renderFilePreview(file);
     const canOpen = isBrowserPreviewKind(kind) && file.size > 0 && file.size <= this.maxInlinePreviewBytes;
     return html`
-      ${this.renderViewerHeader(file, metadataForFile(file, kind), canOpen)}
-      ${keyed(this.activeFileKey, this.renderLoadedFile(file, kind, token))}
+      ${this.renderViewerHeader(file, metadataForFile(file, kind, this.requireContent()), canOpen)}
+      ${this.previewerFailed ? this.renderStatus(this.text.messages.t("previewFailed", { path: file.path }), true) : null}
+      ${keyed(this.activeFileKey, pluginPreview ?? (file.binary ? this.renderUnsupportedFile(file) : this.renderRawSource(file)))}
     `;
   }
 
-  private renderLoadedFile(file: FileContentResponse, kind: WorkspaceFilePreviewKind, token: number): TemplateResult {
-    if (this.selectionHasRawAndPreviewModes() && this.mode === "raw") return this.renderRawSource(file);
-    if (file.size === 0) return this.renderStatus(t("ui.main.82ec1594fc2f", "This file is empty."));
-
-    switch (kind) {
-      case "image": return this.renderImagePreview(file, token);
-      case "html": return this.renderFramePreview(file, "html", token);
-      case "pdf": return this.renderFramePreview(file, "pdf", token);
-      case "markdown": return this.renderMarkdownPreview(file);
-      case "download": return this.renderUnsupportedFile(file);
-      case "code": return this.customPreview ?? this.renderRawSource(file);
+  private renderFilePreview(file: FileContentResponse): TemplateResult | undefined {
+    const request = { machineId: this.machineId, projectId: this.projectId, workspaceId: this.workspaceId, file };
+    this.previewerOptions = this.filePreviewing?.listPreviewers(request) ?? [];
+    const automatic = this.previewerOptions.filter(({ renderMode }) => renderMode === "automatic").at(-1);
+    const selected = this.previewerChoice === undefined
+      ? this.preference === "raw" && !file.binary ? undefined
+        : (automatic ?? (this.preference === "preview" ? this.previewerOptions[0] : undefined))?.id
+      : this.previewerChoice ?? undefined;
+    const id = this.previewerOptions.some((option) => option.id === selected) ? selected : undefined;
+    if (id !== this.activePreviewerId) {
+      this.activePreviewerId = id;
+      const generation = ++this.previewGeneration;
+      this.previewerFail = (error) => {
+        if (!this.isConnected || generation !== this.previewGeneration) return;
+        console.warn("File preview failed", file.path, error);
+        this.previewerChoice = null;
+        this.activePreviewerId = undefined;
+        this.previewGeneration += 1;
+        this.previewerFailed = true;
+        this.requestUpdate();
+      };
+    }
+    if (id === undefined || this.files === undefined) return undefined;
+    try {
+      const preview = this.filePreviewing?.renderPreview({ ...request, previewerId: id, files: this.files, fail: this.previewerFail });
+      return this.previewerFailed ? undefined : preview;
+    } catch (error) {
+      this.previewerFail(error);
+      return undefined;
     }
   }
 
@@ -170,10 +184,10 @@ export class WorkspaceFileViewer extends LitElement {
     const downloadUrl = this.previewUrlBuilder(this.projectId, this.workspaceId, file.path, { ...previewOptions, download: true });
     return html`
       <div class="viewer-header">
-        <strong title=${file.path}>${file.path}</strong>
+        <strong dir="ltr" title=${file.path}>${file.path}</strong>
         <div class="viewer-actions">
           <small>${metadata}</small>
-          ${this.selectionHasRawAndPreviewModes() ? this.renderModeControls(file, this.selectionToken) : null}
+          ${this.selectionHasRawAndPreviewModes() || this.previewerOptions.length > 0 ? this.renderModeControls(file, this.selectionToken) : null}
           ${canOpen ? html`
             <a
               class="viewer-action"
@@ -181,105 +195,40 @@ export class WorkspaceFileViewer extends LitElement {
               target="_blank"
               rel="noopener noreferrer"
               referrerpolicy="no-referrer"
-              title="${t("ui.main.aa2769759d32", "Open in new window")}"
-            >${t("ui.main.995aaa200d04", "Open ↗")}</a>
+              title=${this.text.messages.t("openTitle")}
+            >${this.text.messages.t("open")}</a>
           ` : null}
-          <a class="viewer-action" href=${downloadUrl} download=${name} title=${t("ui.workspaceFilesPanel.download", "Download {selectedPath}", { selectedPath: name })}>${t("ui.main.2b9d013177da", "Download")}</a>
+          <a class="viewer-action" href=${downloadUrl} download=${name} title=${this.text.messages.t("downloadTitle", { name })}>${this.text.messages.t("download")}</a>
         </div>
       </div>
     `;
   }
 
   private renderModeControls(file: FileContentResponse, token: number): TemplateResult {
-    const showingPreview = this.mode === "preview";
     return html`
-      <div class="viewer-mode" role="group" aria-label=${t("ui.main.e510d27cdd82", "View {arg0}", { arg0: file.path })}>
-        ${this.rendererOptions.length === 0 ? html`
-          <button type="button" aria-pressed=${String(showingPreview)} @click=${() => { this.setMode("preview", token); }}>${t("ui.sessionCleanupDialog.preview", "Preview")}</button>
-        ` : this.rendererOptions.map(({ id, label }) => html`
-          <button type="button" aria-pressed=${String(showingPreview && id === this.rendererId)} @click=${() => {
+      <div class="viewer-mode" role="group" aria-label=${this.text.messages.t("view", { path: file.path })}>
+        ${this.previewerOptions.map(({ id, label, title }) => html`
+          <button type="button" title=${ifDefined(title)} aria-pressed=${String(id === this.activePreviewerId)} @click=${() => {
             if (token !== this.selectionToken) return;
-            this.rendererId = id;
-            this.rendererChosen = true;
-            this.setMode("preview", token);
+            this.previewerChoice = id;
+            if (!file.binary) { this.mode = "preview"; this.preference = "preview"; }
+            this.activePreviewerId = undefined;
+            this.previewGeneration += 1;
+            this.previewerFailed = false;
+            this.requestUpdate();
           }}>${label}</button>
         `)}
-        <button
-          type="button"
-          aria-pressed=${showingPreview ? "false" : "true"}
-          @click=${() => { this.setMode("raw", token); }}
-        >${t("ui.main.05511bbf5d16", "Raw")}</button>
+        ${file.binary ? null : html`<button type="button" aria-pressed=${String(this.activePreviewerId === undefined)}
+          @click=${() => { this.setMode("raw", token); }}>${this.text.messages.t("raw")}</button>`}
       </div>
     `;
   }
 
   private renderRawSource(file: FileContentResponse): TemplateResult {
-    if (file.size === 0) return this.renderStatus(t("ui.main.82ec1594fc2f", "This file is empty."));
+    if (file.size === 0) return this.renderStatus(this.text.messages.t("empty"));
     return html`
-      ${file.truncated ? html`<p class="preview-note" role="status">${t("ui.main.e9150513f0e0", "Raw source is truncated. Use Download for the complete file.")}</p>` : null}
+      ${file.truncated ? html`<p class="preview-note" role="status">${this.text.messages.t("rawTruncated")}</p>` : null}
       <pi-web-files-code-viewer .stylesheetIntegration=${this.stylesheetIntegration} .content=${file.content} .language=${file.language}></pi-web-files-code-viewer>
-    `;
-  }
-
-  private renderMarkdownPreview(file: FileContentResponse): TemplateResult {
-    if (file.size > this.maxInlinePreviewBytes) return this.renderPreviewTooLarge(file);
-    try {
-      const content = this.contentRendering?.renderMarkdown({
-        machineId: this.machineId, text: file.content, truncated: file.truncated,
-        toSafeHtml: renderWorkspaceMarkdownHtml, allowManualPreview: this.preference === "preview",
-      }) ?? unsafeHTML(renderWorkspaceMarkdownHtml(file.content));
-      return html`
-        ${file.truncated ? html`<p class="preview-note" role="status">${t("ui.main.d4d154c66e37", "Preview is rendered from truncated source. Use Download for the complete file.")}</p>` : null}
-        <div class="formatted markdown-preview" dir="auto">${content}</div>
-      `;
-    } catch {
-      return this.renderStatus(t("ui.main.156c1593192d", "Markdown preview failed. Use Raw or Download instead."), true);
-    }
-  }
-
-  private renderImagePreview(file: FileContentResponse, token: number): TemplateResult {
-    if (file.size > this.maxInlinePreviewBytes) return this.renderPreviewTooLarge(file);
-    if (this.failedPreviewToken === token) return this.renderPreviewFailure(file, token);
-    const src = this.previewUrl(file);
-    return html`
-      <div class="image-preview">
-        <img
-          src=${src}
-          alt=${t("ui.main.d92d4cab950f", "Preview of {arg0}", { arg0: file.path })}
-          decoding="async"
-          referrerpolicy="no-referrer"
-          @error=${() => { this.recordPreviewFailure(token); }}
-        />
-      </div>
-    `;
-  }
-
-  private renderFramePreview(file: FileContentResponse, kind: "html" | "pdf", token: number): TemplateResult {
-    if (file.size > this.maxInlinePreviewBytes) return this.renderPreviewTooLarge(file);
-    if (this.failedPreviewToken === token) return this.renderPreviewFailure(file, token);
-    const src = this.previewUrl(file);
-
-    return html`
-      ${kind === "pdf" ? html`<p class="preview-note" role="status">${t("ui.main.19d5ef59f7fb", "Inline PDF support varies by browser. Use Open ↗ or Download above if the document does not appear.")}</p>` : null}
-      <iframe
-        class="file-frame-preview"
-        src=${src}
-        sandbox=${ifDefined(framePreviewSandbox(kind))}
-        allow=""
-        referrerpolicy="no-referrer"
-        title=${t("ui.main.d92d4cab950f", "Preview of {arg0}", { arg0: file.path })}
-        @error=${() => { this.recordPreviewFailure(token); }}
-      ></iframe>
-    `;
-  }
-
-  private renderPreviewFailure(file: FileContentResponse, token: number): TemplateResult {
-    return html`
-      <div class="preview-state" role="alert">
-        <strong>${file.path} ${t("ui.main.de32c906f4f4", ".")}</strong>
-        <span>${t("ui.main.f83532b8bc52", "Open it in a new window or use Download above.")}</span>
-        <button type="button" @click=${() => { this.retryPreview(token); }}>${t("ui.main.151114d1c344", "Retry preview")}</button>
-      </div>
     `;
   }
 
@@ -292,14 +241,10 @@ export class WorkspaceFileViewer extends LitElement {
     });
     return html`
       <div class="preview-state">
-        <p>${t("ui.main.6ed76a36e609", "Preview isn't available for this file type.")}</p>
-        <a class="download-link" href=${href} download=${name}>${t("ui.main.2b9d013177da", "Download")} ${name} · ${formatFileSize(file.size)}</a>
+        <p>${this.text.messages.t("unsupported")}</p>
+        <a class="download-link" href=${href} download=${name}>${this.text.messages.t("downloadSize", { name, size: formatFileSize(file.size, this.requireContent()) })}</a>
       </div>
     `;
-  }
-
-  private renderPreviewTooLarge(file: FileContentResponse): TemplateResult {
-    return this.renderStatus(t("ui.main.e0191f8e6698", "File too large to preview: {arg0}; limit {arg1}. Download the file instead.", { arg0: formatFileSize(file.size), arg1: formatFileSize(this.maxInlinePreviewBytes) }));
   }
 
   private renderStatus(message: string, alert = false): TemplateResult {
@@ -308,33 +253,17 @@ export class WorkspaceFileViewer extends LitElement {
       : html`<p class="viewer-status" role="status" aria-live="polite">${message}</p>`;
   }
 
-  private previewUrl(file: FileContentResponse): string {
-    return this.previewUrlBuilder(this.projectId, this.workspaceId, file.path, {
-      modifiedAt: file.modifiedAt,
-      machineId: this.machineId,
-    });
-  }
-
   private setMode(mode: WorkspaceFileViewMode, token: number): void {
     if (token !== this.selectionToken) return;
-    this.mode = mode;
-    this.preference = mode;
-    this.failedPreviewToken = undefined;
-    this.requestUpdate();
-  }
-
-  private recordPreviewFailure(token: number): void {
-    // Streamed kinds (raster images, PDF) have no raw form and always show an
-    // embedded preview, so the guard asks what is on screen rather than what
-    // the remembered mode says.
-    if (token !== this.selectionToken || this.showsRawSource()) return;
-    this.failedPreviewToken = token;
-    this.requestUpdate();
-  }
-
-  private retryPreview(token: number): void {
-    if (token !== this.selectionToken) return;
-    this.failedPreviewToken = undefined;
+    this.previewerChoice = null;
+    this.activePreviewerId = undefined;
+    this.previewGeneration += 1;
+    this.previewerFailed = false;
+    // Only source-file views participate in the remembered Raw/Preview preference.
+    if (this.file?.binary !== true) {
+      this.mode = mode;
+      this.preference = mode;
+    }
     this.requestUpdate();
   }
 
@@ -342,23 +271,23 @@ export class WorkspaceFileViewer extends LitElement {
     return workspaceFileViewerIdentityKey(this);
   }
 
-  private showsRawSource(): boolean {
-    return this.mode === "raw" && this.selectionHasRawAndPreviewModes();
-  }
-
   private selectionHasRawAndPreviewModes(): boolean {
     const file = this.file;
     if (file === undefined || this.loadError !== undefined) return false;
     if (this.selectedPath === undefined || file.path !== this.selectedPath) return false;
-    return this.customPreview !== undefined || hasRawAndPreviewModes(file, workspaceFilePreviewKind(file));
+    return !file.binary && this.previewerOptions.length > 0;
+  }
+
+  private requireContent(): FilesContent {
+    if (this.content === undefined) throw new Error("Files localization is unavailable");
+    return this.content;
   }
 
   static override styles = [
-    formattedTextStyles(),
     css`
     @layer pi-web-base {
       :host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
-      .viewer-header { position: sticky; top: 0; z-index: 1; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0 0 0 10px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
+      .viewer-header { position: sticky; top: 0; z-index: 1; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0; padding-inline-start: 10px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
       .viewer-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
       .viewer-actions { align-self: stretch; display: flex; align-items: center; gap: 0; flex: 0 1 auto; min-width: 0; max-width: 100%; }
       .viewer-actions > small { padding-inline: 8px; }
@@ -376,11 +305,7 @@ export class WorkspaceFileViewer extends LitElement {
       .viewer-actions button:focus-visible, .viewer-actions a:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
       .preview-state button:focus-visible, a:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 1px; }
       pi-web-files-code-viewer { flex: 1 1 auto; min-height: 0; }
-      .markdown-preview { flex: 1 1 auto; min-height: 0; box-sizing: border-box; overflow: auto; padding: 16px; }
       .preview-note { flex: 0 0 auto; margin: 0; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-surface); color: var(--pi-muted); padding: 7px 10px; font-size: 12px; }
-      .image-preview { flex: 1 1 auto; min-height: 0; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 16px; }
-      .image-preview img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; border: 1px solid var(--pi-border-muted); border-radius: 8px; background-color: var(--pi-surface); background-image: linear-gradient(45deg, color-mix(in srgb, var(--pi-border-muted) 45%, transparent) 25%, transparent 25%), linear-gradient(-45deg, color-mix(in srgb, var(--pi-border-muted) 45%, transparent) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--pi-border-muted) 45%, transparent) 75%), linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--pi-border-muted) 45%, transparent) 75%); background-position: 0 0, 0 8px, 8px -8px, -8px 0; background-size: 16px 16px; box-shadow: 0 8px 24px var(--pi-shadow-soft); }
-      .file-frame-preview { flex: 1 1 auto; min-height: 0; width: 100%; border: none; background: var(--pi-surface); }
       .viewer-status { box-sizing: border-box; margin: auto; max-width: 100%; color: var(--pi-muted); padding: 18px; text-align: center; overflow-wrap: anywhere; }
       .preview-state { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-sizing: border-box; padding: 24px; color: var(--pi-muted); text-align: center; }
       .preview-state strong { color: var(--pi-text); }
@@ -410,7 +335,7 @@ export function workspaceFileViewerIdentityKey(identity: WorkspaceFileViewerIden
   ]);
 }
 
-export function workspaceFilePreviewKind(file: FileContentResponse): WorkspaceFilePreviewKind {
+function workspaceFileMetadataKind(file: FileContentResponse): WorkspaceFileMetadataKind {
   if (file.mediaType === "image") return "image";
   if (file.mediaType === "html") return "html";
   if (file.mediaType === "pdf") return "pdf";
@@ -419,43 +344,11 @@ export function workspaceFilePreviewKind(file: FileContentResponse): WorkspaceFi
   return "code";
 }
 
-/**
- * Both modes exist when the file has a rendered preview and its JSON read
- * carried literal source: HTML, Markdown, and text-based images such as SVG.
- * Streamed formats (raster images, PDF) have no source to show, and plain code
- * files have no rendered form.
- */
-function hasRawAndPreviewModes(file: FileContentResponse, kind: WorkspaceFilePreviewKind): boolean {
-  return kind !== "code" && kind !== "download" && !file.binary;
-}
-
-/**
- * HTML previews stay fully sandboxed: opaque origin, no scripts, no forms, no
- * navigation, matching the server's `sandbox` CSP.
- *
- * PDF previews intentionally carry no sandbox attribute (`undefined` omits it).
- * Sandboxed frames refuse native PDF handlers — Chromium renders nothing
- * (crbug.com/41131921, whatwg/html#3958) and Firefox 134+ downloads the file
- * instead of displaying it (bugzilla 1724924, 1941725) — so a sandboxed frame
- * produces a blank pane or a surprise download rather than a preview. The
- * isolation that matters for PDF is the response contract: the server sends
- * `application/pdf` with `X-Content-Type-Options: nosniff` and a
- * `default-src 'none'` CSP, so those bytes can only reach the browser's PDF
- * handler, can never be interpreted as an active same-origin document, and
- * cannot load subresources or run script in the PI WEB origin. `allow=""` and
- * `referrerpolicy="no-referrer"` still deny delegated capabilities and referrer
- * leakage, and a persistent Open/Download affordance covers browsers that
- * decline to display PDFs inline at all.
- */
-function framePreviewSandbox(kind: "html" | "pdf"): string | undefined {
-  return kind === "html" ? "" : undefined;
-}
-
-function isBrowserPreviewKind(kind: WorkspaceFilePreviewKind): kind is "image" | "html" | "pdf" {
+function isBrowserPreviewKind(kind: WorkspaceFileMetadataKind): kind is "image" | "html" | "pdf" {
   return kind === "image" || kind === "html" || kind === "pdf";
 }
 
-function metadataForFile(file: FileContentResponse, kind: WorkspaceFilePreviewKind): string {
+function metadataForFile(file: FileContentResponse, kind: WorkspaceFileMetadataKind, content: FilesContent): string {
   const format = kind === "code"
     ? file.language ?? "text"
     : kind === "download"
@@ -463,39 +356,9 @@ function metadataForFile(file: FileContentResponse, kind: WorkspaceFilePreviewKi
       : kind === "markdown"
         ? "markdown"
         : file.mimeType ?? kind;
-  return `${format} · ${formatFileSize(file.size)}${file.truncated ? " · truncated" : ""}`;
+  return content.messages.t("metadata", { format, size: formatFileSize(file.size, content), truncated: file.truncated ? "yes" : "no" });
 }
 
 function workspaceFileName(path: string): string {
   return path.split(/[\\/]/u).at(-1) ?? path;
-}
-
-function formattedTextStyles(): ReturnType<typeof css> {
-  return css`
-    @layer pi-web-base {
-  :host { display: block; }
-  .formatted { white-space: normal; overflow-wrap: anywhere; line-height: 1.45; text-align: start; unicode-bidi: plaintext; }
-  p, ul, ol, pre, blockquote, .table-scroll { margin: 0 0 10px; }
-  :is(p, ul, ol, pre, blockquote, .table-scroll):last-child { margin-bottom: 0; }
-  ul, ol { padding-left: 22px; }
-  li + li { margin-top: 3px; }
-  code { border: 1px solid var(--pi-border); border-radius: 4px; background: var(--pi-bg); padding: 1px 4px; font: 13px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); direction: ltr; text-align: left; unicode-bidi: isolate; }
-  pre { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); padding: 10px; overflow-x: auto; overflow-y: hidden; direction: ltr; text-align: left; unicode-bidi: isolate; }
-  pre code { border: 0; padding: 0; background: transparent; }
-  blockquote { border-left: 3px solid var(--pi-border); padding-left: 10px; color: var(--pi-muted); }
-  a { color: var(--pi-accent); }
-  h1, h2, h3, h4 { margin: 14px 0 8px; line-height: 1.2; }
-  h1:first-child, h2:first-child, h3:first-child, h4:first-child { margin-top: 0; }
-  h1 { font-size: 20px; }
-  h2 { font-size: 17px; }
-  h3 { font-size: 15px; }
-  h4 { font-size: 14px; }
-  .table-scroll { max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
-  .table-scroll:focus-visible { outline: 1px solid var(--pi-accent); outline-offset: 2px; }
-  table { border-collapse: collapse; width: max-content; min-width: 100%; max-width: none; }
-  th, td { border: 1px solid var(--pi-border); padding: 4px 8px; max-width: 48ch; overflow-wrap: anywhere; }
-  th { background: var(--pi-surface); }
-
-    }
-  `;
 }

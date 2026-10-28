@@ -13,6 +13,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setApiScope("normal");
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -117,7 +118,7 @@ describe.each(transportStages)("request %s transport boundary", (stage) => {
     await expect(request("api/read", (body) => body)).rejects.toBe(cancellation);
   });
 
-  it("preserves TypeError when the signal is aborted before rejection settles", async () => {
+  it("preserves cancellation reason when the signal is aborted before rejection settles", async () => {
     const controller = new AbortController();
     const cancellation = new TypeError("Request cancelled");
     rejectTransport(stage, cancellation);
@@ -125,7 +126,7 @@ describe.each(transportStages)("request %s transport boundary", (stage) => {
     const pending = request("api/read", (body) => body, { signal: controller.signal });
     controller.abort();
 
-    await expect(pending).rejects.toBe(cancellation);
+    await expect(pending).rejects.toBe(controller.signal.reason);
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
@@ -134,6 +135,60 @@ describe.each(transportStages)("request %s transport boundary", (stage) => {
     rejectTransport(stage, failure);
 
     await expect(request("api/read", (body) => body)).rejects.toBe(failure);
+  });
+});
+
+describe.each(transportStages)("bounded request %s", (stage) => {
+  it("aborts and releases a stalled transport with a contextual retryable deadline", async () => {
+    vi.useFakeTimers();
+    if (stage === "fetch") fetchMock.mockReturnValue(new Promise(() => undefined));
+    else {
+      const response = new Response("{}");
+      vi.spyOn(response, "json").mockReturnValue(new Promise(() => undefined));
+      fetchMock.mockResolvedValue(response);
+    }
+    const parse = vi.fn((body: unknown) => body);
+    const pending = request("api/read", parse, { timeoutMs: 100 });
+    const assertion = expect(pending).rejects.toMatchObject({
+      name: "NetworkRequestError", message: "Request timed out after 100ms: api/read",
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await assertion;
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(parse).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("request deadlines and cancellation", () => {
+  it("releases an indefinitely pending fetch on caller cancellation and cleans the deadline", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    const controller = new AbortController();
+    const pending = request("api/read", (body) => body, { timeoutMs: 100, signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toBe(controller.signal.reason);
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not start an already cancelled request", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(request("api/read", (body) => body, { timeoutMs: 100, signal: controller.signal })).rejects.toBe(controller.signal.reason);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cleans up a successful deadline without aborting the completed request", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(new Response("{}"));
+    await request("api/read", (body) => body, { timeoutMs: 100 });
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
   });
 });
 

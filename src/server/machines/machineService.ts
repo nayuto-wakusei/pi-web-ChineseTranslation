@@ -1,6 +1,7 @@
 import { createTranslator, UserFacingError, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import type { Machine, MachineHealth, MachineRuntime, PiWebComponentStatus, PiWebDeprecatedAgentInput, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebStatusResponse } from "../../shared/apiTypes.js";
 import { parsePiWebRuntimeResponse } from "../../shared/piWebStatusParsing.js";
+import { installationDisplayName, requireInstallationName } from "../../shared/installationName.js";
 import { getPiWebRuntime } from "../piWebStatus.js";
 import { DEFAULT_REMOTE_HEALTH_TIMEOUT_MS, RemoteMachineClient, type MachineClient, validateConfiguredMachineHeaders } from "./machineClient.js";
 import { MachineStore, type StoredMachine } from "./machineStore.js";
@@ -17,6 +18,9 @@ export type UpdateMachineInput = Partial<CreateMachineInput>;
 export interface MachineServiceDependencies {
   translate?: Translator;
   localRuntime?: () => Promise<PiWebRuntimeResponse>;
+  localName?: () => string | undefined | Promise<string | undefined>;
+  nameCacheTtlMs?: number;
+  onNameDiscoveryError?: (machineId: string, error: unknown) => void;
   remoteClientFactory?: (machine: StoredMachine) => MachineClient;
   now?: () => Date;
   healthCacheTtlMs?: number;
@@ -25,9 +29,19 @@ export interface MachineServiceDependencies {
 
 const LOCAL_MACHINE_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 const DEFAULT_HEALTH_CACHE_TTL_MS = 5_000;
+const DEFAULT_NAME_CACHE_TTL_MS = 30_000;
+const REMOTE_IDENTITY_TIMEOUT_MS = 1_000;
+
+interface NameCacheEntry {
+  expiresAt: number;
+  reportedName: string | undefined;
+  pending: Promise<void> | undefined;
+}
 
 export class MachineService {
   private readonly translate: Translator;
+  // Bounded, cached discovery uses only the peer's local identity, never its federation.
+  private readonly nameCache = new Map<string, NameCacheEntry>();
   private readonly healthCache = new Map<string, { expiresAt: number; health: MachineHealth }>();
   private readonly runtimeCache = new Map<string, { expiresAt: number; runtime: MachineRuntime }>();
 
@@ -36,20 +50,22 @@ export class MachineService {
   }
 
   async list(): Promise<Machine[]> {
-    return [localMachine(), ...(await this.store.list()).map(publicMachine)];
+    const stored = await this.store.list();
+    const remotes = await Promise.all(stored.map((machine) => this.resolveRemoteMachine(machine)));
+    return [await this.localMachine(), ...remotes];
   }
 
   async get(id: string): Promise<Machine | undefined> {
-    if (id === "local") return localMachine();
+    if (id === "local") return this.localMachine();
     const machine = (await this.store.list()).find((stored) => stored.id === id);
-    return machine === undefined ? undefined : publicMachine(machine);
+    return machine === undefined ? undefined : this.resolveRemoteMachine(machine);
   }
 
   async add(input: CreateMachineInput): Promise<Machine> {
     const name = validateName(input.name);
     const baseUrl = validateBaseUrl(input.baseUrl);
     const stored = await this.store.add({ name, baseUrl, ...optionalSecrets(input) });
-    return publicMachine(stored);
+    return this.resolveRemoteMachine(stored);
   }
 
   async update(id: string, input: UpdateMachineInput): Promise<Machine | undefined> {
@@ -61,16 +77,26 @@ export class MachineService {
     if (input.headers !== undefined) patch.headers = validateHeaders(input.headers);
     const stored = await this.store.update(id, patch);
     if (stored !== undefined) {
+      if (input.baseUrl !== undefined || input.token !== undefined || input.headers !== undefined) this.nameCache.delete(id);
       this.healthCache.delete(id);
       this.runtimeCache.delete(id);
     }
-    return stored === undefined ? undefined : publicMachine(stored);
+    return stored === undefined ? undefined : this.resolveRemoteMachine(stored);
+  }
+
+  invalidateReportedName(id: string): void {
+    const cached = this.nameCache.get(id);
+    if (cached !== undefined) {
+      // Detach any in-flight read started before the write: it must not refill this entry.
+      this.nameCache.set(id, { expiresAt: 0, reportedName: cached.reportedName, pending: undefined });
+    }
   }
 
   async remove(id: string): Promise<boolean> {
     if (id === "local") throw new UserFacingError("machineError.localCannotDelete", "Local machine cannot be deleted");
     const removed = await this.store.remove(id);
     if (removed) {
+      this.nameCache.delete(id);
       this.healthCache.delete(id);
       this.runtimeCache.delete(id);
     }
@@ -164,6 +190,44 @@ export class MachineService {
     }
   }
 
+  private async localMachine(): Promise<Machine> {
+    return localMachine(await this.deps.localName?.());
+  }
+
+  private async resolveRemoteMachine(machine: StoredMachine): Promise<Machine> {
+    if (machine.name.trim() === "") await this.discoverName(machine);
+    return publicRemoteMachine(machine, this.nameCache.get(machine.id)?.reportedName);
+  }
+
+  private discoverName(machine: StoredMachine): Promise<void> | undefined {
+    const cached = this.nameCache.get(machine.id);
+    if (cached?.pending !== undefined) return cached.pending;
+    if (cached !== undefined && cached.expiresAt > this.now().getTime()) return;
+    const entry: NameCacheEntry = { expiresAt: 0, reportedName: cached?.reportedName, pending: undefined };
+    this.nameCache.set(machine.id, entry);
+    entry.pending = Promise.resolve().then(async () => {
+      try {
+        const response = await this.clientFor(machine).requestJson("GET", "/api/pi-web/identity", undefined, { timeoutMs: REMOTE_IDENTITY_TIMEOUT_MS });
+        // A peer predating installation identity has no name to report.
+        if (response.statusCode === 404) return;
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw new Error(`Remote installation identity returned HTTP ${String(response.statusCode)}`);
+        }
+        if (!isRecord(response.body)) throw new Error("Remote installation identity must be an object");
+        const name = requireInstallationName(response.body["name"], "Remote installation identity name");
+        if (name === "") throw new Error("Remote installation identity must have a non-empty name");
+        entry.reportedName = name;
+      } catch (error) {
+        // Discovery must not block use of an offline peer; report failures and retain its last identity.
+        this.deps.onNameDiscoveryError?.(machine.id, error);
+      } finally {
+        entry.expiresAt = this.now().getTime() + (this.deps.nameCacheTtlMs ?? DEFAULT_NAME_CACHE_TTL_MS);
+        entry.pending = undefined;
+      }
+    });
+    return entry.pending;
+  }
+
   private clientFor(machine: StoredMachine): MachineClient {
     return this.deps.remoteClientFactory?.(machine) ?? new RemoteMachineClient(machine, undefined, this.translate);
   }
@@ -173,18 +237,27 @@ export class MachineService {
   }
 }
 
-export function localMachine(): Machine {
-  return { id: "local", name: "Local", kind: "local", createdAt: LOCAL_MACHINE_TIMESTAMP, updatedAt: LOCAL_MACHINE_TIMESTAMP };
+export function localMachine(name?: string): Machine {
+  return { id: "local", name: installationDisplayName(name), kind: "local", createdAt: LOCAL_MACHINE_TIMESTAMP, updatedAt: LOCAL_MACHINE_TIMESTAMP };
 }
 
-function publicMachine(machine: StoredMachine): Machine {
-  return { id: machine.id, name: machine.name, kind: "remote", baseUrl: machine.baseUrl, createdAt: machine.createdAt, updatedAt: machine.updatedAt };
+function publicRemoteMachine(machine: StoredMachine, reportedName: string | undefined): Machine {
+  const nameOverride = machine.name.trim() || undefined;
+  return {
+    id: machine.id,
+    name: nameOverride ?? installationDisplayName(reportedName),
+    ...(nameOverride === undefined ? {} : { nameOverride }),
+    ...(reportedName === undefined ? {} : { reportedName }),
+    kind: "remote",
+    baseUrl: machine.baseUrl,
+    createdAt: machine.createdAt,
+    updatedAt: machine.updatedAt,
+  };
 }
 
 function validateName(value: string | undefined): string {
-  const name = value?.trim();
-  if (name === undefined || name === "") throw new UserFacingError("machineError.nameRequired", "Machine name is required");
-  return name;
+  // Empty stored names mean follow the installation; existing nonempty names remain overrides.
+  return value === undefined ? "" : requireInstallationName(value, "Machine name");
 }
 
 function validateBaseUrl(value: string | undefined): string {

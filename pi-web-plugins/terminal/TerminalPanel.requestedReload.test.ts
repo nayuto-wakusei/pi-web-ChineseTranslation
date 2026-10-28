@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TerminalPanel } from "./TerminalPanel";
 import { TerminalBrowserRuntime } from "./TerminalBrowserRuntime";
 import { InMemoryTerminalSelectionMemory } from "./terminalSelection";
+import type { TerminalContext } from "./TerminalContext";
+import { chinesePluginLocalization } from "../localization.testSupport";
+import { createTerminalContent } from "./terminalLocalization";
+const content = createTerminalContent(await chinesePluginLocalization("pi-web.terminal"));
 
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -171,11 +175,12 @@ function createTerminalPanel(): TerminalPanel {
   if (customElements.get("test-terminal-panel") === undefined) customElements.define("test-terminal-panel", TerminalPanel);
   const element = document.createElement("test-terminal-panel");
   if (!(element instanceof TerminalPanel)) throw new Error("Expected TerminalPanel test element");
+  element.content = content;
   return element;
 }
 
-function terminalContext(overrides: Partial<WorkspacePanelContext> = {}): WorkspacePanelContext {
-  return {
+function terminalContext(overrides: Partial<WorkspacePanelContext> = {}): TerminalContext {
+  const context: WorkspacePanelContext = {
     navigate: () => Promise.resolve(),
     machine: { id: "local", name: "Local", kind: "local" },
     workspace: { id: "workspace-1", projectId: "project-1", path: "/repo", label: "main", isMain: true },
@@ -190,6 +195,8 @@ function terminalContext(overrides: Partial<WorkspacePanelContext> = {}): Worksp
     navigation: terminalNavigation(),
     ...overrides,
   };
+  if (context.peer === undefined) throw new Error("Missing test peer");
+  return { machine: context.machine, host: context.host, workspace: { scope: "workspace", workspace: context.workspace, peer: context.peer, ...(context.navigation === undefined ? {} : { navigation: context.navigation }) } };
 }
 
 function terminalPeer(

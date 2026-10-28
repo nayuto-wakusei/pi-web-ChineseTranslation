@@ -213,6 +213,7 @@ describe("PiSessionService session-tree behavior", () => {
           parentId: null,
           kind: "assistant",
           summary: "safe answer",
+          summaryPresentation: { type: "content", parts: [{ type: "text", text: "safe answer" }], fallback: "assistant-response" },
           timestamp: "2026-01-01T00:00:00.000Z",
         }],
         activeLeafId: "leaf-1",
@@ -488,7 +489,8 @@ describe("PiSessionService session-tree behavior", () => {
     );
     await expect(service.runCommand(sessionRef(SESSION_ID), "/name blocked")).resolves.toEqual({
       type: "unsupported",
-      message: "会话树导航期间无法运行命令。请先停止或完成导航。",
+      message: "Cannot run commands while session tree navigation is active. Stop or finish the navigation first.",
+      presentation: { kind: "commandResult", feedback: { code: "navigationActive" } },
     });
     await expect(service.archive(sessionRef(SESSION_ID))).rejects.toThrow("归档前请先停止当前会话活动");
     expect(fake.calls.prompt).toEqual([]);
@@ -567,7 +569,7 @@ describe("PiSessionService session-tree behavior", () => {
     );
 
     replacement.resolve({ cancelled: false });
-    await expect(cloning).resolves.toMatchObject({ type: "done", message: "会话已克隆" });
+    await expect(cloning).resolves.toMatchObject({ type: "done", message: "Session cloned" });
     await expect(service.navigateTree(sessionRef(replacementSessionId), navigationRequest({ mode: "none" }, "replacement-leaf"))).resolves.toEqual({ cancelled: false });
     expect(fork).toHaveBeenCalledOnce();
     await service.dispose();
@@ -642,7 +644,7 @@ describe("PiSessionService session-tree behavior", () => {
     expect(abortBranchSummary).toHaveBeenCalledOnce();
     expect(abort).toHaveBeenCalledOnce();
     expect(abortBranchSummary.mock.invocationCallOrder[0]).toBeLessThan(abort.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
-    expect(hub.sessionEvents.some(({ event }) => event.type === "activity.update" && event.activity.label === "分支汇总已终止")).toBe(true);
+    expect(hub.sessionEvents.some(({ event }) => event.type === "activity.update" && event.activity.label === "branch summary aborted")).toBe(true);
 
     await service.dispose();
   });
@@ -784,11 +786,11 @@ describe("PiSessionService session-tree fork-from-entry", () => {
     expect(fork).toHaveBeenCalledWith("entry-1", { position: "before" });
     expect(hub.sessionEvents.some(({ sessionId, event }) => sessionId === SESSION_ID
       && event.type === "activity.update"
-      && event.activity.label === "正在从条目分叉会话"
+      && event.activity.label === "forking session from entry"
       && event.activity.phase === "active")).toBe(true);
     expect(hub.sessionEvents.some(({ sessionId, event }) => sessionId === SESSION_ID
       && event.type === "activity.update"
-      && event.activity.label === "会话已分叉"
+      && event.activity.label === "session forked"
       && event.activity.phase === "idle")).toBe(true);
 
     await service.dispose();
@@ -846,11 +848,11 @@ describe("PiSessionService session-tree fork-from-entry", () => {
       });
 
       expect(originalGlobalActivities().at(-1)).toMatchObject({
-        activity: { sessionId: SESSION_ID, phase: "idle", label: "空闲" },
+        activity: { sessionId: SESSION_ID, phase: "idle", label: "idle" },
       });
       expect(harness.hub.sessionEvents.filter(({ sessionId, event }) => sessionId === SESSION_ID
         && event.type === "activity.update").at(-1)).toMatchObject({
-        event: { activity: { sessionId: SESSION_ID, phase: "idle", label: "空闲" } },
+        event: { activity: { sessionId: SESSION_ID, phase: "idle", label: "idle" } },
       });
       expect(workspaceActivity.snapshot().workspaces).toEqual([]);
     } finally {
@@ -916,7 +918,7 @@ describe("PiSessionService session-tree fork-from-entry", () => {
     await expect(service.forkFromTree(sessionRef(SESSION_ID), forkRequest())).resolves.toEqual({ cancelled: true });
     expect(hub.sessionEvents.some(({ sessionId, event }) => sessionId === SESSION_ID
       && event.type === "activity.update"
-      && event.activity.label === "分叉已取消"
+      && event.activity.label === "fork cancelled"
       && event.activity.phase === "idle")).toBe(true);
 
     await service.dispose();
@@ -1002,7 +1004,7 @@ describe("PiSessionService session-tree fork-from-entry", () => {
     );
 
     replacement.resolve({ cancelled: false });
-    await expect(cloning).resolves.toMatchObject({ type: "done", message: "会话已克隆" });
+    await expect(cloning).resolves.toMatchObject({ type: "done", message: "Session cloned" });
     await expect(service.forkFromTree(sessionRef(SESSION_ID), forkRequest())).resolves.toMatchObject({ cancelled: false });
     expect(fork).toHaveBeenCalledTimes(2);
 
@@ -1021,7 +1023,7 @@ describe("PiSessionService session-tree fork-from-entry", () => {
       && event.message === "fork provider failed")).toBe(true);
     expect(hub.sessionEvents.some(({ sessionId, event }) => sessionId === SESSION_ID
       && event.type === "activity.update"
-      && event.activity.label === "分叉失败"
+      && event.activity.label === "fork failed"
       && event.activity.phase === "error")).toBe(true);
 
     await expect(service.forkFromTree(sessionRef(SESSION_ID), forkRequest())).resolves.toMatchObject({ cancelled: false });

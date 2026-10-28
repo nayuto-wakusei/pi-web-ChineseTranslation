@@ -5,6 +5,7 @@ import { piWebDataDir } from "../../config.js";
 
 export interface StoredMachine {
   id: string;
+  /** Gateway-local name override. Empty follows the remote identity; never persist a discovered name here. */
   name: string;
   kind: "remote";
   baseUrl: string;

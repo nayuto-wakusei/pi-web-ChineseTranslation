@@ -2,6 +2,7 @@ import type { ContentRenderRequest, StylesheetIntegrationCapabilityV1, SyntaxHig
 import hljs from "highlight.js/lib/common";
 import { HighlightedCode } from "./HighlightedCode";
 import { TokenHighlightedCode } from "./TokenHighlightedCode";
+import definitions from "./codeHighlight.messages";
 
 const stylesheetIntegrationCapability: PluginCapability<StylesheetIntegrationCapabilityV1, 1> = {
   pluginId: "pi-web", id: "stylesheet-integration", version: 1,
@@ -47,7 +48,9 @@ const plugin = {
   apiVersion: 5,
   name: "Code highlighting",
   requires: [stylesheetIntegrationCapability, syntaxHighlightingCapability, { pluginId: "pi-web", id: "content-rendering", version: 1, parse: () => undefined }],
-  activate: ({ html, translate }) => {
+  activate: ({ html, localization }) => {
+    if (localization === undefined) throw new Error("The Code highlighting plugin requires a localization-capable PI WEB host");
+    const messages = localization.registerMessages("renderer", definitions);
     if (customElements.get("pi-web-highlighted-code") === undefined) customElements.define("pi-web-highlighted-code", HighlightedCode);
     if (customElements.get("pi-web-token-highlighted-code") === undefined) customElements.define("pi-web-token-highlighted-code", TokenHighlightedCode);
     let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
@@ -60,7 +63,7 @@ const plugin = {
       contributions: {
         contentRenderers: [{
           id: "highlighted",
-          title: translate?.("ui.codeHighlight.highlighted", "Highlighted") ?? "Highlighted",
+          get title() { return messages.t("highlighted"); },
           renderMode: "automatic",
           supports: (request) => syntaxHighlighting?.supports(request) === true || builtInLanguage(request) !== undefined,
           render: (input) => {

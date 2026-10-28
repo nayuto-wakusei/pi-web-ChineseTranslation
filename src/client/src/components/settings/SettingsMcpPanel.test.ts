@@ -101,7 +101,7 @@ describe("MCP settings DOM", () => {
     expect(panel.shadowRoot?.textContent).toContain("session-a");
     expect(panel.shadowRoot?.textContent).toContain("/workspace/a");
     expect(panel.shadowRoot?.querySelector(".server-description")?.textContent).toBe(description);
-    expect(panel.shadowRoot?.textContent).toContain("does not disable the server or revoke access at the provider");
+    expect(panel.shadowRoot?.textContent).toContain("does not disable the server or revoke permission at the provider");
     action(panel, "Login to docs").click();
     action(panel, "Logout from docs").click();
     expect(panel.onMcpAuth).toHaveBeenNthCalledWith(1, "login", "docs", context);

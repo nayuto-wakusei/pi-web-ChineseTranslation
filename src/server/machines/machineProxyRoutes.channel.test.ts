@@ -55,7 +55,7 @@ describe("machine plugin backend channel proxy", () => {
     };
     let resolveRemoteClient: ((value: MachineClient | undefined) => void) | undefined;
     const remoteClient = new Promise<MachineClient | undefined>((resolve) => { resolveRemoteClient = resolve; });
-    registerMachineProxyRoutes(app, { remoteClient: () => remoteClient }, admissions);
+    registerMachineProxyRoutes(app, { remoteClient: () => remoteClient, invalidateReportedName: vi.fn() }, admissions);
     await app.listen({ host: "127.0.0.1", port: 0 });
 
     const browser = new WebSocket(`${fastifyServerUrl(app)}/api/machines/remote%20one/paired-plugin-backends/terminal/projects/p%201/workspaces/w%201/channels/terminal.attach`);
@@ -113,7 +113,7 @@ describe("machine plugin backend channel proxy", () => {
       },
     }, "/api", admissions);
     const remoteClient = vi.fn(() => Promise.resolve(undefined));
-    registerMachineProxyRoutes(app, { remoteClient }, admissions);
+    registerMachineProxyRoutes(app, { remoteClient, invalidateReportedName: vi.fn() }, admissions);
     await app.listen({ host: "127.0.0.1", port: 0 });
 
     const local = new WebSocket(`${fastifyServerUrl(app)}/api/paired-plugin-backends/terminal/projects/local-project/workspaces/local-workspace/channels/attach`);
@@ -154,6 +154,7 @@ describe("machine plugin backend channel proxy", () => {
         resolveRemoteClientCalled?.();
         return unresolved;
       },
+      invalidateReportedName: vi.fn(),
     }, admissions);
     await app.listen({ host: "127.0.0.1", port: 0 });
 
@@ -182,7 +183,7 @@ describe("machine plugin backend channel proxy", () => {
   it("accounts the invalid local-machine channel alias through physical teardown", async () => {
     const admissions = new PluginBackendChannelProxyAdmissionPool({ maxTotal: 1 });
     const remoteClient = vi.fn(() => Promise.resolve(undefined));
-    registerMachineProxyRoutes(app, { remoteClient }, admissions);
+    registerMachineProxyRoutes(app, { remoteClient, invalidateReportedName: vi.fn() }, admissions);
     await app.listen({ host: "127.0.0.1", port: 0 });
 
     const browser = new WebSocket(`${fastifyServerUrl(app)}/api/machines/local/paired-plugin-backends/terminal/projects/p/workspaces/w/channels/attach`);
@@ -199,6 +200,7 @@ describe("machine plugin backend channel proxy", () => {
     const admissions = new PluginBackendChannelProxyAdmissionPool({ transportConnectTimeoutMs: 30 });
     registerMachineProxyRoutes(app, {
       remoteClient: () => new Promise<MachineClient | undefined>(() => { /* Keep remote lookup pending. */ }),
+      invalidateReportedName: vi.fn(),
     }, admissions);
     await app.listen({ host: "127.0.0.1", port: 0 });
 
@@ -225,7 +227,7 @@ describe("machine plugin backend channel proxy", () => {
     let resolveRemoteClient: ((value: MachineClient | undefined) => void) | undefined;
     const remoteClient = new Promise<MachineClient | undefined>((resolve) => { resolveRemoteClient = resolve; });
     const remoteClientCalled = vi.fn(() => remoteClient);
-    registerMachineProxyRoutes(app, { remoteClient: remoteClientCalled }, admissions);
+    registerMachineProxyRoutes(app, { remoteClient: remoteClientCalled, invalidateReportedName: vi.fn() }, admissions);
     await app.listen({ host: "127.0.0.1", port: 0 });
 
     const browser = new WebSocket(`${fastifyServerUrl(app)}/api/machines/remote/paired-plugin-backends/terminal/projects/p/workspaces/w/channels/attach`);
@@ -246,7 +248,7 @@ describe("machine plugin backend channel proxy", () => {
   it("fails a bounded prelude overflow visibly and releases without opening upstream", async () => {
     const admissions = new PluginBackendChannelProxyAdmissionPool({ transportConnectTimeoutMs: 1_000 });
     const remoteClient = vi.fn(() => new Promise<MachineClient | undefined>(() => { /* Keep lookup pending. */ }));
-    registerMachineProxyRoutes(app, { remoteClient }, admissions);
+    registerMachineProxyRoutes(app, { remoteClient, invalidateReportedName: vi.fn() }, admissions);
     await app.listen({ host: "127.0.0.1", port: 0 });
 
     const browser = new WebSocket(`${fastifyServerUrl(app)}/api/machines/remote/paired-plugin-backends/terminal/projects/p/workspaces/w/channels/attach`);
@@ -282,7 +284,7 @@ describe("machine plugin backend channel proxy", () => {
         return socket;
       },
     };
-    registerMachineProxyRoutes(app, { remoteClient: () => Promise.resolve(client) }, admissions);
+    registerMachineProxyRoutes(app, { remoteClient: () => Promise.resolve(client), invalidateReportedName: vi.fn() }, admissions);
     await app.listen({ host: "127.0.0.1", port: 0 });
 
     const browser = new WebSocket(`${fastifyServerUrl(app)}/api/machines/remote/paired-plugin-backends/terminal/projects/p/workspaces/w/channels/attach`);

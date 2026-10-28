@@ -17,6 +17,10 @@ export const defaultApi: typeof realApi = {
     return transcriptSnapshotFixture(this.messages(session, options, machineId), this.status(session, machineId), this.streamSnapshot(session, machineId));
   },
 };
+export const emptyTranscriptApi: typeof realApi = {
+  ...defaultApi,
+  transcriptSnapshot: (session) => Promise.resolve({ page: emptyPage, status: status(sessionLookupId(session)), seq: 0, partial: null }),
+};
 export type { MessagePage, PromptAttachment, SessionActivity, SessionInfo, SessionRef, SessionStatus, SessionStreamSnapshot, SessionTranscriptSnapshot, Workspace } from "../api";
 export type { AppState };
 
@@ -72,6 +76,10 @@ export class FakeSocket implements SessionEventSocket {
   }
 
   setHandler(): void {
+    // Test socket does not emit events.
+  }
+
+  reconnect(): void {
     // Test socket does not emit events.
   }
 

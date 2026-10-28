@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { ImageDimensions } from "../../../shared/sessionMedia";
 import { ImagePresentation } from "./ImagePresentation";
-import { t } from "../i18n";
+import { imageMessages } from "../imageMessages";
 import { imageButton, loadIntrinsicDimensions, nativeImage } from "./imagePresentation.testSupport";
 
 const source = "https://example.test/first.png";
@@ -31,7 +31,7 @@ it.each([undefined, ""])('keeps a native image without a src while pending (%s)'
   const request = imageButton(presentation, ".placeholder");
   expect(request.hidden).toBe(false);
   expect(request.type).toBe("button");
-  expect(request.textContent).toContain(t("images.show", "Show image"));
+  expect(request.textContent).toContain(imageMessages.t("show"));
   expect(request.textContent).toContain("/private/example.png");
 
   const approval = vi.fn<(event: Event) => void>();
@@ -113,7 +113,7 @@ it("leaves load/error display to the browser without renders, layout events or i
   await presentation.updateComplete;
   expect(nativeImage(presentation)).toBe(native);
   expect(native.alt).toBe("Updated alt text");
-  expect(enlarge.getAttribute("aria-label")).toBe(t("images.enlarge", "Enlarge {description}", { description: "Updated alt text" }));
+  expect(enlarge.getAttribute("aria-label")).toBe(imageMessages.t("enlarge", { description: "Updated alt text" }));
 
   presentation.source = "https://example.test/second.png";
   await presentation.updateComplete;
@@ -162,7 +162,7 @@ it("opens zoom with click, Enter and Space without waiting for a native load eve
   try {
     const enlarge = imageButton(presentation);
     expect(enlarge.type).toBe("button");
-    expect(enlarge.getAttribute("aria-label")).toBe(t("images.enlarge", "Enlarge {description}", { description: "Example screenshot" }));
+    expect(enlarge.getAttribute("aria-label")).toBe(imageMessages.t("enlarge", { description: "Example screenshot" }));
     enlarge.focus();
     expect(presentation.shadowRoot?.activeElement).toBe(enlarge);
     enlarge.click();

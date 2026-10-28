@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { marked } from "marked";
 import { toSafeMarkdownHtml } from "./markdown";
-import { t } from "../i18n";
 import { DEFAULT_CODE_BLOCK_POLICY, PLAIN_CODE_BLOCK_POLICY } from "./codeBlockPolicy";
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -51,7 +50,7 @@ describe("plain Markdown code blocks", () => {
     expect(root.querySelectorAll(".code-block-frame")).toHaveLength(presentation === "code" ? 1 : 0);
     root.innerHTML = toSafeMarkdownHtml(text, undefined, undefined, true, { ...policy, copy: true });
     expect(root.querySelectorAll(".code-block-wrapper")).toHaveLength(1);
-    expect(root.querySelectorAll(`button[aria-label="${t("images.code.copy", "Copy code block")}"]`)).toHaveLength(1);
+    expect(root.querySelectorAll('button[aria-label="Copy code block"]')).toHaveLength(1);
     const copy = root.querySelector(".code-copy-button");
     expect(copy?.parentElement?.classList.contains("code-block-header")).toBe(true);
     expect(copy?.parentElement?.nextElementSibling?.tagName).toBe(presentation === "code" ? "PRE" : "DIV");

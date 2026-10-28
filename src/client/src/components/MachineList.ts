@@ -1,3 +1,5 @@
+import { localization, LocalizationController } from "../localization/browser";
+import { machineMessages as messages } from "../machineMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
 import { LitElement, css, html, type PropertyValues } from "lit";
@@ -17,6 +19,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @property({ attribute: false }) machines: Machine[] = [];
@@ -28,6 +31,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (machine: Machine) => void;
+  @property({ attribute: false }) onEdit?: (machine: Machine) => void;
   @property({ attribute: false }) onRemove?: (machine: Machine) => void | Promise<void>;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
@@ -59,8 +63,8 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
 
   private renderMachine(machine: Machine) {
     const status = this.statuses[machine.id]?.status ?? machine.status ?? "unknown";
-    const statusLabel = status === "online" ? t("ui.machineSwitcher.online", "Online") : status === "offline" ? t("ui.machineSwitcher.offline", "Offline") : status === "error" ? t("client.sessionNotifications.error.0bc1fb", "Error") : t("bundled.updates.unknown.4d8c1c", "Unknown");
-    const hasRemoveAction = canRemoveMachine(machine) && this.onRemove !== undefined;
+    const statusLabel = messages.t(status);
+    const hasRemoveAction = canRemoveMachine(machine) && (this.onRemove !== undefined || this.onEdit !== undefined);
     return html`
       <div
         class=${`action-row machine-row ${this.selected?.id === machine.id ? "selected" : ""} ${hasRemoveAction ? "" : "no-actions"}`}
@@ -71,7 +75,8 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
         @keydown=${(event: KeyboardEvent) => { this.handleMachineKeydown(event, machine); }}
       >
         <div class="action-main">
-          <span class="action-name machine-primary"><span class="machine-primary-label">${machine.name}</span></span><small>${machine.kind === "local" ? t("ui.machineList.localPiWeb", "Local PI WEB") : machine.baseUrl ?? t("ui.machineSwitcher.remotePiWeb", "Remote PI WEB")} · ${statusLabel}</small>${this.renderActivity(machine)}
+          <span class="action-name machine-primary"><span class="machine-primary-label"><bdi>${machine.name}</bdi></span></span><small>${messages.t("subtitle", { location: machine.kind === "local" ? messages.t("local") : machine.baseUrl ?? messages.t("remote"), status: statusLabel })}</small>
+          ${this.renderActivity(machine)}
         </div>
         ${hasRemoveAction ? this.renderMachineMenu(machine) : null}
       </div>
@@ -94,15 +99,16 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
       <div class="action-menu">
         <button
           class="ui-button ui-button--icon action-menu-toggle"
-          title="${t("ui.machineSwitcher.machineActions", "Machine actions")}"
-          aria-label=${t("ui.projectList.actionsFor", "Actions for {name}", { name: machine.name })}
+          title=${messages.t("actions")}
+          aria-label=${messages.t("actionsFor", { name: machine.name })}
           aria-expanded=${String(open)}
           aria-controls=${menuId}
           @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(machine.id, event.currentTarget); }}
         >⋯</button>
         ${open ? html`
-          <div popover="auto" class="ui-menu action-menu-panel machine-menu-panel" id=${menuId} style=${this.menu.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-            <button class="ui-button ui-menu-item danger" title=${t("ui.promptEditor.remove", "Remove {name}", { name: machine.name })} @click=${() => { this.removeMachine(machine); }}>${t("ui.settingsPackagesPanel.remove", "Remove")}</button>
+          <div popover="auto" class="action-menu-panel machine-menu-panel ui-menu" id=${menuId} style=${this.menu.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
+            ${this.onEdit === undefined ? null : html`<button class="ui-button ui-menu-item" @click=${() => { this.menu.close(); this.onEdit?.(machine); }}>${messages.t("edit")}</button>`}
+            ${this.onRemove === undefined ? null : html`<button class="danger ui-button ui-menu-item" title=${messages.t("removeNamed", { name: machine.name })} @click=${() => { this.removeMachine(machine); }}>${messages.t("remove")}</button>`}
           </div>
         ` : null}
       </div>
@@ -110,10 +116,10 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
   }
 
   private renderHeading() {
-    if (!this.collapsible) return t("bundled.info.machine.ece969", "Machine");
-    const selectedSummary = this.selected?.name ?? t("ui.machineList.noMachineSelected", "No machine selected");
+    if (!this.collapsible) return html`<span>${messages.t("machines")}</span>`;
+    const selectedSummary = this.selected?.name ?? messages.t("noSelection");
     const selectedTitle = this.selected?.baseUrl ?? selectedSummary;
-    return html`<button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${t("bundled.info.machine.ece969", "Machine")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.machines.length}</small></button>`;
+    return html`<button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${messages.t("machines")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${localization.number(this.machines.length)}</small></button>`;
   }
 
   private removeMachine(machine: Machine): void {

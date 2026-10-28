@@ -138,6 +138,17 @@ export class SessionUnreadStore {
     }
     if (!this.activeByIdentity.has(key)) return [];
 
+    const mutations = this.markUnread(sessionId, cwd, historyPosition);
+    this.activeByIdentity.delete(key);
+    return mutations;
+  }
+
+  /** Record a fresh unread order without consuming an in-flight activity latch. */
+  markUnread(sessionId: string, cwd: string, historyPosition?: () => SessionUnreadHistoryPosition): SessionUnreadMutation[] {
+    this.requireLoaded();
+    const identity = requireIdentity(sessionId, cwd);
+    const key = sessionIdentityKey(identity);
+    if (this.excludedByIdentity.has(key)) return [];
     const completionOrder = incrementSafe(this.nextCompletionOrder, "Session unread completion order exhausted");
     const willExceedLimit = !this.unreadByIdentity.has(key) && this.unreadByIdentity.size >= SESSION_UNREAD_LIMIT;
     this.assertRevisionCapacity(willExceedLimit ? 2 : 1);
@@ -149,7 +160,6 @@ export class SessionUnreadStore {
     // Preserve the earliest unread turn across completions. Legacy records have
     // no known boundary, so only a full history load can auto-acknowledge them.
     const messageStart = previous === undefined ? activity?.messageStart : previous.messageRange?.start ?? 0;
-    this.activeByIdentity.delete(key);
     this.nextCompletionOrder = completionOrder;
     const summary: SessionUnreadSummary = {
       sessionId,

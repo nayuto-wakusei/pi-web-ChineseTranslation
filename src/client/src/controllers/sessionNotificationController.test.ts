@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { localization } from "../localization/browser";
+import { visibleBrowserErrors } from "../browserErrors";
 import { initialAppState, type AppState } from "../appState";
 import { selectedNotificationView } from "../sessionNotifications";
 import type {
@@ -9,6 +11,10 @@ import type {
   SessionNotificationInboxSnapshot,
 } from "../../../shared/apiTypes";
 import { SessionNotificationController, type SessionNotificationApi } from "./sessionNotificationController";
+
+afterEach(async () => {
+  await localization.setPreferences({ language: "en", formatLocale: "en" });
+});
 
 const localMachine: Machine = {
   id: "local",
@@ -293,7 +299,7 @@ describe("SessionNotificationController optimistic mutations", () => {
     expect(selectedNotificationView(harness.state.selectedNotificationInbox)?.notifications.map((notification) => notification.id)).toEqual(["daemon-a:1"]);
 
     const failedDismissal = harness.controller.dismissNotification("daemon-a:1");
-    await vi.waitFor(() => { expect(harness.state.error).toContain("offline"); });
+    await vi.waitFor(() => { expect(Object.values(harness.state.browserErrors)[0]?.message).toContain("offline"); });
     refreshAfterFailure.resolve(inboxSnapshot([entry(1)], { inboxRevision: 2, catalogRevision: 2 }));
     await failedDismissal;
 
@@ -322,6 +328,34 @@ describe("SessionNotificationController optimistic mutations", () => {
     await dismissal;
     expect(selectedNotificationView(harness.state.selectedNotificationInbox)?.notifications.map((notification) => notification.id)).toEqual(["daemon-a:3"]);
   });
+});
+
+it.each(["one", "all"] as const)("keeps %s dismissal failure live and scoped to its session", async (action) => {
+  const diagnostic = "Failed to dismiss notification: <raw/日本語>";
+  const harness = createHarness(baseState(), {
+    dismissNotification: vi.fn(() => Promise.reject(new Error(diagnostic))),
+    dismissAllNotifications: vi.fn(() => Promise.reject(new Error(diagnostic))),
+  });
+  harness.controller.prepareSelectedSession(session, "local");
+  await harness.controller.refreshSelectedSession(session, "local");
+  if (action === "one") await harness.controller.dismissNotification("daemon-a:1");
+  else await harness.controller.dismissAll();
+
+  const notice = Object.values(harness.state.browserErrors)[0];
+  if (notice === undefined) throw new Error("Expected dismissal failure banner");
+  const identity = notice.message;
+  expect(identity).toBe(`Failed to dismiss ${action === "one" ? "notification" : "session notifications"}: ${diagnostic}`);
+  expect(harness.state.error).toBe("");
+  expect(selectedNotificationView(harness.state.selectedNotificationInbox)?.notifications).toHaveLength(1);
+  expect(visibleBrowserErrors(harness.state.browserErrors, { machineId: "local", sessionId: session.id, cwd: session.cwd })).toEqual([notice]);
+  expect(visibleBrowserErrors(harness.state.browserErrors, { machineId: "local", sessionId: "other", cwd: session.cwd })).toEqual([]);
+  for (const language of ["en-XA", "ar-XB"]) {
+    await localization.setPreferences({ language, formatLocale: "en" });
+    expect(notice.message).toBe(identity);
+    expect(notice.displayMessage?.()).not.toBe(identity);
+    expect(notice.displayMessage?.()).toContain(diagnostic);
+  }
+  harness.controller.dispose();
 });
 
 interface Deferred<T> {

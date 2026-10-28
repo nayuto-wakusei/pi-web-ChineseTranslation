@@ -31,7 +31,7 @@ beforeEach(async () => {
     connectWebSocket: () => { throw new Error("WebSockets are not expected"); },
   };
   remoteClient = vi.fn<MachineService["remoteClient"]>(() => Promise.resolve(client));
-  registerMachineProxyRoutes(app, { remoteClient });
+  registerMachineProxyRoutes(app, { remoteClient, invalidateReportedName: vi.fn() });
 });
 
 afterEach(async () => {

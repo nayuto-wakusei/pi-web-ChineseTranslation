@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, render, svg } from "lit";
 import type { PluginActivationContextV5, PluginActivationResultV5 } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin.js";
+import { chinesePluginLocalizationFactory } from "../localization.testSupport";
+const localization = await chinesePluginLocalizationFactory("mermaid");
 import { MermaidPreview, mermaidFrameDocument } from "./MermaidPreview.js";
 import { sanitizeMermaidSvg } from "./mermaidSvg.js";
 
@@ -76,6 +78,7 @@ describe("bundled Mermaid plugin", () => {
 function activationContext(): PluginActivationContextV5 {
   return {
     apiVersion: 5, translate,
+    localization: localization(),
     pluginId: "mermaid",
     runtimePluginId: "mermaid",
     html,

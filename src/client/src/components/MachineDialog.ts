@@ -1,7 +1,9 @@
+import { LocalizationController } from "../localization/browser";
+import { machineMessages as messages } from "../machineMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
-import { t } from "../i18n";
-import { LitElement, css, html } from "lit";
+import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
+import type { Machine } from "../api";
 import "./ModalSurface";
 import { uiDialogStyles, uiFormStyles } from "./ui/dialogStyles";
 
@@ -16,11 +18,13 @@ export class MachineDialog extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @property({ attribute: false }) onSubmit?: (input: MachineDialogSubmit) => void | Promise<void>;
   @property({ attribute: false }) onCancel?: () => void;
   @property() error = "";
+  @property({ attribute: false }) machine?: Machine;
 
   @state() private url = "";
   @state() private name = "";
@@ -28,21 +32,20 @@ export class MachineDialog extends LitElement {
   @state() private submitting = false;
   @query("input[name='name']") private nameInput?: HTMLInputElement;
 
-  private nameEdited = false;
-  private previousSuggestedName = "";
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("machine")) {
+      this.name = this.machine?.nameOverride ?? "";
+      this.url = this.machine?.baseUrl ?? "";
+    }
+  }
 
   private handleUrlInput(event: InputEvent): void {
     if (!(event.target instanceof HTMLInputElement)) return;
-    const url = event.target.value;
-    const suggestedName = suggestedMachineNameFromUrl(url);
-    if (!this.nameEdited || this.name.trim() === "" || this.name === this.previousSuggestedName) this.name = suggestedName;
-    this.previousSuggestedName = suggestedName;
-    this.url = url;
+    this.url = event.target.value;
   }
 
   private handleNameInput(event: InputEvent): void {
     if (!(event.target instanceof HTMLInputElement)) return;
-    this.nameEdited = true;
     this.name = event.target.value;
   }
 
@@ -80,47 +83,55 @@ export class MachineDialog extends LitElement {
   private validInput(): MachineDialogSubmit | undefined {
     const baseUrl = this.url.trim();
     const name = this.name.trim();
-    if (baseUrl === "" || name === "" || machineBaseUrlValidationMessage(baseUrl) !== undefined) return undefined;
+    if (baseUrl === "" || machineBaseUrlValidationMessage(baseUrl) !== undefined) return undefined;
     const token = this.token.trim();
     return { name, baseUrl, ...(token === "" ? {} : { token }) };
   }
 
   override render() {
+    const editing = this.machine !== undefined;
+    const title = editing ? messages.t("editTitle") : messages.t("addTitle");
     const hasUrl = this.url.trim() !== "";
     const urlError = hasUrl ? machineBaseUrlValidationMessage(this.url) : undefined;
     const canSubmit = this.validInput() !== undefined && !this.submitting;
     return html`
-      <modal-surface .onClose=${() => this.onCancel?.()} .busy=${this.submitting} .initialFocus=${"input[name='baseUrl']"} .label=${t("client.actions.add.machine.e4ad1b", "Add machine")} @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}>
-          <form aria-describedby=${this.error === "" ? "" : "machine-error"} @submit=${(event: SubmitEvent) => { this.handleSubmit(event); }}>
-            <header class="ui-dialog-header">
-              <strong class="ui-dialog-title">${t("client.actions.add.machine.e4ad1b", "Add machine")}</strong>
-              <button class="ui-button" type="button" @click=${() => { this.onCancel?.(); }} aria-label=${t("ui.machineDialog.closeAddMachine", "Close add machine")}>×</button>
-            </header>
-            <div class="body ui-dialog-body ui-form-body">
-              ${this.error === "" ? null : html`<div id="machine-error" class="dialog-error" role="alert">${this.error}</div>`}
+      <modal-surface
+        .onClose=${() => this.onCancel?.()}
+        .busy=${this.submitting}
+        .initialFocus=${editing ? "input[name='name']" : "input[name='baseUrl']"}
+        .label=${title}
+        @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}
+      >
+        <form class="ui-form" aria-describedby=${this.error === "" ? "" : "machine-error"} @submit=${(event: SubmitEvent) => { this.handleSubmit(event); }}>
+          <header class="ui-dialog-header">
+            <strong class="ui-dialog-title">${title}</strong>
+            <button class="ui-button ui-button--icon" type="button" @click=${() => { this.onCancel?.(); }} aria-label=${editing ? messages.t("closeEdit") : messages.t("closeAdd")}>×</button>
+          </header>
+          <div class="body ui-dialog-body ui-form-body">
+            ${this.error === "" ? null : html`<div id="machine-error" class="dialog-error ui-form-error" role="alert">${this.error}</div>`}
+            ${editing ? html`<p class="hint"><bdi dir="ltr">${this.machine?.baseUrl}</bdi></p>` : html`<label class="ui-form-field">
+              ${messages.t("urlLabel")}
+              <input class="ui-input" name="baseUrl" type="url" dir="ltr" aria-describedby="machine-url-help" aria-invalid=${urlError !== undefined ? "true" : "false"} .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" />
+            </label>
+            <small id="machine-url-help" aria-live="polite" class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? messages.t("urlHelp")}</small>`}
+            ${hasUrl ? html`
               <label class="ui-form-field">
-                ${t("ui.machineDialog.remotePiWebUrl", "Remote PI WEB URL")}
-                <input class="ui-input" name="baseUrl" type="url" aria-describedby="machine-url-help" aria-invalid=${urlError !== undefined ? "true" : "false"} .value=${this.url} @input=${(event: InputEvent) => { this.handleUrlInput(event); }} placeholder="http://dev-box.local:8504" autocomplete="url" inputmode="url" />
+                <span>${messages.t("nameLabel")}</span>
+                <input class="ui-input" name="name" type="text" maxlength="120" aria-describedby="machine-name-help" .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} autocomplete="off" />
               </label>
-              <small id="machine-url-help" aria-live="polite" class=${urlError === undefined ? "hint" : "field-error"}>${urlError ?? t("ui.machineDialog.enterAnAccessibleBaseUrlIncludingHttpOr", "Enter an accessible base URL, including http:// or https://.")}</small>
-              ${hasUrl ? html`
-                <label class="ui-form-field">
-                  ${t("ui.machineDialog.machineName", "Machine name")}
-                  <input class="ui-input" name="name" type="text" aria-describedby="machine-name-help" aria-invalid=${this.name.trim() === "" ? "true" : "false"} .value=${this.name} @input=${(event: InputEvent) => { this.handleNameInput(event); }} placeholder=${this.previousSuggestedName || t("ui.machineDialog.developmentMachine", "Development machine")} autocomplete="off" />
-                </label>
-                <small id="machine-name-help" class=${this.name.trim() === "" ? "field-error" : "hint"}>${this.name.trim() === "" ? t("ui.machineDialog.enterMachineName", "Enter a machine name.") : t("ui.machineDialog.suggestedFromTheUrlChangeItToA", "Suggested from the URL. Change it to a friendly sidebar name.")}</small>
-                <label class="ui-form-field">
-                  Bearer token <span class="optional">${t("ui.machineDialog.optional", "Optional")}</span>
-                  <input class="ui-input" name="token" type="password" aria-describedby="machine-token-help" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder="${t("ui.machineDialog.leaveBlankIfTheRemoteMachineDoesNot", "Leave blank if the remote machine does not require a token")}" autocomplete="off" />
-                </label>
-                <small id="machine-token-help" class="hint">${t("ui.machineDialog.tokenWithoutPrefix", "If the remote machine requires a token, paste it without the “Bearer” prefix.")}</small>
-              ` : html`<p class="hint intro">${t("ui.machineDialog.afterEnteringAUrlPiWebSuggestsA", "After entering a URL, PI WEB suggests a machine name and allows an optional bearer token.")}</p>`}
-            </div>
-            <footer class="ui-dialog-footer">
-              <button class="ui-button" type="button" @click=${() => { this.onCancel?.(); }}>${t("ui.sessionCleanupDialog.cancel", "Cancel")}</button>
-              <button class="ui-button ui-button--primary" type="submit" ?disabled=${!canSubmit}>${this.submitting ? t("ui.machineDialog.adding", "Adding…") : t("client.actions.add.machine.e4ad1b", "Add machine")}</button>
-            </footer>
-          </form>
+              <small id="machine-name-help" class="hint">${messages.t("nameHelp")}</small>
+              ${editing ? null : html`<label class="ui-form-field">
+                <span>${messages.t("tokenLabel")}</span>
+                <input class="ui-input" name="token" type="password" dir="ltr" aria-describedby="machine-token-help" .value=${this.token} @input=${(event: InputEvent) => { this.handleTokenInput(event); }} placeholder=${messages.t("tokenPlaceholder")} autocomplete="off" />
+              </label>
+              <small id="machine-token-help" class="hint">${messages.t("tokenHelp")}</small>`}
+            ` : html`<p class="hint intro">${messages.t("intro")}</p>`}
+          </div>
+          <footer class="ui-dialog-footer">
+            <button class="ui-button" type="button" @click=${() => { this.onCancel?.(); }}>${messages.t("cancel")}</button>
+            <button class="ui-button ui-button--primary" type="submit" ?disabled=${!canSubmit}>${this.submitting ? (editing ? messages.t("saving") : messages.t("adding")) : (editing ? messages.t("save") : messages.t("addTitle"))}</button>
+          </footer>
+        </form>
       </modal-surface>
     `;
   }
@@ -130,49 +141,23 @@ export class MachineDialog extends LitElement {
     :host { --ui-dialog-width: 560px; --ui-input-font-family: var(--pi-control-monospace-font-family, var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)); }
     .hint { color: var(--pi-muted); }
     .intro { margin: 4px 0 0; line-height: 1.4; }
-    .optional { color: var(--pi-muted); font-weight: 400; }
     .field-error { color: var(--pi-danger); }
 
     }
   `];
 }
 
-export function suggestedMachineNameFromUrl(value: string): string {
-  const raw = value.trim();
-  if (raw === "") return "";
-  const parsed = parseUrlForSuggestion(raw) ?? parseUrlForSuggestion(`http://${raw.replace(/^\/+/u, "")}`);
-  if (parsed !== undefined && parsed.hostname !== "") return parsed.hostname.replace(/^\[(.*)\]$/u, "$1");
-  return fallbackSuggestedName(raw);
-}
-
 export function machineBaseUrlValidationMessage(value: string): string | undefined {
   const raw = value.trim();
-  if (raw === "") return t("ui.machineDialog.remotePiWebUrlIsRequired", "Remote PI WEB URL is required.");
+  if (raw === "") return messages.t("urlRequired");
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return t("ui.machineDialog.enterAValidUrlIncludingHttpOrHttps", "Enter a valid URL including http:// or https://.");
+    return messages.t("urlInvalid");
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return t("ui.machineDialog.useAnHttpOrHttpsUrl", "Use an http:// or https:// URL.");
-  if (url.username !== "" || url.password !== "") return t("ui.machineDialog.doNotIncludeCredentialsInTheMachineUrl", "Do not include credentials in the machine URL.");
-  if (url.search !== "" || url.hash !== "") return t("ui.machineDialog.doNotIncludeAQueryStringOrFragment", "Do not include a query string or fragment.");
+  if (url.protocol !== "http:" && url.protocol !== "https:") return messages.t("urlProtocol");
+  if (url.username !== "" || url.password !== "") return messages.t("urlCredentials");
+  if (url.search !== "" || url.hash !== "") return messages.t("urlQuery");
   return undefined;
-}
-
-function parseUrlForSuggestion(value: string): URL | undefined {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:" ? url : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function fallbackSuggestedName(value: string): string {
-  const withoutProtocol = value.replace(/^[a-z][a-z\d+.-]*:\/\//iu, "");
-  const withoutCredentials = withoutProtocol.slice(withoutProtocol.lastIndexOf("@") + 1);
-  const host = withoutCredentials.split(/[/?#]/u)[0] ?? "";
-  if (host.startsWith("[") && host.includes("]")) return host.slice(1, host.indexOf("]"));
-  return host.replace(/:\d+$/u, "");
 }

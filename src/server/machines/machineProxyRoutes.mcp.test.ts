@@ -15,7 +15,7 @@ describe("MCP authentication federation", () => {
       headers: { "content-type": "application/json", ...(cacheControl === undefined ? {} : { "cache-control": cacheControl }), "set-cookie": "private=must-not-cross" },
     });
     const client: MachineClient = { request, requestJson: () => Promise.reject(new Error("Unexpected JSON request")), connectWebSocket: () => { throw new Error("Unexpected socket"); } };
-    registerMachineProxyRoutes(app, { remoteClient: () => Promise.resolve(client) });
+    registerMachineProxyRoutes(app, { remoteClient: () => Promise.resolve(client), invalidateReportedName: () => undefined });
     try {
       const response = await app.inject({ url: "/api/machines/remote%20one/auth/mcp/flow-1" });
       expect(response.statusCode).toBe(statusCode);

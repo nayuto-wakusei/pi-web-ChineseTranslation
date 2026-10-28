@@ -14,7 +14,7 @@ beforeEach(() => {
   vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
   vi.spyOn(configApi, "config").mockResolvedValue(configResponse({}));
   vi.spyOn(configApi, "namingModels").mockResolvedValue({ models: [{ provider: "provider", id: "naming" }] });
-  vi.spyOn(configApi, "saveConfig").mockImplementation((config) => Promise.resolve(configResponse(config)));
+  vi.spyOn(configApi, "updateConfig").mockImplementation((update) => Promise.resolve(configResponse(update.set ?? {})));
   vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([]));
   vi.spyOn(piPackagesApi, "packages").mockResolvedValue({ packages: [] });
 });
@@ -110,14 +110,14 @@ describe("project-scoped naming settings", () => {
     dialog.namingModelsTarget = undefined;
     await settle(dialog);
     await save?.({ sessionNaming: { maxTokens: 48 } });
-    expect(configApi.saveConfig).not.toHaveBeenCalled();
+    expect(configApi.updateConfig).not.toHaveBeenCalled();
   });
 
   it.each([{ sessionNaming: { model: "provider/naming", maxTokens: 48 } }, { sessionNaming: {} }])("explains restart-free naming saves including resets (%j)", async (patch) => {
     const dialog = await mount();
     await panel(dialog).onSave?.(patch);
     await settle(dialog);
-    expect(configApi.saveConfig).toHaveBeenLastCalledWith(patch, remoteMachine.id);
+    expect(configApi.updateConfig).toHaveBeenLastCalledWith({ ...(Object.keys(patch.sessionNaming).length === 0 ? {} : { set: patch }), unset: [] }, remoteMachine.id);
     expect(panel(dialog).savedMessage).toContain("without a restart");
     expect(panel(dialog).savedMessage).toContain("Existing names and in-progress naming requests are unchanged");
   });

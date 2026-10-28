@@ -102,7 +102,8 @@ describe("PiWebApp plugin context ownership", () => {
       expect(action?.disabledReason).toBe("Unavailable");
       await action?.run();
       for (const callback of [enabled, disabledReason, run]) {
-        expect(callback).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: expectedState }));
+        expect(callback).toHaveBeenCalledWith(expect.objectContaining({ state: expectedState }));
+        expect(callback).toHaveBeenCalledTimes(callback === disabledReason ? 2 : 1);
         expect(JSON.stringify(callback.mock.calls)).not.toContain("Private transcript");
       }
     } finally {

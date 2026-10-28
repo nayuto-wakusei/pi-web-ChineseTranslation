@@ -102,7 +102,7 @@ it.each(["plain", "code"] as const)("preserves unchanged %s source and Copy focu
   copy.focus();
   copy.click();
   await settle(view);
-  expect(copy.getAttribute("aria-label")).toBe("Code block copied");
+  expect(copy.getAttribute("aria-label")).toBe("Copied code block");
 
   for (const chunk of [" grows", " across another streamed update."]) {
     view.text += chunk;
@@ -113,7 +113,7 @@ it.each(["plain", "code"] as const)("preserves unchanged %s source and Copy focu
     expect(header?.querySelector(".code-block-label")).toBe(label);
     expect(view.renderRoot.querySelector("pi-web-content-renderer, select")).toBeNull();
     expect(view.shadowRoot?.activeElement).toBe(copy);
-    expect(copy.getAttribute("aria-label")).toBe("Code block copied");
+    expect(copy.getAttribute("aria-label")).toBe("Copied code block");
     expect(source.textContent).toBe(`${literalSource}\n`);
   }
   expect(view.renderRoot.querySelector(".formatted")?.textContent).toContain("More explanation after the code grows across another streamed update.");
@@ -331,7 +331,7 @@ it.each(["plain", "code"] as const)("copies escaped %s source through the render
   await settle(view);
   expect(writeClipboardText).toHaveBeenCalledOnce();
   expect(writeClipboardText).toHaveBeenCalledWith(`${source}\n`);
-  expect(copy.getAttribute("aria-label")).toBe("Code block copied");
+  expect(copy.getAttribute("aria-label")).toBe("Copied code block");
   await vi.runAllTimersAsync();
   await settle(view);
   expect(copy.getAttribute("aria-label")).toBe("Copy code block");

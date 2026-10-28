@@ -1,4 +1,5 @@
 import { t } from "../i18n";
+import { machineMessages as messages } from "../machineMessages";
 import { api, type Machine, type MachineHealth, type MachineRuntime } from "../api";
 import { resetWorkspaceScopedState } from "../appState";
 import { BrowserErrorReporter, machineBrowserErrorScope } from "../browserErrors";
@@ -12,6 +13,8 @@ export interface MachineControllerDependencies {
 
 export class MachineController {
   private readonly runtimeRefreshSeqByMachine = new Map<string, number>();
+  private readonly identityRevisionByMachine = new Map<string, number>();
+  private readonly pendingIdentityEdits = new Set<string>();
   private readonly browserErrors: BrowserErrorReporter;
   private readonly navigateToMachine: MachineControllerDependencies["navigateToMachine"];
   private readonly captureNavigation: MachineControllerDependencies["captureNavigation"];
@@ -89,14 +92,62 @@ export class MachineController {
     }
   }
 
+  async refreshMachineIdentity(machineId: string): Promise<void> {
+    if (this.pendingIdentityEdits.has(machineId) || !this.getState().machines.some((machine) => machine.id === machineId)) return;
+    const revision = this.invalidateMachineIdentity(machineId);
+    try {
+      const identity = await api.machine(machineId);
+      if (revision !== this.identityRevisionByMachine.get(machineId)) return;
+      const state = this.getState();
+      const machines = state.machines.map((machine) => machine.id === machineId ? withMachineIdentity(machine, identity) : machine);
+      this.setState({ machines, ...(state.selectedMachine === undefined ? {} : { selectedMachine: machines.find((machine) => machine.id === state.selectedMachine?.id) ?? state.selectedMachine }) });
+    } catch (error) {
+      if (revision === this.identityRevisionByMachine.get(machineId)) {
+        const detail = String(error);
+        this.browserErrors.reportLocalized(machineBrowserErrorScope(machineId), () => messages.t("refreshFailed", { error: detail }));
+      }
+    }
+  }
+
+  async updateMachine(machineId: string, name: string): Promise<Machine | undefined> {
+    const revision = this.invalidateMachineIdentity(machineId);
+    this.pendingIdentityEdits.add(machineId);
+    this.setState({ error: "" });
+    try {
+      const machine = await api.updateMachine(machineId, { name });
+      if (revision !== this.identityRevisionByMachine.get(machineId)) return undefined;
+      const state = this.getState();
+      if (!state.machines.some((candidate) => candidate.id === machineId)) return undefined;
+      const machines = state.machines.map((candidate) => candidate.id === machineId ? withMachineIdentity(candidate, machine) : candidate);
+      this.setState({ machines, ...(state.selectedMachine?.id === machineId ? { selectedMachine: machines.find((candidate) => candidate.id === machineId) } : {}) });
+      return machine;
+    } catch (error) {
+      if (revision === this.identityRevisionByMachine.get(machineId)) this.setState({ error: String(error) });
+      return undefined;
+    } finally {
+      if (revision === this.identityRevisionByMachine.get(machineId)) {
+        this.pendingIdentityEdits.delete(machineId);
+        this.invalidateMachineIdentity(machineId);
+      }
+    }
+  }
+
+  private invalidateMachineIdentity(machineId: string): number {
+    const revision = (this.identityRevisionByMachine.get(machineId) ?? 0) + 1;
+    this.identityRevisionByMachine.set(machineId, revision);
+    return revision;
+  }
+
   async deleteMachine(machine: Machine | undefined = this.getState().selectedMachine, options: { selectFallback?: boolean } = {}): Promise<Machine | undefined> {
     if (machine === undefined) return undefined;
     if (machine.kind === "local") {
-      this.browserErrors.report(machineBrowserErrorScope(machine.id), t("client.machineController.cannot.remove.the.local.machine.9e88e1", "Cannot remove the local machine."));
+      this.browserErrors.reportLocalized(machineBrowserErrorScope(machine.id), () => messages.t("cannotRemove"));
       return undefined;
     }
     try {
       await api.deleteMachine(machine.id);
+      this.invalidateMachineIdentity(machine.id);
+      this.pendingIdentityEdits.delete(machine.id);
       const machines = this.getState().machines.filter((candidate) => candidate.id !== machine.id);
       const local = machines.find((candidate) => candidate.id === "local") ?? machines[0];
       this.browserErrors.discard(machineBrowserErrorScope(machine.id));
@@ -180,6 +231,15 @@ export class MachineController {
     const runtimes = Object.fromEntries(results.flatMap((result) => result.status === "fulfilled" ? [[result.value.machineId, result.value] as const] : []));
     if (Object.keys(runtimes).length > 0) this.setState({ machineRuntimes: { ...this.getState().machineRuntimes, ...runtimes } });
   }
+}
+
+function withMachineIdentity(machine: Machine, identity: Pick<Machine, "name" | "nameOverride" | "reportedName">): Machine {
+  const updated = { ...machine, name: identity.name };
+  if (identity.nameOverride === undefined) delete updated.nameOverride;
+  else updated.nameOverride = identity.nameOverride;
+  if (identity.reportedName === undefined) delete updated.reportedName;
+  else updated.reportedName = identity.reportedName;
+  return updated;
 }
 
 function omitKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {

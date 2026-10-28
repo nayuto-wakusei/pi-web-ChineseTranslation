@@ -609,10 +609,12 @@ describe("notice and notification forwarding contracts", () => {
       payload: body,
     });
 
-    expect([catalog.statusCode, acknowledge.statusCode]).toEqual([200, 200]);
+    const marked = await app.inject({ method: "POST", url: "/api/machines/local/sessions/session-1/unread", payload: { cwd: "/repo" } });
+    expect([catalog.statusCode, acknowledge.statusCode, marked.statusCode]).toEqual([200, 200, 200]);
     expect(daemon.requests).toEqual([
       { method: "GET", path: "/sessions/unread", body: undefined },
       { method: "POST", path: "/sessions/session-1/unread/acknowledge", body },
+      { method: "POST", path: "/sessions/session-1/unread", body: { cwd: "/repo" } },
     ]);
   });
 

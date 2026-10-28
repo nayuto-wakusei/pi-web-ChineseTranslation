@@ -87,22 +87,21 @@ describe("session override config routes", () => {
 
 });
 
-it("keeps archive destinations global while unrelated selected-machine writes preserve them", async () => {
+it("exposes machine archive destinations and preserves them during unrelated patches", async () => {
   const sessionArchive = { directory: "external-archives" };
   const saved = await app.inject({ method: "PUT", url: "/api/config", payload: { config: { sessionArchive } } });
   expect(saved.statusCode).toBe(200);
   expect(parsePiWebConfigResponseBody(saved.json()).config.sessionArchive).toEqual(sessionArchive);
   const read = await app.inject("/api/machines/local/config");
-  expect(read.json<PiWebConfigResponse>().config).not.toHaveProperty("sessionArchive");
-  expect(read.json<PiWebConfigResponse>().effectiveConfig).not.toHaveProperty("sessionArchive");
-  const write = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { spawnSessions: false } } });
+  expect(read.json<PiWebConfigResponse>().config.sessionArchive).toEqual(sessionArchive);
+  expect(read.json<PiWebConfigResponse>().effectiveConfig.sessionArchive).toEqual(sessionArchive);
+  const write = await app.inject({ method: "PATCH", url: "/api/machines/local/config", payload: { set: { spawnSessions: false } } });
   expect(write.statusCode).toBe(200);
   expect(savedConfig.sessionArchive).toEqual(sessionArchive);
   vi.mocked(service.write).mockClear();
-  const rejected = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { sessionArchive: { directory: "forged" } } } });
-  expect(rejected.statusCode).toBe(400);
-  expect(service.write).not.toHaveBeenCalled();
-  expect(savedConfig.sessionArchive).toEqual(sessionArchive);
+  const updated = await app.inject({ method: "PATCH", url: "/api/machines/local/config", payload: { set: { sessionArchive: { directory: "machine-archives" } } } });
+  expect(updated.statusCode).toBe(200);
+  expect(savedConfig.sessionArchive).toEqual({ directory: "machine-archives" });
 });
 
 it.each([null, [], { directory: "" }, { directory: "a\u0000b" }, { unknown: true }])("rejects invalid archive destinations %j before global writes or remote reads", async (sessionArchive) => {

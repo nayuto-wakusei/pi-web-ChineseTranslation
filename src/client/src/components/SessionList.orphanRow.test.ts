@@ -36,7 +36,7 @@ describe("orphan child row indicator", () => {
     // offer and must not claim one.
     const list = await renderList({ sessions: [orphan()] });
 
-    expect(row(list).querySelector("small")?.textContent).toBe("3 条消息");
+    expect(row(list).querySelector("small")?.textContent).toBe("3 messages");
     expect(row(list).querySelectorAll(".row-badges")).toHaveLength(0);
   });
 
@@ -54,7 +54,7 @@ describe("orphan child row indicator", () => {
 
     expect(row(list).querySelector(".orphan-marker")).toBeNull();
     expect(row(list).querySelector(".row-badges")).toBeNull();
-    expect(row(list).querySelector("small")?.textContent).toBe("3 条消息");
+    expect(row(list).querySelector("small")?.textContent).toBe("3 messages");
   });
 
   it("shows a nested child under a present parent with the ordinary child marker", async () => {
@@ -70,7 +70,7 @@ describe("orphan child row indicator", () => {
   it("keeps the transient-session prefix on the meta line", async () => {
     const list = await renderList({ sessions: [session("new", { persisted: false })] });
 
-    expect(row(list).querySelector("small")?.textContent).toBe("新会话 · 3 条消息");
+    expect(row(list).querySelector("small")?.textContent).toBe("new · 3 messages");
   });
 });
 

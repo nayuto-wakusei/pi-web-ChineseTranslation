@@ -55,7 +55,7 @@ it("keeps the activity notice in the blocked composer until dismissal without lo
     await settle(app);
     const notice = app.shadowRoot?.querySelector(".composer-activity-notice");
     expect(notice?.getAttribute("role")).toBe("alert");
-    expect(notice?.textContent).toContain("此会话最近在另一个 PI WEB 实例中活动");
+    expect(notice?.textContent).toContain("Recently active in another PI-WEB instance");
     expect(notice?.parentElement).toBe(editor.parentElement);
     expect(editor.parentElement?.classList.contains("composer-area")).toBe(true);
     expect(notice?.previousElementSibling).toBe(editor);
@@ -70,7 +70,7 @@ it("keeps the activity notice in the blocked composer until dismissal without lo
 
     const chat = app.shadowRoot?.querySelector("chat-view");
     expect(chat?.hasAttribute("inert")).toBe(false);
-    expect(chat?.shadowRoot?.textContent).not.toContain("此会话最近在另一个 PI WEB 实例中活动");
+    expect(chat?.shadowRoot?.textContent).not.toContain("Recently active in another PI-WEB instance");
     expect(chat?.shadowRoot?.textContent).toContain("Ordinary runtime warning");
     const statusBar = app.shadowRoot?.querySelector<StatusBar>("status-bar");
     expect(statusBar?.warningCount).toBe(1);
@@ -217,6 +217,6 @@ function promptEditor(app: PiWebApp): PromptEditor {
 function dismissActivityNotice(app: PiWebApp): void {
   const button = app.shadowRoot?.querySelector<HTMLButtonElement>(".composer-activity-notice button");
   if (button == null) throw new Error("Expected activity notice dismissal");
-  expect(button.textContent).toBe("关闭提示并继续");
+  expect(button.textContent).toBe("Dismiss and continue");
   button.click();
 }

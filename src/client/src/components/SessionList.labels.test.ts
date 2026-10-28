@@ -35,7 +35,7 @@ it("renders text, safe links, and custom controls without activating the row", a
   await list.updateComplete;
   const secondary = list.shadowRoot?.querySelector(".session-secondary");
   const labels = secondary?.querySelector(".session-labels");
-  expect(secondary?.querySelector(".session-meta")?.textContent).toBe("2 条消息");
+  expect(secondary?.querySelector(".session-meta")?.textContent).toBe("2 messages");
   expect(secondary?.querySelectorAll(".session-label-separator")).toHaveLength(3);
   expect(list.shadowRoot?.querySelector(".action-name")?.getAttribute("title")).toBe("Conversation");
   expect(labels?.textContent).toContain("Leg 2");
@@ -149,7 +149,7 @@ it("refreshes row-owned labels for archived rows and when the provider is replac
   list.sessionLabelItems = () => [];
   await list.updateComplete;
   expect(list.shadowRoot?.querySelector(".session-labels")).toBeNull();
-  expect(list.shadowRoot?.querySelector(".action-row:not(.archived) .session-secondary")?.textContent.trim()).toBe("2 条消息");
-  expect(list.shadowRoot?.querySelector(".action-row.archived .session-secondary")?.textContent.trim()).toBe("只读 · 2 条消息");
+  expect(list.shadowRoot?.querySelector(".action-row:not(.archived) .session-secondary")?.textContent.trim()).toBe("2 messages");
+  expect(list.shadowRoot?.querySelector(".action-row.archived .session-secondary")?.textContent.trim()).toBe("read-only · 2 messages");
   expect(list.shadowRoot?.querySelector(".session-label-separator")).toBeNull();
 });

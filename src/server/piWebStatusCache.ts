@@ -49,7 +49,9 @@ export function createPiWebStatusCache(load: (options: PiWebStatusCacheLoadOptio
 
   return {
     async get(): Promise<PiWebStatusResponse> {
-      if (cached !== undefined) {
+      // A failed daemon check is a point-in-time result, not evidence that the
+      // daemon is still unreachable. Await the next check instead of replaying it.
+      if (cached?.status.components.sessiond.available === true) {
         if (cached.expiresAt > now()) return cached.status;
         void refresh().catch((error: unknown) => { options.onError?.(error); });
         return cached.status;

@@ -2,26 +2,64 @@
 import { installPopoverFake } from "./anchoredPopup.testSupport";
 installPopoverFake();
 
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock, type MockInstance } from "vitest";
 import { trustApi } from "../api";
 import type { Workspace, WorkspaceActivity, WorkspaceTrustResponse } from "../api";
+import { localization } from "../localization/browser";
+import { workspaceRemovalActionLabel } from "../workspaceDeletion";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { machineStatusSnapshot } from "../machineStatus.testSupport";
 import { WorkspaceList } from "./WorkspaceList";
 
 beforeEach(() => { vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo", decision: null, trusted: false }); });
-
 let restoreClipboardStub: () => void = () => undefined;
+let fetchRequests: MockInstance<typeof fetch>;
+
+beforeEach(() => {
+  fetchRequests = vi.spyOn(globalThis, "fetch");
+});
+
+
 
 afterEach(() => {
+  const escapedRequests = [...fetchRequests.mock.calls];
   vi.restoreAllMocks();
   restoreClipboardStub();
   restoreClipboardStub = () => undefined;
   document.body.replaceChildren();
   localStorage.clear();
+  expect(escapedRequests).toEqual([]);
 });
 
 describe("workspace-list removal actions", () => {
+  it("updates the open Git removal action live and preserves its callback target", async () => {
+    const removable = workspace("review", { isMain: false, removal: {
+      actionLabel: "Delete workspace", confirmation: "Raw Git fallback", precondition: "v1.token",
+      localization: { kind: "gitWorktree", label: "review", path: "/repo/review" },
+    } });
+    const list = await mountWorkspaceList([removable]);
+    const onDelete = vi.fn();
+    list.onDelete = onDelete;
+    openMenu(list, "review");
+    await expectTrustLoaded(list, false);
+    const action = list.shadowRoot?.querySelector<HTMLButtonElement>(".workspace-menu-actions .danger");
+    expect(action?.textContent).toBe("Delete workspace");
+    try {
+      for (const language of ["en-XA", "ar-XB"]) {
+        await localization.setPreferences({ language, formatLocale: "en" });
+        await list.updateComplete;
+        expect(action?.textContent).toBe(workspaceRemovalActionLabel(removable));
+        expect(action?.title).toBe(workspaceRemovalActionLabel(removable));
+        expect(action?.textContent).not.toBe("Delete workspace");
+      }
+      action?.click();
+      expect(onDelete).toHaveBeenCalledExactlyOnceWith(removable);
+      expect(list.workspaces[0]).toBe(removable);
+    } finally {
+      await localization.setPreferences({ language: "en", formatLocale: "en" });
+    }
+  });
+
   it("shows provider wording for neutral removal metadata and no removal action without it", async () => {
     const removable = workspace("neutral", {
       isMain: false,
@@ -32,6 +70,15 @@ describe("workspace-list removal actions", () => {
       },
     });
     const withoutRemoval = workspace("plain");
+    const trust = vi.spyOn(trustApi, "workspaceTrust").mockImplementation((projectId, workspaceId, machineId) => {
+      if (projectId === "project-1" && machineId === "local" && workspaceId === "neutral") {
+        return Promise.resolve({ path: "/repo/neutral", decision: true, trusted: true });
+      }
+      if (projectId === "project-1" && machineId === "local" && workspaceId === "plain") {
+        return Promise.resolve({ path: "/repo/plain", decision: false, trusted: false });
+      }
+      return Promise.reject(new Error(`Unexpected trust request: ${projectId}/${workspaceId}/${String(machineId)}`));
+    });
     const onDelete = vi.fn();
     const list = new WorkspaceList();
     list.workspaces = [removable, withoutRemoval];
@@ -41,7 +88,7 @@ describe("workspace-list removal actions", () => {
 
     const toggles = list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-toggle");
     toggles?.[0]?.click();
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
 
     const action = list.shadowRoot?.querySelector<HTMLButtonElement>(".workspace-menu-actions .danger");
     expect(action?.textContent).toBe("Disconnect view");
@@ -51,7 +98,8 @@ describe("workspace-list removal actions", () => {
     await list.updateComplete;
 
     list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-toggle")[1]?.click();
-    await list.updateComplete;
+    await expectTrustLoaded(list, false);
+    expect(trust.mock.calls).toEqual([["project-1", "neutral", "local"], ["project-1", "plain", "local"]]);
     // The actions block stays visible for the project-trust toggle, but it
     // must not offer a removal action without removal metadata.
     expect(list.shadowRoot?.querySelector(".workspace-menu-actions")).not.toBeNull();
@@ -69,7 +117,7 @@ describe("workspace status indicator", () => {
     expect(unreadDot(rowFor(list, "ws-a"))).toBeNull();
     const dot = unreadDot(rowFor(list, "ws-b"));
     expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("title")).toBe("此工作区中有未读会话");
+    expect(dot?.getAttribute("title")).toBe("Unread sessions in this workspace");
   });
 
   it("clears the dot once a newer snapshot reports nothing unread", async () => {
@@ -91,7 +139,7 @@ describe("workspace status indicator", () => {
     const row = rowFor(list, "ws-a");
     const ring = row.querySelector(".unread-ring");
     expect(ring?.querySelector(".activity-indicator.terminal")).not.toBeNull();
-    expect(ring?.getAttribute("title")).toBe("此工作区中有未读会话 · 工作区终端活动中");
+    expect(ring?.getAttribute("title")).toBe("Unread sessions in this workspace · Workspace terminal active");
     expect(row.querySelector(".activity-indicator.unread")).toBeNull();
   });
 
@@ -111,13 +159,15 @@ describe("workspace status indicator", () => {
 describe("workspace detail copy buttons", () => {
   it("copies the workspace path from the menu details and keeps the menu open", async () => {
     const writeText = stubClipboardWriteText(() => Promise.resolve());
+    const trust = vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
     const list = await mountWorkspaceList([workspace("ws-a")]);
     openMenu(list, "ws-a");
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
+    expect(trust.mock.calls).toEqual([["project-1", "ws-a", "local"]]);
 
-    detailCopyButton(list, "复制路径").click();
+    detailCopyButton(list, "Copy path").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("/repo/ws-a"); });
-    await vi.waitFor(() => { expect(detailCopyButton(list, "已复制").textContent).toContain("✓"); });
+    await vi.waitFor(() => { expect(detailCopyButton(list, "Copied").textContent).toContain("✓"); });
 
     expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
   });
@@ -132,38 +182,43 @@ describe("workspace detail copy buttons", () => {
         metadata: { branch: "feature-x" },
       },
     });
+    const trust = vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: false, trusted: false });
     const list = await mountWorkspaceList([listed]);
     openMenu(list, "review app");
-    await list.updateComplete;
+    await expectTrustLoaded(list, false);
+    expect(trust.mock.calls).toEqual([["project-1", "ws-a", "local"]]);
 
-    detailCopyButton(list, "复制工作区标签").click();
+    detailCopyButton(list, "Copy workspace label").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("review app"); });
-    expect(list.shadowRoot?.querySelector(".workspace-detail-row dt")?.textContent).toBe("工作区");
-    expect(list.shadowRoot?.querySelector("[aria-label='复制分支']")).toBeNull();
+    expect(list.shadowRoot?.querySelector(".workspace-detail-row dt")?.textContent).toBe("Workspace");
+    expect(list.shadowRoot?.querySelector("[aria-label='Copy label']")).toBeNull();
   });
 
   it("keeps the copy action unchanged when the clipboard write fails", async () => {
     const writeText = stubClipboardWriteText(() => Promise.reject(new Error("denied")));
+    const trust = vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
     const list = await mountWorkspaceList([workspace("ws-a")]);
     openMenu(list, "ws-a");
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
+    expect(trust.mock.calls).toEqual([["project-1", "ws-a", "local"]]);
 
-    detailCopyButton(list, "复制路径").click();
+    detailCopyButton(list, "Copy path").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalled(); });
     await new Promise((resolve) => { setTimeout(resolve, 0); });
     await list.updateComplete;
 
-    expect(detailCopyButton(list, "复制路径")).toBeDefined();
-    expect(list.shadowRoot?.querySelector(".workspace-menu-panel .detail-copy[aria-label='已复制']")).toBeNull();
+    expect(detailCopyButton(list, "Copy path")).toBeDefined();
+    expect(list.shadowRoot?.querySelector(".workspace-menu-panel .detail-copy[aria-label='Copied']")).toBeNull();
   });
 });
 
 describe("workspace trust menu item", () => {
   it("puts the checkbox after its label and the documentation on a separate description line", async () => {
+    const trustRequest = vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
     const list = await mountWorkspaceList([workspace("ws-a")]);
     openMenu(list, "ws-a");
-    await list.updateComplete;
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
+    expect(trustRequest.mock.calls).toEqual([["project-1", "ws-a", "local"]]);
 
     const trust = list.shadowRoot?.querySelector(".workspace-menu-trust");
     const link = trust?.querySelector<HTMLAnchorElement>("a");
@@ -171,7 +226,7 @@ describe("workspace trust menu item", () => {
     expect(link?.getAttribute("href")).toBe("https://pi.dev/docs/latest/security");
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(link?.getAttribute("rel")).toBe("noreferrer");
-    expect(link?.textContent).toBe("了解项目信任");
+    expect(link?.textContent).toBe("Learn about project trust");
     // The verbose sentence is gone: the toggle row only labels the checkbox and links out.
     expect(trust?.textContent).not.toContain(".pi settings");
     // The obsolete Pi CLI / respectProjectTrust clause must not survive in any wording.
@@ -187,8 +242,7 @@ describe("workspace trust menu item", () => {
     const list = await mountWorkspaceList([workspace("ws-a")]);
     list.onSelect = vi.fn();
     openMenu(list, "ws-a");
-    await list.updateComplete;
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
     const checkbox = trustCheckbox(list);
     expect(checkbox.checked).toBe(true);
     expect(checkbox.disabled).toBe(false);
@@ -208,6 +262,16 @@ describe("workspace trust menu item", () => {
     expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
   });
 });
+
+async function expectTrustLoaded(list: WorkspaceList, trusted: boolean): Promise<void> {
+  await vi.waitFor(async () => {
+    await list.updateComplete;
+    const checkbox = trustCheckbox(list);
+    expect(checkbox.disabled).toBe(false);
+    expect(checkbox.checked).toBe(trusted);
+    expect(list.shadowRoot?.querySelector('.workspace-menu-trust [role="alert"]')).toBeNull();
+  });
+}
 
 function trustCheckbox(list: WorkspaceList): HTMLInputElement {
   const checkbox = list.shadowRoot?.querySelector<HTMLInputElement>('.workspace-menu-trust input[type="checkbox"]');
@@ -284,7 +348,7 @@ describe("workspace unread indicator", () => {
     expect(unreadDot(rowFor(list, "ws-a"))).toBeNull();
     const dot = unreadDot(rowFor(list, "ws-b"));
     expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("title")).toBe("此工作区中有未读会话");
+    expect(dot?.getAttribute("title")).toBe("Unread sessions in this workspace");
   });
 
   it("clears the dot once the workspace is no longer tracked as unread", async () => {
@@ -305,7 +369,7 @@ describe("workspace unread indicator", () => {
     const row = rowFor(list, "ws-a");
     const ring = row.querySelector(".unread-ring");
     expect(ring?.querySelector(".activity-indicator.terminal")).not.toBeNull();
-    expect(ring?.getAttribute("title")).toBe("此工作区中有未读会话 · 工作区终端活动中");
+    expect(ring?.getAttribute("title")).toBe("Unread sessions in this workspace · Workspace terminal active");
     expect(row.querySelector(".activity-indicator.unread")).toBeNull();
   });
 });
@@ -317,9 +381,9 @@ describe("workspace detail copy buttons", () => {
     openMenu(list, "ws-a");
     await list.updateComplete;
 
-    detailCopyButton(list, "复制路径").click();
+    detailCopyButton(list, "Copy path").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("/repo/ws-a"); });
-    await vi.waitFor(() => { expect(detailCopyButton(list, "已复制").textContent).toContain("✓"); });
+    await vi.waitFor(() => { expect(detailCopyButton(list, "Copied").textContent).toContain("✓"); });
 
     expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
   });
@@ -340,7 +404,7 @@ describe("workspace detail copy buttons", () => {
     openMenu(list, "ws-a");
     await list.updateComplete;
 
-    detailCopyButton(list, "复制工作区标签").click();
+    detailCopyButton(list, "Copy workspace label").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("ws-a"); });
   });
 
@@ -350,13 +414,13 @@ describe("workspace detail copy buttons", () => {
     openMenu(list, "ws-a");
     await list.updateComplete;
 
-    detailCopyButton(list, "复制路径").click();
+    detailCopyButton(list, "Copy path").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalled(); });
     await new Promise((resolve) => { setTimeout(resolve, 0); });
     await list.updateComplete;
 
-    expect(detailCopyButton(list, "复制路径")).toBeDefined();
-    expect(list.shadowRoot?.querySelector(".workspace-menu-panel .detail-copy[aria-label='已复制']")).toBeNull();
+    expect(detailCopyButton(list, "Copy path")).toBeDefined();
+    expect(list.shadowRoot?.querySelector(".workspace-menu-panel .detail-copy[aria-label='Copied']")).toBeNull();
   });
 });
 

@@ -4,6 +4,8 @@ import { html, render, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginActivationContext, PluginCapability, SessionLabelContext, SessionUiMetadata, WorkspacePanelContext } from "@chainingintention/pi-web-cn/plugin-api";
 import plugin from "./pi-web-plugin";
+import { LocalizationService } from "../../src/client/src/localization/service";
+import { createPluginLocalization } from "../../src/client/src/plugins/localization";
 import { RELAY_METADATA_NAMESPACE } from "./relayIdentity";
 
 const runtimePluginId = "remote-1:relay-package";
@@ -55,6 +57,32 @@ describe("host stylesheet integration capability", () => {
     const capability = plugin.requires[0];
     if (capability === undefined) throw new Error("Relay stylesheet integration requirement missing");
     expect(() => capability.parse(value)).toThrow("Stylesheet integration capability v1 requires registerRoot and createController");
+  });
+});
+
+describe("localized contribution getters", () => {
+  it("keeps action, panel, and session labels live with metadata preserved", async () => {
+    const service = new LocalizationService({ development: true });
+    const lifetime = new AbortController();
+    const localization = createPluginLocalization(service, "@jmfederico/pi-relay", runtimePluginId, lifetime.signal);
+    const result = plugin.activate({ ...activationContext(), localization });
+    const action = result.contributions.actions[0];
+    const panel = result.contributions.workspacePanels[0];
+    const session = result.contributions.sessionLabels[0];
+    const host = document.createElement("div");
+    document.body.append(host);
+    for (const language of ["en-XA", "ar-XB"]) {
+      await service.setPreferences({ language, formatLocale: "en" });
+      expect(action?.title).not.toBe("Open Workspace Relays");
+      expect(action?.description).toContain(".pi-web/relays");
+      expect(action?.group).not.toBe("Workspace");
+      expect(panel?.title).not.toBe("Relays");
+      render(html`${session?.items(rowContext(metadata)).map((item) => item.render())}`, host);
+      expect(host.querySelector("button")?.getAttribute("aria-label")).toContain("workflow & notes");
+      expect(host.querySelector("button")?.getAttribute("aria-label")).toContain("R1-a");
+      expect(host.querySelector("button")?.textContent.trim()).not.toBe("relay");
+    }
+    lifetime.abort();
   });
 });
 

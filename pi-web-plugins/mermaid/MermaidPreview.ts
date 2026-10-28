@@ -2,6 +2,7 @@ import { t } from "./i18n.js";
 import type { StylesheetIntegrationCapabilityV1, ContentRendererInput } from "@chainingintention/pi-web-cn/plugin-api";
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import type { MermaidContent } from "./mermaidLocalization";
 
 let enginePromise: Promise<string> | undefined;
 export function loadMermaidEngine(): Promise<string> {
@@ -24,6 +25,25 @@ export function mermaidFrameDocument(engine: string): string {
 }
 
 export class MermaidPreview extends LitElement {
+  private localizedContent: MermaidContent | undefined;
+  private releaseLocalization: (() => void) | undefined;
+
+  // Portable machine copies share the element class, not an activation's messages.
+  @property({ attribute: false })
+  get content(): MermaidContent | undefined { return this.localizedContent; }
+  set content(value: MermaidContent | undefined) {
+    if (value === this.localizedContent) return;
+    this.localizedContent = value;
+    this.observeLocalization();
+  }
+
+  private observeLocalization(): void {
+    this.releaseLocalization?.();
+    this.releaseLocalization = this.isConnected
+      ? this.localizedContent?.localization.subscribe(() => { this.requestUpdate(); })
+      : undefined;
+  }
+
   private integration: StylesheetIntegrationCapabilityV1 | undefined;
   private releaseStyles: (() => void) | undefined;
 
@@ -51,11 +71,15 @@ export class MermaidPreview extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    this.observeLocalization();
+    this.requestUpdate();
     if (this.renderRoot instanceof ShadowRoot) this.releaseStyles ??= this.integration?.registerRoot(this.renderRoot);
     if (this.hasUpdated) void this.draw();
   }
 
   override disconnectedCallback(): void {
+    this.releaseLocalization?.();
+    this.releaseLocalization = undefined;
     this.releaseStyles?.();
     this.releaseStyles = undefined;
     super.disconnectedCallback();
@@ -116,9 +140,11 @@ export class MermaidPreview extends LitElement {
   }
 
   override render() {
+    if (!this.isConnected || this.content === undefined) return null;
+    const messages = this.content.messages;
     return this.document === undefined
-      ? html`<p role="status">${t("ui.main.e1a26333e1cf", "Rendering diagram…")}</p>`
-      : html`<iframe title="${t("ui.main.a66b71e29e45", "Mermaid diagram")}" sandbox="allow-scripts" referrerpolicy="no-referrer" .srcdoc=${this.document} style=${`height:${String(this.height)}px`}></iframe>`;
+      ? html`<p role="status">${messages.t("rendering")}</p>`
+      : html`<iframe title=${messages.t("frameTitle")} sandbox="allow-scripts" referrerpolicy="no-referrer" .srcdoc=${this.document} style=${`height:${String(this.height)}px`}></iframe>`;
   }
 
   static override styles = css`

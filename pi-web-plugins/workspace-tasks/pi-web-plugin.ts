@@ -1,7 +1,8 @@
-import { t, setTranslator } from "./i18n.js";
 import type { StylesheetIntegrationCapabilityV1, PiWebPlugin, PluginCapability } from "@chainingintention/pi-web-cn/plugin-api";
+import { createTasksLocalization } from "./tasksLocalization.js";
 import { TASKS_CONFIG_PATH } from "./config.js";
 import { defineTasksPanelElement, tasksPanelBadge } from "./tasksPanelElement.js";
+import { setTranslator } from "./i18n.js";
 
 const stylesheetIntegrationCapability: PluginCapability<StylesheetIntegrationCapabilityV1, 1> = {
   pluginId: "pi-web", id: "stylesheet-integration", version: 1,
@@ -20,12 +21,15 @@ function isStylesheetIntegration(value: unknown): value is StylesheetIntegration
     && "subscribe" in value && typeof value.subscribe === "function";
 }
 
-const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
+const plugin = {
   apiVersion: 4,
-  name: t("bundled.workspace-tasks.workspace.tasks.b4ef49", "Workspace tasks"),
+  name: "Workspace tasks",
   requires: [stylesheetIntegrationCapability],
-  activate: ({ runtimePluginId, html, svg, translate }) => {
+  activate: ({ runtimePluginId, html, svg, localization, translate }) => {
     setTranslator(translate);
+    if (localization === undefined) throw new Error("The Workspace Tasks plugin requires a localization-capable PI WEB host");
+    const translations = createTasksLocalization(localization);
+    const { messages } = translations;
     defineTasksPanelElement();
     let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
 
@@ -37,9 +41,9 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
         actions: [
           {
             id: "workspace.open-tasks",
-            title: t("bundled.workspace-tasks.open.workspace.tasks.6243e7", "Open workspace tasks"),
-            description: t("bundled.workspace-tasks.open.the.workspace.tasks.tab.configure.tasks.in.d72915", "Open the workspace tasks tab. Configure tasks in {value1}.", { value1: TASKS_CONFIG_PATH }),
-            group: t("bundled.workspace-tasks.workspace.379798", "Workspace"),
+            get title() { return messages.t("openTasks"); },
+            get description() { return messages.t("openDescription", { path: TASKS_CONFIG_PATH }); },
+            get group() { return messages.t("workspace"); },
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
               if (context.state.selectedWorkspace === undefined) return;
@@ -50,7 +54,7 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
         workspacePanels: [
           {
             id: "workspace.tasks",
-            title: t("bundled.workspace-tasks.tasks.525304", "Tasks"),
+            get title() { return messages.t("tasks"); },
             icon: svg`
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 6h11"></path>
@@ -63,7 +67,7 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
             `,
             order: 40,
             badge: (context) => tasksPanelBadge(context),
-            render: (context) => html`<pi-web-workspace-tasks-panel .stylesheetIntegration=${stylesheetIntegration} .context=${context}></pi-web-workspace-tasks-panel>`,
+            render: (context) => html`<pi-web-workspace-tasks-panel .translations=${translations} .stylesheetIntegration=${stylesheetIntegration} .context=${context}></pi-web-workspace-tasks-panel>`,
           },
         ],
       },

@@ -1,9 +1,10 @@
 import { t } from "../i18n";
-import { css, html, type TemplateResult } from "lit";
+import { css, html } from "lit";
+import { pickerMessages as messages } from "../pickerMessages";
 
-/** Shared native control, rendered beside a picker row rather than inside its button. */
-export function defaultPin(label: string, active: boolean, disabled: boolean, onClick: () => void): TemplateResult {
-  const help = active ? t("ui.main.963044ce5371", "{arg0} is already the default for new sessions", { arg0: label }) : t("ui.main.10eaf2c93eb3", "Use {arg0} as the default for new sessions", { arg0: label });
+/** Shared native control, rendered in the picker's DOM beside (never inside) its row button. */
+export function defaultPin(label: string, active: boolean, disabled: boolean, onClick: () => void) {
+  const help = active ? t("ui.main.963044ce5371", "{arg0} is already the default for new sessions", { arg0: label }) : messages.t("useDefault", { label });
   return html`<button type="button" class="default-pin ui-button ui-button--icon" aria-label=${help} title=${help}
     aria-pressed=${String(active)} ?disabled=${disabled} @click=${onClick}>
     <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill=${active ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.8">
@@ -12,8 +13,9 @@ export function defaultPin(label: string, active: boolean, disabled: boolean, on
   </button>`;
 }
 
-export function defaultPinHelp(): TemplateResult {
-  return html`<div class="default-help"><strong>${t("ui.main.57b11778906f", "New session default")}</strong><span>${t("ui.main.363dfe7f433e", "The star only affects newly created sessions.")}</span></div>`;
+/** Evaluate at render time so picker controllers refresh this shared guidance. */
+export function defaultPinHelp() {
+  return html`<div class="default-help"><strong>${messages.t("defaultHelp")}</strong></div>`;
 }
 
 export const defaultPinStyles = css`

@@ -3,6 +3,10 @@ import { api, type Machine } from "../../src/client/src/api";
 import { PromptEditor } from "../../src/client/src/components/PromptEditor";
 import { MachineSwitcher } from "../../src/client/src/components/MachineSwitcher";
 import { ModalSurface } from "../../src/client/src/components/ModalSurface";
+import { ConversationLayout } from "../../src/client/src/components/ConversationLayout";
+import { ChatView } from "../../src/client/src/components/ChatView";
+import { MessageActionsMenu } from "../../src/client/src/components/chat/MessageActionsMenu";
+import { uiButtonStyles, uiToolbarStyles } from "../../src/client/src/components/ui/controlStyles";
 
 api.commands = () => Promise.resolve([{ name: "tree", source: "builtin" }]);
 api.files = () => Promise.resolve([{ path: "README.md", kind: "tracked" }]);
@@ -51,15 +55,22 @@ function openPluginModal(): void {
   document.body.append(dialog);
   dialog.showModal();
 }
+const layout = new ConversationLayout();
+layout.className = "conversation";
+layout.sending = true;
+const chat = new ChatView();
+chat.messages = [{ role: "user", parts: [{ type: "text", text: "Chat messages behind suggestions" }] }];
+layout.append(chat);
 const editor = new PromptEditor();
+editor.slot = "composer";
 editor.sessionId = "browser-fixture";
 editor.projectId = "fixture";
 editor.workspaceId = "fixture";
 editor.cwd = "/repo";
-const layout = document.createElement("div");
-layout.className = "conversation";
-render(html`<div class="transcript">Chat messages behind suggestions</div>${editor}`, layout);
+layout.append(editor);
 const clippedSwitcher = switcher();
+const messageActions = new MessageActionsMenu();
+render(html`<button @click=${() => { messageActions.close(); }}>Copy fixture</button>`, messageActions);
 const scrollingHost = document.createElement("div");
 const scrollingRoot = scrollingHost.attachShadow({ mode: "open" });
 render(html`<style>
@@ -67,15 +78,31 @@ render(html`<style>
   .scroll-content { height: 500px; padding-top: 12px; }
   .clip { display: flex; align-items: center; gap: 10px; position: relative; transform: translateZ(0); overflow: hidden; height: 56px; padding: 8px; border: 1px solid #888; }
   machine-switcher { width: 240px; flex: 0 0 240px; }
-</style><div class="scroll"><div class="scroll-content"><div class="clip">${clippedSwitcher}</div></div></div>`, scrollingRoot);
+</style><div class="scroll"><div class="scroll-content"><div class="clip">${clippedSwitcher}${messageActions}</div></div></div>`, scrollingRoot);
+const toolbars = document.createElement("div");
+toolbars.id = "shared-toolbars";
+const toolbarRoot = toolbars.attachShadow({ mode: "open" });
+render(html`<style>${uiButtonStyles.cssText}${uiToolbarStyles.cssText}
+  :host { --pi-border-muted: #555; display: block; }
+</style>
+  <section class="ui-toolbar"><button class="ui-button">Panel action</button></section>
+  <section class="ui-toolbar ui-toolbar--borderless"><button class="ui-button">Embedded action</button></section>
+`, toolbarRoot);
 const root = document.createElement("main");
 document.body.append(root);
-render(html`<div class="toolbar">
-  <button @click=${openModal}>Open dialog</button>
-  <button @click=${openPluginModal}>Open plugin dialog</button>
-  <button @click=${() => { editor.sessionId = "another-session"; }}>Switch session</button>
-</div>${layout}${scrollingHost}`, root);
-await Promise.all([editor.updateComplete, clippedSwitcher.updateComplete]);
+render(html`
+  <div class="toolbar">
+    <button @click=${openModal}>Open dialog</button>
+    <button @click=${openPluginModal}>Open plugin dialog</button>
+    <button @click=${() => { layout.sending = !layout.sending; }}>Toggle activity</button>
+    <button @click=${() => { layout.toggleAttribute("hidden"); }}>Toggle conversation</button>
+    <button @click=${() => { editor.sessionId = "another-session"; }}>Switch session</button>
+  </div>
+  ${layout}
+  ${scrollingHost}
+  ${toolbars}
+`, root);
+await Promise.all([layout.updateComplete, editor.updateComplete, clippedSwitcher.updateComplete, messageActions.updateComplete]);
 
 declare global {
   interface Window {

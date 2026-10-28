@@ -21,7 +21,7 @@ describe("workspace markdown links", () => {
     expect(workspaceMarkdownFilePath("#heading", workspace)).toBeUndefined();
   });
 
-  it("rewrites workspace file links and keeps the Chinese table label", () => {
+  it("rewrites workspace file links and keeps the accessible table label", () => {
     const html = toSafeMarkdownHtml("[说明](docs/readme.md)\n\n| 列 |\n| --- |\n| 值 |", workspace);
     const root = document.createElement("template");
     root.innerHTML = html;
@@ -29,7 +29,7 @@ describe("workspace markdown links", () => {
     expect(link?.getAttribute("data-workspace-file")).toBe("docs/readme.md");
     expect(link?.getAttribute("href")).toContain("file/preview");
     expect(link?.getAttribute("target")).toBe("_self");
-    expect(root.content.querySelector("[aria-label='表格']")).not.toBeNull();
+    expect(root.content.querySelector("[aria-label='Table']")).not.toBeNull();
     expect(toSafeMarkdownHtml("[外部](https://example.test)").includes("data-workspace-file")).toBe(false);
   });
 });

@@ -13,13 +13,70 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("model-picker initial selection", () => {
+  it("renders the supplied non-first model as current on its first completed update", async () => {
+    const picker = createPicker({ selectedValue: "anthropic/claude-sonnet-4-5" });
+    document.body.append(picker);
+
+    const firstComplete = await picker.updateComplete;
+
+    expect(enabledRows(picker).map((row) => row.getAttribute("aria-current"))).toEqual([null, "true"]);
+    expect(selectedRowText(picker)).toContain("claude-sonnet-4-5");
+    expect(firstComplete).toBe(true);
+    expect(picker.isUpdatePending).toBe(false);
+  });
+
+  it.each([undefined, "missing/model"])("keeps the first row when the initial value is %s", async (selectedValue) => {
+    const picker = createPicker(selectedValue === undefined ? {} : { selectedValue });
+    document.body.append(picker);
+
+    const firstComplete = await picker.updateComplete;
+
+    expect(enabledRows(picker).map((row) => row.getAttribute("aria-current"))).toEqual(["true", null]);
+    expect(selectedRowText(picker)).toContain("gpt-5");
+    expect(firstComplete).toBe(true);
+    expect(picker.isUpdatePending).toBe(false);
+  });
+
+  it("completes an empty enabled list without scheduling a selection correction", async () => {
+    const picker = createPicker({ options: [], selectedValue: "missing/model" });
+    document.body.append(picker);
+
+    expect(await picker.updateComplete).toBe(true);
+    expect(enabledRows(picker)).toEqual([]);
+    expect(picker.shadowRoot?.querySelector("[aria-current='true']")).toBeNull();
+    expect(picker.shadowRoot?.querySelector(".empty")?.textContent).toBe("No matching options");
+    expect(picker.isUpdatePending).toBe(false);
+  });
+
+  it("preserves keyboard selection on unrelated updates and reanchors when switching modes", async () => {
+    const picker = await mountPicker({ selectedValue: "anthropic/claude-sonnet-4-5" });
+    pressKey(searchInput(picker), "ArrowUp");
+    await settleRenderedDialog(picker);
+    picker.title = "Choose a model";
+    await settleRenderedDialog(picker);
+    expect(selectedRowText(picker)).toContain("gpt-5");
+
+    scopeToggle(picker, "All models").click();
+    expect(await picker.updateComplete).toBe(true);
+    const current = catalogRow(picker, "anthropic/claude-sonnet-4-5");
+    expect(current.classList.contains("selected")).toBe(true);
+    expect(membershipButton(current).getAttribute("aria-current")).toBe("true");
+    expect(picker.isUpdatePending).toBe(false);
+
+    scopeToggle(picker, "Enabled").click();
+    expect(await picker.updateComplete).toBe(true);
+    expect(enabledRows(picker).map((row) => row.getAttribute("aria-current"))).toEqual([null, "true"]);
+  });
+});
+
 describe("model-picker Enabled mode", () => {
   it("opens in Enabled mode with the search input focused and the current model preselected", async () => {
     const picker = await mountPicker({ selectedValue: "anthropic/claude-sonnet-4-5" });
 
     expect(deepActiveElement()).toBe(searchInput(picker));
-    expect(scopeToggle(picker, "已启用").getAttribute("aria-pressed")).toBe("true");
-    expect(scopeToggle(picker, "全部模型").getAttribute("aria-pressed")).toBe("false");
+    expect(scopeToggle(picker, "Enabled").getAttribute("aria-pressed")).toBe("true");
+    expect(scopeToggle(picker, "All models").getAttribute("aria-pressed")).toBe("false");
     expect(picker.shadowRoot?.querySelector("button.toggle-all")).toBeNull();
     expect(enabledRows(picker).map((row) => rowLabel(row))).toEqual(["gpt-5", "claude-sonnet-4-5"]);
     expect(selectedRowText(picker)).toContain("claude-sonnet-4-5");
@@ -57,7 +114,7 @@ describe("model-picker All models mode", () => {
   it("keeps every model in natural catalog order", async () => {
     const picker = await mountPicker({ selectedValue: "openai/gpt-5" });
 
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     expect(catalogRows(picker).map((row) => rowValue(row))).toEqual([
@@ -67,7 +124,7 @@ describe("model-picker All models mode", () => {
       "google/gemini-2.5-pro",
     ]);
     expect(catalogRows(picker).map((row) => rowCheckbox(row).checked)).toEqual([true, true, false, false]);
-    expect(toggleAllButton(picker).textContent.trim()).toBe("除当前模型外全部取消");
+    expect(toggleAllButton(picker).textContent.trim()).toBe("Deselect all");
     const currentRow = catalogRow(picker, "openai/gpt-5");
     expect(rowCheckbox(currentRow).disabled).toBe(true);
     expect(membershipButton(currentRow).disabled).toBe(true);
@@ -80,24 +137,24 @@ describe("model-picker All models mode", () => {
       onToggleEnabled: vi.fn(),
       onSetScope: vi.fn(),
     });
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     expect(toggleAllButton(picker).disabled).toBe(true);
     const notice = requiredElement(picker.shadowRoot?.querySelector<HTMLElement>(".scope-notice"), "project override notice");
-    expect(notice.textContent).toContain("项目覆盖");
+    expect(notice.textContent).toContain("Project override");
     expect(notice.textContent).toContain(".pi/settings.json");
-    expect(notice.textContent).toContain("无法在此修改");
-    expect(requiredElement(picker.shadowRoot?.querySelector<HTMLElement>(".scope-status"), "model scope status").textContent).toBe("工作区设置控制模型可用性");
+    expect(notice.textContent).toContain("selection is disabled");
+    expect(requiredElement(picker.shadowRoot?.querySelector<HTMLElement>(".scope-status"), "model scope status").textContent).toBe("Workspace settings control model availability");
     expect(catalogRows(picker).every((row) => rowCheckbox(row).disabled && membershipButton(row).disabled)).toBe(true);
-    expect(scopeToggle(picker, "已启用").disabled).toBe(false);
+    expect(scopeToggle(picker, "Enabled").disabled).toBe(false);
   });
 
   it("uses one atomic action to narrow the scope and blocks overlapping edits while pending", async () => {
     let resolveScope: (() => void) | undefined;
     const onSetScope = vi.fn(() => new Promise<void>((resolve) => { resolveScope = resolve; }));
     const picker = await mountPicker({ selectedValue: "openai/gpt-5", onSetScope });
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     toggleAllButton(picker).click();
@@ -106,10 +163,10 @@ describe("model-picker All models mode", () => {
     expect(onSetScope).toHaveBeenCalledWith("current");
     expect(toggleAllButton(picker).disabled).toBe(true);
     expect(catalogRows(picker).every((row) => rowCheckbox(row).disabled && membershipButton(row).disabled)).toBe(true);
-    expect(scopeToggle(picker, "已启用").disabled).toBe(true);
+    expect(scopeToggle(picker, "Enabled").disabled).toBe(true);
     expect(optionsList(picker).getAttribute("aria-busy")).toBe("true");
     const statusId = toggleAllButton(picker).getAttribute("aria-describedby");
-    expect(requiredElement(picker.shadowRoot?.getElementById(statusId ?? ""), "model scope status").textContent).toBe("正在更新模型可用性");
+    expect(requiredElement(picker.shadowRoot?.getElementById(statusId ?? ""), "model scope status").textContent).toBe("Updating model availability");
 
     resolveScope?.();
     await vi.waitFor(() => {
@@ -125,12 +182,12 @@ describe("model-picker All models mode", () => {
       catalog: defaultCatalog().map((row) => ({ ...row, enabled: row.id === "gpt-5" })),
       onSetScope,
     });
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
     typeSearch(picker, "gpt");
     await settleRenderedDialog(picker);
 
-    expect(toggleAllButton(picker).textContent.trim()).toBe("全选");
+    expect(toggleAllButton(picker).textContent.trim()).toBe("Select all");
     expect(catalogRows(picker)).toHaveLength(2);
     toggleAllButton(picker).click();
 
@@ -142,12 +199,12 @@ describe("model-picker All models mode", () => {
   it("marks the current model and selects it when switching modes", async () => {
     const picker = await mountPicker({ selectedValue: "openai/gpt-4o" });
 
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     const current = requiredElement(catalogRows(picker).find((row) => row.classList.contains("selected")), "selected catalog row");
     expect(rowValue(current)).toBe("openai/gpt-4o");
-    expect(current.textContent).toContain("✓ 当前");
+    expect(current.textContent).toContain("✓ current");
   });
 
   it("requests a membership toggle from a row checkbox without picking or closing", async () => {
@@ -155,7 +212,7 @@ describe("model-picker All models mode", () => {
     let toggleApplied: (() => void) | undefined;
     const onToggleEnabled = vi.fn(() => new Promise<void>((resolve) => { toggleApplied = () => { resolve(); }; }));
     const picker = await mountPicker({ onPick, onToggleEnabled });
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     const gpt4oRow = catalogRow(picker, "openai/gpt-4o");
@@ -197,7 +254,7 @@ describe("model-picker All models mode", () => {
     let toggleApplied: (() => void) | undefined;
     const onToggleEnabled = vi.fn(() => new Promise<void>((resolve) => { toggleApplied = () => { resolve(); }; }));
     const picker = await mountPicker({ selectedValue: "openai/gpt-5", onToggleEnabled });
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
     await nextAnimationFrame();
     scrollIntoView.mockClear();
@@ -236,7 +293,7 @@ describe("model-picker All models mode", () => {
   it("keeps the checkbox state when the toggle fails", async () => {
     const onToggleEnabled = vi.fn<() => Promise<void>>(() => Promise.resolve());
     const picker = await mountPicker({ onToggleEnabled });
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     const checkbox = rowCheckbox(catalogRow(picker, "openai/gpt-4o"));
@@ -254,7 +311,7 @@ describe("model-picker All models mode", () => {
 
   it("filters the natural catalog without changing its order", async () => {
     const picker = await mountPicker();
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     typeSearch(picker, "GPT");
@@ -267,7 +324,7 @@ describe("model-picker All models mode", () => {
     const onPick = vi.fn<(value: string) => void>();
     const onToggleEnabled = vi.fn<() => Promise<void>>(() => Promise.resolve());
     const picker = await mountPicker({ onPick, onToggleEnabled });
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     membershipButton(catalogRow(picker, "google/gemini-2.5-pro")).click();
@@ -287,7 +344,7 @@ describe("model-picker All models mode", () => {
   it("keeps keyboard navigation and activation anchored to a focused checkbox", async () => {
     const onToggleEnabled = vi.fn<() => Promise<void>>(() => Promise.resolve());
     const picker = await mountPicker({ onToggleEnabled });
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     const checkbox = rowCheckbox(catalogRow(picker, "openai/gpt-4o"));
@@ -301,7 +358,7 @@ describe("model-picker All models mode", () => {
   it("toggles non-current rows with Space, but protects the current row and lets search keep its spaces", async () => {
     const onToggleEnabled = vi.fn<() => Promise<void>>(() => Promise.resolve());
     const picker = await mountPicker({ selectedValue: "openai/gpt-5", onToggleEnabled });
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
 
     pressKey(searchInput(picker), " ");
@@ -317,7 +374,7 @@ describe("model-picker All models mode", () => {
 
   it("keeps the selection anchored to the same row when a toggle regroups the catalog", async () => {
     const picker = await mountPicker();
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
     pressKey(optionsList(picker), "ArrowDown");
     pressKey(optionsList(picker), "ArrowDown");
@@ -362,7 +419,7 @@ function defaultCatalog(): SessionModelCatalogEntry[] {
   ];
 }
 
-async function mountPicker(props: ModelPickerProps = {}): Promise<ModelPicker> {
+function createPicker(props: ModelPickerProps = {}): ModelPicker {
   const picker = new ModelPicker();
   picker.options = props.options ?? [
     { value: "openai/gpt-5", label: "gpt-5", description: "openai" },
@@ -374,6 +431,11 @@ async function mountPicker(props: ModelPickerProps = {}): Promise<ModelPicker> {
   if (props.onCancel !== undefined) picker.onCancel = props.onCancel;
   if (props.onToggleEnabled !== undefined) picker.onToggleEnabled = props.onToggleEnabled;
   if (props.onSetScope !== undefined) picker.onSetScope = props.onSetScope;
+  return picker;
+}
+
+async function mountPicker(props: ModelPickerProps = {}): Promise<ModelPicker> {
+  const picker = createPicker(props);
   document.body.append(picker);
   await settleRenderedDialog(picker);
   return picker;
@@ -449,7 +511,7 @@ describe("model default catalog controls", () => {
     const picker = await mountPicker();
     picker.onSetDefault = onSetDefault;
     picker.defaultValue = "openai/gpt-5";
-    scopeToggle(picker, "全部模型").click();
+    scopeToggle(picker, "All models").click();
     await settleRenderedDialog(picker);
     const active = requiredElement(catalogRow(picker, "openai/gpt-5").querySelector<HTMLButtonElement>(".default-pin"), "active default");
     const disabled = requiredElement(catalogRow(picker, "openai/gpt-4o").querySelector<HTMLButtonElement>(".default-pin"), "disabled default");

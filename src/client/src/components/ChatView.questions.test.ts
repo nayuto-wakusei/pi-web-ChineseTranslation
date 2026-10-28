@@ -96,7 +96,7 @@ describe("ChatView conversation-first questions", () => {
     expect(closed.onSubmit).toBeUndefined();
     const root = requiredElement(closed.shadowRoot, "closed shadow root");
     expect(root.querySelector("details")?.open).toBe(false);
-    expect(root.textContent).toContain("Draft answer · Not sent");
+    expect(root.textContent).toContain("Draft answer · not sent");
     expect(root.textContent).toContain("Vim");
     expect(root.textContent).toContain("VS Code");
     expect(root.textContent).toContain("Modal editor");

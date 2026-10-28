@@ -3,7 +3,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { localMarkdownImage } from "./markdownImages";
 import { toSafeMarkdownHtml } from "./markdown";
 import { MarkdownImage } from "../components/MarkdownImage";
-import { t } from "../i18n";
 import { imagePresentation, loadIntrinsicDimensions, nativeImage, settleImage } from "../components/imagePresentation.testSupport";
 
 beforeEach(() => { vi.stubGlobal("IntersectionObserver", undefined); });
@@ -212,5 +211,5 @@ it("keeps an inert native image until approval and resets consent for a differen
   expect(root.querySelector("img")).toBe(native);
   expect(native.hasAttribute("src")).toBe(false);
   expect(placeholder.hidden).toBe(false);
-  expect(placeholder.textContent).toContain(t("images.show", "Show image"));
+  expect(placeholder.textContent).toContain("Show image");
 });

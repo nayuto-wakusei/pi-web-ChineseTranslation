@@ -1,4 +1,7 @@
 import type { TranslationParameters, Translator } from "./shared/pluginApiTypes.js";
+import type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
+export type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
+export type { TerminalTitlePresentation } from "./shared/terminalTitlePresentation.js";
 import type { PluginBackend, JsonObject, JsonPrimitive, JsonValue, PluginCapability, PluginCapabilityProvision, WorkspaceProviderMetadata, WorkspaceRemovalPresentation } from "./shared/pluginApiTypes.js";
 export type { TranslationParameters, Translator, JsonObject, JsonPrimitive, JsonValue, PluginCapability, PluginCapabilityProvision, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, };
 export { PI_WEB_HOST_CATALOG_CAPABILITY, type PluginCatalogProject, type PluginCatalogWorkspace, type PluginSessionSnapshot, type PluginWorkspaceSelection, type PluginSessionSelection, type PluginCatalogReadOptions, type PluginCatalogV1, } from "./shared/pluginCatalogTypes.js";
@@ -87,6 +90,8 @@ export type ServerPluginNoticeScope = {
 };
 /** Plugin-authored notice data. The host supplies the immutable source identity. */
 export interface ServerPluginNoticeInput {
+    /** Optional PI WEB-generated presentation; unknown metadata retains the raw message. Diagnostic detail is limited to 4096 code units. */
+    readonly presentation?: ServerNoticePresentation;
     readonly severity: ServerPluginNoticeSeverity;
     /** Non-empty human-readable text, limited to 4 KiB of UTF-8. */
     readonly message: string;
@@ -255,12 +260,18 @@ export type LegacyServerPluginPeer = {
 };
 export type ServerPluginPeerV5 = {
     request(context: ServerPluginPeerRequestContextV5): MaybePromise<JsonValue>;
+    resource?(context: ServerPluginPeerResourceContextV5): MaybePromise<ServerPluginResourceResponse>;
     /** Open one finite-lived, host-bounded duplex channel. */
     openChannel?(context: ServerPluginPeerChannelOpenContextV5): MaybePromise<ServerPluginPeerChannel>;
 } | {
     request?: undefined;
     /** Open one finite-lived, host-bounded duplex channel. */
     openChannel(context: ServerPluginPeerChannelOpenContextV5): MaybePromise<ServerPluginPeerChannel>;
+    resource?(context: ServerPluginPeerResourceContextV5): MaybePromise<ServerPluginResourceResponse>;
+} | {
+    request?: undefined;
+    openChannel?: undefined;
+    resource(context: ServerPluginPeerResourceContextV5): MaybePromise<ServerPluginResourceResponse>;
 };
 /** Channel instance returned by `openChannel()` after the host validates scope. */
 export interface ServerPluginPeerChannel {
@@ -309,6 +320,19 @@ export type LegacyServerPluginPeerRequestContext = Omit<ServerPluginPeerRequestC
     readonly project: ProjectInput;
     readonly workspace: ServerPluginPeerWorkspace;
 };
+/** Binary resource metadata is allowlisted; plugins cannot supply arbitrary HTTP headers. */
+export interface ServerPluginResourceResponse {
+    readonly body: Uint8Array | AsyncIterable<Uint8Array>;
+    readonly contentType: string;
+    readonly contentLength?: number;
+    readonly statusCode?: 200 | 206 | 416;
+    readonly contentRange?: string;
+    readonly acceptRanges?: "bytes";
+}
+/** The signal stays live until the body ends, is cancelled, or reaches its lifetime limit. */
+export interface ServerPluginPeerResourceContextV5 extends ServerPluginPeerRequestContextV5 {
+    readonly range?: string;
+}
 export interface ServerPluginPeerRequestContextV5 {
     readonly scope: ServerPluginPeerScope;
     readonly operation: string;
@@ -401,6 +425,8 @@ export interface ProviderRemoveContext {
  * approves the operation; it does not mean removal has completed.
  */
 export interface WorkspaceRemovePlan {
+    /** Optional generated title provenance; unknown metadata retains the authored title. */
+    titlePresentation?: import("./shared/terminalTitlePresentation.js").TerminalTitlePresentation;
     /** Human-readable title for the host-owned terminal run. */
     title: string;
     /**

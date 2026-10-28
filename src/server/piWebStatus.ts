@@ -11,9 +11,11 @@ import { DefaultPackageManager, SettingsManager, VERSION as PI_CODING_AGENT_VERS
 import type { ActiveAgentProfileDescriptor, PiWebCapability, PiWebComponentStatus, PiWebInstallationInfo, PiWebReleaseStatus, PiWebRuntimeComponent, PiWebRuntimeResponse, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebVersionResponse } from "../shared/apiTypes.js";
 import { effectivePiWebCapabilities, WEB_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
 import { piWebDockerCommand } from "../docker/piWebDockerCommandPlan.js";
+import { piWebRuntimeIdentity } from "../shared/piWebRuntime.js";
 import { parsePiWebRuntimeComponent } from "../shared/piWebStatusParsing.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
-import { isHostAbsoluteAgentDir, PI_CODING_AGENT_DIR_ENV, loadPiWebConfig, type LoadedPiWebConfig } from "../config.js";
+import { isHostAbsoluteAgentDir, loadPiWebConfig, PI_CODING_AGENT_DIR_ENV, type LoadedPiWebConfig } from "../config.js";
+import { versionChecksDisabled } from "../shared/versionCheckPolicy.js";
 import { createPiWebReleaseLookupCache, type PiWebReleaseLookup } from "./piWebReleaseLookupCache.js";
 
 const PI_WEB_PACKAGE_NAME = "@chainingintention/pi-web-cn";
@@ -90,6 +92,7 @@ export function getPiWebRuntimeComponent(component: PiWebServiceComponent, capab
     component,
     label: component === "web" ? "Web/UI" : "Session daemon",
     runtimeVersion: runtimePackageInfo?.version ?? DEFAULT_VERSION,
+    runtime: piWebRuntimeIdentity(),
     piVersion: PI_CODING_AGENT_VERSION,
     available: true,
     capabilities: [...capabilities],
@@ -134,6 +137,7 @@ export async function getPiWebComponentStatus(component: PiWebServiceComponent, 
     component,
     label: component === "web" ? "Web/UI" : "Session daemon",
     runtimeVersion,
+    runtime: piWebRuntimeIdentity(),
     ...(installedVersion === undefined ? {} : { installedVersion }),
     piVersion: PI_CODING_AGENT_VERSION,
     stale: isInstalledVersionNewer(installedVersion, runtimeVersion),
@@ -346,9 +350,12 @@ async function getSessiondComponentStatus(daemon: PiWebStatusDaemon, options: Pi
     const runtime = parsePiWebRuntimeComponent(parsed);
     if (runtime?.available !== true) return unavailableSessiond(runtime?.error ?? "runtime response did not include valid runtime information");
     const status = await getPiWebComponentStatus("sessiond", options);
+    // A legacy daemon's engine is unknown, never this web process's engine.
+    delete status.runtime;
     const runtimeVersion = runtime.runtimeVersion ?? status.runtimeVersion;
     return {
       ...status,
+      ...(runtime.runtime === undefined ? {} : { runtime: runtime.runtime }),
       ...(runtimeVersion === undefined ? {} : { runtimeVersion }),
       ...(runtime.piVersion === undefined ? {} : { piVersion: runtime.piVersion }),
       stale: isInstalledVersionNewer(status.installedVersion, runtimeVersion),
@@ -590,11 +597,9 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
   if (!components.sessiond.available) {
     messages.push({
       id: "sessiond-unavailable",
-      severity: "warning",
-      title: t("status.daemonUnavailable", "Session daemon version unavailable"),
-      body: commands.status === undefined
-        ? t("server.main.ebfeec269198", "PI WEB could not check the session daemon version{arg0}. Check the session daemon service or process that runs this installation.", { arg0: components.sessiond.error === undefined ? "" : `: ${components.sessiond.error}` })
-        : t("status.daemonUnavailableCommand", "PI WEB could not check the session daemon version{detail}", { detail: components.sessiond.error === undefined ? "." : `: ${components.sessiond.error}` }),
+      severity: "info",
+      title: "Session daemon version unknown",
+      body: `The last check could not determine the session daemon version. This can happen during an update or restart. If checks keep failing, check the session daemon service or process.${components.sessiond.error === undefined ? "" : ` Last check: ${components.sessiond.error}`}`,
       ...optionalMessageCommand(commands.status),
     });
   } else if (components.sessiond.stale) {
@@ -618,10 +623,7 @@ function optionalMessageCommand(command: string | undefined): Pick<PiWebStatusMe
 }
 
 function skipVersionCheck(): boolean {
-  return ["PI_WEB_SKIP_VERSION_CHECK", "PI_WEB_OFFLINE", "PI_SKIP_VERSION_CHECK", "PI_OFFLINE"].some((key) => {
-    const value = process.env[key];
-    return value !== undefined && value !== "";
-  });
+  return versionChecksDisabled(process.env);
 }
 
 function isInstalledVersionNewer(installedVersion: string | undefined, runtimeVersion: string | undefined): boolean {

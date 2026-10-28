@@ -66,7 +66,7 @@ describe("SessionController notification event boundary", () => {
     expect(refreshSelectedSession).toHaveBeenCalledOnce();
 
     socket.open();
-    expect(refreshSelectedSession).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => { expect(refreshSelectedSession).toHaveBeenCalledTimes(2); });
     expect(refreshSelectedSession).toHaveBeenLastCalledWith(oldSession, "local");
   });
 

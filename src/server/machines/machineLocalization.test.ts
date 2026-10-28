@@ -59,8 +59,8 @@ describe("machine localization boundaries", () => {
   });
 
   it.each([
-    ["en", "Machine name is required", "Machine not found", "Machine header is not allowed: Cookie"],
-    ["zh-CN", "必须填写机器名称", "找不到机器", "不允许使用机器请求头：Cookie"],
+    ["en", "Machine baseUrl is required", "Machine not found", "Machine header is not allowed: Cookie"],
+    ["zh-CN", "必须填写机器 baseUrl", "找不到机器", "不允许使用机器请求头：Cookie"],
   ])("localizes owned validation and missing-machine errors in %s", async (locale, required, missing, header) => {
     const { app } = await fixture(locale);
     const invalid = await app.inject({ method: "POST", url: "/api/machines", payload: {} });

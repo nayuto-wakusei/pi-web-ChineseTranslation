@@ -1,3 +1,5 @@
+import { terminalTitlePresentationField } from "../../shared/terminalTitlePresentation.js";
+import { parseWorkspaceRemovalLocalization } from "../../shared/workspaceRemovalPresentation.js";
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
@@ -828,7 +830,8 @@ function parseRemoval(value: unknown, label: string): ProviderWorkspaceRemovalPr
   const confirmation = value["confirmation"];
   if (typeof actionLabel !== "string" || actionLabel === "") throw new WorkspaceProviderContractError(`${label} actionLabel must be a non-empty string`);
   if (typeof confirmation !== "string" || confirmation === "") throw new WorkspaceProviderContractError(`${label} confirmation must be a non-empty string`);
-  return Object.freeze({ actionLabel, confirmation });
+  const localization = parseWorkspaceRemovalLocalization(value["localization"]);
+  return Object.freeze({ actionLabel, confirmation, ...(localization === undefined ? {} : { localization }) });
 }
 
 function hostRemovalPresentation(
@@ -846,6 +849,7 @@ function hostRemovalPresentation(
     path,
     removal.actionLabel,
     removal.confirmation,
+    ...(removal.localization === undefined ? [] : [removal.localization]),
   ])).digest("base64url");
   return Object.freeze({ ...removal, precondition: `v1.${digest}` });
 }
@@ -1038,7 +1042,7 @@ function parseWorkspaceRemovePlan(value: unknown, pluginId: string): WorkspaceRe
   if (typeof command !== "string" || command.trim() === "") {
     throw providerRemovalError("invalid-plan", 502, `Server plugin ${pluginId} removal plan command must be a non-empty string`);
   }
-  return Object.freeze({ title, command });
+  return Object.freeze({ title, command, ...terminalTitlePresentationField(value["titlePresentation"]) });
 }
 
 function boundedErrorMessage(error: unknown): string {

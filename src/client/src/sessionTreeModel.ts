@@ -1,4 +1,4 @@
-import { t } from "./i18n";
+
 import type { SessionTreeNode, SessionTreeSnapshot, SessionTreeSummaryChoice } from "./api";
 import { SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH } from "../../shared/apiTypes";
 
@@ -199,11 +199,11 @@ export function toggleSessionTreeFold(model: SessionTreeModel, state: SessionTre
   return { selectedId: id, foldedIds };
 }
 
-export function validateSessionTreeSummaryChoice(mode: SessionTreeSummaryChoice["mode"], customInstructions: string): SessionTreeSummaryValidation {
+export function validateSessionTreeSummaryChoice(mode: SessionTreeSummaryChoice["mode"], customInstructions: string, validationMessage?: (code: "required" | "tooLong") => string): SessionTreeSummaryValidation {
   if (mode === "none" || mode === "default") return { ok: true, choice: { mode } };
-  if (customInstructions.trim() === "") return { ok: false, error: t("client.sessionTreeModel.enter.custom.summary.focus.instructions.199988", "Enter custom summary focus instructions.") };
+  if (customInstructions.trim() === "") return { ok: false, error: validationMessage?.("required") ?? "Enter custom summary focus instructions." };
   if (customInstructions.length > SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH) {
-    return { ok: false, error: t("client.sessionTreeModel.custom.summary.focus.must.be.characters.or.fewer.26275e", "Custom summary focus must be {value1} characters or fewer.", { value1: String(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH) }) };
+    return { ok: false, error: validationMessage?.("tooLong") ?? `Custom summary focus must be ${String(SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH)} characters or fewer.` };
   }
   return { ok: true, choice: { mode: "custom", instructions: customInstructions.trim() } };
 }

@@ -1,5 +1,6 @@
 import { UserFacingError } from "../../shared/i18n.js";
 import { randomUUID } from "node:crypto";
+import type { SessionNotificationPresentation } from "../../shared/sessionNotificationPresentation.js";
 import {
   SESSION_NOTIFICATION_LIMIT,
   SESSION_NOTIFICATION_MESSAGE_BYTES,
@@ -260,6 +261,7 @@ export class SessionNotificationStore {
     generation: SessionNotificationGeneration,
     message: string,
     severity: unknown,
+    presentation?: SessionNotificationPresentation,
   ): SessionNotificationAddResult {
     const binding = this.bindings.get(generation);
     if (binding === undefined) return { mutations: [] };
@@ -278,6 +280,7 @@ export class SessionNotificationStore {
     const notification: SessionNotification = Object.freeze({
       id: `${this.daemonInstanceId}:${String(order)}`,
       message: truncatedMessage.message,
+      ...(presentation === undefined ? {} : { presentation: Object.freeze({ ...presentation }) }),
       truncated: truncatedMessage.truncated,
       severity: normalizeSeverity(severity),
       receivedAt: this.now().toISOString(),

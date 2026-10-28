@@ -5,7 +5,7 @@ import type { OAuthFlowState } from "../api";
 import type { AuthDialogState } from "../appState";
 import { AuthDialog } from "./AuthDialog";
 
-const PASTE_NOTE_MARKER = "复制浏览器地址栏中的完整 URL";
+const PASTE_NOTE_MARKER = "Copy the full URL from your browser's address bar";
 const MANUAL_CODE_PROMPT = {
   requestId: "req-1",
   message: "Paste the redirect URL here",
@@ -23,7 +23,7 @@ describe("auth-dialog remote OAuth paste-first note", () => {
     const flow = oauthFlow({ prompt: MANUAL_CODE_PROMPT });
     const dialog = await mountDialog(oauthState({ machineId: "fleet-a", flow }), "http://localhost:5173/");
     expect(dialogText(dialog)).toContain(PASTE_NOTE_MARKER);
-    expect(dialogText(dialog)).toContain("打开此授权链接：");
+    expect(dialogText(dialog)).toContain("Open this authorization link:");
   });
 
   it("shows the paste note when the local machine's gateway host is not loopback for the browser", async () => {
@@ -35,7 +35,7 @@ describe("auth-dialog remote OAuth paste-first note", () => {
   it("waits for the manual-code prompt before promising a paste input", async () => {
     const dialog = await mountDialog(oauthState({ machineId: "fleet-a" }), "https://pi.example.com/");
     expect(dialogText(dialog)).not.toContain(PASTE_NOTE_MARKER);
-    expect(dialogText(dialog)).toContain("打开此授权链接：");
+    expect(dialogText(dialog)).toContain("Open this authorization link:");
   });
 
   it("stays silent for a browser-callback flow that never prompts for a pasted value", async () => {
@@ -61,7 +61,7 @@ describe("auth-dialog remote OAuth paste-first note", () => {
       const flow = oauthFlow({ prompt: MANUAL_CODE_PROMPT });
       const dialog = await mountDialog(oauthState({ flow }), pageUrl);
       expect(dialogText(dialog)).not.toContain(PASTE_NOTE_MARKER);
-      expect(dialogText(dialog)).toContain("打开此授权链接：");
+      expect(dialogText(dialog)).toContain("Open this authorization link:");
     },
   );
 
@@ -69,7 +69,7 @@ describe("auth-dialog remote OAuth paste-first note", () => {
     const flow = oauthFlow({ auth: { url: "https://github.com/login/device", deviceCode: { userCode: "ABCD-1234" } } });
     const dialog = await mountDialog(oauthState({ machineId: "fleet-a", flow }), "https://pi.example.com/");
     expect(dialogText(dialog)).not.toContain(PASTE_NOTE_MARKER);
-    expect(dialogText(dialog)).toContain("输入代码：");
+    expect(dialogText(dialog)).toContain("Enter code: ");
     expect(dialogText(dialog)).toContain("ABCD-1234");
   });
 
