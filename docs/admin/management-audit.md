@@ -64,7 +64,7 @@ entry token 交换为私有 Agent Session 后，access/capability tickets 必须
 
 完整特权仍保留管理身份、专属 auth/model/偏好 store、内容审计及委派上下文。其提示词排除已知平台托管 AGENTS 指令，包括匹配签名 context 的旧版指令；不能删除共享文件或真正用户编写的指令，保留操作者普通 permission-policy 环境。浏览器交互终端仍有独立授权，不能由上述表格直接推导可用性。宿主插件的会话连接仍限 normal scope，特权不会把管理会话变成普通会话或向普通调用者开放。
 
-全局功能开关启用时，管理会话可获得 `spawn_session`、以 `spawn_subsession` 为首的完整 tracked-subsession 工具集及 `ask_user`。所有独立会话和子会话继承发起者管理 context。受限模式在 Pi permission policy 和 runtime `tools` 中注册完全相同的受控工具名称集合，并遵守显式管理 deny；完整特权在普通 SDK 工具之外保留这些有作用域的工具。
+全局功能开关启用时，管理会话可获得 `spawn_session`、以 `spawn_subsession` 为首的完整 tracked-subsession 工具集、`ask_user` 及由 `sessionMessages` 独立控制的 `send_session_message`。消息目标限同机器、同注册项目及相同管理作用域，不跨普通/管理边界。所有独立会话和子会话继承发起者管理 context。受限模式在 Pi permission policy 和 runtime `tools` 中注册完全相同的受控工具名称集合，并遵守显式管理 deny；完整特权在普通 SDK 工具之外保留这些有作用域的工具。
 
 ## 能力、知识与 Skill
 

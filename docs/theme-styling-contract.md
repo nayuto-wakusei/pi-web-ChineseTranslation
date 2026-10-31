@@ -14,7 +14,7 @@ Three responsibilities compose:
 
 These are responsibilities, not a requirement for two DOM elements around every control. Use an existing container for context; a domain hook can also live on the control itself. Native semantics, accessible names, event handling, and focus management belong to the component, not CSS.
 
-Base defaults for these surfaces live in the `pi-web-base` cascade layer. Ordinary unlayered contributed CSS overrides them. Scope rules to the host or documented context: contributed sheets reach multiple shadow roots, but selectors do not cross a shadow boundary. Inherited custom properties can cross it. See [theme architecture](theme-architecture.md) and [stylesheet integration](plugins.md#css-files-and-shadow-roots).
+Migrated base defaults for these surfaces live in the `pi-web-base` cascade layer. Ordinary unlayered contributed CSS overrides them; some surfaces, including session search, retain component-owned defaults as described below. Scope rules to the host or documented context: contributed sheets reach multiple shadow roots, but selectors do not cross a shadow boundary. Inherited custom properties can cross it. See [theme architecture](theme-architecture.md) and [stylesheet integration](plugins.md#styles-highlighting-and-display).
 
 ## Conversation messages
 
@@ -293,9 +293,9 @@ This boundary does not freeze all popup contents, machine-row layout, workspace 
 
 ## Session search surface
 
-The host-owned `session-search-dialog` uses the shared `ui-dialog-*` anatomy inside `modal-surface`; its grouped result list uses `ui-selection-list` and each result row uses `ui-selection-option`. Theme CSS can size the surface through the host's `--session-search-width`, `--session-search-max-height`, `--session-search-font-size`, `--session-search-input-height`, and `--session-search-control-size` properties. The navigation search action is exposed to presentations as `search`; the bundled Custom UI Codex renders it with `data-action-id="search"`, so theme rules can target that attribute.
+The host-owned `session-search-dialog` exposes the shared `ui-dialog-*` class hooks inside `modal-surface`; its grouped result list uses `ui-selection-list` and each result row uses `ui-selection-option`. It retains component-local defaults rather than importing the shared dialog and selection styles. Theme CSS can size the surface through the host's `--session-search-width`, `--session-search-max-height`, `--session-search-font-size`, `--session-search-input-height`, and `--session-search-control-size` properties. The navigation search action is exposed to presentations as `search`; the bundled Custom UI Codex renders it with `data-action-id="search"`, so theme rules can target that attribute.
 
-The bundled Custom UI Codex presentation currently uses these hooks for a larger search surface: a 1040×860 px cap, 16 px text, a 52 px input, a 44 px close control, and a 48 px minimum-height navigation action with a 22 px icon and 16 px text. These are current theme choices, not frozen geometry; disabling the plugin restores the upstream component defaults and shared dialog/selection classes.
+The bundled Custom UI Codex presentation currently uses these hooks for a larger search surface: a 1040×860 px cap, 16 px text, a 52 px input, a 44 px close control, and a 48 px minimum-height navigation action with a 22 px icon and 16 px text. These are current theme choices, not frozen geometry; disabling the plugin removes its overrides and restores the component defaults; the dialog/selection class hooks remain present.
 
 ## Accessibility and verification
 

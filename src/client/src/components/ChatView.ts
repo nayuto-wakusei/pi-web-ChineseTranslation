@@ -28,7 +28,7 @@ import { ChatScrollFlows } from "../ChatScrollFlows";
 import { ChatRenderKeys } from "../chatRenderKeys";
 import { DEFAULT_CHAT_BEHAVIORS, type ChatBehaviors } from "../chatBehaviors";
 import type { AskUserSubmission, PendingExtensionDialog, QueuedSessionMessage, SessionActivity, SessionRef, SessionStatus } from "../api";
-import type { ClosedExtensionDialog } from "../appState";
+import type { ClosedExtensionDialog, SessionSearchTarget } from "../appState";
 import type { ChatLine, ChatPart } from "../chatTypes";
 import { chatStyles } from "./chat/chatStyles";
 import type { RegisteredTranscriptRenderer } from "../plugins/transcriptRenderers";
@@ -39,6 +39,7 @@ import type { ExtensionDialogAnswerCallback, ExtensionDialogCancelCallback, Exte
 import "./ImageGalleryDialog";
 import type { ImageGalleryDialog } from "./ImageGalleryDialog";
 import "./FormattedText";
+import type { FormattedText } from "./FormattedText";
 import type { MarkdownWorkspaceContext } from "../formatting/workspaceLinks";
 import "./ToolExecutionView";
 import "./TranscriptRendererHost";
@@ -192,6 +193,12 @@ export class ChatView extends LitElement {
   @property({ type: Number }) messageEnd = 0;
 
   @property({ type: Number }) messageTotal = 0;
+
+  @property({ attribute: false }) searchTarget: SessionSearchTarget | undefined;
+  private searchTargetMachineId: string | undefined;
+  private navigatedSearchTarget: SessionSearchTarget | undefined;
+  private searchNavigationVersion = 0;
+  private searchHighlightsActive = false;
 
   @property({ type: Boolean }) hasMore = false;
 
@@ -352,6 +359,7 @@ export class ChatView extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.searchNavigationVersion += 1;
     this.scrollFlows.dispose();
     this.messageActionController.reset();
     this.queuedCopyGeneration += 1;
@@ -368,6 +376,8 @@ export class ChatView extends LitElement {
   }
 
   protected override willUpdate(changed: Map<string, unknown>): void {
+    // A retained target must not follow a colliding session id to another machine.
+    if (changed.has("searchTarget")) this.searchTargetMachineId = this.machineId;
     if (changed.has("messages")) {
       this.questionOutcomes = transcriptQuestionOutcomes(this.messages);
       this.questionIds = new Set(this.messages.flatMap((line) => line.parts.flatMap((part) => part.type === "askUserQuestion" ? [part.ask.askId] : [])));
@@ -376,6 +386,7 @@ export class ChatView extends LitElement {
     if (changed.has("sessionId") || changed.has("machineId")) {
       this.transientDisclosures.clear();
       this.lastOpenQuestionId = undefined;
+      this.navigatedSearchTarget = undefined;
 
     }
     const actionIdentity = JSON.stringify([this.machineId, this.sessionId, this.sessionCwd, this.workspaceContext?.machineId, this.workspaceContext?.projectId, this.workspaceContext?.workspaceId, this.workspaceContext?.root]);
@@ -418,6 +429,9 @@ export class ChatView extends LitElement {
       openedForm: changed.has("pendingDialogs") && this.isNewOpenDialog(changed.get("pendingDialogs")) ? "dialog"
         : openQuestionId !== undefined && openQuestionId !== this.lastOpenQuestionId ? "ask" : false,
     });
+    if (changed.has("searchTarget") || changed.has("messages") || changed.has("messageStart") || changed.has("historyReady") || changed.has("sessionId") || changed.has("machineId")) {
+      void this.navigateToSearchTarget();
+    }
     if (this.onTranscriptRendered !== undefined) void this.reportRenderedTranscript();
     this.lastOpenQuestionId = openQuestionId;
     if (this.navigationLocalizationChanged || changed.has("followingLive") || changed.has("behaviors") || changed.has("onNavigationChange")) {
@@ -427,6 +441,32 @@ export class ChatView extends LitElement {
   }
 
   private readonly renderKeys = new ChatRenderKeys();
+
+  private async navigateToSearchTarget(): Promise<void> {
+    const version = ++this.searchNavigationVersion;
+    const target = this.searchTarget;
+    if (target === undefined) this.navigatedSearchTarget = undefined;
+    const localIndex = target?.sessionId === this.sessionId && this.searchTargetMachineId === this.machineId
+      ? this.messages.findIndex((message, index) => (message.transcriptIndex ?? this.messageStart + index) === target.messageIndex
+        && message.parts.some((part) => part.type === "text" && (part.displayText ?? part.text) !== ""))
+      : -1;
+    if (localIndex < 0 && !this.searchHighlightsActive) return;
+    // Search indexes raw transcript entries; rendered positions can differ after
+    // normalization. Prefer the readable slice, never hidden thinking/tool text.
+    const message = localIndex < 0 ? null : this.renderRoot.querySelector<HTMLElement>(`article.msg[data-index="${String(this.messageStart + localIndex)}"]`);
+    const texts = Array.from(this.renderRoot.querySelectorAll<FormattedText>("formatted-text"));
+    for (const text of texts) {
+      text.highlight = message?.contains(text) === true && text.closest("details") === null ? target?.query ?? "" : "";
+    }
+    this.searchHighlightsActive = message !== null && (target?.query.trim() ?? "") !== "";
+    if (message === null || target === undefined || !this.historyReady || this.navigatedSearchTarget === target) return;
+    this.scrollFlows.onUpIntent();
+    await Promise.all(texts.filter((text) => message.contains(text)).map((text) => text.updateComplete));
+    if (!this.isConnected || version !== this.searchNavigationVersion || this.searchTarget !== target || this.chat === undefined) return;
+    this.chat.scrollTop += message.getBoundingClientRect().top - this.chat.getBoundingClientRect().top;
+    this.navigatedSearchTarget = target;
+    this.scrollFlows.savePosition();
+  }
 
   override render() {
     const sourceGroups = this.groupedMessages();

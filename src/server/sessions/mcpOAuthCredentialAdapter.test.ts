@@ -14,7 +14,7 @@ let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "pi-scoped-mcp-")); });
 afterEach(async () => { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
 
-it.each(["0.86.1", "0.87.0", "1.3.1", "1.3.0-unknown"])("refuses unapproved host %s before importing internal modules or creating storage", async (version) => {
+it.each(["0.86.1", "0.87.0", "1.3.1", "1.4.1", "1.3.0-unknown"])("refuses unapproved host %s before importing internal modules or creating storage", async (version) => {
   const importModule = vi.fn(() => Promise.resolve({}));
   const directory = join(root, "unused");
   await expect(createMcpOAuthCredentialOptions({ directory }, {
