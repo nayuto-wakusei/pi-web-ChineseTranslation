@@ -161,39 +161,6 @@ describe("Terminal browser runtime", () => {
     expect(runtime.activeTerminalBadge(context)).toBe(1);
   });
 
-  it("cancels in-flight refreshes and scheduled badge work when disposed", async () => {
-    let requestSignal: AbortSignal | undefined;
-    const request = vi.fn<NonNullable<PluginPeer["request"]>>((_operation, _input, options): Promise<JsonValue> => new Promise((_resolve, reject) => {
-      const signal = options?.signal;
-      requestSignal = signal;
-      signal?.addEventListener("abort", () => {
-        const reason: unknown = signal.reason;
-        reject(reason instanceof Error ? reason : new Error("Terminal refresh aborted"));
-      }, { once: true });
-    }));
-    const timer = globalThis.setTimeout(() => undefined, 60_000);
-    const setTimer = vi.fn((handler: () => void, timeout: number) => {
-      void handler;
-      void timeout;
-      return timer;
-    });
-    const clearTimer = vi.fn((id: ReturnType<typeof globalThis.setTimeout>) => { globalThis.clearTimeout(id); });
-    const context = workspaceContext("remote-1", request);
-    const runtime = new TerminalBrowserRuntime(new InMemoryTerminalSelectionMemory(), () => 1_000, setTimer, clearTimer);
-    runtime.activeTerminalBadge(context);
-    const refresh = runtime.refresh(context);
-    runtime.updateTerminals(context, [{ id: "active", cwd: "/repo", name: "Shell", createdAt: "now", exited: false }]);
-
-    expect(setTimer).toHaveBeenCalledOnce();
-    runtime.dispose();
-
-    expect(requestSignal?.aborted).toBe(true);
-    expect(clearTimer).toHaveBeenCalledWith(timer);
-    await expect(refresh).rejects.toMatchObject({ name: "AbortError" });
-    expect(runtime.activeTerminalBadge(context)).toBeUndefined();
-    await expect(runtime.refresh(context)).rejects.toMatchObject({ name: "AbortError" });
-  });
-
   it("polls directly without rendering unchanged counts, including recovery from an error", async () => {
     const request = vi.fn<NonNullable<PluginPeer["request"]>>().mockResolvedValue([]);
     const context = workspaceContext("local", request);

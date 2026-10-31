@@ -1,6 +1,6 @@
 import "./nodeThemePlugin.testSupport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Project } from "../api";
+import { api, type Project } from "../api";
 import { navigationOrderPort } from "../api/navigationOrder";
 import type { AppState } from "../appState";
 import { SessionController } from "../controllers/sessionController";
@@ -153,7 +153,7 @@ describe("PiWebApp workspace topology refresh wiring", () => {
 });
 
 describe("PiWebApp realtime workspace invalidations", () => {
-  it.each(["local", "machine-a"])("refreshes only topology for a matching project on %s, even while the agent is active", (machineId) => {
+  it.each(["local", "machine-a"])("refreshes topology and session lifecycle for a matching project on %s, even while the agent is active", (machineId) => {
     const app = createApp();
     selectSessionForPolling(app, true);
     setAppState(app, { selectedMachine: machine(machineId), selectedProject: project });
@@ -168,8 +168,44 @@ describe("PiWebApp realtime workspace invalidations", () => {
 
     expect(sourceMachineId).toBe(machineId);
     expect(refreshTopology).toHaveBeenCalledOnce();
-    expect(refreshSessions).not.toHaveBeenCalled();
+    expect(refreshSessions).toHaveBeenCalledExactlyOnceWith(machineId, { recoverNetwork: true });
     expect(applySessionEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "another machine with the same project id", source: "machine-b", projectId: project.id, selectedProject: project },
+    { label: "another project on the selected machine", source: "machine-a", projectId: "project-2", selectedProject: project },
+    { label: "no selected project", source: "machine-a", projectId: project.id, selectedProject: undefined },
+  ])("ignores a notification for $label", ({ source, projectId, selectedProject }) => {
+    const app = createApp();
+    setAppState(app, { selectedMachine: machine("machine-a"), selectedProject });
+    const refreshTopology = spyOnTopologyRefresh(app);
+    const refreshSessions = spyOnWorkspaceSessionsRefresh(app);
+
+    const handleEvent: unknown = Reflect.get(app, "handleRealtimeEvent");
+    if (typeof handleEvent !== "function") throw new Error("Realtime event handler was unavailable");
+    handleEvent.call(app, source, { type: "workspaces.changed", projectId });
+
+    expect(refreshTopology).not.toHaveBeenCalled();
+    expect(refreshSessions).not.toHaveBeenCalled();
+  });
+
+  it("coalesces a burst of notifications through the existing WorkspaceController", async () => {
+    vi.useFakeTimers();
+    const app = createApp();
+    setAppState(app, { selectedMachine: machine("machine-a"), selectedProject: project });
+    const loadWorkspaces = vi.spyOn(api, "workspaceResolution").mockResolvedValue({ projectId: project.id, status: "provider", ownerPluginId: "git", diagnostics: [], workspaces: [] });
+    const [onEvent] = captureRealtimeConnection(app);
+
+    onEvent({ type: "workspaces.changed", projectId: project.id });
+    onEvent({ type: "workspaces.changed", projectId: project.id });
+    onEvent({ type: "workspaces.changed", projectId: project.id });
+    expect(loadWorkspaces).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+
+    // Debouncing and trailing-pass semantics belong to workspaceController.test.ts;
+    // this boundary only proves notifications use that same coalesced refresh path.
+    expect(loadWorkspaces).toHaveBeenCalledExactlyOnceWith(project.id, "machine-a");
   });
 });
 

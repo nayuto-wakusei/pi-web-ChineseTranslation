@@ -1,0 +1,5 @@
+---
+"@chainingintention/pi-web-cn": patch
+---
+
+Add actions to copy session, workspace, project, and machine IDs from their menus without displaying the IDs.

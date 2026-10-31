@@ -79,10 +79,12 @@ describe("plugin delivery artifacts", () => {
     expect(distFiles.filter(isTestArtifact)).toEqual([]);
     expect(packagedFiles.filter(isTestArtifact)).toEqual([]);
     expect(packagedFiles).toEqual(expect.arrayContaining([
+      "docs/scheduled-tasks.md",
       "dist/cli.js", "dist/server/app.js", "dist/server/index.js", "dist/server/sessiond.js",
       "dist/bin/pi-web.sh", "dist/bin/pi-web-server.sh", "dist/bin/pi-web-sessiond.sh", "dist/runtimePreflight.js",
       "dist/plugin-api.d.ts", "dist/server-plugin-api.d.ts", "dist/server-plugin-api.js",
       "dist/shared/pluginApiTypes.d.ts", "dist/shared/pluginCatalogTypes.d.ts", "dist/shared/pluginCatalogTypes.js",
+      "dist/shared/pluginSessionLifecycleTypes.d.ts", "dist/shared/pluginSessionLifecycleTypes.js",
       "plugin-api.d.ts", "server-plugin-api.d.ts", "dist/client/index.html",
       "examples/workspace-provider-plugin/package.json",
       "dist/pi-web-plugins/git/workspace-discovery-notify.cjs",
@@ -115,6 +117,11 @@ describe("plugin delivery artifacts", () => {
     expect(builtPackageFiles).toContain("dist/pi-packages/relays/skills/relay/SKILL.md");
     expect(builtPackageFiles).toContain("dist/pi-packages/relays/skills/relay-runner/SKILL.md");
     expect(builtPackageFiles).toEqual(expect.arrayContaining([
+      "dist/pi-packages/session-naming/package.json",
+      "dist/pi-packages/session-naming/extensions/index.js",
+      "dist/pi-packages/scheduled-tasks/package.json",
+      "dist/pi-packages/scheduled-tasks/server-plugin.js",
+      "dist/pi-packages/scheduled-tasks/browser/pi-web-plugin.js",
       "dist/pi-packages/workflows/package.json",
       "dist/pi-packages/workflows/browser/pi-web-plugin.js",
       "dist/pi-packages/workflows/prompts/worktree.md",
@@ -152,6 +159,96 @@ describe("plugin delivery artifacts", () => {
       expect(await readFile(join(source, "skills", name, "SKILL.md"), "utf8"))
         .toBe(await readFile(join(repoRoot, "skills", name, "SKILL.md"), "utf8"));
     }
+  });
+
+  it("loads the naming extension solely through its removable Pi package", async () => {
+    const source = join(repoRoot, "dist", "pi-packages", "session-naming");
+    // A compiled extension must not resolve a second physical Pi SDK alongside
+    // the selected host; runtime inference comes from the extension context.
+    const imports = (await Promise.all((await recursiveFiles(source)).filter((path) => path.endsWith(".js"))
+      .map(async (path) => moduleSpecifiers(await readFile(join(source, path), "utf8"))))).flat();
+    expect(imports.filter((specifier) => specifier.startsWith("@earendil-works/"))).toEqual([]);
+    const settings = SettingsManager.inMemory({ packages: [source] });
+    const loader = new DefaultResourceLoader({ cwd: tempDir, agentDir: tempDir, settingsManager: settings, noThemes: true, noPromptTemplates: true });
+    await loader.reload();
+    expect(loader.getExtensions().errors).toEqual([]);
+    expect(loader.getExtensions().extensions).toHaveLength(1);
+    expect(loader.getExtensions().extensions[0].handlers.has("before_agent_start")).toBe(true);
+    settings.setPackages([]);
+    await loader.reload();
+    expect(loader.getExtensions().extensions).toHaveLength(0);
+  });
+
+  it("ships an optional disabled scheduler with standalone SQLite and cron dispatch", async () => {
+    const source = join(repoRoot, "dist", "pi-packages", "scheduled-tasks");
+    const metadata = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
+    expect(metadata).toMatchObject({ pi: { extensions: ["./extensions/index.js"], skills: ["./skills"] }, piWeb: { plugins: [{ id: "scheduled-tasks", defaultEnabled: false, browserRoot: "browser", module: "browser/pi-web-plugin.js" }] } });
+    const browserEntry = await readFile(join(source, "browser", "pi-web-plugin.js"), "utf8");
+    expect(moduleSpecifiers(browserEntry)).toEqual([]);
+    expect(await readdir(join(source, "browser"))).toEqual(["pi-web-plugin.js"]);
+    const loader = new DefaultResourceLoader({
+      cwd: tempDir, agentDir: tempDir,
+      settingsManager: SettingsManager.inMemory({ packages: [source] }),
+      noThemes: true, noPromptTemplates: true,
+    });
+    await loader.reload();
+    expect(loader.getExtensions().errors).toEqual([]);
+    expect(loader.getSkills().diagnostics).toEqual([]);
+    expect(loader.getSkills().skills).toEqual(expect.arrayContaining([expect.objectContaining({ name: "scheduled-tasks" })]));
+    const tools = loader.getExtensions().extensions.flatMap((extension) => [...extension.tools.values()]);
+    expect(tools.map((tool) => tool.definition.name)).toContain("scheduled_tasks_report");
+    expect(tools.every((tool) => tool.definition.exposure === "deferred")).toBe(true);
+    // Execute outside PI WEB's dependency tree: the server bundle must carry cron and public host API values.
+    const standalone = join(tempDir, "scheduler");
+    await mkdir(standalone);
+    await cp(join(source, "server-plugin.js"), join(standalone, "server-plugin.mjs"));
+    const probe = join(standalone, "probe.mjs");
+    await writeFile(probe, `
+      import plugin from "./server-plugin.mjs";
+      import { fileURLToPath } from "node:url";
+      const signal = new AbortController().signal;
+      const activation = await plugin.activate({ settings: { defaultTimezone: "UTC" },
+        lifetimeSignal: signal, dataDirectory: fileURLToPath(new URL(".", import.meta.url)),
+        logger: { error: console.error },
+      });
+      const project = { id: "p", name: "Project", path: "/project" };
+      const workspace = { id: "w", projectId: "p", label: "Main", path: "/project", isMain: true };
+      await activation.start({ capabilities: { resolve(capability) {
+        if (capability.id === "catalog") return capability.parse({ version: 1,
+          projects: { list: async () => [project], get: async () => project },
+          workspaces: { list: async () => [workspace], get: async () => workspace },
+          sessions: { list: async () => [], get: async () => { throw new Error("Unused"); } },
+        });
+        return capability.parse(capability.id === "workspaces"
+          ? { version: 1, resolve: async () => ({ project, workspace }) }
+          : { version: 1, create: async () => ({ sessionId: "unused" }), run: async () => ({
+            sessionId: "conversation", completion: Promise.resolve({ status: "completed" }),
+          }) });
+      } } });
+      const request = (operation, input) => activation.peer.request({ scope: { kind: "machine" }, operation, input, signal });
+      try {
+        const task = await request("create", { name: "Review", projectId: "p", workspaceId: "w",
+          prompt: "Review the project", schedule: { kind: "cron", expression: "0 9 * * *" } });
+        const execution = await request("dispatch", { taskId: task.id });
+        if (execution.sessionId !== "conversation" || execution.status !== "dispatched") throw new Error("Dispatch not confirmed");
+        console.log("standalone scheduler passed");
+      } finally { await activation.dispose(); }
+    `);
+    expect(await execUtf8(process.execPath, [probe], standalone, 10_000)).toContain("standalone scheduler passed");
+  });
+
+  it("ships a standalone Git notification helper that fails open", async () => {
+    const helperName = "workspace-discovery-notify.cjs";
+    const builtHelper = join(repoRoot, "dist", "pi-web-plugins", "git", helperName);
+    // Run outside the plugin tree to catch accidental checkout/runtime dependencies.
+    const helper = join(tempDir, helperName);
+    await cp(builtHelper, helper);
+    const marker = join(tempDir, "notification-attempted");
+    const failingCommand = [process.execPath, "-e", 'require("node:fs").writeFileSync(process.argv[1], "attempted"); process.exit(17);', marker];
+    const checkoutArgs = ["0".repeat(40), "2".repeat(40), "1"];
+    await expect(execUtf8(process.execPath, [helper, JSON.stringify(failingCommand), ...checkoutArgs], tempDir, 5_000)).resolves.toBe("");
+    expect(await readFile(marker, "utf8")).toBe("attempted");
+    await expect(execUtf8(process.execPath, [helper, JSON.stringify([join(tempDir, "missing-notification-command")]), ...checkoutArgs], tempDir, 5_000)).resolves.toBe("");
   });
 
   it("ships default-enabled Workflows web integration and loadable prompt resources", async () => {

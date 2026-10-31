@@ -95,9 +95,8 @@ describe.skipIf(!composeAvailable)("Docker Compose mount ownership (requires POS
       expect(config).toHaveProperty(`services.${serviceName}.environment.HOSTEXEC_MODE`, profile === "linux-native-docker" ? "nsenter" : "disabled");
     }
 
-    expect(config).toHaveProperty("services.web.command", [
-      "bash", "-c", expect.stringContaining("(cd /build/pi-web && pi-web-service node_modules/vite/bin/vite.js"),
-    ]);
+    expect(config).toHaveProperty("services.web.command", ["pi-web-npm", "run", "dev:ui"]);
+    expect(config).toHaveProperty("services.sessiond.command", ["pi-web-npm", "run", "start:sessiond"]);
 
     const initMounts = serviceMounts(config, "data-init");
     expectUniqueTargets(initMounts, "data-init");

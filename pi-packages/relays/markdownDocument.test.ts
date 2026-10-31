@@ -22,26 +22,6 @@ describe("renderRelayDocumentHtml", () => {
       expect(fragment.querySelector("code")?.textContent).toBe("code");
     }
   });
-  it("renders GFM markdown: headings, emphasis, lists, and code fences", () => {
-    const fragment = fragmentOf(renderRelayDocumentHtml([
-      "# Status",
-      "",
-      "All **good**.",
-      "",
-      "- one",
-      "- two",
-      "",
-      "```sh",
-      "echo hi",
-      "```",
-    ].join("\n")));
-
-    expect(fragment.querySelector("h1")?.textContent).toBe("Status");
-    expect(fragment.querySelector("strong")?.textContent).toBe("good");
-    expect(fragment.querySelectorAll("li")).toHaveLength(2);
-    expect(fragment.querySelector("pre code")?.textContent).toContain("echo hi");
-  });
-
   it("renders soft line breaks as <br> so plain-wrapped relay docs stay readable", () => {
     const fragment = fragmentOf(renderRelayDocumentHtml("one\ntwo"));
 

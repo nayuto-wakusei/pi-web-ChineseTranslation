@@ -36,7 +36,7 @@ UI 保存的是受支持配置，不应该把密码 hash、服务端秘密或不
 | 设置编辑草稿 | settingsConfigDraft 与面板 | 切机器不能提交旧草稿到新目标 |
 | 模型/思考默认值 | projectSettingsScope | 模式 × 项目独立，不回写全局 agent 设置 |
 
-`defaultTheme` 是网关提供的应用默认主题，除环境强制外浏览器设备覆盖优先；主题暂不可用时回退不抹掉原偏好，切远端不改变保存目标。`sessionNaming` 是所选机器的命名配置，每次命名请求捕获有效值，仍使用原会话项目/管理模型 registry。`sessionArchive.directory` 与环境覆盖在 daemon 启动时决定新归档目的地，索引仍在托管数据目录，不迁移既有归档；精确字段见[配置参考](../config.md#session-naming-and-archives)。
+`defaultTheme` 是网关提供的应用默认主题，除环境强制外浏览器设备覆盖优先；主题暂不可用时回退不抹掉原偏好，切远端不改变保存目标。自动命名由可移除的 Pi 包持有 profile 内配置，每次命名读取，仍使用原会话项目/管理模型 registry；核心 `sessionNaming` 键已退役并在配置加载时迁移。`sessionArchive.directory` 与环境覆盖在 daemon 启动时决定新归档目的地，索引仍在托管数据目录，不迁移既有归档；精确字段与迁移见[配置参考](../config.md#session-naming-and-archives)。
 
 普通导航顺序按机器保存到 Web 管理的托管状态，带作用域与 revision，不是项目配置键，也不作为手工编辑接口。管理导航维持独立路径。浏览器的主题覆盖、编辑器偏好和分区尺寸也不能被误写成目标机器配置。
 

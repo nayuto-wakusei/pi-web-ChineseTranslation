@@ -99,14 +99,15 @@ describe("native service rendering", () => {
 
   it("renders systemd entirely from the canonical plan", () => {
     const plan = developmentPlan("systemd");
-    const unit = renderSystemdUnit(plan, planService(plan, 1));
+    const service = planService(plan, 1);
+    const unit = renderSystemdUnit(plan, service);
 
     expect(unit).toContain("Description=PI WEB UI dev server");
     expect(unit).not.toContain("After=");
     expect(unit).not.toContain("Wants=");
     expect(unit).toContain("WorkingDirectory=/checkout\\x20with\\x20space");
     expect(unit).toContain('Environment="PI_WEB_CONFIG=/home/user/config with \\"quote\\".json"');
-    expect(unit).toContain('ExecStart=/usr/bin/env "/bin/zsh" -lc "exec /usr/bin/env bash -c \'trap \\"kill 0\\" EXIT;');
+    expect(unit).toContain(`ExecStart=/usr/bin/env "/bin/zsh" -lc "${service.shellCommand}"`);
     expect(unit).toContain('Environment="PI_WEB_PI_PACKAGE_DIR=/existing/Pi installation"');
     expect(unit).toContain("Restart=no");
   });

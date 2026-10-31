@@ -4,7 +4,7 @@ installPopoverFake();
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock, type MockInstance } from "vitest";
 import { trustApi } from "../api";
-import type { Workspace, WorkspaceActivity, WorkspaceTrustResponse } from "../api";
+import type { Workspace, WorkspaceTrustResponse } from "../api";
 import { localization } from "../localization/browser";
 import { workspaceRemovalActionLabel } from "../workspaceDeletion";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
@@ -31,6 +31,235 @@ afterEach(() => {
   expect(escapedRequests).toEqual([]);
 });
 
+describe("workspace sidebar styling contract", () => {
+  it("adds anatomy hooks to existing elements and keeps menu activation independent", async () => {
+    // Distinct opaque IDs must not collapse to the same action-popup ID.
+    const first = workspace("feature?one");
+    const second = workspace("feature/one");
+    const list = await mountWorkspaceList([first, second]);
+    list.selected = first;
+    list.onSelect = vi.fn();
+    list.workspaceLabelItems = () => [{ type: "text", text: "Details" }];
+    await list.updateComplete;
+
+    const root = list.shadowRoot;
+    if (root === null) throw new Error("Expected a shadow root");
+    const section = root.querySelector("section");
+    const row = rowFor(list, second.label);
+    const controls = [...root.querySelectorAll(".ui-nav-row-action")].map((action) => action.getAttribute("aria-controls"));
+    expect(new Set(controls).size).toBe(2);
+    expect(section?.getAttribute("data-ui-context")).toBe("workspaces");
+    expect(section?.getAttribute("data-collapsed")).toBe("false");
+    expect(section?.querySelector(".ui-nav-list")).not.toBeNull();
+    expect(row.matches(".ui-nav-row")).toBe(true);
+    expect(row.querySelector(":scope > .ui-nav-row-main")).not.toBeNull();
+    expect(row.querySelector(".ui-nav-row-label")).not.toBeNull();
+    expect(row.querySelector(".ui-nav-row-meta")).not.toBeNull();
+    const actions = row.querySelector(":scope > .ui-nav-row-actions");
+    expect(actions?.parentElement).toBe(row);
+    const trigger = actions?.querySelector<HTMLButtonElement>(".ui-nav-row-action");
+    if (!trigger) throw new Error("Expected a row action");
+    expect(trigger.classList.contains("ui-popup-trigger")).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    trigger.click();
+    await list.updateComplete;
+    await expectTrustLoaded(list, false);
+    const panel = root.getElementById(trigger.getAttribute("aria-controls") ?? "");
+    expect(panel).not.toBeNull();
+    expect(panel?.matches(".ui-nav-row-menu.ui-menu.ui-popup-panel[popover]")).toBe(true);
+    expect(panel?.getAttribute("data-ui-context")).toBe("workspace-actions");
+    expect(trigger.getAttribute("aria-controls")).toBe(panel?.id);
+    expect(panel?.id).not.toBe("");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(list.onSelect).not.toHaveBeenCalled();
+    expect(list.selected).toBe(first);
+    expect(row.getAttribute("data-current")).toBe("false");
+    expect(row.hasAttribute("aria-current")).toBe(false);
+    trigger.click();
+    await list.updateComplete;
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(row.querySelector(".ui-nav-row-menu")).toBeNull();
+    const main = row.querySelector<HTMLElement>(".ui-nav-row-main");
+    if (main === null) throw new Error("Expected row content");
+    main.click();
+    expect(list.onSelect).toHaveBeenCalledExactlyOnceWith(second);
+  });
+
+  it("keeps intervention attention independent from actual work and unread", async () => {
+    const first = workspace("first");
+    const list = await mountWorkspaceList([first], machineStatusSnapshot({ workspaces: { first: { "core:intervention-required": true, "core:working": true, "core:unread": true } } }));
+    const row = rowFor(list, "first");
+    expect(row.getAttribute("data-activity")).toBe("intervention-required");
+    expect(row.getAttribute("data-busy")).toBe("true");
+    expect(row.querySelector(".unread-ring .intervention-required")).not.toBeNull();
+    list.statusSnapshot = machineStatusSnapshot({ workspaces: { first: { "core:intervention-required": true } } });
+    await list.updateComplete;
+    expect(row.getAttribute("data-activity")).toBe("intervention-required");
+    expect(row.getAttribute("data-busy")).toBe("false");
+    expect(row.querySelector(".unread-ring")).toBeNull();
+    expect(row.querySelector(".activity-indicator.intervention-required")?.getAttribute("title")).toBe("Needs input");
+  });
+
+  it("refreshes current, activity, busy and unread hooks without replacing the row", async () => {
+    const first = workspace("first");
+    const second = workspace("second");
+    const list = await mountWorkspaceList([first, second]);
+    const row = rowFor(list, "first");
+    expect(row.getAttribute("data-current")).toBe("false");
+    expect(row.hasAttribute("aria-current")).toBe(false);
+    expect(row.getAttribute("data-activity")).toBe("idle");
+    expect(row.getAttribute("data-busy")).toBe("false");
+    expect(row.getAttribute("data-unread")).toBe("false");
+    list.selected = { ...first };
+    list.statusSnapshot = machineStatusSnapshot({ workspaces: { first: { "core:working": true, "core:unread": true } } });
+    await list.updateComplete;
+    expect(rowFor(list, "first")).toBe(row);
+    expect(row.getAttribute("data-current")).toBe("true");
+    expect(row.getAttribute("aria-current")).toBe("true");
+    expect(row.getAttribute("data-activity")).toBe("session");
+    expect(row.getAttribute("data-busy")).toBe("true");
+    expect(row.getAttribute("data-unread")).toBe("true");
+
+    list.selected = second;
+    list.statusSnapshot = machineStatusSnapshot({ revision: 2, workspaces: { first: { "core:terminal": true } } });
+    await list.updateComplete;
+    expect(row.getAttribute("data-current")).toBe("false");
+    expect(row.hasAttribute("aria-current")).toBe(false);
+    expect(rowFor(list, "second").getAttribute("aria-current")).toBe("true");
+    expect(row.getAttribute("data-activity")).toBe("terminal");
+    expect(row.getAttribute("data-busy")).toBe("false");
+    expect(row.getAttribute("data-unread")).toBe("false");
+
+    list.deletingWorkspaceIds = [first.id];
+    await list.updateComplete;
+    expect(row.getAttribute("data-busy")).toBe("true");
+    expect(row.getAttribute("data-activity")).toBe("terminal");
+    list.statusSnapshot = undefined;
+    await list.updateComplete;
+    expect(row.getAttribute("data-activity")).toBe("idle");
+    expect(row.getAttribute("data-busy")).toBe("true");
+    list.deletingWorkspaceIds = [];
+    await list.updateComplete;
+    expect(row.getAttribute("data-activity")).toBe("idle");
+    expect(row.getAttribute("data-busy")).toBe("false");
+  });
+
+  it("exposes collapse hooks on the existing section and toggle", async () => {
+    const first = workspace("first");
+    const second = workspace("second");
+    const list = await mountWorkspaceList([first, second]);
+    list.collapsible = true;
+    list.onToggleCollapsed = vi.fn(() => { list.collapsed = !list.collapsed; });
+    await list.updateComplete;
+    const section = list.shadowRoot?.querySelector("section");
+    const toggle = section?.querySelector<HTMLButtonElement>(".ui-nav-section-toggle");
+    if (!section || !toggle) throw new Error("Expected a collapsible section");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    toggle.click();
+    await list.updateComplete;
+    expect(list.onToggleCollapsed).toHaveBeenCalledTimes(1);
+    expect(section.getAttribute("data-collapsed")).toBe("true");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(section.querySelector(".ui-nav-list")).toBeNull();
+    toggle.click();
+    await list.updateComplete;
+    expect(section.getAttribute("data-collapsed")).toBe("false");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(section.querySelectorAll(".ui-nav-list > .ui-nav-row")).toHaveLength(2);
+  });
+});
+
+describe("workspace move actions", () => {
+  it.each([0, 1, 2])("disables only boundary moves for row %i in parent order", async (index) => {
+    const workspaces = [workspace("z"), workspace("a"), workspace("m")];
+    const item = workspaces[index];
+    if (item === undefined) throw new Error("Expected a workspace");
+    const list = await mountWorkspaceList(workspaces);
+    const onMove = vi.fn();
+    list.onMove = onMove;
+    openMenu(list, item.label);
+    await list.updateComplete;
+
+    const up = moveButton(list, "Move up");
+    const down = moveButton(list, "Move down");
+    expect(up.disabled).toBe(index === 0);
+    expect(down.disabled).toBe(index === 2);
+    (index === 0 ? up : index === 2 ? down : undefined)?.click();
+    expect(onMove).not.toHaveBeenCalled();
+    expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
+  });
+
+  it("disables both directions for a single workspace", async () => {
+    const list = await mountWorkspaceList([workspace("only")]);
+    list.onMove = vi.fn();
+    openMenu(list, "only");
+    await list.updateComplete;
+    expect(moveButton(list, "Move up").disabled).toBe(true);
+    expect(moveButton(list, "Move down").disabled).toBe(true);
+  });
+
+  it.each([-1, 1] as const)("keeps the menu open for repeated moves with direction %i without selecting", async (direction) => {
+    const workspaces: [Workspace, Workspace, Workspace] = [workspace("z"), workspace("a"), workspace("m")];
+    const list = await mountWorkspaceList(workspaces);
+    const onSelect = vi.fn();
+    const onMove = vi.fn((item: Workspace, delta: -1 | 1) => {
+      const reordered = [...list.workspaces];
+      const index = reordered.indexOf(item);
+      reordered.splice(index, 1);
+      reordered.splice(index + delta, 0, item);
+      list.workspaces = reordered;
+    });
+    list.onSelect = onSelect;
+    list.onMove = onMove;
+    list.selected = workspaces[0];
+    const row = rowFor(list, "a");
+    openMenu(list, "a");
+    await list.updateComplete;
+    const action = moveButton(list, direction === -1 ? "Move up" : "Move down");
+    action.focus();
+    action.click();
+    await list.updateComplete;
+
+    expect(onMove).toHaveBeenCalledExactlyOnceWith(workspaces[1], direction);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(list.selected).toBe(workspaces[0]);
+    expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
+    expect(rowFor(list, "a")).toBe(row);
+    expect([...(list.shadowRoot?.querySelectorAll(".action-row") ?? [])].indexOf(row)).toBe(1 + direction);
+    expect(action.disabled).toBe(true);
+    const reverse = moveButton(list, direction === -1 ? "Move down" : "Move up");
+    expect(list.shadowRoot?.activeElement).toBe(reverse);
+    reverse.click();
+    await list.updateComplete;
+    expect(onMove).toHaveBeenLastCalledWith(workspaces[1], -direction);
+    expect(list.workspaces).toEqual(workspaces);
+    expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
+    expect(action.disabled).toBe(false);
+    document.body.click();
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).toBeNull();
+  });
+
+  it("leaves ordering unchanged when the parent only receives the callback", async () => {
+    const workspaces = [workspace("z"), workspace("a")];
+    const list = await mountWorkspaceList(workspaces);
+    list.onMove = vi.fn();
+    openMenu(list, "z");
+    await list.updateComplete;
+    moveButton(list, "Move down").click();
+    await list.updateComplete;
+    expect(list.workspaces).toBe(workspaces);
+    expect(list.workspaces.map((item) => item.id)).toEqual(["z", "a"]);
+    expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
+  });
+});
+
+function moveButton(list: WorkspaceList, label: string): HTMLButtonElement {
+  const button = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".workspace-menu-actions button") ?? [])]
+    .find((candidate) => candidate.textContent === label);
+  if (button === undefined) throw new Error(`Expected ${label}`);
+  return button;
+}
 describe("workspace-list removal actions", () => {
   it("updates the open Git removal action live and preserves its callback target", async () => {
     const removable = workspace("review", { isMain: false, removal: {
@@ -246,15 +475,18 @@ describe("workspace trust menu item", () => {
     const checkbox = trustCheckbox(list);
     expect(checkbox.checked).toBe(true);
     expect(checkbox.disabled).toBe(false);
+    expect(checkbox.closest(".ui-menu-item")?.getAttribute("data-busy")).toBe("false");
     checkbox.click();
     await list.updateComplete;
     expect(save).toHaveBeenCalledWith("project-1", "ws-a", false, "local");
     expect(checkbox.disabled).toBe(true);
+    expect(checkbox.closest(".ui-menu-item")?.getAttribute("data-busy")).toBe("true");
     rejectSave(new Error("Cannot save trust"));
     await saving.catch(() => undefined);
     await list.updateComplete;
     expect(checkbox.disabled).toBe(false);
     expect(checkbox.checked).toBe(true);
+    expect(checkbox.closest(".ui-menu-item")?.getAttribute("data-busy")).toBe("false");
     const error = list.shadowRoot?.querySelector('[role="alert"]');
     expect(error?.textContent).toBe("Cannot save trust");
     expect(checkbox.getAttribute("aria-describedby")).toContain(error?.id);
@@ -340,100 +572,10 @@ function workspace(id: string, patch: Partial<Workspace> = {}): Workspace {
   return { id, projectId: "project-1", path: `/repo/${id}`, label: id, isMain: true, effectiveConfig: {}, ...patch };
 }
 
-describe("local activity and management compatibility", () => {
-describe("workspace unread indicator", () => {
-  it("shows an unread dot only on workspaces tracked as unread", async () => {
-    const list = await mountWorkspaceList([workspace("ws-a"), workspace("ws-b")], new Set(["ws-b"]));
-
-    expect(unreadDot(rowFor(list, "ws-a"))).toBeNull();
-    const dot = unreadDot(rowFor(list, "ws-b"));
-    expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("title")).toBe("Unread sessions in this workspace");
-  });
-
-  it("clears the dot once the workspace is no longer tracked as unread", async () => {
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set(["ws-a"]));
-    expect(list.shadowRoot?.querySelector(".activity-indicator.unread")).not.toBeNull();
-
-    list.unreadWorkspaceIds = new Set();
-    await list.updateComplete;
-
-    expect(list.shadowRoot?.querySelector(".activity-indicator.unread")).toBeNull();
-  });
-
-  it("wraps the work dot in an unread ring when the workspace is busy and unread", async () => {
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set(["ws-a"]));
-    list.activities = { "/repo/ws-a": workspaceActivity("/repo/ws-a", false, true) };
-    await list.updateComplete;
-
-    const row = rowFor(list, "ws-a");
-    const ring = row.querySelector(".unread-ring");
-    expect(ring?.querySelector(".activity-indicator.terminal")).not.toBeNull();
-    expect(ring?.getAttribute("title")).toBe("Unread sessions in this workspace · Workspace terminal active");
-    expect(row.querySelector(".activity-indicator.unread")).toBeNull();
-  });
-});
-
-describe("workspace detail copy buttons", () => {
-  it("copies the workspace path from the menu details and keeps the menu open", async () => {
-    const writeText = stubClipboardWriteText(() => Promise.resolve());
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
-    openMenu(list, "ws-a");
-    await list.updateComplete;
-
-    detailCopyButton(list, "Copy path").click();
-    await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("/repo/ws-a"); });
-    await vi.waitFor(() => { expect(detailCopyButton(list, "Copied").textContent).toContain("✓"); });
-
-    expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
-  });
-
-  it("copies the bare branch name without the main suffix", async () => {
-    const writeText = stubClipboardWriteText(() => Promise.resolve());
-    const list = await mountWorkspaceList([{ ...workspace("ws-a"), branch: "feature-x" }], new Set());
-    openMenu(list, "feature-x");
-    await list.updateComplete;
-
-    detailCopyButton(list, "复制分支").click();
-    await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("feature-x"); });
-  });
-
-  it("offers to copy the workspace label when there is no branch", async () => {
-    const writeText = stubClipboardWriteText(() => Promise.resolve());
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
-    openMenu(list, "ws-a");
-    await list.updateComplete;
-
-    detailCopyButton(list, "Copy workspace label").click();
-    await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("ws-a"); });
-  });
-
-  it("keeps the copy action unchanged when the clipboard write fails", async () => {
-    const writeText = stubClipboardWriteText(() => Promise.reject(new Error("denied")));
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
-    openMenu(list, "ws-a");
-    await list.updateComplete;
-
-    detailCopyButton(list, "Copy path").click();
-    await vi.waitFor(() => { expect(writeText).toHaveBeenCalled(); });
-    await new Promise((resolve) => { setTimeout(resolve, 0); });
-    await list.updateComplete;
-
-    expect(detailCopyButton(list, "Copy path")).toBeDefined();
-    expect(list.shadowRoot?.querySelector(".workspace-menu-panel .detail-copy[aria-label='Copied']")).toBeNull();
-  });
-});
-
-function openMenu(list: WorkspaceList, workspaceLabel: string): void {
-  const toggle = rowFor(list, workspaceLabel).querySelector<HTMLButtonElement>(".action-menu-toggle");
-  if (toggle === null) throw new Error(`Expected a menu toggle for ${workspaceLabel}`);
-  toggle.click();
-}
-
 describe("workspace trust", () => {
   it("writes only an explicit checkbox change to the owning machine", async () => {
     const setTrust = vi.spyOn(trustApi, "setWorkspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
+    const list = await mountWorkspaceList([workspace("ws-a")]);
     list.machineId = "remote-a";
     await list.updateComplete;
     openMenu(list, "ws-a");
@@ -448,7 +590,7 @@ describe("workspace trust", () => {
     vi.mocked(trustApi.workspaceTrust).mockImplementation((projectId) => projectId === "project-1"
       ? new Promise((resolve) => { resolveOld = resolve; })
       : Promise.resolve({ path: "/other", decision: false, trusted: false }));
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
+    const list = await mountWorkspaceList([workspace("ws-a")]);
     openMenu(list, "ws-a");
     await list.updateComplete;
     list.workspaces = [{ ...workspace("ws-a"), projectId: "project-2", path: "/other" }];
@@ -461,7 +603,7 @@ describe("workspace trust", () => {
   });
 
   it("hides trust and performs no normal-store requests in management mode", async () => {
-    const list = await mountWorkspaceList([workspace("ws-a")], new Set());
+    const list = await mountWorkspaceList([workspace("ws-a")]);
     list.managementMode = true;
     await list.updateComplete;
     openMenu(list, "ws-a");
@@ -469,61 +611,4 @@ describe("workspace trust", () => {
     expect(trustApi.workspaceTrust).not.toHaveBeenCalled();
     expect(list.shadowRoot?.querySelector(".workspace-menu-trust")).toBeNull();
   });
-});
-
-function detailCopyButton(list: WorkspaceList, label: string): HTMLButtonElement {
-  const buttons = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".workspace-menu-panel .detail-copy") ?? [])];
-  const button = buttons.find((candidate) => candidate.getAttribute("aria-label") === label);
-  if (button === undefined) throw new Error(`Expected a detail copy button labeled ${label}`);
-  return button;
-}
-
-function stubClipboardWriteText(writeText: (text: string) => Promise<void>): Mock<(text: string) => Promise<void>> {
-  const mock = vi.fn<(text: string) => Promise<void>>(writeText);
-  const secureContext = Object.getOwnPropertyDescriptor(window, "isSecureContext");
-  const clipboard = Object.getOwnPropertyDescriptor(window.navigator, "clipboard");
-  Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
-  Object.defineProperty(window.navigator, "clipboard", { value: { writeText: mock }, configurable: true });
-  restoreClipboardStub = () => {
-    restoreStubbedProperty(window, "isSecureContext", secureContext);
-    restoreStubbedProperty(window.navigator, "clipboard", clipboard);
-  };
-  return mock;
-}
-
-function restoreStubbedProperty(target: object, key: string, descriptor: PropertyDescriptor | undefined): void {
-  if (descriptor === undefined) {
-    Reflect.deleteProperty(target, key);
-    return;
-  }
-  Object.defineProperty(target, key, descriptor);
-}
-
-async function mountWorkspaceList(workspaces: Workspace[], unreadWorkspaceIds: ReadonlySet<string>): Promise<WorkspaceList> {
-  const list = new WorkspaceList();
-  list.workspaces = workspaces;
-  list.unreadWorkspaceIds = unreadWorkspaceIds;
-  document.body.append(list);
-  await list.updateComplete;
-  return list;
-}
-
-function rowFor(list: WorkspaceList, workspaceLabel: string): Element {
-  const rows = [...(list.shadowRoot?.querySelectorAll(".workspace-row") ?? [])];
-  const row = rows.find((candidate) => candidate.textContent.includes(workspaceLabel));
-  if (row === undefined) throw new Error(`Expected a workspace row for ${workspaceLabel}`);
-  return row;
-}
-
-function unreadDot(row: Element): Element | null {
-  return row.querySelector(".activity-indicator.unread");
-}
-
-function workspaceActivity(cwd: string, hasSessionActivity: boolean, hasTerminalActivity: boolean): WorkspaceActivity {
-  return { cwd, hasSessionActivity, hasTerminalActivity, updatedAt: "2026-06-04T00:00:00.000Z" };
-}
-
-function workspace(id: string): Workspace {
-  return { id, projectId: "project-1", path: `/repo/${id}`, label: id, isMain: true, effectiveConfig: {}, isGitRepo: true, isGitWorktree: false };
-}
 });

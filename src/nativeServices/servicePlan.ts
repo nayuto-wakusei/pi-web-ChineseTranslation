@@ -378,8 +378,7 @@ export async function resolveProductionNativeServicePlan(
 export function createDevelopmentNativeServicePlan(input: DevelopmentNativeServicePlanInput): NativeServicePlan {
   const environment = copyEnvironment(input.environment);
   const sessiondScripts = ["start:sessiond"] as const;
-  const uiDevScripts = ["dev:web", "dev:client"] as const;
-  const uiDevCommand = 'trap "kill 0" EXIT; npm run dev:web & npm run dev:client & wait';
+  const uiDevScripts = ["dev:ui"] as const;
 
   return {
     mode: "development",
@@ -407,8 +406,8 @@ export function createDevelopmentNativeServicePlan(input: DevelopmentNativeServi
         id: "uiDev",
         manager: nativeServiceManagerRefs.uiDev,
         description: "PI WEB UI dev server",
-        shellCommand: `exec /usr/bin/env bash -c ${shellSingleQuote(input.shell.name, uiDevCommand)}`,
-        strategy: { kind: "development-npm-script-group", scripts: uiDevScripts, interpreter: "bash" },
+        shellCommand: "exec npm run dev:ui",
+        strategy: { kind: "development-npm-script", script: "dev:ui" },
         restart: "never",
         environment,
         workingDirectory: input.workingDirectory,
@@ -417,7 +416,6 @@ export function createDevelopmentNativeServicePlan(input: DevelopmentNativeServi
         prerequisites: [
           nodeRequirement("uiDev"),
           commandRequirement("uiDev", "npm"),
-          commandRequirement("uiDev", "bash"),
           packageScriptsRequirement("uiDev", input.packageJsonPath, uiDevScripts),
         ],
       },

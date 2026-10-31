@@ -27,4 +27,4 @@ Make interactions consistent through shared primitives, not repeated styling ins
 
 Check hierarchy, grouping, target boundaries, and feedback in the context of the user task. Related actions should read as related; risky or unrelated actions should remain distinguishable. Check relevant hover, focus, selected, disabled, loading, and error states rather than judging only the idle screenshot.
 
-Verify changed geometry in a real browser at relevant viewport sizes and pointer modes. Look for gaps, overlapping targets, clipped focus indicators, and scroll-container problems. DOM-only tests cannot establish visual geometry. Use the testing guide for behavioral coverage, and report any browser verification that could not be completed.
+Verify changed geometry in a real browser at relevant viewport sizes and pointer modes. Look for gaps, overlapping targets, clipped focus indicators, and scroll-container problems. DOM-only tests cannot establish visual geometry. Use [testing policy](../../../docs/testing.md) for behavioral coverage, and report any browser verification that could not be completed.

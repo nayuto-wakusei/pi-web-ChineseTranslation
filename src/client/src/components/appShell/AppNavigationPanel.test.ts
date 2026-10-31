@@ -49,18 +49,6 @@ describe("brand visibility", () => {
     expect(switcher.shadowRoot?.querySelector(".machine-switcher-label")?.textContent).toBe("PI-WEB");
   });
 
-  it.each([false, true])("does not duplicate the single-machine identity (locationIndicator=%s)", async (locationIndicator) => {
-    const panel = new AppNavigationPanel();
-    panel.machines = [machine("local")];
-    panel.locationIndicator = locationIndicator;
-    document.body.append(panel);
-    await panel.updateComplete;
-
-    expect(panel.shadowRoot?.querySelector("header strong")).toBeNull();
-    expect(panel.shadowRoot?.querySelector(".brand-icon")).toBeNull();
-    expect(panel.shadowRoot?.querySelector(".brand-domain")).toBeNull();
-    expect(section(panel, "machine-switcher", MachineSwitcher).locationIndicator).toBe(locationIndicator);
-  });
 
   it("hides the PI WEB brand when disabled", async () => {
     const panel = new AppNavigationPanel();
@@ -85,19 +73,6 @@ describe("brand visibility", () => {
     expect(onShowActions).toHaveBeenCalledOnce();
   });
 
-  it("shows and configures the single-machine identity only in PWA mode", async () => {
-    const panel = new AppNavigationPanel();
-    panel.showBrand = false;
-    panel.locationIndicator = true;
-    panel.machines = [machine("local")];
-    document.body.append(panel);
-    await panel.updateComplete;
-
-    const switcher = panel.shadowRoot?.querySelector("machine-switcher");
-    expect(switcher).toBeInstanceOf(MachineSwitcher);
-    if (!(switcher instanceof MachineSwitcher)) throw new Error("expected machine switcher");
-    expect(switcher.locationIndicator).toBe(true);
-  });
 });
 
 describe("section sizing", () => {
@@ -277,7 +252,7 @@ describe("stable list inputs", () => {
     // Render counts are the regression contract, not a proxy for visible output.
     const renders = lists.map((list) => vi.spyOn(list, "render"));
     const panelRender = vi.spyOn(panel, "render");
-    panel.locationIndicator = true;
+    panel.selectedMachine = { ...machine("local"), name: "Renamed machine" };
     await settle();
     expect(panelRender).toHaveBeenCalledOnce();
     for (const render of renders) expect(render).not.toHaveBeenCalled();
@@ -485,7 +460,7 @@ describe("host-owned navigation tree", () => {
     const visibleWorkspaces = workspaces.workspaces;
     const visibleSessions = sessions.sessions;
     const renders = [vi.spyOn(projects, "render"), vi.spyOn(workspaces, "render"), vi.spyOn(sessions, "render")];
-    panel.locationIndicator = true;
+    panel.showBrand = false;
     await settleTree(panel);
     for (const render of renders) expect(render).not.toHaveBeenCalled();
     panel.sessionStatuses = {};
@@ -520,7 +495,7 @@ describe("host-owned navigation tree", () => {
     expect(start).toHaveBeenCalledOnce();
     const source = panel.shadowRoot?.querySelector("pi-web-ui-presentation");
     const sourceContext = source !== null && source !== undefined && "context" in source ? source.context : undefined;
-    panel.locationIndicator = !panel.locationIndicator;
+    panel.showBrand = !panel.showBrand;
     await settleTree(panel);
     expect(source !== null && source !== undefined && "context" in source ? source.context : undefined).toBe(sourceContext);
     panel.managementMode = true;

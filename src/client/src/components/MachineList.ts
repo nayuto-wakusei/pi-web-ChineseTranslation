@@ -2,11 +2,12 @@ import { localization, LocalizationController } from "../localization/browser";
 import { machineMessages as messages } from "../machineMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { t } from "../i18n";
-import { LitElement, css, html, type PropertyValues } from "lit";
+import { machineActivityIndicator } from "../workspaceActivity";
+import { LitElement, css, html, nothing, type PropertyValues } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { Machine, MachineHealth, WorkspaceActivity } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
-import { machineActivityIndicator } from "../workspaceActivity";
+import { renderCopyIdAction } from "./copyIdAction";
 import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } from "./activityBadge";
 import { ListMenuController } from "./ListMenuController";
 import type { KeyboardNavigableSection } from "./navigationFocus";
@@ -50,10 +51,10 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
 
   override render() {
     return html`
-      <section>
+      <section data-ui-context="machines" data-collapsed=${String(this.collapsed)}>
         <h2 class="ui-toolbar">${this.renderHeading()}</h2>
         ${this.collapsed ? null : html`
-          <div class="list-body">
+          <div class="list-body ui-nav-list">
             ${this.machines.map((machine) => this.renderMachine(machine))}
           </div>
         `}
@@ -64,21 +65,22 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
   private renderMachine(machine: Machine) {
     const status = this.statuses[machine.id]?.status ?? machine.status ?? "unknown";
     const statusLabel = messages.t(status);
-    const hasRemoveAction = canRemoveMachine(machine) && (this.onRemove !== undefined || this.onEdit !== undefined);
     return html`
       <div
-        class=${`action-row machine-row ${this.selected?.id === machine.id ? "selected" : ""} ${hasRemoveAction ? "" : "no-actions"}`}
+        class=${`action-row ui-nav-row machine-row ${this.selected?.id === machine.id ? "selected" : ""} `}
         tabindex="0"
         title=${machine.baseUrl ?? machine.name}
         data-machine-id=${machine.id}
+        data-current=${this.selected?.id === machine.id}
+        aria-current=${this.selected?.id === machine.id ? "true" : nothing}
         @click=${(event: MouseEvent) => { activateSelectableRow(event, () => this.onSelect?.(machine)); }}
         @keydown=${(event: KeyboardEvent) => { this.handleMachineKeydown(event, machine); }}
       >
-        <div class="action-main">
-          <span class="action-name machine-primary"><span class="machine-primary-label"><bdi>${machine.name}</bdi></span></span><small>${messages.t("subtitle", { location: machine.kind === "local" ? messages.t("local") : machine.baseUrl ?? messages.t("remote"), status: statusLabel })}</small>
+        <div class="action-main ui-nav-row-main">
+          <span class="action-name ui-nav-row-label machine-primary"><span class="machine-primary-label"><bdi>${machine.name}</bdi></span></span><small class="ui-nav-row-meta">${messages.t("subtitle", { location: machine.kind === "local" ? messages.t("local") : machine.baseUrl ?? messages.t("remote"), status: statusLabel })}</small>
           ${this.renderActivity(machine)}
         </div>
-        ${hasRemoveAction ? this.renderMachineMenu(machine) : null}
+        ${this.renderMachineMenu(machine)}
       </div>
     `;
   }
@@ -96,9 +98,9 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
     const open = this.menu.isOpen(machine.id);
     const menuId = machineMenuId(machine.id);
     return html`
-      <div class="action-menu">
+      <div class="action-menu ui-nav-row-actions">
         <button
-          class="ui-button ui-button--icon action-menu-toggle"
+          class="ui-button ui-button--icon action-menu-toggle ui-nav-row-action ui-popup-trigger"
           title=${messages.t("actions")}
           aria-label=${messages.t("actionsFor", { name: machine.name })}
           aria-expanded=${String(open)}
@@ -106,9 +108,10 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
           @click=${(event: MouseEvent) => { event.stopPropagation(); this.menu.toggle(machine.id, event.currentTarget); }}
         >⋯</button>
         ${open ? html`
-          <div popover="auto" class="action-menu-panel machine-menu-panel ui-menu" id=${menuId} style=${this.menu.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-            ${this.onEdit === undefined ? null : html`<button class="ui-button ui-menu-item" @click=${() => { this.menu.close(); this.onEdit?.(machine); }}>${messages.t("edit")}</button>`}
-            ${this.onRemove === undefined ? null : html`<button class="danger ui-button ui-menu-item" title=${messages.t("removeNamed", { name: machine.name })} @click=${() => { this.removeMachine(machine); }}>${messages.t("remove")}</button>`}
+          <div popover="auto" class="action-menu-panel machine-menu-panel ui-menu ui-nav-row-menu ui-popup-panel" data-ui-context="machine-actions" id=${menuId} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
+            ${!canRemoveMachine(machine) || this.onEdit === undefined ? null : html`<button class="ui-button ui-menu-item" @click=${() => { this.menu.close(); this.onEdit?.(machine); }}>${messages.t("edit")}</button>`}
+            ${!canRemoveMachine(machine) || this.onRemove === undefined ? null : html`<button class="danger ui-button ui-menu-item" title=${messages.t("removeNamed", { name: machine.name })} @click=${() => { this.removeMachine(machine); }}>${messages.t("remove")}</button>`}
+            ${renderCopyIdAction("machine", machine.id, () => { this.menu.close(); })}
           </div>
         ` : null}
       </div>
@@ -154,5 +157,5 @@ export function canRemoveMachine(machine: Machine): boolean {
 }
 
 function machineMenuId(machineId: string): string {
-  return `machine-menu-${machineId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  return `machine-menu-${encodeURIComponent(machineId)}`;
 }

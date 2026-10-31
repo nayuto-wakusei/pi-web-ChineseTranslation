@@ -69,6 +69,8 @@ export type {
 
 export type { PluginCatalogV1, PluginCatalogProject, PluginCatalogWorkspace, PluginSessionSnapshot, PluginWorkspaceSelection, PluginSessionSelection, PluginCatalogReadOptions } from "./shared/pluginCatalogTypes.js";
 import type { PluginCatalogV1 } from "./shared/pluginCatalogTypes.js";
+export type { PluginSessionLifecycleV1, PluginSessionLifecycleState, PluginSessionLifecycleOptions } from "./shared/pluginSessionLifecycleTypes.js";
+import type { PluginSessionLifecycleV1 } from "./shared/pluginSessionLifecycleTypes.js";
 
 // eslint-disable-next-line @typescript-eslint/no-deprecated -- The host intentionally accepts supported legacy entries.
 export type PiWebPlugin = LegacyPiWebPlugin | PiWebPluginV5;
@@ -89,8 +91,14 @@ export interface PluginCatalog extends PluginCatalogV1 {
   readonly machineId: string;
 }
 
+export interface PluginSessionLifecycle extends PluginSessionLifecycleV1 {
+  readonly machineId: string;
+}
+
 export interface PluginDiscoveryContext {
   readonly catalog: PluginCatalog;
+  /** Explicit lifecycle commands for this captured machine. Omitted by older hosts. Call from event handlers, not render callbacks. */
+  readonly sessions?: PluginSessionLifecycle;
   readonly backend?: PluginBackend;
 }
 
@@ -99,7 +107,14 @@ export type ApplicationPanelContextV5 = ApplicationPanelContext & PluginDiscover
 export type WorkspacePanelContextV5 = Omit<WorkspacePanelContext, "backend"> & PluginDiscoveryContext;
 export type WorkspaceLabelContextV5 = Omit<WorkspaceLabelContext, "backend"> & PluginDiscoveryContext;
 export type SessionLabelContextV5 = SessionLabelContext & PluginDiscoveryContext;
-export type MessageActionContextV5 = MessageActionContext & PluginDiscoveryContext;
+export interface MessageActionMessageV5 extends MessageActionMessage {
+  /** This entry contains an ask_user question request, not an answer record. */
+  readonly isQuestion?: boolean;
+}
+export interface MessageActionAvailabilityContextV5 extends Omit<MessageActionAvailabilityContext, "message"> {
+  readonly message: MessageActionMessageV5;
+}
+export type MessageActionContextV5 = Omit<MessageActionContext, "message"> & MessageActionAvailabilityContextV5 & PluginDiscoveryContext;
 export type DisplayedMessageActionContextV5 = DisplayedMessageActionContext & PluginDiscoveryContext;
 
 export interface PluginContributionsV5 extends Omit<PluginContributions, "actions" | "applicationPanels" | "workspacePanels" | "workspaceLabels" | "sessionLabels" | "messageActions" | "contentRenderers" | "themes"> {
@@ -108,6 +123,8 @@ export interface PluginContributionsV5 extends Omit<PluginContributions, "action
   syntaxHighlighters?: SyntaxHighlighterContribution[];
   filePreviewers?: FilePreviewerContribution[];
   contentRenderers?: ContentRendererContributionV5[];
+  transcriptRenderers?: TranscriptRendererContribution[];
+  /** @deprecated Declare static themes in package.json piWeb.plugins[].themes with browserRoot and stylesheet paths. */
   themes?: ThemeContributionV5[];
   fileIconThemes?: FileIconThemeContribution[];
   actions?: PluginActionV5[];
@@ -190,7 +207,12 @@ export type SessionLabelContributionV5 = Omit<SessionLabelContribution, "visible
   items: (context: SessionLabelContextV5) => SessionLabelItem[];
 };
 export type MessageActionContributionV5 =
-  | (Omit<EntryMessageActionContribution, "run"> & { run: (context: MessageActionContextV5) => MaybePromise<MessageActionResult> })
+  | (Omit<EntryMessageActionContribution, "run" | "ariaLabel" | "visible" | "enabled"> & {
+      ariaLabel?: (context: MessageActionAvailabilityContextV5) => string;
+      visible?: (context: MessageActionAvailabilityContextV5) => boolean;
+      enabled?: (context: MessageActionAvailabilityContextV5) => boolean;
+      run: (context: MessageActionContextV5) => MaybePromise<MessageActionResult>;
+    })
   | (Omit<DisplayedMessageActionContribution, "run"> & { run: (context: DisplayedMessageActionContextV5) => MaybePromise<MessageActionResult> });
 
 export type PluginId = string;
@@ -284,6 +306,77 @@ export interface ContentRendererContributionV5 extends Omit<ContentRendererContr
   supports?(request: Readonly<ContentRenderRequest>): boolean;
   render(input: ContentRendererInputV5): TemplateResult;
 }
+
+export interface TranscriptRendererScope {
+  readonly machineId: string;
+  readonly sessionId: string;
+  readonly projectId?: string;
+  readonly workspaceId?: string;
+}
+
+export interface TranscriptToolEntry {
+  readonly toolCallId?: string;
+  readonly toolName: string;
+  readonly args?: unknown;
+  readonly status: "pending" | "running" | "success" | "error";
+  readonly content?: unknown;
+  readonly details?: unknown;
+  readonly resultText?: string;
+}
+
+export interface TranscriptMessageEntry {
+  readonly entryId?: string;
+  readonly customType: string;
+  readonly content: unknown;
+  readonly details?: unknown;
+}
+
+export interface TranscriptRendererInput {
+  readonly scope: TranscriptRendererScope;
+  /** Aborted when the entry, selection, mounting, or plugin lifetime changes. */
+  readonly signal: AbortSignal;
+  /** Report asynchronous failure; calls from obsolete renders are ignored. */
+  readonly fail: (error: unknown) => void;
+}
+
+export interface TranscriptToolRendererInput extends TranscriptRendererInput {
+  readonly entry: TranscriptToolEntry;
+}
+
+export interface TranscriptMessageRendererInput extends TranscriptRendererInput {
+  readonly entry: TranscriptMessageEntry;
+}
+
+/**
+ * Render synchronously; undefined retains the host's generic view, without continuing the chain.
+ * Treat inputs as read-only and honor signal for component-owned asynchronous work.
+ */
+export interface TranscriptToolRenderer {
+  render(input: TranscriptToolRendererInput): TemplateResult | undefined;
+}
+
+/**
+ * Resolve synchronously; call next() to delegate to the remaining tool resolvers.
+ * The web transcript supplies its core default renderer at the chain tail. next() may
+ * return undefined when another resolver stops the chain or a caller supplies no base.
+ * Returning undefined retains the host's generic view. Resolvers receive no entry payloads.
+ */
+export type TranscriptToolRendererResolver = (
+  toolName: string,
+  next: () => TranscriptToolRenderer | undefined,
+) => TranscriptToolRenderer | undefined;
+
+/** Tools resolve in discovery order; custom messages use the first exact customType match. */
+export type TranscriptRendererContribution = {
+  id: LocalContributionId;
+  target: "tool";
+  resolve: TranscriptToolRendererResolver;
+} | {
+  id: LocalContributionId;
+  target: "custom-message";
+  customType: string;
+  render(input: TranscriptMessageRendererInput): TemplateResult | undefined;
+};
 
 export interface FilePreviewRequest {
   readonly machineId: string;
@@ -416,7 +509,9 @@ export interface PluginContributions {
   workspacePanels?: WorkspacePanelContribution[];
   workspaceLabels?: WorkspaceLabelContribution[];
   sessionLabels?: SessionLabelContribution[];
+  /** @deprecated Declare static themes in package.json piWeb.plugins[].themes instead. */
   themes?: ThemeContribution[];
+  /** @deprecated Declare static pairs in package.json piWeb.plugins[].themePairs instead. */
   themePairs?: ThemePairContribution[];
 }
 
@@ -1016,6 +1111,10 @@ export interface FileIconsCapability {
 export type ThemeColorScheme = "dark" | "light";
 export type ThemeTokens = Record<string, string>;
 
+/**
+ * Legacy v4 palette contract.
+ * Deprecated runtime contribution; declare static themes in package.json piWeb.plugins[].themes instead.
+ */
 export interface ThemeContribution {
   id: LocalContributionId;
   name: string;
@@ -1025,6 +1124,12 @@ export interface ThemeContribution {
   tokens: ThemeTokens;
 }
 
+/** Deprecated runtime contribution; declare static themes in package.json piWeb.plugins[].themes with stylesheet paths instead. */
+export interface ThemeContributionV5 extends Omit<ThemeContribution, "tokens"> {
+  stylesheets?: StylesheetContribution[];
+}
+
+/** Deprecated runtime contribution; declare static pairs in package.json piWeb.plugins[].themePairs instead. */
 export interface ThemePairContribution {
   id: LocalContributionId;
   name: string;

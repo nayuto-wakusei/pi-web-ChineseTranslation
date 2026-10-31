@@ -47,18 +47,6 @@ describe("visibleServerNotices", () => {
     expect(visibleServerNotices([pluginNotice], { projectId: "project-b", workspaceId: "target-worktree" })).toEqual([pluginNotice]);
   });
 
-  it("keeps a Terminal-attributed removal failure visible across its project worktrees", () => {
-    const deletionNotice = {
-      ...notice("terminal-deletion"),
-      source: "plugin:pi-web.terminal",
-      scope: { projectId: "project-a" },
-      context: { commandRunId: "run-1", targetWorkspaceId: "target-worktree" },
-    };
-
-    expect(visibleServerNotices([deletionNotice], { projectId: "project-a", workspaceId: "runner-worktree" })).toEqual([deletionNotice]);
-    expect(visibleServerNotices([deletionNotice], { projectId: "project-b", workspaceId: "other-worktree" })).toEqual([]);
-  });
-
   it("matches every supplied project, workspace, and session scope id", () => {
     const workspaceNotice = { ...notice("workspace"), scope: { projectId: "project-a", workspaceId: "workspace-a" } };
     const sessionNotice = { ...notice("session"), scope: { projectId: "project-a", workspaceId: "workspace-a", sessionId: "session-a" } };

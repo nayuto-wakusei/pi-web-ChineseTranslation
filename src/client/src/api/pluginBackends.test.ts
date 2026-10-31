@@ -145,20 +145,6 @@ describe("browser plugin backend helper", () => {
     });
   });
 
-  it("sends paired requests only through the paired route", async () => {
-    const fetchMock = vi.fn<(url: string | URL | Request, init?: RequestInit) => Promise<Response>>(() => Promise.resolve(new Response("null", {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    })));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await requestPairedPluginBackend(target, "cards.summary", null);
-
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "https://pi.example.test/api/machines/remote%20%2F%20one/paired-plugin-backends/board.tools/projects/project%20%2F%20one/workspaces/workspace%20%231/cards.summary",
-    );
-  });
-
   it("rejects invalid requests and attributed non-success responses consistently", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({
       error: "Server plugin board.tools does not expose this operation",

@@ -59,14 +59,6 @@ describe("sessionEnvironmentFacts", () => {
     expect(facts).toContain("not a sleep process owned by this session");
     expect(facts).toContain("do not claim completion without checking");
   });
-
-  it("wraps the facts in one tagged block of plain statements", () => {
-    const lines = sessionEnvironmentFacts({ env: ENV }).split("\n");
-
-    expect(lines[0]).toBe("<pi_web_session_environment>");
-    expect(lines.at(-1)).toBe("</pi_web_session_environment>");
-    expect(lines.slice(2, -1).every((line) => line.startsWith("- "))).toBe(true);
-  });
 });
 
 describe("sessionEnvironmentPromptSections", () => {

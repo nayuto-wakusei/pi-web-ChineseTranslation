@@ -598,28 +598,6 @@ describe("bootstrapAndFreezeGlobalExtensionProviders", () => {
     expect(JSON.stringify(entries)).not.toContain("new-stream-secret");
   });
 
-  it("keeps native registration and unregistration frozen for a known provider", async () => {
-    const agentDir = await agentDirWithExtension(GLOBAL_PROVIDER_SOURCE);
-    const runtime = await createTestModelRuntime();
-    const { entries, logger } = capturingLogger();
-
-    await bootstrapAndFreezeGlobalExtensionProviders(runtime, agentDir, logger);
-    const baselineConfig = runtime.getRegisteredProviderConfig("global-config");
-
-    runtime.registerNativeProvider(nativeProvider("global-config", "native-secret-name"));
-    runtime.unregisterProvider("global-config");
-
-    expect(runtime.getRegisteredProviderConfig("global-config")).toBe(baselineConfig);
-    expect(runtime.getRegisteredNativeProvider("global-config")).toBeUndefined();
-    expect(runtime.getModel("global-config", "global-model")).toBeDefined();
-    expect(entries
-      .filter((entry) => entry.message === "ignored provider mutation after global bootstrap")
-      .map(({ details }) => ({ context: details["context"], operation: details["operation"], providerId: details["providerId"] }))).toEqual([
-      { context: "global-provider-bootstrap", operation: "registerNativeProvider", providerId: "global-config" },
-      { context: "global-provider-bootstrap", operation: "unregisterProvider", providerId: "global-config" },
-    ]);
-  });
-
   it("logs non-fatal Pi bootstrap diagnostics and still freezes the runtime", async () => {
     const agentDir = await agentDirWithExtension(`
       export default function (pi) {

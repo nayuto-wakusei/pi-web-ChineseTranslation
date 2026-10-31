@@ -3,7 +3,7 @@
 import { html } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Machine } from "../../api";
-import { AppContextBar, machineContextDetail } from "./AppContextBar";
+import { AppContextBar } from "./AppContextBar";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -41,95 +41,59 @@ it.each([false, true])("places reload before actions with navigation toggle: %s"
   ]);
 });
 
-describe("machineContextDetail", () => {
-  it("uses the serving gateway for local machines and the remote host otherwise", () => {
-    const remote = { ...machine("remote-a"), baseUrl: "https://fleet-a.example.com/pi-web/" };
-    expect(machineContextDetail(machine("local"), "pi-dev.example.com")).toBe("pi-dev.example.com");
-    expect(machineContextDetail(remote, "pi-dev.example.com")).toBe("fleet-a.example.com");
-  });
-
-  it("omits invalid remote URLs", () => {
-    expect(machineContextDetail({ ...machine("remote-a"), baseUrl: "not a url" }, "pi-dev.example.com")).toBeUndefined();
-  });
-});
 
 describe("machine crumb", () => {
-  it.each([false, true])("shows PI-WEB before machines load (PWA: %s)", async (locationIndicator) => {
-    const bar = await mountBar([], locationIndicator);
+  it("shows PI-WEB before machines load", async () => {
+    const bar = await mountBar({ machines: [] });
     expect(machineChip(bar)?.tagName).toBe("SPAN");
     expect(machineChip(bar)?.textContent).toContain("PI-WEB");
   });
 
-  it("always shows the machine crumb in PWA mode, falling back to the local machine", async () => {
-    const bar = await mountBar([machine("local")], true);
+  it("shows the static machine name without a URL when there is no machine choice", async () => {
+    const bar = await mountBar({ machines: [machine("local")] });
 
+    expect(machineChip(bar)?.tagName).toBe("SPAN");
+    expect(machineChip(bar)?.textContent).toContain("Local");
+    expect(machineChip(bar)?.textContent).not.toContain(document.location.host);
     expect(machineChip(bar)?.querySelector("img")).not.toBeNull();
   });
 
-  it("is a static identity chip with its name and URL in PWA mode when there is no machine choice", async () => {
-    const bar = await mountBar([machine("local")], true);
-
-    const chip = machineChip(bar);
-    expect(chip?.tagName).toBe("SPAN");
-    expect(chip?.textContent).toContain("本地");
-    expect(chip?.querySelector("img")).not.toBeNull();
-  });
-
-  it.each(["本地", "Local"])("shows a static gateway identity instead of %s in single-machine PWA mode", async (name) => {
-    const chip = machineChip(await mountBar([{ ...machine("local"), name }], true));
-    expect(chip?.tagName).toBe("SPAN");
-    expect(chip?.querySelector("img")?.getAttribute("src")).toContain("favicon.svg");
-    expect(chip?.textContent).toContain(document.location.host);
-    expect(chip?.textContent).toContain(name);
-  });
-
-  it.each(["本地", "Local"])("keeps the browser-mode multi-machine chip as a plain picker for %s", async (name) => {
-    const bar = await mountBar([{ ...machine("local"), name }, machine("remote-a")]);
+  it("shows the machine logo in the picker without the URL", async () => {
     const opened: string[] = [];
-    bar.onOpenSection = (section) => { opened.push(section); };
+    const bar = await mountBar({ machines: [machine("local"), machine("remote-a")], onOpenSection: (section) => { opened.push(section); } });
+
     const chip = machineChip(bar);
     expect(chip?.tagName).toBe("BUTTON");
-    expect(chip?.textContent).toContain(name);
-    expect(chip?.querySelector("img")).toBeNull();
+    expect(chip?.textContent).toContain("Local");
+    expect(chip?.querySelector("img")?.getAttribute("src")).toMatch(/\/favicon\.svg$/u);
     expect(chip?.textContent).not.toContain(document.location.host);
     chip?.click();
     expect(opened).toEqual(["machines"]);
   });
 
-  it.each(["本地", "Local"])("keeps local location identity on the PWA multi-machine picker for %s", async (name) => {
-    const chip = machineChip(await mountBar([{ ...machine("local"), name }, machine("remote-a")], true));
-    expect(chip?.tagName).toBe("BUTTON");
-    expect(chip?.textContent).toContain(name);
-    expect(chip?.querySelector("img")).not.toBeNull();
-    expect(chip?.textContent).toContain(document.location.host);
-  });
+  it("keeps the remote URL in the tooltip rather than the selected machine label", async () => {
+    const remote = machine("remote-a");
+    remote.baseUrl = "https://fleet-a.example.com/";
+    const bar = await mountBar({ machines: [machine("local"), remote], machine: remote });
 
-  it("shows selected remote location identity in PWA mode", async () => {
-    const remote = { ...machine("remote-a"), baseUrl: "https://fleet-a.example.com/" };
-    const bar = await mountBar([machine("local"), remote], true, remote);
-    expect(machineChip(bar)?.textContent).toContain("fleet-a.example.com");
+    expect(machineChip(bar)?.textContent).toContain(remote.name);
+    expect(machineChip(bar)?.textContent).not.toContain("fleet-a.example.com");
+    expect(machineChip(bar)?.title).toBe(remote.baseUrl);
+    expect(machineChip(bar)?.querySelector("img")?.getAttribute("src")).toBe("https://fleet-a.example.com/favicon.svg");
   });
 });
 
-describe("navigation button", () => {
-  it("marks a hidden active destination as current", async () => {
-    const bar = new AppContextBar();
-    bar.onShowNavigation = () => undefined;
-    bar.hiddenActiveDestination = true;
-    document.body.append(bar);
-    await bar.updateComplete;
+interface BarFixture {
+  machines: Machine[];
+  machine?: Machine;
+  onOpenSection?: (section: "machines" | "projects" | "workspaces" | "sessions") => void;
+}
 
-    const button = bar.renderRoot.querySelector<HTMLButtonElement>(".context-action-button");
-    expect(button?.classList.contains("selected")).toBe(true);
-    expect(button?.getAttribute("aria-pressed")).toBe("true");
-  });
-});
-
-async function mountBar(machines: Machine[], locationIndicator = false, selected?: Machine): Promise<AppContextBar> {
+async function mountBar(fixture: BarFixture): Promise<AppContextBar> {
   const bar = new AppContextBar();
-  bar.machines = machines;
-  bar.locationIndicator = locationIndicator;
-  if (selected !== undefined) bar.machine = selected;
+  bar.machines = fixture.machines;
+  if (fixture.machine !== undefined) bar.machine = fixture.machine;
+  if (fixture.onOpenSection !== undefined) bar.onOpenSection = fixture.onOpenSection;
   document.body.append(bar);
   await bar.updateComplete;
   return bar;
@@ -142,7 +106,7 @@ function machineChip(bar: AppContextBar): HTMLElement | undefined {
 function machine(id: string): Machine {
   return {
     id,
-    name: id === "local" ? "本地" : id,
+    name: id === "local" ? "Local" : id,
     kind: id === "local" ? "local" : "remote",
     createdAt: "2026-06-04T00:00:00.000Z",
     updatedAt: "2026-06-04T00:00:00.000Z",

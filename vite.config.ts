@@ -2,12 +2,12 @@ import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 import { defineConfig, normalizePath } from "vite";
 import { effectivePiWebConfig } from "./src/config";
-import { DEPLOYMENT_MANIFEST_CONTENT_TYPE, DEPLOYMENT_MANIFEST_PATH, createDeploymentFlavorResolver, deploymentIdentityAssetForPath, deploymentManifestForFlavor, isDeploymentIdentityAssetPath } from "./src/server/deploymentIdentity";
+import { DEPLOYMENT_MANIFEST_CONTENT_TYPE, DEPLOYMENT_MANIFEST_PATH, createDeploymentFlavorResolver, deploymentHtmlForFlavor, deploymentIdentityAssetForPath, deploymentManifestForFlavor, isDeploymentIdentityAssetPath } from "./src/server/deploymentIdentity";
 import { detectPiWebInstallation } from "./src/server/piWebStatus";
+import { fetchThemeBootstrap, injectThemeBootstrap } from "./src/server/themeBootstrap";
 
 const { config } = effectivePiWebConfig();
 const apiPort = config.port ?? 8504;
@@ -159,10 +159,17 @@ async function serveDevDeploymentIdentity(request: IncomingMessage, response: Se
   createReadStream(serving.filePath).pipe(response);
 }
 
-function devDeploymentIdentityPlugin(): Plugin {
+export function devDeploymentIdentityPlugin(flavor = deploymentFlavor): Plugin {
   return {
     name: "pi-web-dev-deployment-identity",
     apply: "serve",
+    transformIndexHtml: {
+      order: "pre",
+      async handler(html, context) {
+        if (context.originalUrl === undefined) return html;
+        return deploymentHtmlForFlavor(html, await flavor());
+      },
+    },
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
         void serveDevDeploymentIdentity(request, response, next);
@@ -172,13 +179,20 @@ function devDeploymentIdentityPlugin(): Plugin {
 }
 
 function manualRefreshPlugin(): Plugin {
-  const clientEntry = normalizePath(fileURLToPath(new URL("../client/client.mjs", import.meta.resolve("vite"))));
+  let clientEntry: string | undefined;
   const connect = "transport.connect(createHMRHandler(handleMessage));";
   return {
     name: "pi-web-manual-refresh",
     apply: "serve",
+    async configureServer(server) {
+      // Ask the serving runtime, not this config's import resolution. Docker
+      // exposes the same dependencies at multiple absolute mount paths.
+      const client = await server.environments.client.pluginContainer.resolveId("/@vite/client");
+      if (client === null) throw new Error("Cannot resolve Vite's served client for manual refresh");
+      clientEntry = normalizePath(client.id.split("?")[0] ?? client.id);
+    },
     transform(code, id) {
-      if (id.split("?")[0] !== clientEntry) return;
+      if (clientEntry === undefined || normalizePath(id.split("?")[0] ?? id) !== clientEntry) return;
       // Vite 8 starts its client even with hmr:false and ws:false. An unanswered
       // handshake blocks Chromium's subsequent /api WebSockets to the same host.
       // Keep Vite's helpers (dynamic plugin imports need injectQuery), but never
@@ -192,8 +206,23 @@ function manualRefreshPlugin(): Plugin {
   };
 }
 
+export function devThemeBootstrapPlugin(load = () => fetchThemeBootstrap(`http://localhost:${String(apiPort)}/api/theme-bootstrap`)): Plugin {
+  return {
+    name: "pi-web-dev-theme-bootstrap",
+    apply: "serve",
+    transformIndexHtml: {
+      order: "pre",
+      async handler(html, context) {
+        // Direct transforms/build checks do not represent an initial HTTP response.
+        if (context.originalUrl === undefined || !html.includes("pi-web-theme-data")) return html;
+        try { return injectThemeBootstrap(html, await load()); } catch { return html; }
+      },
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [devDocsPlugin(), devDeploymentIdentityPlugin(), manualRefreshPlugin()],
+  plugins: [devDocsPlugin(), devDeploymentIdentityPlugin(), manualRefreshPlugin(), devThemeBootstrapPlugin()],
   root: "src/client",
   base: "./",
   build: {
@@ -201,20 +230,15 @@ export default defineConfig({
     emptyOutDir: true,
     rolldownOptions: {
       output: {
-        codeSplitting: {
-          groups: [{
-            debugName: "vendor-chunks",
-            name(id) {
-              if (!id.includes("node_modules")) return;
-              if (id.includes("@codemirror/legacy-modes")) return "vendor-editor-legacy";
-              if (id.includes("@lezer/common") || id.includes("@lezer/highlight") || id.includes("@lezer/lr")) return "vendor-editor-core";
-              if (id.includes("@codemirror/lang-") || id.includes("@lezer/")) return "vendor-editor-languages";
-              if (id.includes("@codemirror") || id.includes("codemirror")) return "vendor-editor-core";
-              if (id.includes("@xterm")) return "vendor-terminal";
-              return undefined;
-            },
-          }],
-        },
+        codeSplitting: { groups: [{ name(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("@codemirror/legacy-modes")) return "vendor-editor-legacy";
+          if (id.includes("@lezer/common") || id.includes("@lezer/highlight") || id.includes("@lezer/lr")) return "vendor-editor-core";
+          if (id.includes("@codemirror/lang-") || id.includes("@lezer/")) return "vendor-editor-languages";
+          if (id.includes("@codemirror") || id.includes("codemirror")) return "vendor-editor-core";
+          if (id.includes("@xterm")) return "vendor-terminal";
+          return undefined;
+        } }] },
       },
     },
   },
@@ -231,6 +255,7 @@ export default defineConfig({
     proxy: {
       "/api": { target: `http://localhost:${String(apiPort)}`, ws: true },
       "/pi-web-plugins": { target: `http://localhost:${String(apiPort)}` },
+      "/pi-web-theme-assets": { target: `http://localhost:${String(apiPort)}` },
     },
   },
 });

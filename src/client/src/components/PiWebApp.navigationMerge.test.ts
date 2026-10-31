@@ -5,7 +5,6 @@ import { initialAppState, type AppState } from "../appState";
 import type { Project, SessionInfo, Workspace } from "../api";
 import { navigationOrderPort } from "../api/navigationOrder";
 import { NavigationOrderController, type NavigationOrderPort } from "../controllers/navigationOrderController";
-import { WorkspaceController } from "../controllers/workspaceController";
 import { AppShellController } from "../appShell/appShellController";
 import { PanelCollapseController } from "../appShell/panelCollapseController";
 import { PiWebApp } from "./PiWebApp";
@@ -72,17 +71,6 @@ it("keeps management navigation off the ordinary preference API while retaining 
   expect(panel.pinnedSessionIds).toEqual(["child", "root-b"]);
 });
 
-it("refreshes topology hints only for the selected machine and project", async () => {
-  const app = await mount();
-  const controller: unknown = Reflect.get(app, "workspaces");
-  if (!(controller instanceof WorkspaceController)) throw new Error("Missing workspace controller");
-  const refresh = vi.spyOn(controller, "refreshSelectedProjectTopology").mockResolvedValue();
-  call(app, "handleRealtimeEvent", "remote-b", { type: "workspaces.changed", projectId: "p" });
-  call(app, "handleRealtimeEvent", "remote-a", { type: "workspaces.changed", projectId: "other" });
-  expect(refresh).not.toHaveBeenCalled();
-  call(app, "handleRealtimeEvent", "remote-a", { type: "workspaces.changed", projectId: "p" });
-  expect(refresh).toHaveBeenCalledOnce();
-});
 
 it("restores tabbed two-column navigation when the wide workspace panel is collapsed", async () => {
   const app = await mount();

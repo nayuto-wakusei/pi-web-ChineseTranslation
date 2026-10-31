@@ -20,11 +20,6 @@ describe("settings config drafts", () => {
     expect(draft).toEqual({ host: "draft.local", port: "8504" });
   });
 
-  it("preserves all machine naming overrides when saving unrelated gateway configuration", () => {
-    const sessionNaming = { model: "provider/naming", maxTokens: 48, thinkingLevel: "off" as const, timeoutMs: 30000 };
-    const base = { host: "127.0.0.1", sessionNaming };
-    expect(gatewayServerConfigFromDraft(gatewayServerDraftFromConfig(base), base).sessionNaming).toEqual(sessionNaming);
-  });
 
   it("splits gateway server and selected-machine access drafts", () => {
     const config = {
@@ -127,6 +122,12 @@ describe("settings config drafts", () => {
     const draft = gatewayServerDraftFromConfig({ host: "gateway.local" });
     expect(gatewayServerConfigFromDraft(draft, { defaultStreamingBehavior }).defaultStreamingBehavior).toBe(defaultStreamingBehavior);
     expect(gatewayServerConfigFromDraft(draft)).not.toHaveProperty("defaultStreamingBehavior");
+  });
+
+  it.each([true, false])("preserves sessionMessages %s during gateway edits", (sessionMessages) => {
+    const draft = gatewayServerDraftFromConfig({ host: "gateway.local" });
+    expect(gatewayServerConfigFromDraft(draft, { sessionMessages }).sessionMessages).toBe(sessionMessages);
+    expect(gatewayServerConfigFromDraft(draft)).not.toHaveProperty("sessionMessages");
   });
 
   it.each([true, false])("preserves quietMode %s during gateway edits", (quietMode) => {

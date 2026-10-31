@@ -1,62 +1,133 @@
 import type { SessionContentSearchExcerpt, SessionContentSearchMatch } from "../../shared/apiTypes.js";
-import { buildTranscriptView } from "./subsessionTranscript.js";
+import { distance } from "fastest-levenshtein";
 
 const EXCERPT_CONTEXT_CHARS = 72;
 const MAX_EXCERPT_OCCURRENCES = 20;
 
 export interface SessionContentSearchView {
-  matches: SessionContentSearchMatch[];
+  matches: (SessionContentSearchMatch & { rank: number })[];
   matchCount: number;
 }
 
-export function searchSessionContent(messages: readonly unknown[], query: string, limit: number): SessionContentSearchView {
-  const view = buildTranscriptView(messages, {
-    roles: ["user", "assistant"],
-    include: ["text"],
-    search: query,
-    limit,
-  });
-  const matches = view.entries
-    .map((entry): SessionContentSearchMatch | undefined => {
-      if (entry.role !== "user" && entry.role !== "assistant") return undefined;
-      const texts = entry.parts.flatMap((part) => part.kind === "text" ? [part.text] : []);
-      const occurrenceCount = texts.reduce((count, text) => count + findMatchRanges(text, query).length, 0);
-      if (occurrenceCount === 0) return undefined;
-      return {
-        messageIndex: entry.index,
-        role: entry.role,
-        excerpts: buildExcerpts(texts, query),
-        occurrenceCount,
-      };
-    })
-    .filter((match): match is SessionContentSearchMatch => match !== undefined)
-    .reverse();
-  return { matches, matchCount: view.matched };
+interface MatchRange { start: number; length: number }
+interface MatchedText { text: string; ranges: MatchRange[] }
+interface ContentMatch { rank: number; parts: MatchedText[] }
+
+export function compileSessionContentQuery(query: string): (texts: readonly string[]) => ContentMatch | undefined {
+  const needle = query.trim();
+  const phrase = new RegExp(escapeRegExp(needle), "giu");
+  const terms = [...new Set(needle.toLowerCase().split(/\s+/u))].map((value) => ({
+    value,
+    pattern: new RegExp(escapeRegExp(value), "giu"),
+    fuzzy: /^[a-z]{4,64}$/u.test(value) ? new RegExp(`\\b[a-z]{${String(value.length - 1)},${String(value.length + 1)}}\\b`, "gi") : undefined,
+  }));
+  const typoCache = new Map<string, boolean>();
+  return (texts) => {
+    if (needle === "") return undefined;
+    const exact = texts.map((text) => ({ text, ranges: rangesForPattern(text, phrase) }));
+    if (exact.some((part) => part.ranges.length > 0)) return { rank: 0, parts: exact };
+    const parts: MatchedText[] = texts.map((text) => ({ text, ranges: [] }));
+    let rank = 1;
+    for (const term of terms) {
+      let ranges = texts.map((text) => rangesForPattern(text, term.pattern));
+      if (!ranges.some((matches) => matches.length > 0)) {
+        if (term.fuzzy === undefined) return undefined;
+        // Bound typo work to short ASCII words; punctuation and CJK stay literal.
+        const pattern = term.fuzzy;
+        ranges = texts.map((text) => {
+          const matches: MatchRange[] = [];
+          for (const word of text.matchAll(pattern)) {
+            const value = word[0].toLowerCase();
+            const key = `${term.value}\0${value}`;
+            let matchesTypo = typoCache.get(key);
+            if (matchesTypo === undefined) {
+              matchesTypo = distance(value, term.value) <= 1;
+              if (typoCache.size < 4096) typoCache.set(key, matchesTypo);
+            }
+            if (matchesTypo) matches.push({ start: word.index, length: word[0].length });
+          }
+          return matches;
+        });
+        if (!ranges.some((matches) => matches.length > 0)) return undefined;
+        rank = 2;
+      }
+      parts.forEach((part, index) => part.ranges.push(...(ranges[index] ?? [])));
+    }
+    for (const part of parts) part.ranges = mergeMatchRanges(part.ranges);
+    return { rank, parts };
+  };
+}
+
+export function searchSessionContent(messages: readonly unknown[], query: string | ReturnType<typeof compileSessionContentQuery>, limit: number): SessionContentSearchView {
+  const matchText = typeof query === "string" ? compileSessionContentQuery(query) : query;
+  const maxMatches = Math.max(1, Math.min(200, Math.floor(limit)));
+  const buckets: { messageIndex: number; role: "user" | "assistant"; content: ContentMatch }[][] = [[], [], []];
+  let matchCount = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (!isRecord(message) || (message["role"] !== "user" && message["role"] !== "assistant")) continue;
+    const content = message["content"];
+    const texts = typeof content === "string" ? [content] : Array.isArray(content)
+      ? content.flatMap((part: unknown) => isRecord(part) && part["type"] === "text" && typeof part["text"] === "string" ? [part["text"]] : [])
+      : [];
+    const match = matchText(texts);
+    if (match === undefined) continue;
+    matchCount++;
+    const bucket = buckets[match.rank];
+    if (bucket !== undefined && bucket.length < maxMatches) bucket.push({ messageIndex: index, role: message["role"], content: match });
+  }
+  return {
+    matchCount,
+    matches: buckets.flat().slice(0, maxMatches).map(({ messageIndex, role, content }) => ({
+      messageIndex,
+      role,
+      rank: content.rank,
+      excerpts: buildExcerpts(content.parts),
+      occurrenceCount: content.parts.reduce((count, part) => count + part.ranges.length, 0),
+    })),
+  };
 }
 
 export function findMatchRanges(text: string, query: string): { start: number; length: number }[] {
   const needle = query.trim();
   if (needle === "") return [];
-  const pattern = new RegExp(escapeRegExp(needle), "giu");
-  const ranges: { start: number; length: number }[] = [];
+  return rangesForPattern(text, new RegExp(escapeRegExp(needle), "giu"));
+}
+
+function rangesForPattern(text: string, pattern: RegExp): MatchRange[] {
+  const ranges: MatchRange[] = [];
   for (const match of text.matchAll(pattern)) {
     ranges.push({ start: match.index, length: match[0].length });
   }
   return ranges;
 }
 
+function mergeMatchRanges(ranges: MatchRange[]): MatchRange[] {
+  const merged: MatchRange[] = [];
+  for (const range of ranges.sort((left, right) => left.start - right.start)) {
+    const previous = merged.at(-1);
+    if (previous !== undefined && range.start < previous.start + previous.length) previous.length = Math.max(previous.length, range.start + range.length - previous.start);
+    else merged.push({ ...range });
+  }
+  return merged;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildExcerpts(texts: readonly string[], query: string): SessionContentSearchExcerpt[] {
+function buildExcerpts(parts: readonly MatchedText[]): SessionContentSearchExcerpt[] {
   const excerpts: SessionContentSearchExcerpt[] = [];
   let remaining = MAX_EXCERPT_OCCURRENCES;
-  for (const text of texts) {
+  for (const part of parts) {
     if (remaining === 0) break;
-    const ranges = findMatchRanges(text, query).slice(0, remaining);
+    const ranges = part.ranges.slice(0, remaining);
     remaining -= ranges.length;
-    excerpts.push(...mergeExcerptWindows(text, ranges));
+    excerpts.push(...mergeExcerptWindows(part.text, ranges));
   }
   return excerpts;
 }

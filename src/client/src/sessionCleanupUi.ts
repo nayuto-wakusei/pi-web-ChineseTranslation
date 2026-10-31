@@ -2,6 +2,7 @@ import { t } from "./i18n";
 import type { SessionCleanupPreviewResponse, SessionCleanupRequest } from "./api";
 
 export interface SessionCleanupDraft {
+  skipPinned: boolean;
   archiveIdleEnabled: boolean;
   archiveIdleDays: string;
   deleteArchivedEnabled: boolean;
@@ -13,6 +14,7 @@ export type SessionCleanupDraftValidation =
   | { ok: false; code: "disabled" | "archiveRequired" | "archiveInvalid" | "deleteRequired" | "deleteInvalid"; error: string };
 
 export const DEFAULT_SESSION_CLEANUP_DRAFT: SessionCleanupDraft = {
+  skipPinned: true,
   archiveIdleEnabled: true,
   archiveIdleDays: "30",
   deleteArchivedEnabled: false,
@@ -23,6 +25,7 @@ export function validateSessionCleanupDraft(draft: SessionCleanupDraft): Session
   if (!draft.archiveIdleEnabled && !draft.deleteArchivedEnabled) return { ok: false, code: "disabled", error: "Enable at least one cleanup action." };
 
   const request: SessionCleanupRequest = {
+    skipPinned: draft.skipPinned,
     archiveIdleDays: null,
     deleteArchivedDays: null,
   };
@@ -46,6 +49,7 @@ export function sessionCleanupRequestKey(request: SessionCleanupRequest | undefi
   // Execution freshness includes the management project identity. Workspace
   // selection is applied to the previewed project list and sent separately.
   return JSON.stringify({
+    skipPinned: request?.skipPinned ?? false,
     archiveIdleDays: request?.archiveIdleDays ?? null,
     deleteArchivedDays: request?.deleteArchivedDays ?? null,
     projectId: request?.projectId ?? null,
@@ -65,7 +69,8 @@ export function canRunSessionCleanup(input: {
   if (!validation.ok) return false;
   if (input.previewRequest === undefined) {
     if (input.canCleanup !== true || !sessionCleanupPreviewMatchesDraft(input.draft, input.preview)) return false;
-  } else if (sessionCleanupThresholdKey(validation.request) !== sessionCleanupThresholdKey(input.previewRequest)) return false;
+  } else if (sessionCleanupThresholdKey(validation.request) !== sessionCleanupThresholdKey(input.previewRequest)
+    || (validation.request.skipPinned ?? false) !== (input.previewRequest.skipPinned ?? false)) return false;
   return sessionCleanupPreviewHasTargets(input.preview);
 }
 

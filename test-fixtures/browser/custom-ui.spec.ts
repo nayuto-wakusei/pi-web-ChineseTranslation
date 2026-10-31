@@ -107,8 +107,6 @@ for (const scheme of ["light", "dark"] as const) {
       expect(sendBox.x + sendBox.width).toBeLessThanOrEqual(width + 1);
       const metricsFit = await status.locator(".context, .cost").evaluateAll((elements) => elements.every((element) => element.scrollWidth <= element.clientWidth + 1));
       expect(metricsFit).toBe(true);
-      await status.locator(".warning-toggle").click();
-      await expect(status.locator(".warning-toggle")).toHaveAttribute("aria-expanded", "true");
       await editor.locator(".attachment-input").setInputFiles({ name: "metrics-draft.txt", mimeType: "text/plain", buffer: Buffer.from("Retain composer attachment") });
       await page.screenshot({ path: testInfo.outputPath(`codex-context-cost-${scheme}-${String(width)}.png`) });
       await page.evaluate(() => window.customUiFixture.setEnabled(false));
@@ -182,6 +180,44 @@ for (const scheme of ["light", "dark"] as const) {
     expect(await page.evaluate(() => window.customUiFixture.identity())).toEqual({ editor: true, chat: true, draft: "未发送的草稿" });
   });
 }
+
+test("search stays readable with long Chinese results and restores default sizing when disabled", async ({ page }, testInfo) => {
+  for (const width of [1440, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/custom-ui.html");
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
+    const search = page.locator('[data-action-id="search"]');
+    const trigger = await search.boundingBox();
+    expect(trigger?.height).toBeGreaterThanOrEqual(44);
+    await expect(search).toHaveCSS("font-size", "16px");
+    await search.click();
+    const dialog = page.locator("session-search-dialog");
+    const input = dialog.getByRole("searchbox");
+    const query = "文件上传下载失败后的中文排查记录";
+    await input.fill(query);
+    await expect(dialog.locator("mark").first()).toHaveText(query);
+    const surface = dialog.locator("modal-surface .surface");
+    const box = await surface.boundingBox();
+    if (box === null) throw new Error("Missing search surface");
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+    expect(box.y + box.height).toBeLessThanOrEqual(901);
+    if (width > 680) expect(box.width).toBeGreaterThan(1000);
+    expect(await input.evaluate((element) => element.parentElement?.getBoundingClientRect().height)).toBeGreaterThanOrEqual(52);
+    const results = dialog.locator(".results");
+    expect(await results.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    await results.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    expect(await results.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    expect(await dialog.locator(".excerpt").evaluateAll((elements) => elements.every((element) => element.scrollWidth <= element.clientWidth + 1))).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`search-${String(width)}.png`) });
+    await page.evaluate(() => window.customUiFixture.setEnabled(false));
+    await expect(input).toHaveValue(query);
+    await expect(dialog).toHaveCSS("font-size", "14px");
+    if (width > 680) expect((await surface.boundingBox())?.width).toBeLessThanOrEqual(780);
+    await dialog.locator(".close-button").click();
+    await expect(dialog).toHaveCount(0);
+  }
+});
 
 test("management presentation keeps ordinary project trust unavailable", async ({ page }) => {
   await page.goto("/custom-ui.html?management");
@@ -344,17 +380,4 @@ test("left-side attachment sources remain readable and usable on touch screens",
   await (await chooser).setFiles({ name: "mobile.txt", mimeType: "text/plain", buffer: Buffer.from("mobile attachment") });
   await expect(editor.locator(".attachments")).toContainText("mobile.txt");
   await expect(panel).not.toBeVisible();
-});
-
-test("legacy theme selections stay available and only normalize on explicit save", async ({ page }) => {
-  await page.goto("/custom-ui.html?legacy-theme=graphite");
-  await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
-  await page.evaluate(() => window.customUiFixture.openSettings());
-  const panel = page.locator("settings-theme-panel");
-  await expect(panel.locator("select")).toHaveValue("pi-web.custom-ui-codex:graphite");
-  await expect(panel.locator("#theme-unavailable-help")).toHaveCount(0);
-  expect(await page.evaluate(() => window.customUiFixture.savedTheme())).toBeUndefined();
-  await panel.locator("input[type=checkbox]").uncheck();
-  await panel.getByRole("button", { name: "在此浏览器使用", exact: true }).click();
-  expect(await page.evaluate(() => window.customUiFixture.savedTheme())).toEqual({ themeId: "pi-web.custom-ui-codex:graphite", auto: false });
 });

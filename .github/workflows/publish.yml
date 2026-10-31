@@ -72,6 +72,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deprecate-version != '' }}
     runs-on: ubuntu-latest
     environment: npm
+    concurrency:
+      group: docs-stable
+      cancel-in-progress: false
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v6

@@ -14,8 +14,7 @@ export default {
   apiVersion: 5,
   name: "Custom UI Codex",
   requires: [presentationCapability],
-  activate: ({ html, svg, translate }) => {
-    const t = (key: string, fallback: string): string => translate?.(key, fallback) ?? fallback;
+  activate: ({ html, svg }) => {
     const slot = (name: string) => html`<slot name=${name}></slot>`;
     // Lucide icons, ISC/MIT. Attribution is bundled in LICENSE-icons.
     const icon = (id: string) => svg`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${
@@ -25,7 +24,7 @@ export default {
             : svg`<path d="M14 17H5M19 7h-9"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>`
     }</svg>`;
     const actions = (context: UiPresentationRenderContextV1, footer: boolean) => (context.actions ?? []).filter((action) => (action.id === "settings") === footer).map((action) => html`
-      <button type="button" class="ui-button codex-command" title=${action.label} ?disabled=${action.disabled === true} @click=${action.run}>${icon(action.id)}<span>${action.label}</span></button>
+      <button type="button" class="ui-button codex-command" data-action-id=${action.id} title=${action.label} ?disabled=${action.disabled === true} @click=${action.run}>${icon(action.id)}<span>${action.label}</span></button>
     `);
     return {
       contributions: {
@@ -33,11 +32,6 @@ export default {
           { id: "codex", url: new URL("./codex.css?no-inline", import.meta.url).href, order: 1100 },
           { id: "chat-settings", url: new URL("./chat-settings.css?no-inline", import.meta.url).href, order: 1101 },
         ],
-        themes: [
-          { id: "paper", name: "Paper", description: t("client.themes.paper.description", "White and neutral grays with restrained status colors."), order: 40, colorScheme: "light", stylesheets: [{ id: "palette", url: new URL("./paper.css?no-inline", import.meta.url).href }] },
-          { id: "graphite", name: "Graphite", description: t("client.themes.graphite.description", "Charcoal and neutral grays with restrained status colors."), order: 50, colorScheme: "dark", stylesheets: [{ id: "palette", url: new URL("./graphite.css?no-inline", import.meta.url).href }] },
-        ],
-        themePairs: [{ id: "paper-graphite", name: "Paper / Graphite", description: t("client.themes.neutralPair.description", "Follow the system light/dark preference with neutral gray themes."), order: 20, light: "paper", dark: "graphite" }],
         uiPresentations: [
           { id: "files-toolbar", region: "files-toolbar", render: (context) => html`<span class="codex-files-toolbar ui-toolbar-group">${(context.actions ?? []).map((action) => {
             const icons = new Map([["new-file", renderNewFileIcon], ["new-folder", renderNewFolderIcon], ["upload", renderUploadIcon], ["download", renderDownloadIcon], ["rename", renderRenameIcon], ["delete", renderDeleteIcon], ["refresh", renderRefreshIcon]]);

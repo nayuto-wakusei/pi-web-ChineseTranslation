@@ -35,6 +35,12 @@ import { ProjectService } from "./projects/projectService.js";
 import { ProjectLifecycleService } from "./projects/projectLifecycleService.js";
 import { ProjectStore, projectStorePath } from "./storage/projectStore.js";
 import { FileSessionUnreadPersistence, SessionUnreadStore, defaultSessionUnreadFilePath } from "./sessions/sessionUnreadStore.js";
+import { SessionPinStore, sessionPinStorePath } from "./storage/sessionPinStore.js";
+import { navigationPreferenceStorePath } from "./storage/navigationPreferenceStore.js";
+import { registerSessionPinRoutes } from "./navigationPreferenceRoutes.js";
+import { PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY } from "../shared/pluginSessionLifecycleTypes.js";
+import { createServerPluginSessionLifecycleCapabilityFactory } from "./plugins/serverPluginSessionLifecycleCapability.js";
+import { registerPluginSessionLifecycleRoutes } from "./sessiond/pluginSessionLifecycleRoutes.js";
 import { sessiondSocketPath } from "../sessiond/config.js";
 import { ManagementCommandRunService } from "./terminals/managementCommandRunService.js";
 import { registerManagementTerminalRoutes } from "./terminals/managementTerminalRoutes.js";
@@ -180,6 +186,12 @@ await runSessionDaemonStartup({
       app.log.warn({ err: error }, "Pi package auto-install reconciliation failed unexpectedly; continuing without it");
     });
     const eventHub = new SessionEventHub();
+    const pins = new SessionPinStore(
+      sessionPinStorePath(daemonEnvironment),
+      navigationPreferenceStorePath(daemonEnvironment),
+      (scope, revision) => { eventHub.publishRealtime({ type: "session-pins.changed", ...scope, revision }, NORMAL_SESSION_EVENT_SCOPE); },
+    );
+    await pins.pinnedSessionIds();
     const serverNotices = new ServerNoticeService(new ServerNoticeStore(), eventHub);
     const workspaceActivity = new WorkspaceActivityService(eventHub, (scope) => { machineStatus.notifyChanged(scope); });
     const projects = new ProjectService(new ProjectStore(projectStorePath(daemonEnvironment)));
@@ -231,6 +243,7 @@ await runSessionDaemonStartup({
         PI_WEB_HOST_PI_SESSIONS_CAPABILITY,
         PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,
         PI_WEB_HOST_CATALOG_CAPABILITY,
+        PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY,
       ],
     });
     registerCleanup(() => serverPlugins.stop());
@@ -320,9 +333,8 @@ await runSessionDaemonStartup({
         managementContext,
       );
     };
-    const spawnTargets = config.spawnSessions
-      ? new ProjectScopedSpawnTargetResolver({ projects: { list: projectsForScope }, workspaces: workspaceProviders })
-      : undefined;
+    const messageTargets = new ProjectScopedSpawnTargetResolver({ projects: { list: projectsForScope }, workspaces: workspaceProviders });
+    const spawnTargets = config.spawnSessions ? messageTargets : undefined;
     const managementAllowPrivileged = config.managementEmbed?.allowPrivileged === true;
     const companionOptions: { current?: CompanionBackendBindingOptions } = {};
     const sessionEvents = new PiSessionEventConnections((bus) => bindCompanionBackend(bus, () => {
@@ -331,6 +343,9 @@ await runSessionDaemonStartup({
     }));
     const projectLifecycleRef: { current?: ProjectLifecycleService } = {};
     const sessions = new PiSessionService(eventHub, {
+      sessionPins: pins,
+      messageTargets,
+      sessionMessagesEnabled: config.sessionMessages,
       sessionEvents,
       translator,
       modelRuntime: managementAuth.modelRuntime,
@@ -393,6 +408,7 @@ await runSessionDaemonStartup({
       publisher: { publish: (snapshot, scope) => { eventHub.publishRealtime({ type: "machine.status", status: snapshot }, scope); } },
       logger: app.log,
     });
+    await sessions.restoreInterventionState();
     eventHub.setGlobalJoinFrame((scope) => ({ type: "machine.status", status: machineStatus.snapshot(scope) }));
     const workspaceChanges = new WorkspaceChangeNotifier({
       attribution: statusAttribution,
@@ -401,7 +417,11 @@ await runSessionDaemonStartup({
     });
     await serverPlugins.resumeWithHostCapabilityFactories([
       createServerPluginWorkspacesCapabilityFactory({ projects, workspaces: workspaceProviders }),
-      createServerPluginCatalogCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
+      createServerPluginCatalogCapabilityFactory({ projects, workspaces: workspaceProviders, sessions, pins }),
+      createServerPluginSessionLifecycleCapabilityFactory({
+        projects, workspaces: workspaceProviders, sessions, pins,
+        onMutation: ({ projectId }) => { workspaceChanges.notify(projectId); },
+      }),
       createServerPluginPiSessionsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
       createServerPluginPiSessionEventsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
     ]);
@@ -493,12 +513,14 @@ await runSessionDaemonStartup({
       });
       return shutdownPromise;
     };
-    return { eventHub, machineStatus, statusAttribution, workspaceChanges, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, projects, shutdown };
+    return { pins, eventHub, machineStatus, statusAttribution, workspaceChanges, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, normalToolAudit, managementAudit, activeAgentProfile, runtimeComponent, serverPlugins, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, projects, shutdown };
   },
   disposeRuntime: ({ shutdown }) => shutdown(),
-  registerRoutes({ eventHub, machineStatus, statusAttribution, workspaceChanges, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, serverPlugins }) {
+  registerRoutes({ pins, eventHub, machineStatus, statusAttribution, workspaceChanges, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, serverPlugins }) {
     registerProjectMutationRoutes(app, projectLifecycle, translator);
-    registerPluginCatalogRoutes(app, { projects, workspaces: workspaceProviders, sessions });
+    registerPluginCatalogRoutes(app, { projects, workspaces: workspaceProviders, sessions, pins });
+    registerSessionPinRoutes(app, pins);
+    registerPluginSessionLifecycleRoutes(app, { projects, workspaces: workspaceProviders, sessions, pins, onMutation: ({ projectId }) => { workspaceChanges.notify(projectId); } });
     registerWorkspaceActivityRoutes(app, workspaceActivity);
     registerMachineStatusRoutes(app, machineStatus);
     registerServerNoticeRoutes(app, serverNotices);

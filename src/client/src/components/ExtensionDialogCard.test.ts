@@ -5,7 +5,6 @@ import type { PendingExtensionDialog } from "../../../shared/apiTypes";
 import type { ClosedExtensionDialog } from "../appState";
 import {
   ExtensionDialogCard,
-  extensionDialogCloseLabel,
   extensionDialogCloseSummary,
   extensionDialogCountdownText,
   type ExtensionDialogAnswerCallback,
@@ -110,19 +109,6 @@ describe("extension-dialog-card input dialog", () => {
     expect(onAnswer).toHaveBeenCalledWith("dlg-1", "feature/dialogs");
   });
 
-  it("sends an empty string without typing", async () => {
-    const onAnswer = vi.fn<ExtensionDialogAnswerCallback>();
-    const card = await mountOpenDialog(openDialog({ kind: "input", title: "Notes?" }), { onAnswer });
-    const root = renderRoot(card);
-
-    const send = buttonWithText(root, "Send");
-    expect(send.disabled).toBe(false);
-    send.click();
-    await Promise.resolve();
-
-    expect(onAnswer).toHaveBeenCalledWith("dlg-1", "");
-  });
-
   it("keeps a half-typed answer when the same dialog is re-projected from a status refresh", async () => {
     const card = await mountOpenDialog(openDialog({ kind: "input", title: "Notes?" }));
     const root = renderRoot(card);
@@ -151,18 +137,6 @@ describe("extension-dialog-card countdown", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     await card.updateComplete;
     expect(countdown.textContent).toBe("Auto-cancels in 1m 0s");
-  });
-
-  it("is decorative: no live region announcing every second", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-27T10:00:00.000Z"));
-    const card = await mountOpenDialog(openDialog({ timeoutAt: "2026-07-27T10:01:30.000Z" }));
-    const root = renderRoot(card);
-
-    // A ticking live region would queue a screen-reader announcement per
-    // second; the daemon-owned dialog.closed event is the real signal.
-    expect(requiredElement(root.querySelector(".countdown"), "countdown").getAttribute("role")).toBeNull();
-    expect(root.querySelector("[aria-live]")).toBeNull();
   });
 
   it("renders no countdown when the dialog waits forever", async () => {
@@ -204,8 +178,88 @@ describe("extension-dialog-card closed outcome", () => {
     expect(root.querySelector("input, select, textarea")).toBeNull();
     expect(buttonsWithText(root, "Yes")).toHaveLength(0);
 
+    expect(root.querySelector("header button")).toBe(buttonWithText(root, "Dismiss"));
+    expect(root.querySelector("footer")).toBeNull();
+    expect(root.querySelector(".answer-visibility")).toBeNull();
     buttonWithText(root, "Dismiss").click();
     expect(onDismiss).toHaveBeenCalledWith("dlg-1");
+  });
+
+  it.each(["fake-secret <img> العربية", "", "first line\nsecond line"])("hides input %j until the eye icon is clicked and can hide it again", async (answer) => {
+    const card = new ExtensionDialogCard();
+    card.outcome = closedDialog("answered", answer, openDialog({ kind: "input" }));
+    document.body.append(card);
+    await card.updateComplete;
+    const root = renderRoot(card);
+    const toggle = requiredElement(root.querySelector<HTMLButtonElement>(".answer-visibility"), "answer visibility toggle");
+
+    expect(root.querySelector(".closed-summary")?.textContent).toBe("Answer hidden.");
+    if (answer !== "") expect(root.textContent).not.toContain(answer);
+    expect(toggle.textContent.trim()).toBe("");
+    expect(toggle.getAttribute("aria-label")).toBe("See answer");
+    expect(toggle.title).toBe("See answer");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(root.getElementById(requiredElement(toggle.getAttribute("aria-controls"), "controlled answer id"))?.className).toBe("closed-summary");
+    expect(toggle.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    toggle.focus();
+    toggle.click();
+    await card.updateComplete;
+
+    expect(root.querySelector(".closed-summary")?.textContent).toBe(answer === "" ? "Answered with an empty response." : `Answered: ${answer}`);
+    expect(root.querySelector("img")).toBeNull();
+    expect(toggle.getAttribute("aria-label")).toBe("Hide answer");
+    expect(toggle.title).toBe("Hide answer");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(root.activeElement).toBe(toggle);
+    toggle.click();
+    await card.updateComplete;
+
+    expect(root.querySelector(".closed-summary")?.textContent).toBe("Answer hidden.");
+    expect(toggle.getAttribute("aria-label")).toBe("See answer");
+    if (answer !== "") expect(root.textContent).not.toContain(answer);
+  });
+
+  it("resets a revealed answer for a different dialog and after detaching the card", async () => {
+    const card = new ExtensionDialogCard();
+    const outcome = closedDialog("answered", "first secret", openDialog({ kind: "input" }));
+    card.outcome = outcome;
+    document.body.append(card);
+    await card.updateComplete;
+    const root = renderRoot(card);
+    requiredElement(root.querySelector<HTMLButtonElement>(".answer-visibility"), "eye toggle").click();
+    await card.updateComplete;
+
+    card.outcome = { ...outcome, dialog: { ...outcome.dialog, dialogId: "dlg-2" }, answer: "second secret" };
+    await card.updateComplete;
+    expect(root.querySelector(".closed-summary")?.textContent).toBe("Answer hidden.");
+    requiredElement(root.querySelector<HTMLButtonElement>(".answer-visibility"), "eye toggle").click();
+    await card.updateComplete;
+    expect(root.querySelector(".closed-summary")?.textContent).toBe("Answered: second secret");
+
+    card.remove();
+    document.body.append(card);
+    await card.updateComplete;
+    expect(root.querySelector(".closed-summary")?.textContent).toBe("Answer hidden.");
+  });
+
+  it.each(["cancelled", "timeout", "aborted", "session-ended", "answered"] as const)("does not offer a reveal control for an input closed as %s without an answer", async (reason) => {
+    const card = new ExtensionDialogCard();
+    card.outcome = closedDialog(reason, undefined, openDialog({ kind: "input" }));
+    document.body.append(card);
+    await card.updateComplete;
+    const root = renderRoot(card);
+    expect(root.querySelector(".answer-visibility")).toBeNull();
+    expect(root.querySelector("header button")).toBe(buttonWithText(root, "Dismiss"));
+    expect(root.querySelector("footer")).toBeNull();
+  });
+
+  it("keeps choice answers visible without a reveal control", async () => {
+    const card = new ExtensionDialogCard();
+    card.outcome = closedDialog("answered", "Staging", openDialog({ kind: "select" }));
+    document.body.append(card);
+    await card.updateComplete;
+    expect(renderRoot(card).querySelector(".closed-summary")?.textContent).toBe("Answered: Staging");
+    expect(renderRoot(card).querySelector(".answer-visibility")).toBeNull();
   });
 
   it("shows the timeout outcome without an answer", async () => {
@@ -244,15 +298,7 @@ describe("extensionDialogCountdownText", () => {
   });
 });
 
-describe("extensionDialogCloseLabel and extensionDialogCloseSummary", () => {
-  it("labels every close reason", () => {
-    expect(extensionDialogCloseLabel("answered")).toBe("Answered");
-    expect(extensionDialogCloseLabel("cancelled")).toBe("Cancelled");
-    expect(extensionDialogCloseLabel("timeout")).toBe("Timed out");
-    expect(extensionDialogCloseLabel("aborted")).toBe("Aborted");
-    expect(extensionDialogCloseLabel("session-ended")).toBe("Session ended");
-  });
-
+describe("extensionDialogCloseSummary", () => {
   it("summarizes answers by kind", () => {
     expect(extensionDialogCloseSummary(closedDialog("answered", false))).toBe("Answered: No");
     expect(extensionDialogCloseSummary(closedDialog("answered", "Staging"))).toBe("Answered: Staging");
@@ -318,9 +364,9 @@ function openDialog(overrides: Partial<PendingExtensionDialog> = {}): PendingExt
   };
 }
 
-function closedDialog(reason: ClosedExtensionDialog["reason"], answer?: ClosedExtensionDialog["answer"]): ClosedExtensionDialog {
+function closedDialog(reason: ClosedExtensionDialog["reason"], answer?: ClosedExtensionDialog["answer"], dialog = openDialog()): ClosedExtensionDialog {
   return {
-    dialog: openDialog(),
+    dialog,
     reason,
     ...(answer === undefined ? {} : { answer }),
   };

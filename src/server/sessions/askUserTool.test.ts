@@ -29,15 +29,10 @@ const twoQuestions = {
 const ctx = stubExtensionToolContext();
 
 describe("createAskUserToolDefinition", () => {
-  it("advertises a non-blocking question set whose answers arrive as a follow-up", () => {
+  it("registers ask_user as model-only", () => {
     const { tool } = testTool();
     expect(tool.name).toBe("ask_user");
     expect(tool.exposure).toBe("model-only");
-    expect(tool.description).toBe("Post a set of questions to the user as a browser form and end this run. Answers arrive later as a follow-up message; the user may leave any question unanswered.");
-    expect(tool.promptSnippet).toBe("ask_user: post a question set to the user; ends the run, answers return as a follow-up");
-    expect(tool.promptGuidelines).toEqual([
-      "When you need decisions from the user, post them together with ask_user instead of asking in prose one at a time. It ends the run and the answers, including the questions the user left unanswered, come back as a follow-up message that wakes you. Call it alone and last, and do not repost the same questions or poll for answers.",
-    ]);
   });
 
   it("bounds the question set in its parameter schema", () => {
@@ -57,7 +52,7 @@ describe("createAskUserToolDefinition", () => {
 
     expect(getSessionId).not.toHaveBeenCalled();
     expect(result.terminate).toBe(true);
-    expect(result.details).toEqual({ ask: {
+    expect(result.details).toEqual({ interventionRequired: true, ask: {
       askId: "ask-1", askedAt: "2026-02-01T10:00:00.000Z", questions: twoQuestions.questions,
     } });
     expect(firstText(result.content)).toBe("Posted 2 questions to the user as ask ask-1. Ending this run; the answers arrive as a follow-up message that wakes you, naming every question the user left unanswered. Do not repost these questions.");
@@ -83,7 +78,7 @@ describe("createAskUserToolDefinition", () => {
     const { tool } = testTool();
     const first = await tool.execute("call-first", twoQuestions, undefined, undefined, ctx);
     const second = await tool.execute("call-second", { questions: [{ id: "again", question: "Still there?" }] }, undefined, undefined, ctx);
-    expect(second.details).toEqual({ ask: {
+    expect(second.details).toEqual({ interventionRequired: true, ask: {
       askId: "ask-2", askedAt: "2026-02-01T10:00:00.000Z", questions: [{ id: "again", question: "Still there?", options: [] }],
     } });
     expect(first.details).toMatchObject({ ask: { askId: "ask-1" } });

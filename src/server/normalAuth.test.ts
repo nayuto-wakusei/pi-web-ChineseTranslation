@@ -51,6 +51,12 @@ describe("management auth route boundary", () => {
     app.get("/api/config", () => ({ secret: "normal configuration" }));
     app.get("/api/machines/remote/projects", () => ({ secret: "remote projects" }));
     app.get("/pi-web-plugins/manifest.json", () => ({ plugins: [] }));
+    app.get("/api/theme-bootstrap", () => ({ stylesheets: [] }));
+    app.post("/api/theme-bootstrap", () => ({ ok: true }));
+    for (const url of ["/api/themes", "/api/theme", "/api/theme-bootstrap-extra"]) app.get(url, () => ({ themes: [] }));
+    for (const method of ["GET", "HEAD"] as const) expect((await app.inject({ method, url: "/api/theme-bootstrap" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/theme-bootstrap" })).statusCode).toBe(401);
+    for (const url of ["/api/themes", "/api/theme", "/api/theme-bootstrap-extra"]) expect((await app.inject(url)).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/pi-web-plugins/manifest.json" })).statusCode).toBe(401);
     const setup = await app.inject({ method: "POST", url: "/api/normal-auth/setup", payload: { password: "secret-pass" } });
     const cookie = authCookie(setup);
@@ -142,7 +148,7 @@ function piWebConfigResponse(config: PiWebConfigValues): PiWebConfigResponse {
     exists: true,
     config,
     effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
+    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, sessionMessages: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
   };
 }
 

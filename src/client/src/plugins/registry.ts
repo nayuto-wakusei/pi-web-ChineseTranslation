@@ -7,6 +7,7 @@ import { snapshotDisplayMetadata } from "./displayMetadata";
 import { localization } from "../localization/browser";
 import type { LocalizationService } from "../localization/service";
 import { createPluginLocalization } from "./localization";
+import { createPluginSessionLifecycle } from "./sessionLifecycle";
 import { stylesheetIntegrationCapability, stylesheetIntegrationCapabilityToken } from "./styles";
 import { UiPresentationRuntime, uiPresentationCapability, uiPresentationCapabilityToken, uiPresentationRegions, type RegisteredUiPresentation } from "./uiPresentationRuntime";
 import { PluginStylesheetLoadError } from "./styleRegistry";
@@ -20,6 +21,7 @@ import { availableDisplayedMessageActions, availableMessageActions, type Registe
 import { PluginSelectionHost } from "./selection";
 import { PromptChipStore, type PromptChipTarget } from "../promptChips";
 import type { PluginPromptEditor } from "../../../plugin-api";
+import { selectTranscriptRenderers, snapshotTranscriptRenderer, transcriptRenderingCapability, transcriptRenderingCapabilityToken, type RegisteredTranscriptRenderer } from "./transcriptRenderers";
 import { contentRendererMatches, snapshotContentRenderer, type ContentRendererChoice, type RegisteredContentRenderer } from "./contentRenderers";
 import { createSyntaxHighlightingCapability, runSyntaxHighlighter, snapshotSyntaxHighlighter, syntaxHighlightingCapabilityToken, type RegisteredSyntaxHighlighter } from "../formatting/syntaxHighlighting";
 import { createContentRenderingCapability, createContentRenderingService, contentRenderingCapabilityToken, type ChatContentRendering } from "../formatting/contentRendering";
@@ -106,6 +108,7 @@ interface PreparedPluginContributions {
   readonly stylesheets: readonly QualifiedStylesheetContribution[];
   readonly filePreviewers: readonly RegisteredFilePreviewer[];
   readonly contentRenderers: readonly RegisteredContentRenderer[];
+  readonly transcriptRenderers: readonly RegisteredTranscriptRenderer[];
   readonly syntaxHighlighters: readonly RegisteredSyntaxHighlighter[];
   readonly ids: ReadonlySet<QualifiedContributionId>;
   readonly actions: readonly RegisteredPluginAction[];
@@ -179,6 +182,18 @@ export class PluginRegistry {
     .sort((a, b) => this.compareDiscoveryOrder(a, b))
     .filter((previewer) => filePreviewerMatches(previewer, request)));
   private readonly contentRenderers: RegisteredContentRenderer[] = [];
+  private readonly transcriptRenderers: RegisteredTranscriptRenderer[] = [];
+  private readonly transcriptRendererViews = new Map<string, readonly RegisteredTranscriptRenderer[]>();
+
+  getTranscriptRenderers(machineId: string): readonly RegisteredTranscriptRenderer[] {
+    const selected = selectTranscriptRenderers(this.transcriptRenderers
+      .filter((renderer) => this.isContributionActive(renderer.pluginId, renderer.machineId, machineId, renderer.sourcePluginId))
+      .sort((a, b) => this.compareDiscoveryOrder(a, b)));
+    const previous = this.transcriptRendererViews.get(machineId);
+    if (previous?.length === selected.length && selected.every((renderer, index) => renderer === previous[index])) return previous;
+    this.transcriptRendererViews.set(machineId, selected);
+    return selected;
+  }
   private readonly syntaxHighlighters: RegisteredSyntaxHighlighter[] = [];
   readonly syntaxHighlighting = createSyntaxHighlightingCapability((request) => this.syntaxHighlightingRevision(request.machineId)
     .filter((highlighter) => contentRendererMatches(highlighter, { ...request, text: "" })).at(-1));
@@ -268,10 +283,14 @@ export class PluginRegistry {
   private readonly sessionLabels: QualifiedSessionLabelContribution[] = [];
   private readonly stylesheets: QualifiedStylesheetContribution[] = [];
   private readonly themes: QualifiedThemeContribution[] = [];
+  private declarativeThemes: readonly QualifiedThemeContribution[] = [];
+  private declarativeThemePairs: readonly QualifiedThemePairContribution[] = [];
   private readonly fileIconThemes: QualifiedFileIconThemeContribution[] = [];
   private readonly themePairs: QualifiedThemePairContribution[] = [];
   private readonly pluginIds = new Set<string>();
   private readonly warnedLegacyPluginIds = new Set<string>();
+
+  private readonly warnedRuntimeThemeContributions = new Set<string>();
   private readonly gatewayPluginIds = new Set<string>();
   private readonly gatewayMachineSpecificPluginIds = new Set<string>();
   private readonly gatewayPresentationPluginIds = new Set<string>();
@@ -303,7 +322,15 @@ export class PluginRegistry {
       subscribe: this.uiPresentation.subscribe.bind(this.uiPresentation),
       fail: this.uiPresentation.fail.bind(this.uiPresentation),
     });
-    for (const provision of snapshotCapabilityProvisions([{ capability: filePreviewingCapabilityToken, value: this.filePreviewing }, { capability: contentRenderingCapabilityToken, value: this.contentRendering }, { capability: syntaxHighlightingCapabilityToken, value: this.syntaxHighlighting }, { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability }, { capability: uiPresentationCapabilityToken, value: presentation }, ...(options.hostCapabilities ?? [])], undefined, "Browser host capability provisions")) {
+    for (const provision of snapshotCapabilityProvisions([
+      { capability: filePreviewingCapabilityToken, value: this.filePreviewing },
+      { capability: contentRenderingCapabilityToken, value: this.contentRendering },
+      { capability: transcriptRenderingCapabilityToken, value: transcriptRenderingCapability },
+      { capability: syntaxHighlightingCapabilityToken, value: this.syntaxHighlighting },
+      { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability },
+      { capability: uiPresentationCapabilityToken, value: presentation },
+      ...(options.hostCapabilities ?? []),
+    ], undefined, "Browser host capability provisions")) {
       const internal = internalCapabilityProvision(provision);
       if (this.hostCapabilitiesByKey.has(internal.key)) {
         throw new BrowserPluginIncompatibleError(`Browser capability ${formatCapability(internal.capability)} is provided more than once by the host`);
@@ -384,6 +411,8 @@ export class PluginRegistry {
     this.messageActions.splice(0);
     this.filePreviewers.splice(0);
     this.contentRenderers.splice(0);
+    this.transcriptRenderers.splice(0);
+    this.transcriptRendererViews.clear();
     this.syntaxHighlighters.splice(0);
     this.syntaxHighlightingViews.clear();
     this.chatContentRenderingViews.clear();
@@ -616,6 +645,17 @@ export class PluginRegistry {
         ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
       }));
     });
+    const transcriptRenderers = (contributions.transcriptRenderers ?? []).map((renderer): RegisteredTranscriptRenderer => {
+      const snapshot = snapshotTranscriptRenderer(renderer, lifetimeSignal);
+      return Object.freeze({
+        ...snapshot,
+        id: this.qualify(runtimePluginId, snapshot.id, contributionIds),
+        localId: snapshot.id,
+        pluginId: runtimePluginId,
+        ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
+        ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
+      });
+    });
     const contentRenderers = (contributions.contentRenderers ?? []).map((renderer): RegisteredContentRenderer => {
       const snapshot = snapshotContentRenderer(renderer);
       const supports = snapshot.supports?.bind(snapshot);
@@ -678,7 +718,7 @@ export class PluginRegistry {
     const themePairs = registration.machineId === undefined
       ? (contributions.themePairs ?? []).map((pair) => this.qualifyThemePair(runtimePluginId, pair, contributionIds))
       : [];
-    return Object.freeze({ ids: contributionIds, uiPresentations, filePreviewers, contentRenderers, syntaxHighlighters, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, fileIconThemes, themePairs });
+    return Object.freeze({ ids: contributionIds, uiPresentations, filePreviewers, contentRenderers, transcriptRenderers, syntaxHighlighters, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, fileIconThemes, themePairs });
   }
 
   private dependencyFailure(
@@ -784,6 +824,7 @@ export class PluginRegistry {
     for (const contributionId of staged.contributions.ids) this.contributionIds.add(contributionId);
     this.filePreviewers.push(...staged.contributions.filePreviewers);
     this.contentRenderers.push(...staged.contributions.contentRenderers);
+    this.transcriptRenderers.push(...staged.contributions.transcriptRenderers);
     this.syntaxHighlighters.push(...staged.contributions.syntaxHighlighters);
     if (staged.contributions.contentRenderers.length > 0 || staged.contributions.syntaxHighlighters.length > 0) this.contentRendererRevision += 1;
     this.actions.push(...staged.contributions.actions);
@@ -798,6 +839,14 @@ export class PluginRegistry {
     this.themes.push(...staged.contributions.themes);
     this.fileIconThemes.push(...staged.contributions.fileIconThemes);
     this.themePairs.push(...staged.contributions.themePairs);
+    for (const kind of ["themes", "themePairs"] as const) {
+      for (const contribution of staged.contributions[kind]) {
+        const key = `${kind}:${contribution.id}`;
+        if (this.warnedRuntimeThemeContributions.has(key)) continue;
+        this.warnedRuntimeThemeContributions.add(key);
+        console.warn(`Browser plugin ${staged.registration.id} registers deprecated runtime ${kind} contribution ${contribution.id}; move it to piWeb.plugins[].${kind} in package.json (use browserRoot and stylesheet paths for static themes). Runtime contributions remain supported for compatibility.`);
+      }
+    }
     this.activeCapabilitiesByRegistration.set(staged.registration.id, new Map(staged.provisions.map((provision) => [provision.key, provision])));
     if (hostSnapshots.length > 0) {
       this.hostCapabilitySnapshotsByRegistration.set(staged.registration.id, new Map(hostSnapshots.map((snapshot) => [snapshot.key, snapshot])));
@@ -1017,15 +1066,23 @@ export class PluginRegistry {
       .sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
   }
 
+  /** Backend-validated, enabled declarations do not depend on browser activation. */
+  setDeclarativeThemes(themes: readonly QualifiedThemeContribution[], pairs: readonly QualifiedThemePairContribution[]): void {
+    const runtimeIds = new Set([...this.themes, ...this.themePairs].map(({ id }) => id));
+    for (const contribution of [...themes, ...pairs]) {
+      if (runtimeIds.has(contribution.id)) throw new Error(`Theme contribution ${contribution.id} is declared both statically and at runtime`);
+    }
+    this.declarativeThemes = [...themes];
+    this.declarativeThemePairs = [...pairs];
+  }
+
   getThemes(): QualifiedThemeContribution[] {
-    return this.themes
-      .filter((theme) => this.isContributionEnabled(theme.pluginId, undefined))
+    return [...this.declarativeThemes, ...this.themes.filter((theme) => this.isContributionEnabled(theme.pluginId, undefined))]
       .sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
   }
 
   getThemePairs(): QualifiedThemePairContribution[] {
-    return this.themePairs
-      .filter((pair) => this.isContributionEnabled(pair.pluginId, undefined))
+    return [...this.declarativeThemePairs, ...this.themePairs.filter((pair) => this.isContributionEnabled(pair.pluginId, undefined))]
       .sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
   }
 
@@ -1220,6 +1277,7 @@ export class PluginRegistry {
 
   private qualifyTheme(pluginId: string, theme: ThemeContribution, contributionIds: Set<QualifiedContributionId>): QualifiedThemeContribution {
     const id = this.qualify(pluginId, theme.id, contributionIds);
+    if ([...this.declarativeThemes, ...this.declarativeThemePairs].some((declared) => declared.id === id)) throw new Error(`Theme ${id} is declared both statically and at runtime`);
     const stylesheetIds = new Set<QualifiedContributionId>();
     const stylesheets = theme.stylesheets?.map((style) => this.qualifyStylesheet(`${pluginId}:${theme.id}`, style, stylesheetIds));
     return snapshotDisplayMetadata<QualifiedThemeContribution>(theme, { ...theme, id, pluginId, localId: theme.id,
@@ -1229,6 +1287,7 @@ export class PluginRegistry {
 
   private qualifyThemePair(pluginId: string, pair: ThemePairContribution, contributionIds: Set<QualifiedContributionId>): QualifiedThemePairContribution {
     const id = this.qualify(pluginId, pair.id, contributionIds);
+    if ([...this.declarativeThemes, ...this.declarativeThemePairs].some((declared) => declared.id === id)) throw new Error(`Theme pair ${id} is declared both statically and at runtime`);
     return snapshotDisplayMetadata<QualifiedThemePairContribution>(pair, {
       ...pair,
       id,
@@ -1511,6 +1570,7 @@ function sameDeclaration(left: NormalizedPluginDeclaration, right: NormalizedPlu
     && left.machineSpecific === right.machineSpecific;
 }
 
+
 /** Wrap invocation callbacks, not availability probes or activation: portable plugins may change machines. */
 function withV5Services(
   contributions: PluginContributions,
@@ -1527,7 +1587,7 @@ function withV5Services(
     const machineId = context.machine?.id ?? context.state?.selectedMachine?.id ?? "local";
     const backend = ownerMachineId === machineId ? createPluginBackend(binding, machineId, lifetimeSignal) : undefined;
     // Never reuse a context's backend: it may belong to another plugin or machine.
-    return { ...context, catalog: createPluginCatalog(machineId, lifetimeSignal), backend };
+    return { ...context, catalog: createPluginCatalog(machineId, lifetimeSignal), sessions: createPluginSessionLifecycle(machineId, lifetimeSignal), backend };
   };
   const wrap = <Context extends MachineContext, Args extends unknown[], Result>(callback: (context: Context, ...args: Args) => Result) =>
     (context: Context, ...args: Args): Result => callback(services(context), ...args);
@@ -1844,7 +1904,7 @@ function stylesheetLoadFailures(error: unknown): PluginStylesheetLoadError[] {
   return [];
 }
 
-const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "fileIconThemes", "themePairs", "contentRenderers", "syntaxHighlighters", "filePreviewers", "messageActions", "uiPresentations"];
+const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "fileIconThemes", "themePairs", "contentRenderers", "transcriptRenderers", "syntaxHighlighters", "filePreviewers", "messageActions", "uiPresentations"];
 
 function isPluginContributions(value: unknown): value is PluginContributions {
   if (!isRecord(value)) return false;
@@ -1864,7 +1924,7 @@ function contributionsForVersion(contributions: PluginContributions, apiVersion:
     return contributions;
   }
   if (contributions.themes?.some((theme) => !isRecord(theme.tokens) || Object.values(theme.tokens).some((value) => typeof value !== "string")) === true) throw new BrowserPluginIncompatibleError("Browser API v4 themes require string palette tokens");
-  if (Reflect.get(contributions, "uiPresentations") !== undefined || Reflect.get(contributions, "stylesheets") !== undefined || Reflect.get(contributions, "syntaxHighlighters") !== undefined || contributions.fileIconThemes !== undefined || contributions.filePreviewers !== undefined
+  if (Reflect.get(contributions, "transcriptRenderers") !== undefined || Reflect.get(contributions, "uiPresentations") !== undefined || Reflect.get(contributions, "stylesheets") !== undefined || Reflect.get(contributions, "syntaxHighlighters") !== undefined || contributions.fileIconThemes !== undefined || contributions.filePreviewers !== undefined
     || contributions.contentRenderers?.some((renderer) => Reflect.get(renderer, "title") !== undefined || Reflect.get(renderer, "supports") !== undefined) === true
     || contributions.themes?.some((theme) => Reflect.get(theme, "stylesheets") !== undefined) === true) {
     throw new BrowserPluginIncompatibleError("Stylesheet, syntax-highlighter and extended renderer contributions require browser API v5");

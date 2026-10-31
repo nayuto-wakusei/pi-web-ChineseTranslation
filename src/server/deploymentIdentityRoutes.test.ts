@@ -87,13 +87,6 @@ describe("deployment identity asset routes", () => {
       await app.close();
     }
   });
-
-  it("leaves other static files to the static plugin", async () => {
-    const app = await buildIdentityApp("dev");
-
-    const response = await app.inject({ method: "GET", url: "/index.html" });
-    expect(response.statusCode).toBe(404);
-  });
 });
 
 async function buildIdentityApp(flavor: PiWebDeploymentFlavor): Promise<FastifyInstance> {

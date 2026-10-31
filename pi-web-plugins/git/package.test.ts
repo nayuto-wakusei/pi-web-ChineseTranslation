@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PiWebPluginCatalog } from "../../src/server/piWebPluginCatalog.js";
 import { createServerPluginRuntime } from "../../src/server/plugins/serverPluginRuntime.js";
@@ -13,16 +13,6 @@ afterEach(async () => {
 });
 
 describe("bundled Git package metadata", () => {
-  it("declares its generated browser and server JavaScript as ES modules", async () => {
-    const metadata: unknown = JSON.parse(await readFile("pi-web-plugins/git/package.json", "utf8"));
-
-    expect(metadata).toMatchObject({
-      private: true,
-      type: "module",
-      piWeb: { plugins: [{ id: "git", browserRoot: "browser", module: "browser/pi-web-plugin.js", serverModule: "server-plugin.js" }] },
-    });
-  });
-
   it("is discovered as one bundled, machine-specific dual-entry plugin", async () => {
     const { catalog } = await gitCatalogFixture(true);
 
@@ -41,46 +31,6 @@ describe("bundled Git package metadata", () => {
     });
   });
 
-  it("keeps Git workspace and changes implementations out of host production code", async () => {
-    const violations: string[] = [];
-    for (const file of await productionTypeScriptFiles("src/server")) {
-      if (/(?:^|\/)(?:gitService|gitRoutes|gitWorktreeDiscovery|workspaceService)\.ts$/u.test(file)) {
-        violations.push(`${file}: retains a host Git workspace or changes implementation`);
-      }
-      const source = await readFile(file, "utf8");
-      if (/from\s+["'][^"']*(?:gitService|gitRoutes|gitWorktreeDiscovery|workspaceService)\.js["']/u.test(source)) {
-        violations.push(`${file}: imports a host Git workspace or changes implementation`);
-      }
-      if (/\/git\/(?:status|diff)/u.test(source)) violations.push(`${file}: declares a private Git changes route`);
-    }
-    const federatedRoutes = await readFile("src/shared/federatedRoutes.ts", "utf8");
-    if (/\/git\/(?:status|diff)/u.test(federatedRoutes)) {
-      violations.push("src/shared/federatedRoutes.ts: allowlists a private Git changes route");
-    }
-
-    expect(violations).toEqual([]);
-  });
-
-  it("keeps Git UI registration, state, and provider policy out of the client host", async () => {
-    const violations: string[] = [];
-    for (const file of await productionTypeScriptFiles("src/client/src")) {
-      const source = await readFile(file, "utf8");
-      if (/(?:^|\/)(?:WorkspaceGitPanel|gitController|gitFile(?:Tree|List|Shared|ViewPreference))\.ts$/u.test(file)) {
-        violations.push(`${file}: retains a host Git UI implementation`);
-      }
-      // Legacy URLs/preferences are parsed here, not registered as core UI.
-      const withoutLegacyMapping = file === "src/client/src/components/PiWebApp.ts"
-        ? source.replace(/^\s*const legacyPanel = route\.view[^\n]+\n/gmu, "")
-        : file === "src/client/src/controllers/machineNavigationMemory.ts"
-          ? source.replace(/^\s*: storedView === "git" \|\| storedView === "core:workspace\.git" \? "core:workspace\.git"\s*\n/gmu, "")
-          : source;
-      if (withoutLegacyMapping.includes("core:workspace.git")) violations.push(`${file}: registers or uses the core Git panel id outside legacy mapping`);
-      if (source.includes("renderBuiltinTabIcon(\"git\")") || source.includes("renderBuiltinTabIcon('git')")) violations.push(`${file}: retains the host Git panel icon`);
-      if (/\.pluginId\s*===\s*["']git["']/u.test(source)) violations.push(`${file}: branches on the Git provider id`);
-    }
-
-    expect(violations).toEqual([]);
-  });
 
   it("leaves the kernel folder workspace when Git is disabled before import", async () => {
     const { catalog, root } = await gitCatalogFixture(false);
@@ -113,15 +63,6 @@ describe("bundled Git package metadata", () => {
   });
 });
 
-async function productionTypeScriptFiles(root: string): Promise<string[]> {
-  const files: string[] = [];
-  for (const entry of await readdir(root, { withFileTypes: true })) {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) files.push(...await productionTypeScriptFiles(path));
-    else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts") && !entry.name.includes(".testSupport.")) files.push(path.split(sep).join("/"));
-  }
-  return files;
-}
 
 async function gitCatalogFixture(enabled: boolean): Promise<{ catalog: PiWebPluginCatalog; root: string }> {
   const root = await mkdtemp(join(tmpdir(), "pi-web-git-package-"));

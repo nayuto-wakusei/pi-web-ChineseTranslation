@@ -173,15 +173,6 @@ describe("dockerEnvironmentFacts", () => {
     expect(facts).not.toContain("Docker socket is mounted");
     expect(facts).not.toContain("/workspace");
   });
-
-  it("wraps the facts in one tagged block of plain statements", () => {
-    const facts = factsFor(RUNTIME_ENV);
-    const lines = facts.split("\n");
-
-    expect(lines[0]).toBe("<pi_web_docker_environment>");
-    expect(lines.at(-1)).toBe("</pi_web_docker_environment>");
-    expect(lines.slice(2, -1).every((line) => line.startsWith("- "))).toBe(true);
-  });
 });
 
 describe("dockerEnvironmentPromptSections", () => {

@@ -30,11 +30,9 @@ if (new URLSearchParams(location.search).has("custom-ui")) {
   const runtime = new UiPresentationRuntime();
   runtime.register(activation.contributions.uiPresentations.map((entry) => ({ ...entry, pluginId: "custom-ui-codex", active: () => true })));
   pluginStyles.registerRoot(document);
-  const theme = activation.contributions.themes[0];
-  if (theme === undefined) throw new Error("Missing performance theme");
   await pluginStyles.setContributions([
     ...activation.contributions.stylesheets,
-    ...theme.stylesheets,
+    { id: "custom-ui-codex:paper:palette", url: new URL("../../pi-web-plugins/custom-ui-codex/paper.css?no-inline", import.meta.url).href },
   ]);
   wrapPresentation = (content, region, slot) => {
     const surface = new UiPresentationSurface();

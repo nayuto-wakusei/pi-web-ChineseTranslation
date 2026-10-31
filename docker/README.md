@@ -372,7 +372,9 @@ On native Linux, `hostexec` starts a temporary privileged helper container throu
 Use this mode when developing PI WEB from this checkout. It bind-mounts the source tree, keeps dependencies in a Docker volume, stores PI WEB/Pi data in the same host data directory as runtime mode by default, and preserves the split runtime model:
 
 - `sessiond` runs `npm run start:sessiond` as the long-lived owner of Pi agent runtimes;
-- `web` runs `npm run dev:web` and `npm run dev:client` so API, plugin, and Vite changes can autoreload without restarting `sessiond`.
+- `web` runs `npm run dev:ui`, which supervises `dev:web` and `dev:client`, so API, plugin, and Vite changes can autoreload without restarting `sessiond`.
+
+Docker and native development services use the same package-script lifecycles, including their `pre*` and `post*` hooks. Add startup prerequisites to those lifecycles rather than Docker commands. Docker pins Node for lifecycle tooling, then restores the original tooling PATH for API/sessiond children so agent tools and terminals keep their user-selected tools. If either UI service fails, its supervisor stops the other and exits instead of leaving a partially running UI group. See [Development startup](../docs/development-checks.md#development-startup) for the shared contract.
 
 Development startup runs `data-init`, then waits for `web` to finish the initial plugin build and become healthy before starting `sessiond`. Development `restart` also restarts and checks `web` first; if the build or health check fails, it leaves `sessiond` untouched. `restart-web` never restarts the daemon. The full `restart` still interrupts daemon-owned sessions once Web is ready.
 

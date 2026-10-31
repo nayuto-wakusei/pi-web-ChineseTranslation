@@ -7,6 +7,8 @@ import { configApi, piPackagesApi, pluginsApi } from "../api";
 import { settleRenderedDialog } from "./modalSurfaceTestSupport";
 import { SettingsDialog } from "./SettingsDialog";
 import { setClientTranslations } from "../i18n";
+import * as themeCatalog from "../themeCatalog";
+import { builtInThemeCatalog } from "../themeCatalog.testSupport";
 import type { SettingsSessiondPanel } from "./settings/SettingsSessiondPanel";
 import type { SettingsPluginsPanel } from "./settings/SettingsPluginsPanel";
 import type { SettingsGeneralPanel } from "./settings/SettingsGeneralPanel";
@@ -14,10 +16,10 @@ import { configResponse, pluginsResponse } from "./SettingsDialog.testSupport";
 
 beforeEach(() => {
   setClientTranslations("en", {});
+  vi.spyOn(themeCatalog, "loadThemeCatalog").mockResolvedValue(builtInThemeCatalog());
   // The dialog loads gateway and selected-machine settings data when it
   // connects; stub those boundary calls so the shell tests stay deterministic.
   vi.spyOn(configApi, "config").mockResolvedValue(configResponse({}));
-  vi.spyOn(configApi, "namingModels").mockResolvedValue({ models: [] });
   vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([]));
   vi.spyOn(piPackagesApi, "packages").mockResolvedValue({ packages: [] });
 });

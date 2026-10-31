@@ -81,8 +81,6 @@ describe("SessionController stream seed + watermark reconciliation", () => {
       { role: "user", parts: [{ type: "text", text: "question" }], transcriptIndex: 0 },
       { role: "assistant", parts: [{ type: "text", text: "streaming answer" }] },
     ]);
-    // The seeded partial must never be written to the raw history cache.
-    expect(controller).toBeDefined();
   });
 
   it("applies live tool results while catching up to an already-running session", async () => {

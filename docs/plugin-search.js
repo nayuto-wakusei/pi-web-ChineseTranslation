@@ -14,6 +14,7 @@
   const createdDates = new Map();
   let controller;
   let catalog = [];
+  let catalogLoaded = false;
   let ordered = [];
   let visibleCount = pageSize;
   let activeSort = "popular";
@@ -24,14 +25,14 @@
     return response.json();
   }
 
-  async function searchKeyword(keyword, query, signal) {
+  async function searchKeyword(keyword, signal) {
     const items = [];
     let offset = 0;
     let total;
     do {
       signal.throwIfAborted();
       const url = new URL("https://registry.npmjs.org/-/v1/search");
-      url.search = new URLSearchParams({ text: `${query} keywords:${keyword}`.trim(), size: String(batchSize), from: String(offset) });
+      url.search = new URLSearchParams({ text: `keywords:${keyword}`, size: String(batchSize), from: String(offset) });
       const data = await fetchJson(url, signal);
       if (!Array.isArray(data?.objects) || !Number.isInteger(data.total) || data.total < 0) {
         throw new Error("Invalid npm search response");
@@ -68,11 +69,16 @@
     }));
   }
 
-  function sortCatalog(mode) {
+  function sortCatalog(mode, query) {
     const value = (pkg) => mode === "popular" ? (pkg.monthlyDownloads ?? -1)
       : mode === "newest" ? createdDates.get(pkg.name)
         : (Date.parse(pkg.date) || 0);
-    return [...catalog].sort((a, b) => value(b) - value(a) || a.name.localeCompare(b.name, "en"));
+    // npm's keyword search can ignore free-text terms, so filter the full catalog locally.
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    return catalog.filter((pkg) => {
+      const text = `${pkg.name} ${typeof pkg.description === "string" ? pkg.description : ""}`.toLowerCase();
+      return terms.every((term) => text.includes(term));
+    }).sort((a, b) => value(b) - value(a) || a.name.localeCompare(b.name, "en"));
   }
 
   function renderPackage(pkg) {
@@ -157,13 +163,14 @@
         : `已显示 ${ordered.length} 个包中的 ${shown} 个，加载更多可查看其余结果。`;
   }
 
-  async function updateCatalog(search = false) {
+  async function updateCatalog() {
     controller?.abort();
     const request = new AbortController();
     controller = request;
     const mode = sort.value;
     const query = input.value.trim();
-    if (search) {
+    const loading = !catalogLoaded;
+    if (loading) {
       catalog = [];
       ordered = [];
       results.replaceChildren();
@@ -172,17 +179,19 @@
     sort.disabled = true;
     more.disabled = true;
     results.setAttribute("aria-busy", "true");
-    status.textContent = search ? "正在搜索 npm…" : "正在排序…";
+    status.textContent = loading ? "正在搜索 npm…" : "正在排序…";
     const timeout = window.setTimeout(() => request.abort(), 30000);
     try {
-      if (search) {
-        const streams = await Promise.all(keywords.map((keyword) => searchKeyword(keyword, query, request.signal)));
+      if (loading) {
+        const streams = await Promise.all(keywords.map((keyword) => searchKeyword(keyword, request.signal)));
         if (controller !== request) return;
         const merged = new Map();
         for (const pkg of streams.flat()) {
           if (!merged.has(pkg.name)) merged.set(pkg.name, pkg);
         }
+        request.signal.throwIfAborted();
         catalog = [...merged.values()];
+        catalogLoaded = true;
       }
       if (mode === "newest") {
         status.textContent = "正在加载包的首次发布日期…";
@@ -190,7 +199,7 @@
       }
       request.signal.throwIfAborted();
       if (controller !== request) return;
-      ordered = sortCatalog(mode);
+      ordered = sortCatalog(mode, query);
       activeSort = mode;
       visibleCount = pageSize;
       showResults();
@@ -214,12 +223,12 @@
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    void updateCatalog(true);
+    void updateCatalog();
   });
   sort.addEventListener("change", () => { void updateCatalog(); });
   more.addEventListener("click", () => {
     visibleCount += pageSize;
     showResults(true);
   });
-  void updateCatalog(true);
+  void updateCatalog();
 })();

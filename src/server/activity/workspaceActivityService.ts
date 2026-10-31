@@ -16,6 +16,7 @@ interface SessionRecord {
   cwd: string;
   status?: SessionStatus;
   activity?: SessionActivity;
+  interventionRequired?: boolean;
 }
 
 interface TerminalRecord {
@@ -35,12 +36,17 @@ export class WorkspaceActivityService {
   }
 
   /** Activity projection consumed by the daemon-owned machine status tree. */
-  activeSnapshot(scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): { workspaces: readonly ActiveWorkspaceActivity[]; sessions: { sessionId: string; cwd: string }[] } {
+  activeSnapshot(scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): { workspaces: readonly ActiveWorkspaceActivity[]; sessions: { sessionId: string; cwd: string }[]; interventionSessions: { sessionId: string; cwd: string }[] } {
     return {
       workspaces: this.activeCwds(scope).map((cwd) => this.summaryForCwd(cwd, scope)),
       sessions: [...this.sessions].flatMap(([key, record]) => {
         const identity = unscopedKey(key);
         return identity.scope === scope && isSessionActive(record.status, record.activity)
+          ? [{ sessionId: identity.id, cwd: record.cwd }] : [];
+      }),
+      interventionSessions: [...this.sessions].flatMap(([key, record]) => {
+        const identity = unscopedKey(key);
+        return identity.scope === scope && record.interventionRequired === true
           ? [{ sessionId: identity.id, cwd: record.cwd }] : [];
       }),
     };
@@ -52,9 +58,22 @@ export class WorkspaceActivityService {
     const record = this.sessions.get(key) ?? { cwd };
     record.cwd = cwd;
     record.status = status;
+    record.interventionRequired = status.interventionRequired === true;
     if (!isSessionActive(status) && record.activity?.phase === "active") delete record.activity;
     this.sessions.set(key, record);
     this.pruneIdleSession(status.sessionId, scope);
+    this.publishChangedCwds(previousCwd, cwd, scope);
+  }
+
+  /** Seed durable intervention state without replacing live work state. */
+  applySessionIntervention(cwd: string, sessionId: string, required: boolean, scope: SessionEventScope = NORMAL_SESSION_EVENT_SCOPE): void {
+    const key = scopedKey(sessionId, scope);
+    const record = this.sessions.get(key) ?? { cwd };
+    const previousCwd = record.cwd;
+    record.cwd = cwd;
+    record.interventionRequired = required;
+    this.sessions.set(key, record);
+    this.pruneIdleSession(sessionId, scope);
     this.publishChangedCwds(previousCwd, cwd, scope);
   }
 
@@ -115,7 +134,7 @@ export class WorkspaceActivityService {
   private pruneIdleSession(sessionId: string, scope: SessionEventScope): void {
     const key = scopedKey(sessionId, scope);
     const record = this.sessions.get(key);
-    if (record !== undefined && !isSessionActive(record.status, record.activity)) this.sessions.delete(key);
+    if (record !== undefined && record.interventionRequired !== true && !isSessionActive(record.status, record.activity)) this.sessions.delete(key);
   }
 
   private publishChangedCwds(previousCwd: string | undefined, cwd: string, scope: SessionEventScope): void {

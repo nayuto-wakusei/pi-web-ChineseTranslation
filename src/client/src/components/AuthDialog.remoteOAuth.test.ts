@@ -19,11 +19,14 @@ afterEach(() => {
 });
 
 describe("auth-dialog remote OAuth paste-first note", () => {
-  it("shows the paste note when the flow runs on a federated machine, even from a loopback page", async () => {
+  it("shows the paste note above a usable prompt for a federated flow even from a loopback page", async () => {
     const flow = oauthFlow({ prompt: MANUAL_CODE_PROMPT });
     const dialog = await mountDialog(oauthState({ machineId: "fleet-a", flow }), "http://localhost:5173/");
-    expect(dialogText(dialog)).toContain(PASTE_NOTE_MARKER);
-    expect(dialogText(dialog)).toContain("Open this authorization link:");
+    const text = dialogText(dialog);
+    expect(text).toContain(PASTE_NOTE_MARKER);
+    expect(text).toContain("Open this authorization link:");
+    expect(text.indexOf(PASTE_NOTE_MARKER)).toBeLessThan(text.indexOf(MANUAL_CODE_PROMPT.message));
+    expect(dialog.shadowRoot?.querySelector("input")).not.toBeNull();
   });
 
   it("shows the paste note when the local machine's gateway host is not loopback for the browser", async () => {
@@ -55,15 +58,12 @@ describe("auth-dialog remote OAuth paste-first note", () => {
     expect(dialogText(dialog)).toContain("How do you want to sign in?");
   });
 
-  it.each([["http://localhost:5173/"], ["http://127.0.0.1:5173/"], ["http://[::1]:5173/"]])(
-    "keeps today's rendering when browser and runtime share a loopback namespace (%s)",
-    async (pageUrl) => {
-      const flow = oauthFlow({ prompt: MANUAL_CODE_PROMPT });
-      const dialog = await mountDialog(oauthState({ flow }), pageUrl);
-      expect(dialogText(dialog)).not.toContain(PASTE_NOTE_MARKER);
-      expect(dialogText(dialog)).toContain("Open this authorization link:");
-    },
-  );
+  it("omits the paste note when browser and runtime share a loopback namespace", async () => {
+    const flow = oauthFlow({ prompt: MANUAL_CODE_PROMPT });
+    const dialog = await mountDialog(oauthState({ flow }), "http://localhost:5173/");
+    expect(dialogText(dialog)).not.toContain(PASTE_NOTE_MARKER);
+    expect(dialogText(dialog)).toContain("Open this authorization link:");
+  });
 
   it("leaves device-code flows unchanged when browser-remote", async () => {
     const flow = oauthFlow({ auth: { url: "https://github.com/login/device", deviceCode: { userCode: "ABCD-1234" } } });
@@ -71,15 +71,6 @@ describe("auth-dialog remote OAuth paste-first note", () => {
     expect(dialogText(dialog)).not.toContain(PASTE_NOTE_MARKER);
     expect(dialogText(dialog)).toContain("Enter code: ");
     expect(dialogText(dialog)).toContain("ABCD-1234");
-  });
-
-  it("keeps the paste note visible above the manual-code prompt input once the prompt lands", async () => {
-    const flow = oauthFlow({ prompt: MANUAL_CODE_PROMPT });
-    const dialog = await mountDialog(oauthState({ machineId: "fleet-a", flow }), "https://pi.example.com/");
-    const text = dialogText(dialog);
-    expect(text).toContain(PASTE_NOTE_MARKER);
-    expect(text.indexOf(PASTE_NOTE_MARKER)).toBeLessThan(text.indexOf(MANUAL_CODE_PROMPT.message));
-    expect(dialog.shadowRoot?.querySelector("input")).not.toBeNull();
   });
 });
 

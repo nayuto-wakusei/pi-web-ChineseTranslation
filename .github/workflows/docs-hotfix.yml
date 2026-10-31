@@ -1,0 +1,75 @@
+name: Deploy stable docs hotfix
+
+# Overlay one commit's docs patch onto a published release, never onto main.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published release tag to use as the website baseline (for example v1.202610.8)
+        required: true
+        type: string
+      hotfix_commit:
+        description: Full 40-character SHA of a single-parent commit containing the docs fix
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy patched release docs to pi-web.dev
+    runs-on: ubuntu-latest
+    concurrency:
+      group: docs-stable
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare release plus docs patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          HOTFIX_COMMIT: ${{ inputs.hotfix_commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" == v* ]] || { echo 'Expected a version tag'; exit 1; }
+          [[ "$HOTFIX_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo 'Expected a full commit SHA'; exit 1; }
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
+          baseline=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          git cat-file -e "$HOTFIX_COMMIT^{commit}"
+          test "$(git rev-list --parents -n 1 "$HOTFIX_COMMIT" | wc -w)" -eq 2
+          patch="$RUNNER_TEMP/docs-hotfix.patch"
+          git diff --binary "$HOTFIX_COMMIT^" "$HOTFIX_COMMIT" -- docs/ > "$patch"
+          test -s "$patch" || { echo 'Commit contains no docs changes'; exit 1; }
+          git checkout --detach "$baseline"
+          git apply --index "$patch"
+          # Deploy configuration must remain exactly as shipped in the release.
+          if ! git diff --cached --quiet -- 'docs/wrangler*'; then
+            echo 'Hotfixes cannot change Wrangler deployment configuration'
+            exit 1
+          fi
+          git diff --cached --check
+          {
+            echo '## Stable docs hotfix'
+            echo "Baseline: $RELEASE_TAG ($baseline)"
+            echo "Patch commit: $HOTFIX_COMMIT"
+            echo 'Only docs changes from this commit are included; npm is not published.'
+            echo '```'
+            git diff --cached --stat
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy stable docs worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.119.0"
+          command: deploy --config docs/wrangler.jsonc

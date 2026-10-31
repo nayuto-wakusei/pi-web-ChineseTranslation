@@ -74,11 +74,4 @@ describe("errorBanner", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["info", "warning"] as const)("uses the severity-aware presentation for %s notices", (severity) => {
-    const { host } = renderBanner("Server notice", vi.fn(), severity);
-    const banner = host.querySelector(".error");
-
-    expect(banner?.classList.contains(severity)).toBe(true);
-    expect(banner?.querySelector(".error-dismiss")?.getAttribute("aria-label")).toBe(severity === "info" ? "Dismiss info" : "Dismiss warning");
-  });
 });

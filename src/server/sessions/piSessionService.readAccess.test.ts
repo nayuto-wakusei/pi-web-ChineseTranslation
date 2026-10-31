@@ -82,7 +82,10 @@ describe("normal session read authority", () => {
   it.each([false, true])("keeps authorized ordinary cold reads without credential or runtime initialization, archived: %s", async (archived) => {
     const f = fixture(join(directory, "normal"), { managementRoot: join(directory, "managed"), archived });
     expect(await f.service.media(f.ref, mediaId)).toEqual({ data: Buffer.from(block.data, "base64"), mimeType: "image/png" });
-    expect(await f.service.listCatalogSessions(f.ref.cwd)).toEqual([{ id: f.ref.id, cwd: f.ref.cwd, archived, runtime: "not-hosted" }]);
+    expect(await f.service.listCatalogSessions(f.ref.cwd)).toEqual([{
+      id: f.ref.id, cwd: f.ref.cwd, archived, runtime: "not-hosted",
+      created: "2026-01-01T00:00:00.000Z", modified: "2026-01-01T00:01:00.000Z", archivedAt: archived ? "now" : null,
+    }]);
     expect(f.modelRuntime).not.toHaveBeenCalled();
     expect(f.createRuntime).not.toHaveBeenCalled();
   });

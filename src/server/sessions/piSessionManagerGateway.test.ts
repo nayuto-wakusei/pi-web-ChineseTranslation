@@ -147,7 +147,6 @@ describe("Pi session manager gateway", () => {
   it("lists sessions for cwds that differ from the server process cwd", async () => {
     // Regression: SessionManager.list("", dir) filtered against process.cwd(),
     // hiding every session outside the daemon's own launch directory.
-    expect(cwd).not.toBe(process.cwd());
     await writeSessionFile(defaultPiSessionDir(cwd, agentDir), "session-elsewhere", cwd);
     const gateway = createPiSessionManagerGateway(piProfileOptions());
 

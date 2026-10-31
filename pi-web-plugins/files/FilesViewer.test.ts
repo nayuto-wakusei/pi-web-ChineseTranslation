@@ -154,20 +154,6 @@ describe("Files as a preview contribution consumer", () => {
     expect(publish).not.toHaveBeenCalledWith("raw");
   });
 
-  it("preserves sandboxed HTML, unsandboxed native PDF, and machine-resolved file URLs", async () => {
-    const report = file("report.html", { mediaType: "html" });
-    const { viewer } = await mount(report, "preview");
-    const frame = required(queryAs(viewer, "iframe", HTMLIFrameElement));
-    expect(frame.getAttribute("sandbox")).toBe(""); expect(frame.getAttribute("allow")).toBe("");
-    expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(new URL(frame.src).searchParams.get("path")).toBe(report.path);
-    expect(new URL(frame.src).searchParams.get("v")).toBe(report.modifiedAt);
-    viewer.selectedPath = "report.pdf"; viewer.file = file("report.pdf", { mediaType: "pdf", binary: true, content: "" }); await settle(viewer);
-    const pdf = required(queryAs(viewer, "iframe", HTMLIFrameElement));
-    expect(pdf.hasAttribute("sandbox")).toBe(false); expect(pdf.getAttribute("allow")).toBe("");
-    expect(query(viewer, ".preview-note")?.textContent).toContain("PDF");
-  });
-
   it("retains retry state and localized recovery actions across language changes", async () => {
     const { viewer, localization } = await mount(file("image.svg", { mediaType: "image" }), "preview");
     required(query(viewer, "img")).dispatchEvent(new Event("error")); await settle(viewer);

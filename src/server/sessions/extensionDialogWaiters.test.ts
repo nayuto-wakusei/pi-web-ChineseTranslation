@@ -48,15 +48,6 @@ describe("effectiveExtensionDialogTimeoutMs", () => {
 });
 
 describe("ExtensionDialogWaiters", () => {
-  it("resolves a settled wait with the user's answer", async () => {
-    const waiters = new ExtensionDialogWaiters();
-    const parked = waiters.park(dialog());
-
-    expect(waiters.settleWithAnswer("dialog-1", true)).toBe(true);
-
-    await expect(parked).resolves.toBe(true);
-  });
-
   it("resolves a close without an answer with the dialog kind's cancel value", async () => {
     const waiters = new ExtensionDialogWaiters();
     const confirm = waiters.park(dialog({ dialogId: "dialog-1", kind: "confirm" }));

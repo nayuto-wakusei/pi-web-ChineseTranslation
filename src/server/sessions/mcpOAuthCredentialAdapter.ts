@@ -34,7 +34,7 @@ export function mcpOAuthStorageDirectory(projectScopeDirectory: string, manageme
 }
 
 /**
- * Pi 1.3.0 exposes credential injection but not its constructor. These three
+ * Pi 1.3.0 and 1.4.0 expose credential injection but not its constructor. These three
  * version-pinned internal modules must come from the same selected host SDK.
  */
 export async function createMcpOAuthCredentialOptions(
@@ -42,8 +42,8 @@ export async function createMcpOAuthCredentialOptions(
   dependencies: AdapterDependencies = {},
 ): Promise<Pick<McpExtensionOptions, "credentials" | "logPath" | "loadConfig">> {
   const info = await (dependencies.packageInfo ?? piRuntimePackageInfo)();
-  if (info.version !== "1.3.0" || (dependencies.sdkVersion ?? VERSION) !== info.version) {
-    throw new Error("Scoped MCP authentication requires the selected Pi SDK version 1.3.0 with a matching package identity");
+  if (!["1.3.0", "1.4.0"].includes(info.version) || (dependencies.sdkVersion ?? VERSION) !== info.version) {
+    throw new Error("Scoped MCP authentication requires the selected Pi SDK version 1.3.0 or 1.4.0 with a matching package identity");
   }
   const importModule = dependencies.importModule ?? ((url: string): Promise<unknown> => import(url));
   const modules = await Promise.all([
@@ -53,7 +53,7 @@ export async function createMcpOAuthCredentialOptions(
   ]);
   const [credentials, backend, config] = modules;
   if (!isCredentialModule(credentials) || !isBackendModule(backend) || !isConfigModule(config)) {
-    throw new Error("The selected Pi 1.3.0 SDK does not expose the expected MCP credential adapter contracts");
+    throw new Error("The selected Pi SDK does not expose the expected MCP credential adapter contracts");
   }
   const directory = resolve(options.directory);
   const lockDir = join(directory, "refresh-locks");

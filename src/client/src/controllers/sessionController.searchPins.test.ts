@@ -11,7 +11,7 @@ describe("SessionController session search and pins", () => {
       let state: AppState = { ...initialAppState(), selectedWorkspace: workspace };
       const first = deferred<SessionContentSearchResponse>();
       const second = deferred<SessionContentSearchResponse>();
-      const searchContent = vi.fn()
+      const searchContent = vi.fn<typeof defaultApi.searchContent>()
         .mockReturnValueOnce(first.promise)
         .mockReturnValueOnce(second.promise);
       const api = { ...defaultApi, searchContent };
@@ -21,9 +21,12 @@ describe("SessionController session search and pins", () => {
       await vi.advanceTimersByTimeAsync(249);
       expect(searchContent).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
-      expect(searchContent).toHaveBeenCalledWith("/repo", "first", "local");
+      const firstSignal = searchContent.mock.calls[0]?.[3]?.signal;
+      expect(firstSignal).toBeInstanceOf(AbortSignal);
+      expect(searchContent).toHaveBeenCalledWith("/repo", "first", "local", { signal: firstSignal });
 
       controller.searchSessions("second");
+      expect(firstSignal?.aborted).toBe(true);
       await vi.advanceTimersByTimeAsync(250);
       second.resolve({ results: [{ session: { ...workspaceSession("second-result"), firstMessage: "second" }, matches: [] }], matchCount: 1, truncated: false });
       await vi.runAllTimersAsync();

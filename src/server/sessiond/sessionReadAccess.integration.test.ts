@@ -53,6 +53,7 @@ async function fixture(prefix = "/api") {
       workspaces: [{ id: "main", projectId: project.id, path: project.path, label: "Main", isMain: true }],
     }) },
     sessions: service,
+    pins: { pinnedSessionIds: () => Promise.resolve([]) },
   };
   const daemon = Fastify();
   const gateway = Fastify();
@@ -96,7 +97,8 @@ describe("cold read entry-point authority", () => {
       await expect(instance.value.sessions.list({ projectId: "managed", workspaceId: "main" })).rejects.toThrow("Session not found");
       const ordinary = await f.gateway.inject({ url: `/api${path("ordinary")}` });
       expect(ordinary.statusCode).toBe(200);
-      expect(ordinary.json()).toEqual([{ id: "ordinary", cwd: f.cwds.ordinary, archived: false, runtime: "not-hosted" }]);
+      const date: unknown = expect.any(String);
+      expect(ordinary.json()).toEqual([{ id: "ordinary", cwd: f.cwds.ordinary, archived: false, pinned: false, created: date, modified: date, archivedAt: null, runtime: "not-hosted" }]);
       expect(await instance.value.sessions.list({ projectId: "ordinary", workspaceId: "main" })).toEqual(ordinary.json());
       expect(f.createRuntime).not.toHaveBeenCalled();
       expect(f.modelRuntime).not.toHaveBeenCalled();

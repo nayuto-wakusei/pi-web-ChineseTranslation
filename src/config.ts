@@ -6,6 +6,7 @@ import type { PiWebAgentDirEnvSource, PiWebConfigValues, PiWebDeprecatedAgentInp
 import { usesPiCodingAgentStateCompatibility } from "./shared/activeAgentProfile.js";
 import { parsePiWebConfig as parseBasePiWebConfig } from "./shared/piWebConfigParsing.js";
 import { parseSessionArchiveConfig } from "./shared/piWebConfigParsing.js";
+import { migrateSessionNamingConfig } from "./configSessionNamingMigration.js";
 import { PI_WEB_CONFIG_DEFINITIONS, overlayPiWebConfig, parsePiWebEnvBoolean, piWebConfigEnvName, piWebConfigNamespaceFields, piWebConfigSettingPointers } from "./shared/configResolution.js";
 import { versionChecksDisabled } from "./shared/versionCheckPolicy.js";
 export { overlayPiWebConfig } from "./shared/configResolution.js";
@@ -23,10 +24,11 @@ export interface LoadedPiWebConfig {
   deprecatedAgentInputs: readonly DeprecatedAgentInput[];
 }
 
-export interface EffectivePiWebConfig extends Omit<PiWebConfig, "uploads" | "attachments" | "spawnSessions" | "subsessions" | "askUser" | "environmentFacts" | "agent" | "extensionDialogsTimeoutMs"> {
+export interface EffectivePiWebConfig extends Omit<PiWebConfig, "uploads" | "attachments" | "spawnSessions" | "sessionMessages" | "subsessions" | "askUser" | "environmentFacts" | "agent" | "extensionDialogsTimeoutMs"> {
   uploads: NonNullable<PiWebConfig["uploads"]>;
   attachments: NonNullable<PiWebConfig["attachments"]>;
   spawnSessions: boolean;
+  sessionMessages: boolean;
   subsessions: boolean;
   askUser: boolean;
   environmentFacts: boolean;
@@ -196,9 +198,29 @@ export function loadPiWebConfig(options: LoadOptions = {}): LoadedPiWebConfig {
   const defaultsSelector = envValue(env, "PI_WEB_DEFAULTS_CONFIG");
   const defaultsPath = defaultsSelector === undefined ? undefined : resolve(options.cwd ?? process.cwd(), defaultsSelector);
   // A selected defaults file is deployment policy: a missing or corrupt file fails visibly.
-  const defaultsConfig = defaultsPath === undefined ? undefined : readConfig(defaultsPath);
+  const defaultsRecord = defaultsPath === undefined ? undefined : readConfigObject(defaultsPath);
+  const defaultsConfig = defaultsRecord === undefined ? undefined : parseFileConfig(defaultsRecord, defaultsPath ?? path);
   const exists = existsSync(path);
-  const config = exists ? readConfig(path) : {};
+  const record = exists ? readConfigObject(path) : {};
+  const config = parseFileConfig(record, path);
+  if (Object.hasOwn(record, "sessionNaming") || (defaultsRecord !== undefined && Object.hasOwn(defaultsRecord, "sessionNaming"))) {
+    migrateSessionNamingConfig({
+      agentDir: effectiveAgentConfig(env, overlayPiWebConfig(defaultsConfig ?? {}, config)).dir,
+      saved: { path, record },
+      ...(defaultsPath !== undefined && defaultsRecord !== undefined ? { defaults: { path: defaultsPath, record: defaultsRecord } } : {}),
+      cleanup: () => {
+        if (defaultsPath !== undefined && realpathSync(path) === realpathSync(defaultsPath)) {
+          throw new Error(`Writable config selects deployment defaults; remove obsolete sessionNaming manually: ${path}`);
+        }
+        const current = readConfigObject(path);
+        if (JSON.stringify(current["sessionNaming"]) !== JSON.stringify(record["sessionNaming"])) {
+          throw new Error(`sessionNaming changed during migration: ${path}`);
+        }
+        Reflect.deleteProperty(current, "sessionNaming");
+        writeWritableConfig(path, current);
+      },
+    });
+  }
   return {
     path, exists, config,
     ...(defaultsPath !== undefined && defaultsConfig !== undefined ? { defaultsPath, defaultsConfig } : {}),
@@ -230,6 +252,7 @@ export function resolveEffectivePiWebConfig(loaded: LoadedPiWebConfig, options: 
       // Always resolved (on by default) so the effective config is the single
       // source of truth for the runtime state and the settings UI toggle.
       spawnSessions: spawnSessionsEnabled({}, config),
+      sessionMessages: sessionMessagesEnabled({}, config),
       // Resolved on by default like the other capabilities,
       // so the effective config is the single source of truth for the runtime
       // state and the settings UI toggle.
@@ -303,6 +326,7 @@ function positiveIntegerEnv(env: NodeJS.ProcessEnv, key: string): number | undef
 }
 
 export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}): LoadedPiWebConfig {
+  rejectRetiredSessionNaming(config, "save request");
   const env = options.env ?? process.env;
   const path = piWebConfigPath(env, options.cwd ?? process.cwd());
   const defaultsSelector = envValue(env, "PI_WEB_DEFAULTS_CONFIG");
@@ -311,7 +335,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
     const canonicalPath = (candidate: string): string => existsSync(candidate) ? realpathSync(candidate) : resolve(candidate);
     if (canonicalPath(path) === canonicalPath(defaultsPath)) throw new Error("PI_WEB_CONFIG must not select the PI_WEB_DEFAULTS_CONFIG file");
     // Validate deployment policy before touching the writable file.
-    readConfig(defaultsPath);
+    parseFileConfig(readConfigObject(defaultsPath), defaultsPath);
   }
   const normalized = parsePiWebConfig(piWebConfigRecord(config), path);
   effectiveAgentConfig(env, normalized);
@@ -341,10 +365,20 @@ function writeWritableConfig(path: string, config: Record<string, unknown>): voi
   }
 }
 
-function readConfig(path: string): PiWebConfig {
+function readConfigObject(path: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
   if (!isRecord(parsed)) throw new Error(`PI WEB config must be a JSON object: ${path}`);
-  return parsePiWebConfig(parsed, path);
+  return parsed;
+}
+
+function parseFileConfig(record: Record<string, unknown>, path: string): PiWebConfig {
+  const sanitized = { ...record };
+  Reflect.deleteProperty(sanitized, "sessionNaming");
+  return parsePiWebConfig(sanitized, path);
+}
+
+function rejectRetiredSessionNaming(value: object, path: string): void {
+  if (Object.hasOwn(value, "sessionNaming")) throw new Error(`PI WEB config sessionNaming is retired; use the Session naming Pi package config: ${path}`);
 }
 
 function parseEnvJson(value: string, source: string): unknown {
@@ -435,6 +469,7 @@ function requireNamespaceKeys(value: Record<string, unknown>, key: string, path:
 }
 
 export function parsePiWebConfig(value: Record<string, unknown>, path = "request", pathHost: AgentPathHost = "current"): PiWebConfig {
+  rejectRetiredSessionNaming(value, path);
   for (const key of ["pathAccess", "uploads", "attachments"]) {
     const namespace = value[key];
     if (isRecord(namespace)) requireNamespaceKeys(namespace, key, path);
@@ -464,6 +499,13 @@ export function spawnSessionsEnabled(env: NodeJS.ProcessEnv = process.env, confi
   const fromEnv = env["PI_WEB_SPAWN_SESSIONS"];
   if (fromEnv !== undefined) return parsePiWebEnvBoolean(fromEnv, "PI_WEB_SPAWN_SESSIONS");
   return config.spawnSessions ?? true;
+}
+
+/** Whether LLMs may send messages to other sessions, independently of spawning. */
+export function sessionMessagesEnabled(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): boolean {
+  const fromEnv = env["PI_WEB_SESSION_MESSAGES"];
+  if (fromEnv !== undefined) return parsePiWebEnvBoolean(fromEnv, "PI_WEB_SESSION_MESSAGES");
+  return config.sessionMessages ?? true;
 }
 
 /**

@@ -29,7 +29,7 @@ export function renderSessionWarningIcon(severity: SessionWarningSeverity, class
   `;
 }
 
-export type { ChatLine, ChatPart, ToolPreview, ToolExecutionPart } from "../chatTypes";
+export type { ChatLine, ChatPart } from "../chatTypes";
 
 export interface CompletionItem {
   kind: "command" | "file" | "model";
@@ -43,8 +43,6 @@ export interface CompletionItem {
   cursorOffset?: number;
 }
 
-export { chatStyles } from "../theme/base/chatStyles";
 
-export { formattedTextStyles } from "../theme/base/formattedTextStyles";
 
 export { appStyles, workspacePanelStyles, listStyles, statusBarStyles, autocompleteStyles, promptEditorStyles, scrollBoundaryShadow } from "../theme/base/shellStyles";

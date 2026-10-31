@@ -51,12 +51,9 @@ source "$SERVICE_TEST_LAUNCHER" "$SERVICE_TEST_ENTRY"
     }
   });
 
-  it("launches Docker development entrypoints directly rather than through PATH-selected npm scripts", async () => {
-    const compose = await readFile("docker/compose.dev.yml", "utf8");
-    expect(compose).toContain('["pi-web-service", "scripts/dev-sessiond.mjs"]');
-    expect(compose).toContain("pi-web-service scripts/dev-web.mjs");
-    expect(compose).toContain("pi-web-service node_modules/vite/bin/vite.js");
-    expect(compose).not.toContain("npm run");
+  it("starts installed services directly through the pinned interpreter", async () => {
+    // Development lifecycle wiring is checked against effective Compose config
+    // in dockerDevCompose.test.ts, rather than its YAML source spelling.
     const runtime = await readFile("docker/compose.yml", "utf8");
     // Public npm bins are shell launchers; the pinned Node wrapper needs JS.
     const serverCommand = '["pi-web-service", "/usr/local/lib/node_modules/@chainingintention/pi-web-cn/dist/server/index.js"]';
@@ -64,6 +61,35 @@ source "$SERVICE_TEST_LAUNCHER" "$SERVICE_TEST_ENTRY"
     expect(runtime).toContain('["pi-web-service", "/usr/local/lib/node_modules/@chainingintention/pi-web-cn/dist/server/sessiond.js"]');
     const dockerfile = await readFile("docker/Dockerfile", "utf8");
     expect(dockerfile).toContain(`CMD ${serverCommand}`);
+  });
+
+  it("uses the same grouped lifecycle for standalone Docker development", async () => {
+    const dockerfile = await readFile("docker/Dockerfile.dev", "utf8");
+    expect(dockerfile).toContain('CMD ["pi-web-npm", "run", "dev"]');
+    expect(dockerfile).toContain('ENTRYPOINT ["tini", "-g", "--"]');
+    expect(dockerfile).toContain("COPY --chmod=0755 docker/internal/bin/pi-web-npm /usr/local/bin/");
+  });
+
+  it.skipIf(process.platform === "win32").each([undefined, "/original/tool/path"])("pins any npm lifecycle while preserving the first tooling PATH (%s)", async (originalPath) => {
+    // Intercept only exec: the launcher establishes the command and environment.
+    const { stdout } = await exec("bash", ["--noprofile", "--norc", "-c", `
+exec() { printf '%s\\n' "$@" "$PATH" "$PI_WEB_SERVICE_ORIGINAL_PATH"; }
+export PATH=/usr/bin:/bin
+source "$NPM_TEST_LAUNCHER" run fixture:service -- --fixture-argument
+`], {
+      env: {
+        PATH: process.env["PATH"], BASH_ENV: "",
+        NPM_TEST_LAUNCHER: resolve("docker/internal/bin/pi-web-npm"),
+        ...(originalPath === undefined ? {} : { PI_WEB_SERVICE_ORIGINAL_PATH: originalPath }),
+      },
+    });
+    expect(stdout.trim().split("\n")).toEqual([
+      "/usr/local/lib/pi-web-node/bin/node",
+      "/usr/local/lib/pi-web-node/lib/node_modules/npm/bin/npm-cli.js",
+      "run", "fixture:service", "--", "--fixture-argument",
+      "/usr/local/lib/pi-web-node/bin:/usr/bin:/bin",
+      originalPath ?? "/usr/bin:/bin",
+    ]);
   });
 
   it("requires a verified upstream Git index instead of silently using distro Git", async () => {
@@ -101,6 +127,7 @@ source "$SERVICE_TEST_LAUNCHER" "$SERVICE_TEST_ENTRY"
     expect(compose).not.toMatch(/chown\s+-R/u);
     const dockerfile = await readFile("docker/Dockerfile.dev", "utf8");
     const hooks = dockerfile.indexOf("for script in /tmp/pi-web-custom-image.d/*.sh");
+    expect(hooks).toBeGreaterThanOrEqual(0);
     expect(dockerfile.indexOf("/opt/pi-web-dev-dependencies/generation")).toBeGreaterThan(hooks);
     expect(dockerfile.indexOf("find /opt/pi-web-dev-dependencies/node_modules")).toBeGreaterThan(hooks);
   });

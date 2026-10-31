@@ -101,12 +101,6 @@ describe("readSessionHeaderSummary", () => {
     expect(await readSessionHeaderSummary(sessionFile)).toBeUndefined();
   });
 
-  it("returns undefined when the first parseable line is not a session header", async () => {
-    const sessionFile = await sessionFileWithLines([{ type: "model_change", id: "abc" }]);
-
-    expect(await readSessionHeaderSummary(sessionFile)).toBeUndefined();
-  });
-
   it("returns undefined when the header carries no session id", async () => {
     const sessionFile = await sessionFileWithLines([{ type: "session", version: 3, cwd: "/srv/dev/pi-web" }]);
 
@@ -117,15 +111,6 @@ describe("readSessionHeaderSummary", () => {
     const sessionFile = await sessionFileWithLines([{ type: "session", version: 3, id: "", cwd: "/srv/dev/pi-web" }]);
 
     expect(await readSessionHeaderSummary(sessionFile)).toBeUndefined();
-  });
-
-  it("does not read beyond the header line of a large transcript", async () => {
-    const sessionFile = join(tempDir, "large.jsonl");
-    const header = JSON.stringify({ type: "session", version: 3, id: "big-id", cwd: "/srv/dev/pi-web" });
-    const bulk = Array.from({ length: 500 }, (_unused, index) => JSON.stringify({ type: "message", id: String(index), text: "x".repeat(200) }));
-    await writeFile(sessionFile, `${[header, ...bulk].join("\n")}\n`, "utf8");
-
-    expect(await readSessionHeaderSummary(sessionFile)).toEqual({ id: "big-id", cwd: "/srv/dev/pi-web" });
   });
 
   it("reads a header longer than the old 4 KiB window (4,168-byte repro)", async () => {

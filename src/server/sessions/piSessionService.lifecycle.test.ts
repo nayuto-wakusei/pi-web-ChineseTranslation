@@ -1598,6 +1598,7 @@ it.each(["earlier", "root", "during-read"])("preserves the selected runtime bran
         open: () => fakeSessionManager(),
       },
       workspaceActivity: {
+        applySessionIntervention: () => undefined,
         applySessionStatus: () => undefined,
         applySessionActivity: () => undefined,
         removeSession: () => undefined,

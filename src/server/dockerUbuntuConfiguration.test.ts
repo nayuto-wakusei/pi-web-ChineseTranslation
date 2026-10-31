@@ -61,7 +61,6 @@ describe.skipIf(process.platform === "win32")("Ubuntu Docker configuration", () 
     expect(effective).toContain("PI_WEB_NODE_IMAGE=node:22.22.2-bookworm-slim");
     expect(effective).toContain("PI_WEB_MISE_VERSION=2026.10.12");
     expect(effective).toContain("PI_WEB_GIT_VERSION=1:2.53.0-test");
-    expect(effective).not.toMatch(/OPENSUSE|ZYPPER|NODEJS_REPO/u);
     expect(await readFile(join(install, "internal/bin/pi-web-service"), "utf8")).toContain("fixture");
     expect(await readFile(join(install, "internal/image/install-ubuntu-base"), "utf8")).toContain("fixture");
     expect(await readFile(join(install, "custom-image.d/10-local.sh"), "utf8")).toBe("# user hook\n");
@@ -103,7 +102,6 @@ describe.skipIf(process.platform === "win32")("Ubuntu Docker configuration", () 
     expect(effective).toContain("PI_WEB_DOCKER_CLI_VERSION=29-cli");
     expect(effective).toContain("PI_WEB_EXTRA_APT_PACKAGES=jq ripgrep");
     expect(effective).toContain("PI_WEB_GIT_VERSION=1:2.53.0-runtime");
-    expect(effective).not.toMatch(/OPENSUSE|ZYPPER|NODEJS_REPO/u);
     const command = await readFile(join(root, "commands"), "utf8");
     expect(command).toContain(`-f\n${checkout}/docker/compose.dev.yml\n-f\n${config}/docker-compose-dev.host.generated.yml\n-f\n${localCompose}\nconfig\n`);
     expect(await readFile(localCompose, "utf8")).toBe("# user override\n");

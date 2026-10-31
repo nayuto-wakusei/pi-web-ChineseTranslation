@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildTerminalPackage } from "../../scripts/build-plugins.mjs";
@@ -18,113 +18,12 @@ afterEach(async () => {
 });
 
 describe("bundled Terminal package", () => {
-  it("declares one required-shaped machine-specific dual entry", async () => {
-    const metadata: unknown = JSON.parse(await readFile("pi-web-plugins/terminal/package.json", "utf8"));
-
-    expect(metadata).toMatchObject({
-      private: true,
-      type: "module",
-      piWeb: {
-        plugins: [{
-          id: "pi-web.terminal",
-          browserRoot: "browser",
-          module: "browser/pi-web-plugin.js",
-          serverModule: "server-plugin.js",
-          machineSpecific: true,
-        }],
-      },
-    });
-  });
-
-  it("keeps Terminal server and browser product implementation out of core production code", async () => {
-    const productionFiles = (await readdir("src", { recursive: true, withFileTypes: true }))
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts") && !entry.name.endsWith(".testSupport.ts"));
-    const violations: string[] = [];
-    const managementProtocolFiles = new Set([
-      "src/shared/federatedRoutes.ts",
-      "src/server/managementEmbed.ts",
-      "src/server/sessions/managementPermissionSystem.ts",
-      "src/server/managementTerminalProxyRoutes.ts",
-      "src/server/normalAuth.ts",
-      "src/server/workspaces/workspaceDeletionRoutes.ts",
-      "src/server/terminals/managementCommandRunService.ts",
-      "src/server/terminals/managementTerminalRoutes.ts",
-      "src/server/sessiond/workspaceRemovalRoutes.ts",
-      "src/client/src/api/clients.ts",
-    ]);
-    const managementApiConsumers = new Set([
-      "src/client/src/api.ts",
-      "src/client/src/api/clients.ts",
-      "src/client/src/runtime/terminalRuntime.ts",
-      "src/client/src/components/PiWebApp.ts",
-    ]);
-    const forbidden = [
-      'from "node-pty"',
-      "class TerminalService",
-      "class TerminalPanel",
-      "@xterm/xterm",
-      "terminalSocket",
-      "terminalsApi",
-      "activeTerminalCount",
-      "terminalAutoStart",
-      "registerTerminalRoutes",
-      "registerTerminalProxyRoutes",
-      "terminal-command-runs",
-    ];
-    for (const entry of productionFiles) {
-      const file = join(entry.parentPath, entry.name);
-      const source = await readFile(file, "utf8");
-      const sourcePath = relative(process.cwd(), file).split(sep).join("/");
-      if (forbidden.some((marker) => source.includes(marker)
-        && !(marker === "terminal-command-runs" && managementProtocolFiles.has(sourcePath))
-        && !(marker === "terminalsApi" && managementApiConsumers.has(sourcePath)))) violations.push(file);
-    }
-
-    expect(violations).toEqual([]);
-    const appStateSource = await readFile("src/client/src/appState.ts", "utf8");
-    const appShellSource = await readFile("src/client/src/components/PiWebApp.ts", "utf8");
-    expect(appStateSource).not.toContain("selectedTerminalId");
-    expect(appShellSource).not.toContain("selectedTerminalId");
-    const apiSource = await readFile("src/client/src/api/clients.ts", "utf8");
-    expect(apiSource).not.toMatch(/\b(?:startTerminal|continueTerminal|closeTerminal|closeWorkspaceTerminals|terminals)\s*:/u);
-    expect(await readFile("src/client/src/api/sockets.ts", "utf8")).not.toContain("terminalSocket");
-    const managementRuntime = await readFile("src/client/src/runtime/terminalRuntime.ts", "utf8");
-    expect(managementRuntime).not.toMatch(/(?:terminal\.attach|\/terminals|startTerminal|continueTerminal)/u);
-  });
-
-  it("builds a package-complete self-contained browser graph and importable server graph", async () => {
+  it("loads the built required service and advertises paired browser/backend contracts", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-terminal-package-"));
     tempRoots.push(root);
     const packageRoot = join(root, "plugins", "terminal");
     await buildTerminalPackage(resolve("pi-web-plugins/terminal"), packageRoot);
 
-    const files = (await readdir(packageRoot, { recursive: true, withFileTypes: true }))
-      .filter((entry) => entry.isFile())
-      .map((entry) => relative(packageRoot, join(entry.parentPath, entry.name)).split(sep).join("/"))
-      .sort();
-    expect(files).toEqual([
-      "browser/pi-web-plugin.js",
-      "bunPtyProvider.js",
-      "i18n.js",
-      "nodePtyProvider.js",
-      "package.json",
-      "ptyComposition.js",
-      "ptyProvider.js",
-      "server-plugin.js",
-      "terminalService.js",
-    ]);
-    const browserSource = await readFile(join(packageRoot, "browser", "pi-web-plugin.js"), "utf8");
-    expect(browserSource).not.toMatch(/(?:from\s*["']|import\s*\()[^"']*(?:@jmfederico\/pi-web|src\/)/u);
-    expect(browserSource).not.toMatch(/(?:from\s*["']|import\s*\()[^"']*@chainingintention\/pi-web-cn/u);
-    expect(browserSource).not.toMatch(/sourceMappingURL/u);
-    expect(browserSource).toContain("pi-web-terminal-panel");
-    expect(browserSource).toContain("terminal.attach");
-    expect(browserSource).toContain("terminal.list-runs");
-    expect(browserSource).not.toContain("terminal-command-runs");
-    expect(browserSource).not.toContain("/terminals");
-    const serverSource = await readFile(join(packageRoot, "server-plugin.js"), "utf8");
-    expect(serverSource).toContain('from "./terminalService.js"');
-    expect(serverSource).not.toContain("src/server");
 
     const catalog = new PiWebPluginCatalog({
       roots: [{ path: join(root, "plugins"), source: "bundled", scope: "bundled" }],

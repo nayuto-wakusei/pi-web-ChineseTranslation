@@ -1,14 +1,14 @@
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { startDevelopmentProcess, superviseDevelopmentProcesses } from "./dev-processes.mjs";
+import { developmentBuildDirectory, developmentRuntimeEnvironment, startDevelopmentProcess, superviseDevelopmentProcesses } from "./dev-processes.mjs";
 
 const require = createRequire(import.meta.url);
 
 export function runDevelopmentWeb({ env = process.env, launch = startDevelopmentProcess, signals = process, stop } = {}) {
   // Refresh plugin UI against the running backend during development only.
   const childEnv = { ...env, PI_WEB_DEV_PLUGIN_PAIRING: env.PI_WEB_DEV_PLUGIN_PAIRING ?? "1" };
-  const buildCwd = env.PI_WEB_DOCKER_MODE === "dev" ? "/build/pi-web" : undefined;
+  const buildCwd = developmentBuildDirectory(env);
   // Only the builder changes cwd. Runtime imports and package registrations
   // stay anchored to the production-compatible installation path.
   return superviseDevelopmentProcesses((add, stopped) => {
@@ -17,7 +17,7 @@ export function runDevelopmentWeb({ env = process.env, launch = startDevelopment
     builder.on("message", (message) => {
       if (stopped() || apiStarted || message?.type !== "plugin-build-ready") return;
       apiStarted = true;
-      add(launch(require.resolve("tsx/cli"), ["watch", "src/server/index.ts"], childEnv));
+      add(launch(require.resolve("tsx/cli"), ["watch", "src/server/index.ts"], developmentRuntimeEnvironment(childEnv)));
     });
   }, { signals, ...(stop === undefined ? {} : { stop }) });
 }

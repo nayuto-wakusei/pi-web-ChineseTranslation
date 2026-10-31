@@ -21,7 +21,7 @@
 
 本仓库的拆分开发服务使用 `pi-web-sessiond.service` 与 `pi-web-ui-dev.service`，daemon 使用 `npm run start:sessiond`，不自动重载/重启。已安装正式服务及 Docker 可能采用不同 Web 单元名和管理方式，先用 `pi-web status` 或检查部署定义，不要盲用开发服务名。
 
-`pi-web-ui-dev.service` 运行 `npm run dev:web` 和 `npm run dev:client`，承担 Web/API、内置插件 watcher 与 Vite UI。`src/server/index.ts`/`app.ts` 组装浏览器 Fastify 网关，经 `src/sessiond/sessionDaemonClient.ts` 和代理路由访问 daemon；`src/server/sessiond.ts` 持有长期 Pi 会话、普通项目认证、终端、活动与实时事件。
+新安装的 `pi-web-ui-dev.service` 通过 `npm run dev:ui` 监督 Web/API 和 client，承担内置插件 watcher 与 Vite UI；旧定义仍可能是两个命令的 shell 分组。更新后的 `pi-web install --dev` 可重装定义，需保留自定义 `--config`，并安排会话/终端可中断的窗口。更新或重启不自动重写原生定义；启动生命周期细节见[开发检查](../development-checks.md#开发启动)。`src/server/index.ts`/`app.ts` 组装浏览器 Fastify 网关，经 `src/sessiond/sessionDaemonClient.ts` 和代理路由访问 daemon；`src/server/sessiond.ts` 持有长期 Pi 会话、普通项目认证、终端、活动与实时事件。
 
 默认 daemon transport 是 `$PI_WEB_DATA_DIR/sessiond.sock`，也支持配置的 sessiond HTTP transport。协议、socket/数据目录或 transport 环境变化时，两服务必须对齐并重启。修改 `sessiond.ts`、daemon 协议/传输，或 `src/server/sessions/`、`terminals/`、`activity/`、`realtime/` 中传递依赖的 daemon 代码，也必须明确告知需要手动重启 daemon。纯浏览器插件走 UI/Web 重载；服务端插件不能归入此例外。
 
@@ -55,6 +55,8 @@ pi-web logs
 发布客户端的 Vite 内容哈希 `assets/` 使用 `public, max-age=31536000, immutable`，同 URL 的资源内容应保持不变；HTML 与未哈希文件继续重新验证。部署时保留这一浏览器交付边界，不把一年不可变缓存套用到 HTML。入口见 [app.ts](../../src/server/app.ts)。
 
 ## 活动、未读与通知
+
+持久会话警告集中在聊天状态菜单“通知”中，输入框附近保留摘要指示；待回答问题及实时动作保持在聊天中。代理请求的“需要输入”状态由 daemon 持久化并汇总到导航祖先，与未读或服务错误分开；新运行清除请求状态，单纯查看不清除。详见[会话](../modules/sessions.md#问题与扩展对话框)。
 
 活动用于描述正在启动、运行、工具调用或等待的状态；未读用于提醒尚未查看的会话更新；会话通知、警告用于提醒当前会话问题。它们不能互相当作可靠的历史审计数据库。
 

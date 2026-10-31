@@ -20,7 +20,7 @@ beforeEach(async () => {
 afterEach(async () => { await app.close(); });
 function responseFor(config: PiWebConfigValues): PiWebConfigResponse {
   return { path: "/tmp/config.json", exists: true, config, effectiveConfig: config, envOverrides: {
-    host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false,
+    host: false, port: false, allowedHosts: false, spawnSessions: false, sessionMessages: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false,
   } };
 }
 

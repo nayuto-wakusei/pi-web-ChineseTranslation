@@ -229,25 +229,11 @@ describe("runtime-owned subscription warnings", () => {
 });
 
 describe("dismissSessionWarning", () => {
-  it("durably suppresses the anthropic notice via pi's WarningSettings key", () => {
+  it.each([undefined, true])("suppresses the anthropic notice via pi's WarningSettings key (previous setting: %s)", (anthropicExtraUsage) => {
     const calls: { anthropicExtraUsage?: boolean }[] = [];
     dismissSessionWarning({
       settingsManager: {
-        getWarnings: () => ({}),
-        setWarnings: (warnings) => { calls.push(warnings); },
-        getEnabledModels: () => undefined,
-        setEnabledModels: () => undefined,
-      },
-    }, "anthropicExtraUsage");
-
-    expect(calls).toEqual([{ anthropicExtraUsage: false }]);
-  });
-
-  it("preserves other warning settings when suppressing", () => {
-    const calls: { anthropicExtraUsage?: boolean }[] = [];
-    dismissSessionWarning({
-      settingsManager: {
-        getWarnings: () => ({ anthropicExtraUsage: true }),
+        getWarnings: () => anthropicExtraUsage === undefined ? {} : { anthropicExtraUsage },
         setWarnings: (warnings) => { calls.push(warnings); },
         getEnabledModels: () => undefined,
         setEnabledModels: () => undefined,

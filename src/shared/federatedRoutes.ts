@@ -55,6 +55,11 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/plugin-catalog/projects/:projectId/workspaces/:workspaceId", propagateCancellation: true },
   { method: "GET", path: "/plugin-catalog/projects/:projectId/workspaces/:workspaceId/sessions", propagateCancellation: true },
   { method: "GET", path: "/plugin-catalog/projects/:projectId/workspaces/:workspaceId/sessions/:sessionId", propagateCancellation: true },
+  { method: "GET", path: "/plugin-sessions/projects/:projectId/workspaces/:workspaceId/sessions/:sessionId", propagateCancellation: true },
+  { method: "DELETE", path: "/plugin-sessions/projects/:projectId/workspaces/:workspaceId/sessions/:sessionId", propagateCancellation: true },
+  ...["pin", "unpin", "archive", "restore"].map((action): FederatedHttpRouteSpec => ({
+    method: "POST", path: `/plugin-sessions/projects/:projectId/workspaces/:workspaceId/sessions/:sessionId/${action}`, propagateCancellation: true,
+  })),
   { method: "GET", path: "/projects" },
   // The server resolves the path before looking up existing project trust.
   { method: "GET", path: "/projects/trust" },

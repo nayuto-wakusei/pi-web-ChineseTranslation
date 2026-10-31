@@ -11,6 +11,10 @@ export function subsessionsConfigPatch(enabled: boolean): PiWebConfigValues {
   return { subsessions: enabled };
 }
 
+export function sessionMessagesConfigPatch(enabled: boolean): PiWebConfigValues {
+  return { sessionMessages: enabled };
+}
+
 export function askUserConfigPatch(enabled: boolean): PiWebConfigValues {
   return { askUser: enabled };
 }
@@ -38,6 +42,7 @@ export function mergeSelectedMachineSessiondConfig(base: PiWebConfigResponse, se
     ...base.envOverrides,
     spawnSessions: selectedMachine.envOverrides.spawnSessions,
     subsessions: selectedMachine.envOverrides.subsessions,
+    sessionMessages: selectedMachine.envOverrides.sessionMessages,
     askUser: selectedMachine.envOverrides.askUser,
     agentCommand: selectedMachine.envOverrides.agentCommand,
     agentDir: selectedMachine.envOverrides.agentDir,
@@ -46,7 +51,7 @@ export function mergeSelectedMachineSessiondConfig(base: PiWebConfigResponse, se
   if (selectedMachine.envOverrides.agentDirSource === undefined) delete envOverrides.agentDirSource;
   else envOverrides.agentDirSource = selectedMachine.envOverrides.agentDirSource;
   return {
-    ...mergeSelectedSettingsResponse(base, selectedMachine, ["spawnSessions", "subsessions", "askUser", "sessionNaming", "agent"]),
+    ...mergeSelectedSettingsResponse(base, selectedMachine, ["spawnSessions", "subsessions", "sessionMessages", "askUser", "agent"]),
     envOverrides,
   };
 }

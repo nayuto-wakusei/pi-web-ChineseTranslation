@@ -137,7 +137,43 @@ describe("anchored transient popup", () => {
     expect(anchoredPopupStyle(anchor)["max-height"]).toBe("350px");
   });
 
+  it("anchors completions to the layout bottom through keyboard changes and page scrolling", () => {
+    const application = document.createElement("div");
+    const editor = document.createElement("div");
+    const anchor = document.createElement("div");
+    document.body.append(application);
+    application.attachShadow({ mode: "open" }).append(editor);
+    editor.attachShadow({ mode: "open" }).append(anchor);
+    const measureAnchor = vi.spyOn(anchor, "getBoundingClientRect");
+    const measureLayout = vi.spyOn(application, "getBoundingClientRect");
+    const options = { placement: "above-start", width: "anchor", gap: 6, maxHeight: 260 } as const;
+    for (const scroll of [0, 120]) {
+      measureLayout.mockReturnValue(new DOMRect(0, -scroll, 390, 699));
+      measureAnchor.mockReturnValue(new DOMRect(0, 550 - scroll, 390, 74));
+      for (const visibleHeight of [699, 389]) {
+        vi.stubGlobal("innerHeight", visibleHeight);
+        vi.stubGlobal("visualViewport", { offsetLeft: 0, offsetTop: scroll, width: 390, height: visibleHeight });
+        expect(anchoredPopupStyle(anchor, options)).toMatchObject({
+          top: "auto", bottom: "155px",
+        });
+      }
+    }
+    // A taller draft increases the offset by the editor's growth, not keyboard size.
+    measureAnchor.mockReturnValue(new DOMRect(0, 400, 390, 104));
+    expect(anchoredPopupStyle(anchor, options)["bottom"]).toBe("185px");
+  });
+
+  it("constrains completions above the input instead of flipping underneath it", () => {
+    const anchor = document.createElement("div");
+    vi.spyOn(document.documentElement, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 390, 699));
+    vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 100, 390, 74));
+    expect(anchoredPopupStyle(anchor, { placement: "above-start", gap: 6, maxHeight: 260 })).toMatchObject({
+      top: "auto", bottom: "605px", "max-height": "94px",
+    });
+  });
+
   it("shares start, completion and left-strip sizing options", () => {
+    vi.spyOn(document.documentElement, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 1024, 768));
     const anchor = document.createElement("button");
     vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(new DOMRect(100, 300, 200, 30));
     expect(anchoredPopupStyle(anchor, { placement: "above-start", width: "anchor", gap: 6, maxHeight: 260 })).toMatchObject({ left: "100px", width: "200px", "max-height": "260px" });

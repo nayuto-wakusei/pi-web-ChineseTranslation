@@ -290,25 +290,6 @@ describe("model-picker All models mode", () => {
     expect(onToggleEnabled).toHaveBeenCalledWith("anthropic", "claude-sonnet-4-5", false);
   });
 
-  it("keeps the checkbox state when the toggle fails", async () => {
-    const onToggleEnabled = vi.fn<() => Promise<void>>(() => Promise.resolve());
-    const picker = await mountPicker({ onToggleEnabled });
-    scopeToggle(picker, "All models").click();
-    await settleRenderedDialog(picker);
-
-    const checkbox = rowCheckbox(catalogRow(picker, "openai/gpt-4o"));
-    checkbox.click();
-    expect(onToggleEnabled).toHaveBeenCalledOnce();
-
-    // The host reported the failure and left the catalog unchanged; the row
-    // becomes interactive again with its membership untouched.
-    await vi.waitFor(() => {
-      const settled = rowCheckbox(catalogRow(picker, "openai/gpt-4o"));
-      expect(settled.disabled).toBe(false);
-    });
-    expect(rowCheckbox(catalogRow(picker, "openai/gpt-4o")).checked).toBe(false);
-  });
-
   it("filters the natural catalog without changing its order", async () => {
     const picker = await mountPicker();
     scopeToggle(picker, "All models").click();

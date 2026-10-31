@@ -256,6 +256,11 @@ describe("privileged management session permissions", () => {
       if (tool === undefined) throw new Error("Expected managed delegation tools");
       await tool.execute("privileged-list", {}, new AbortController().signal);
       expect(list).toHaveBeenCalledWith(runtime.session.sessionId, runtime.session.sessionFile, h.context);
+      const send = vi.spyOn(h.service, "sendSessionMessage").mockResolvedValue({ sessionId: "managed-target", delivery: "started" });
+      const messageTool = runtime.session.agent.state.tools.find((entry) => entry.name === "send_session_message");
+      if (messageTool === undefined) throw new Error("Expected scoped session messaging");
+      await messageTool.execute("privileged-message", { sessionId: "managed-target", message: "status" }, new AbortController().signal);
+      expect(send).toHaveBeenCalledWith({ sendingCwd: h.cwd, sendingSessionId: runtime.session.sessionId, sessionId: "managed-target", message: "status" }, h.context);
     } finally {
       await h.dispose();
     }

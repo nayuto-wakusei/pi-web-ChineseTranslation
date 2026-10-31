@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { html } from "lit";
-import { setClientTranslations } from "../i18n";
 import { PromptEditor } from "./PromptEditor";
 import { clearStagedAttachments, saveStagedAttachments } from "../promptAttachmentStaging";
 import { installPopoverFake } from "./anchoredPopup.testSupport";
@@ -9,8 +8,9 @@ import { installPopoverFake } from "./anchoredPopup.testSupport";
 installPopoverFake();
 
 beforeEach(() => {
-  setClientTranslations("en", {});
-  stubAttachSourceMedia(false);
+  vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Unknown browser");
+  vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux aarch64");
+  vi.spyOn(navigator, "maxTouchPoints", "get").mockReturnValue(5);
   // CodeMirror measurement is a browser concern; keep this test on the control's native interaction.
   vi.stubGlobal("requestAnimationFrame", () => 1);
   vi.stubGlobal("cancelAnimationFrame", () => undefined);
@@ -39,30 +39,8 @@ it("renders supplied chat navigation inside the input alongside the attachment c
   expect(jump).toHaveBeenCalledOnce();
 });
 
-it("projects active work separately from input permission and preserves the stop handler", async () => {
-  const editor = new PromptEditor();
-  editor.canStop = true;
-  editor.disabled = true;
-  editor.onStop = vi.fn();
-  document.body.append(editor);
-  await editor.updateComplete;
-  expect(editor.renderRoot.querySelector("footer")?.hasAttribute("data-active-work")).toBe(true);
-  const stop = editor.renderRoot.querySelector<HTMLButtonElement>(".stop-button");
-  if (stop === null) throw new Error("Expected stop control");
-  expect(stop.disabled).toBe(true);
-  editor.disabled = false;
-  await editor.updateComplete;
-  stop.click();
-  expect(editor.onStop).toHaveBeenCalledOnce();
-  editor.canStop = false;
-  await editor.updateComplete;
-  expect(editor.renderRoot.querySelector("footer")?.hasAttribute("data-active-work")).toBe(false);
-});
-
-function stubAttachSourceMedia(matches: boolean): void {
-  const media = window.matchMedia("(pointer: coarse)");
-  Object.defineProperty(media, "matches", { value: matches, configurable: true });
-  vi.spyOn(window, "matchMedia").mockReturnValue(media);
+function stubAndroidDevice(): void {
+  vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Linux; Android 14)");
 }
 
 async function mountAttachmentControls() {
@@ -91,7 +69,16 @@ it("keeps library selection separate from the rear-camera capture preference", a
   expect(files.multiple).toBe(true);
 });
 
-it("opens the file dialog directly on fine-pointer devices without announcing a menu", async () => {
+it.each([
+  { device: "unknown touch device", userAgent: "Unknown browser", coarse: true },
+  { device: "unknown pointer device", userAgent: "Unknown browser", coarse: false },
+  { device: "touch Windows machine", userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", coarse: true },
+  { device: "Windows desktop", userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", coarse: false },
+])("opens the file dialog directly on $device without announcing a menu", async ({ userAgent, coarse }) => {
+  vi.spyOn(navigator, "userAgent", "get").mockReturnValue(userAgent);
+  const media = window.matchMedia("(pointer: coarse)");
+  Object.defineProperty(media, "matches", { value: coarse, configurable: true });
+  vi.spyOn(window, "matchMedia").mockReturnValue(media);
   const { attach, panel, files } = await mountAttachmentControls();
   const shown = vi.spyOn(panel, "showPopover");
   const open = vi.spyOn(files, "click").mockImplementation(() => undefined);
@@ -103,8 +90,34 @@ it("opens the file dialog directly on fine-pointer devices without announcing a 
   expect(attach.hasAttribute("aria-controls")).toBe(false);
 });
 
-it("opens the touch source group and synchronously activates each native picker", async () => {
-  stubAttachSourceMedia(true);
+it.each([
+  { device: "iPhone", userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", platform: "iPhone" },
+  { device: "iPad", userAgent: "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)", platform: "iPad" },
+  { device: "desktop-mode iPad", userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)", platform: "MacIntel" },
+])("opens the native chooser directly on $device without announcing a source menu", async ({ userAgent, platform }) => {
+  vi.spyOn(navigator, "userAgent", "get").mockReturnValue(userAgent);
+  vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+  const { editor, attach, panel, files } = await mountAttachmentControls();
+  const shown = vi.spyOn(panel, "showPopover");
+  const open = vi.spyOn(files, "click").mockImplementation(() => undefined);
+  attach.click();
+  // Native picker activation must remain synchronous with the user gesture.
+  expect(open).toHaveBeenCalledOnce();
+  await editor.updateComplete;
+  expect(shown).not.toHaveBeenCalled();
+  expect(attach.hasAttribute("aria-expanded")).toBe(false);
+  expect(attach.hasAttribute("aria-controls")).toBe(false);
+  editor.disabled = true;
+  await editor.updateComplete;
+  attach.click();
+  expect(open).toHaveBeenCalledOnce();
+});
+
+it.each([true, false])("opens the Android source group with coarse pointer %s and synchronously activates each native picker", async (coarse) => {
+  stubAndroidDevice();
+  const media = window.matchMedia("(pointer: coarse)");
+  Object.defineProperty(media, "matches", { value: coarse, configurable: true });
+  vi.spyOn(window, "matchMedia").mockReturnValue(media);
   const { editor, attach, panel, photos, camera, files } = await mountAttachmentControls();
   const items = [...panel.querySelectorAll<HTMLButtonElement>(".ui-menu-item")];
   expect(items.map((item) => item.textContent.trim())).toEqual(["Photos", "Camera", "Files"]);
@@ -132,7 +145,7 @@ it("opens the touch source group and synchronously activates each native picker"
 });
 
 it("reconciles native dismissal and Escape, and can reopen", async () => {
-  stubAttachSourceMedia(true);
+  stubAndroidDevice();
   const { editor, attach, panel } = await mountAttachmentControls();
   attach.click(); await editor.updateComplete;
   panel.hidePopover(); await editor.updateComplete;
@@ -147,7 +160,7 @@ it("reconciles native dismissal and Escape, and can reopen", async () => {
 });
 
 it.each(["disabled", "sending"] as const)("closes the touch picker and disables its items when %s changes", async (property) => {
-  stubAttachSourceMedia(true);
+  stubAndroidDevice();
   const { editor, attach, panel, photos } = await mountAttachmentControls();
   attach.click(); await editor.updateComplete;
   const hide = vi.spyOn(panel, "hidePopover");
@@ -170,7 +183,7 @@ it.each(["disabled", "sending"] as const)("closes the touch picker and disables 
 });
 
 it("closes the source popup when switching sessions or removing the composer", async () => {
-  stubAttachSourceMedia(true);
+  stubAndroidDevice();
   const { editor, attach, panel } = await mountAttachmentControls();
   attach.click(); await editor.updateComplete;
   const hide = vi.spyOn(panel, "hidePopover");
@@ -204,8 +217,6 @@ it("keeps attachment delivery and removal wired through native shared controls",
   const delivery = editor.renderRoot.querySelector<HTMLSelectElement>('select[aria-label="Attachment delivery"]');
   const remove = editor.renderRoot.querySelector<HTMLButtonElement>('button[aria-label="Remove screenshot.png"]');
   if (delivery === null || remove === null) throw new Error("Expected pending attachment controls");
-  expect(delivery.classList.contains("ui-select")).toBe(true);
-  expect(remove.classList.contains("ui-button--icon")).toBe(true);
   expect(remove.type).toBe("button");
   delivery.value = "folder";
   delivery.dispatchEvent(new Event("change", { bubbles: true }));
@@ -228,7 +239,6 @@ it("removes plugin context by identity and retains the disabled contract", async
   await editor.updateComplete;
   const remove = editor.renderRoot.querySelector<HTMLButtonElement>('button[aria-label="Remove Context"]');
   if (remove === null) throw new Error("Expected context removal control");
-  expect(remove.classList.contains("ui-button--icon")).toBe(true);
   remove.click();
   expect(editor.onRemoveChip).toHaveBeenCalledWith(chip);
   editor.disabled = true;

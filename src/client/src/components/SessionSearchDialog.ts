@@ -4,9 +4,15 @@ import { customElement, property } from "lit/decorators.js";
 import type { SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionInfo } from "../api";
 import { shortSessionId } from "../sessionLabels";
 import "./ModalSurface";
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 
 @customElement("session-search-dialog")
 export class SessionSearchDialog extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ type: String }) query = "";
   @property({ attribute: false }) response?: SessionContentSearchResponse;
   @property({ type: Boolean }) searching = false;
@@ -19,10 +25,10 @@ export class SessionSearchDialog extends LitElement {
     const hasQuery = this.query.trim() !== "";
     return html`
       <modal-surface .onClose=${() => { this.onClose?.(); }} .initialFocus=${"input"} .label=${t("ui.sessionSearchDialog.searchSessionContent", "Search session content")}>
-          <header>
+          <header class="ui-dialog-header">
             <div>
               <span class="eyebrow">${t("ui.sessionSearchDialog.sessions", "Sessions")}</span>
-              <h1>${t("ui.sessionSearchDialog.searchSessionContent", "Search session content")}</h1>
+              <h1 class="ui-dialog-title">${t("ui.sessionSearchDialog.searchSessionContent", "Search session content")}</h1>
             </div>
             <button class="close-button" title=${t("ui.sessionSearchDialog.closeSearch", "Close search")} aria-label=${t("ui.sessionSearchDialog.closeSearch", "Close search")} @click=${() => { this.onClose?.(); }}>×</button>
           </header>
@@ -35,7 +41,7 @@ export class SessionSearchDialog extends LitElement {
             ${this.renderStatus(hasQuery)}
             ${this.renderResults()}
           </div>
-          <footer>
+          <footer class="ui-dialog-footer">
             <span>${this.resultSummary()}</span>
             <button @click=${() => { this.onClose?.(); }}>${t("ui.sessionSearchDialog.close", "Close")}</button>
           </footer>
@@ -54,7 +60,7 @@ export class SessionSearchDialog extends LitElement {
     const response = this.response;
     if (response === undefined || response.results.length === 0) return null;
     return html`
-      <div class="results" aria-label=${t("ui.sessionSearchDialog.sessionContentSearchResults", "Session content search results")}>
+      <div class="results ui-selection-list" aria-label=${t("ui.sessionSearchDialog.sessionContentSearchResults", "Session content search results")}>
         ${response.results.map((result) => html`
           <section class="session-group">
             <div class="session-heading">
@@ -71,7 +77,7 @@ export class SessionSearchDialog extends LitElement {
   private renderMatch(session: SessionInfo, match: SessionContentSearchMatch): TemplateResult {
     const role = match.role === "user" ? t("ui.sessionSearchDialog.userQuestion", "User question") : t("ui.sessionSearchDialog.aiAnswer", "AI answer");
     return html`
-      <button class="match-row" @click=${() => { void this.onSelect?.(session, match); }}>
+      <button class="match-row ui-selection-option" @click=${() => { void this.onSelect?.(session, match); }}>
         <span class="match-meta"><span class=${`role ${match.role}`}>${role}</span></span>
         <span class="excerpts" dir="auto">
           ${match.excerpts.map((excerpt) => html`<span class="excerpt">${renderHighlightedExcerpt(excerpt)}</span>`)}
@@ -88,8 +94,8 @@ export class SessionSearchDialog extends LitElement {
   }
 
   static override styles = css`
-    :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: 14px system-ui, sans-serif; }
-    modal-surface { --modal-surface-backdrop-padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); --modal-surface-width: min(780px, 100%); --modal-surface-max-height: min(760px, 100%); --modal-surface-radius: 8px; }
+    :host { position: fixed; inset: 0; z-index: 30; color: var(--pi-text); font: var(--session-search-font-size, 14px) system-ui, sans-serif; }
+    modal-surface { --modal-surface-backdrop-padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); --modal-surface-width: var(--session-search-width, min(780px, 100%)); --modal-surface-max-height: var(--session-search-max-height, min(760px, 100%)); --modal-surface-radius: 8px; }
     header, footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; }
     header { border-bottom: 1px solid var(--pi-border); }
     footer { min-height: 34px; border-top: 1px solid var(--pi-border); color: var(--pi-muted); }
@@ -97,7 +103,7 @@ export class SessionSearchDialog extends LitElement {
     .body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; padding: 16px; overflow: hidden; }
     .eyebrow { display: block; color: var(--pi-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
     h1 { margin: 0; font-size: 20px; line-height: 1.2; }
-    .search-field { box-sizing: border-box; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); padding: 0 11px; }
+    .search-field { box-sizing: border-box; min-width: 0; min-height: var(--session-search-input-height, auto); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); padding: 0 11px; }
     .search-field:focus-within { border-color: var(--pi-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--pi-accent) 18%, transparent); }
     input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--pi-text); padding: 11px 0; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, system-ui, sans-serif); }
     .spinner { width: 13px; height: 13px; border: 2px solid var(--pi-border); border-top-color: var(--pi-accent); border-radius: 50%; animation: spin .7s linear infinite; }
@@ -119,7 +125,7 @@ export class SessionSearchDialog extends LitElement {
     mark { border-radius: 3px; background: color-mix(in srgb, var(--pi-warning, #d29922) 42%, var(--pi-warning-surface)); color: var(--pi-text-bright, var(--pi-text)); padding: 0 1px; font-weight: 700; }
     .jump { position: absolute; top: 50%; right: 13px; color: var(--pi-muted); transform: translateY(-50%); }
     button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; font: inherit; cursor: pointer; }
-    .close-button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; background: transparent; color: var(--pi-muted); padding: 0; font-size: 24px; }
+    .close-button { width: var(--session-search-control-size, 34px); height: var(--session-search-control-size, 34px); flex: 0 0 auto; display: grid; place-items: center; border: 0; background: transparent; color: var(--pi-muted); padding: 0; font-size: 24px; }
     .close-button:hover, .close-button:focus { color: var(--pi-text); background: var(--pi-surface-hover); }
     @keyframes spin { to { transform: rotate(360deg); } }
 

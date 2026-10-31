@@ -104,6 +104,7 @@
             <a href="#plugins">Can I use local plugins?</a>
             <a href="#worktree-list-out-of-date">A worktree I created is missing</a>
             <a href="#navigation-order">如何排列导航？</a>
+            <a href="#session-notices">持久会话警告在哪里？</a>
             <a href="#chat-images">聊天图片如何加载？</a>
             <a href="#chat-updates">聊天更新停止</a>
             <a href="#sessions-stop">Sessions stop unexpectedly</a>
@@ -315,6 +316,13 @@
             <article id="navigation-order" class="faq-item">
               <h2>如何排列项目、工作区和会话？</h2>
               <p>在项目或工作区行菜单选择上移/下移，普通导航顺序按机器保存，重载或换设备后仍可读取。会话的置顶与子会话分组不改变模型上下文；归档仍属独立视图。管理导航使用独立路径，不共用普通排序存储。</p>
+            </article>
+
+            <article id="session-notices" class="faq-item">
+              <h2>Where are persistent session warnings?</h2>
+              <p>Open <strong>Navigation → Notices</strong> for the selected session’s current conditions, such as skill diagnostics, extension load failures, or billing notices. Pin Notices to keep its count visible immediately after Chat, or first when Chat has no tab. Leave it unpinned to open it through Navigation instead.</p>
+              <p>Notices is available only while the selected session has warnings. When they clear, the destination disappears without forgetting its pin preference. An old link or browser-history entry then shows the normal unavailable-panel message.</p>
+              <p>Most conditions remain until their cause is resolved; a dismiss button appears only when the underlying warning supports suppression. Event notifications about work happening in the session remain in the chat, where they can be dismissed.</p>
             </article>
 
             <article id="chat-images" class="faq-item">

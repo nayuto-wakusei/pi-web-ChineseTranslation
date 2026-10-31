@@ -41,24 +41,6 @@ function button(host: ContentRendererHost, label: string): HTMLButtonElement {
   return found;
 }
 
-it.each(["automatic", "manual"] as const)("names the %s view button after the selected renderer", async (renderMode) => {
-  const draw = vi.fn(() => html`<b>Named content</b>`);
-  const host = hostWith([{ id: "highlighted", label: "Highlighted", renderer: {
-    id: "highlighted", title: "Highlighted", renderMode, render: draw,
-  } }]);
-  document.body.append(host);
-  await settleDeferredContent(host);
-  const namedButton = button(host, "Highlighted");
-  expect(namedButton.getAttribute("aria-pressed")).toBe(String(renderMode === "automatic"));
-  button(host, "Raw").click();
-  await settleDeferredContent(host);
-  expect(namedButton.getAttribute("aria-pressed")).toBe("false");
-  namedButton.click();
-  await settleDeferredContent(host);
-  expect(namedButton.getAttribute("aria-pressed")).toBe("true");
-  expect(host.renderRoot.querySelector("b")?.textContent).toBe("Named content");
-});
-
 it("shows every named view and Raw, and explicitly activates manual views while cancelling previous work", async () => {
   const automatic = vi.fn<ContentRendererContribution["render"]>(() => html`<b>Automatic</b>`);
   const manual = vi.fn<ContentRendererContribution["render"]>(() => html`<b>Manual</b>`);
@@ -93,6 +75,34 @@ it("shows every named view and Raw, and explicitly activates manual views while 
   await settleDeferredContent(host);
   expect(manual).toHaveBeenCalledTimes(2);
   expect(diagram.getAttribute("aria-pressed")).toBe("true");
+});
+
+it("scopes choice hooks to named views and Raw, keeping selection aligned with aria-pressed", async () => {
+  const host = hostWith([
+    { id: "first", label: "First", renderer: { id: "first", render: () => html`<b>First</b>` } },
+    { id: "second", label: "Second", renderer: { id: "second", render: () => html`<b>Second</b>` } },
+  ]);
+  document.body.append(host);
+  await settleDeferredContent(host);
+  const scope = host.renderRoot.querySelector('[data-ui-context="content-views"]');
+  const choices = [...(scope?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+  expect(choices).toEqual([button(host, "First"), button(host, "Second"), button(host, "Raw")]);
+  expect(choices.every((choice) => choice.matches(".ui-choice.ui-button"))).toBe(true);
+  const copy = button(host, "Copy source");
+  expect(scope?.contains(copy)).toBe(false);
+  expect(copy.matches(".ui-choice, [data-selected]")).toBe(false);
+
+  const expectSelection = (expected: string[]) => {
+    expect(choices.map((choice) => choice.getAttribute("data-selected"))).toEqual(expected);
+    expect(choices.map((choice) => choice.getAttribute("aria-pressed"))).toEqual(expected);
+  };
+  expectSelection(["false", "false", "true"]);
+  button(host, "First").click();
+  await settleDeferredContent(host);
+  expectSelection(["true", "false", "false"]);
+  button(host, "Raw").click();
+  await settleDeferredContent(host);
+  expectSelection(["false", "false", "true"]);
 });
 
 it("updates the automatic default until a view is explicitly selected", async () => {

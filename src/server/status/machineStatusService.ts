@@ -4,7 +4,7 @@ import { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "../realtime/
 import type { WorkspaceAttribution } from "./workspaceAttribution.js";
 
 export interface ActiveCwdActivity { cwd: string; hasSessionActivity: boolean; hasTerminalActivity: boolean; }
-interface ActivitySnapshot { workspaces: readonly ActiveCwdActivity[]; sessions: readonly { sessionId: string; cwd: string }[]; }
+interface ActivitySnapshot { workspaces: readonly ActiveCwdActivity[]; sessions: readonly { sessionId: string; cwd: string }[]; interventionSessions?: readonly { sessionId: string; cwd: string }[]; }
 type ActivitySource =
   | { snapshot(scope?: SessionEventScope): ActivitySnapshot }
   | { activeSnapshot(scope?: SessionEventScope): ActivitySnapshot };
@@ -76,10 +76,12 @@ export class MachineStatusService {
     const activitySource = this.dependencies.activity;
     const activity = "activeSnapshot" in activitySource ? activitySource.activeSnapshot(scope) : activitySource.snapshot(scope);
     const unread = await this.dependencies.unread.catalogSnapshot(scope);
-    const flagsByCwd = this.flagsByCwd(activity.workspaces, unread.sessions);
+    const interventionSessions = activity.interventionSessions ?? [];
+    const flagsByCwd = this.flagsByCwd(activity.workspaces, unread.sessions, interventionSessions);
     const sessions = new FlagAccumulator();
     for (const session of activity.sessions) sessions.add(session.sessionId, { [CORE_STATUS_FLAGS.working]: true });
     for (const session of unread.sessions) sessions.add(session.sessionId, { [CORE_STATUS_FLAGS.unread]: true });
+    for (const session of interventionSessions) sessions.add(session.sessionId, { [CORE_STATUS_FLAGS.interventionRequired]: true });
     const attributions = await this.dependencies.attribution.attribute(flagsByCwd.keys(), scope);
     const projects = new FlagAccumulator();
     const workspaces = new FlagAccumulator();
@@ -95,14 +97,28 @@ export class MachineStatusService {
     return { machine: rollUpStatusFlags([...Object.values(rolledProjects), ...Object.values(rolledWorkspaces), rolledUnattributed]), projects: rolledProjects, workspaces: rolledWorkspaces, sessions: sessions.rollUp(), unattributed: rolledUnattributed };
   }
 
-  private flagsByCwd(activities: readonly ActiveCwdActivity[], unreadSessions: readonly { cwd: string }[]): Map<string, StatusFlags> {
+  /**
+   * Status of each cwd that carries any flag. Only set flags are recorded, so a
+   * cwd that stops being active disappears instead of turning into empty flags,
+   * which is what makes structural comparison a sound change test.
+   */
+  private flagsByCwd(
+    activities: readonly ActiveCwdActivity[],
+    unreadSessions: readonly { cwd: string }[],
+    interventionSessions: readonly { cwd: string }[],
+  ): Map<string, StatusFlags> {
     const flagsByCwd = new Map<string, Record<string, boolean>>();
     const setFlag = (cwd: string, flagId: string): void => { if (cwd === "") return; const flags = flagsByCwd.get(cwd) ?? {}; flags[flagId] = true; flagsByCwd.set(cwd, flags); };
     for (const activity of activities) {
       if (activity.hasSessionActivity) setFlag(activity.cwd, CORE_STATUS_FLAGS.working);
       if (activity.hasTerminalActivity) setFlag(activity.cwd, CORE_STATUS_FLAGS.terminal);
     }
-    for (const session of unreadSessions) setFlag(session.cwd, CORE_STATUS_FLAGS.unread);
+    for (const session of unreadSessions) {
+      setFlag(session.cwd, CORE_STATUS_FLAGS.unread);
+    }
+    for (const session of interventionSessions) {
+      setFlag(session.cwd, CORE_STATUS_FLAGS.interventionRequired);
+    }
     return flagsByCwd;
   }
 }

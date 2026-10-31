@@ -37,10 +37,6 @@ afterEach(async () => {
 });
 
 describe("sessiond persisted server plugin recovery", () => {
-  it("rejects cleanup of the live Terminal bundle and unowned temporary directories", () => {
-    expect(() => { assertOwnedRoot(liveTerminalRoot); }).toThrow("Refusing to clean unowned directory");
-    expect(() => { assertOwnedRoot(join(tmpdir(), "pi-web-sessiond-plugin-unowned")); }).toThrow("Refusing to clean unowned directory");
-  });
   // Config parsing and both safe-start levels are covered by serverPluginRecovery.test.ts
   // and serverPluginRuntime.test.ts. Keep one real-process fail-closed wiring check.
   it("fails closed and starts without server module imports when safe start is malformed", async () => {

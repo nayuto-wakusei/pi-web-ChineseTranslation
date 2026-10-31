@@ -56,31 +56,40 @@ Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 �
 默认值无需重启，适用于新会话。项目 Pi 设置、显式启动选择及每模型思考设置仍有既定优先级。默认模型必须启用，否则选择首个启用模型。恢复会话保留原模型与思考等级。其他共享 agent 设置（包、扩展、代理等）继续读真实 agent 目录的 `settings.json`。
 
 <a id="default-theme-and-streaming"></a>
+<a id="theme-default-and-device-choices"></a>
 ## 应用主题与发送默认值
+
+网关初始 HTML 携带默认主题详情与 CSS，Auto 包含配对两种变体；不评估主题包代码即可提供静态主题。需要旧浏览器激活的默认主题先用 Classic 显示，同时保留偏好。设备覆盖按需请求，失败或不可用时保持已提交配色而不抹掉选择；设置页每个对话框首次进入通用页加载完整主题目录，失败可显式重试。主题资产使用带 revision 的 URL 与 HTTP 缓存，不把任意 CSS 写入 localStorage，也不增加配置文件。
 
 `defaultTheme` 是网关配置，形如 `{ "themeId": "plugin-id:theme-id", "auto": true }`：`themeId` 必须为限定贡献 ID，`auto` 必须为布尔值。`auto: true` 在该主题有明暗配对时跟随系统明暗，否则使用所选主题。除环境强制主题外，浏览器设备已保存的主题覆盖优先；主题暂不可用时使用回退，不删除原选择。主题属于整个应用，不保存到当前远端机器；保存/刷新配置后生效，无需重启 daemon。
 
-在 **设置 → 通用 → 主题** 中，“在此设备使用”保存浏览器覆盖，“设为默认”保存网关默认且不覆盖已有设备选择，“使用默认值”清除此浏览器覆盖并采用应用默认。设置页的“默认主题”说明与应用的默认选择一致；网关未显式配置 `defaultTheme` 时，也会反映 Custom UI Codex 可用时的隐式默认。读取默认值或清除设备覆盖均不写入网关配置。Auto 只在主题有明暗配对时跟随设备。
+在 **设置 → 通用 → 主题** 中，“在此设备使用”保存浏览器覆盖，“设为默认”保存网关默认且不覆盖已有设备选择，“使用默认值”清除此浏览器覆盖并采用应用默认。设置页的“默认主题”说明与应用的默认选择一致；网关未显式配置 `defaultTheme` 时，使用内置 `themes:pi-web-dark`，并在 `auto: true` 下跟随系统在 PI WEB Light / Dark 之间切换。读取默认值或清除设备覆盖均不写入网关配置。Auto 只在主题有明暗配对时跟随设备。
 
-内置 **Custom UI Codex** 展示插件默认启用，配置 ID 为 `pi-web.custom-ui-codex`。在网关的插件设置中禁用，或在网关有效机器配置设置 `plugins["pi-web.custom-ui-codex"].enabled: false`，刷新页面后恢复宿主默认布局；中文语言插件与权限模式不受影响，无需重启 daemon。远端机器不能替网关接管整个应用界面。
+内置 **Custom UI Codex** 展示插件默认启用，配置 ID 为 `pi-web.custom-ui-codex`。它只提供可选的本地视觉与布局定制，不提供应用默认主题。在网关的插件设置中禁用，或在网关有效机器配置设置 `plugins["pi-web.custom-ui-codex"].enabled: false`，刷新页面后恢复上游默认布局与样式；中文语言插件与权限模式不受影响，无需重启 daemon。远端机器不能替网关接管整个应用界面。
 
-该插件启用且设备、网关均未显式选择主题时，使用 Paper / Graphite 明暗配对并跟随系统。已有设备或网关主题选择仍优先。主题限定 ID 为 `pi-web.custom-ui-codex:paper`、`pi-web.custom-ui-codex:graphite`；旧的 `themes:paper`、`themes:graphite` 在插件可用时继续解析到对应主题，设置页的名称、选项及保存操作同样识别这些旧 ID。读取和显示不改写原有配置，只有显式保存才使用当前可用主题的限定 ID。插件不可用时按正常主题回退规则显示，保留原选择以便恢复；设置页仍标记原主题不可用，不允许把回退主题当作原选择保存。
+该插件不再通过浏览器 `activate` 注册主题；其配色与明暗配对改为 `package.json` 的静态 `themes` / `themePairs` 声明，并与其他静态主题一样由网关目录收集。Paper / Graphite 等内置配色也由静态目录提供，限定 ID 为 `themes:paper`、`themes:graphite` 和 `themes:paper-graphite`；这些 ID 直接指向内置静态主题，不再是映射到 Custom UI Codex 的旧别名。旧插件命名空间的同名静态主题仍保留，供已保存的显式 `pi-web.custom-ui-codex:` ID 继续解析；它们不是默认值，也不改变内置 `themes:*` 选择。已有设备或网关主题选择照常优先。读取和显示不改写原有配置；主题暂不可用时保留原选择并显示回退，设置页标记该主题不可用，不把回退主题当作原选择保存。
 
 网关 `defaultStreamingBehavior` 为 `"steer"`（默认）或 `"followUp"`，决定流式工作期间编辑器的默认发送方式，不改变已在 daemon 中排队的消息。浏览器分区尺寸、编辑器偏好与普通导航顺序不是新的项目配置文件；导航顺序是按机器管理的托管状态，管理模式不共用普通存储。
 
 <a id="session-naming-and-archives"></a>
 ## 会话命名与归档
 
-机器配置 `sessionNaming` 仅接受以下可选字段，不提供项目覆盖。设置保存后用于后续命名请求，无需重启；每次请求固定自己的有效设置，不覆盖用户已命名会话，也不切换聊天模型。
+<a id="session-naming"></a>
 
-| 设置 | 作用范围 | 默认值 | 改变什么 | 生效 / 重启 |
-| --- | --- | --- | --- | --- |
-| `sessionNaming.model` | 机器 | 当前会话模型 | 命名模型，精确 `provider/model-id`；使用原会话普通项目或管理 registry | 后续命名请求；无需重启 |
-| `sessionNaming.maxTokens` | 机器 | `24` | 命名输出 token 上限，正安全整数 | 后续命名请求；无需重启 |
-| `sessionNaming.thinkingLevel` | 机器 | `minimal` | 命名思考等级，须为已知等级；`off` 不发送 reasoning 参数 | 后续命名请求；无需重启 |
-| `sessionNaming.timeoutMs` | 机器 | `10000` | 命名总耗时上限，整数 `1..2147483647` 毫秒 | 后续命名请求；无需重启 |
+自动命名由随包提供的 **Session naming** Pi 扩展（`@jmfederico/pi-session-naming`）负责，依据新对话的首条提示命名；使用同一有效 Pi profile 的 TUI 也会加载它。可在 **设置 → Pi 包** 移除以使用其他命名扩展，或从“可用包”重新安装；包变更对新会话生效。
 
-模型不可用、超时或命名失败时使用首条消息的回退名称；标题语言跟随用户请求。命名设置不把项目凭据切换为全局凭据。
+在 `<active-agent-profile>/session-naming/config.json`（通常是 `~/.pi/agent/session-naming/config.json`）配置以下可选字段，不再使用核心 `sessionNaming` 配置或命名设置面板：
+
+| 字段 | 默认值 | 契约 |
+| --- | --- | --- |
+| `model` | 当前会话模型 | 精确 `provider/model-id`，仍使用原会话普通项目或管理 registry |
+| `maxTokens` | `24` | 正安全整数；提供器可能将 reasoning 计入该预算，不是标题字数 |
+| `thinkingLevel` | `minimal` | `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；受模型能力限制 |
+| `timeoutMs` | `10000` | 模型加载及生成总耗时，整数 `1..2147483647` 毫秒 |
+
+文件编辑用于下次命名请求，删除字段恢复默认，`{}` 重置文件覆盖。`PI_WEB_SESSION_NAMING` 仍可用 JSON 对象强制指定字段，修改后重启相关进程。命名不切换聊天模型或把项目凭据切换为全局凭据；失败时扩展报告错误并使用提示词开头作为回退名称。
+
+加载核心配置时，旧 `sessionNaming` 值迁移到包文件；已有包配置优先。迁移成功后删除可写核心配置中的旧键；部署默认文件中的旧项需按日志检查目标包文件后手动移除。核心配置 API 拒绝已退役的键。迁移失败保留旧键并继续启动，下次加载重试；修复前命名可能使用已有包配置或默认值。
 
 <a id="session-archive-directory"></a>
 
@@ -93,7 +102,7 @@ Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 �
 
 也可从操作面板选择 MCP 登录/注销，再选择服务器；设置页直接针对所选服务器。两者使用同一独立认证流程，不切到聊天；禁用、header 认证或 stdio 服务器不列为 OAuth 候选，同机器同时只能进行一项 MCP 认证操作。
 
-专用认证仅支持所选 **Pi 1.3.0** 同一 SDK 的内部凭据适配，未知版本不保证兼容。普通项目与管理使用独立私有 MCP 凭据，不回退共享 agent 的 MCP OAuth 存储；完整特权仍是管理身份，受限管理不提供该流程。认证固定原机器、会话、cwd、项目和 scope，切换选择不会转移流程。注销删除对应保存凭据，影响使用该凭据的其他会话，但不禁用服务器或撤销提供方授权。详见[认证与模型](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/modules/auth-models.md#mcp-认证)。
+专用认证仅支持所选 **Pi 1.3.0 或 1.4.0** 同一 SDK 的内部凭据适配，未知版本不保证兼容。普通项目与管理使用独立私有 MCP 凭据，不回退共享 agent 的 MCP OAuth 存储；完整特权仍是管理身份，受限管理不提供该流程。认证固定原机器、会话、cwd、项目和 scope，切换选择不会转移流程。注销删除对应保存凭据，影响使用该凭据的其他会话，但不禁用服务器或撤销提供方授权。详见[认证与模型](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/modules/auth-models.md#mcp-认证)。
 
 <a id="reverse-proxy-deployment-paths"></a>
 ## 反向代理部署前缀
@@ -113,7 +122,7 @@ enforced environment > browser-local choice > supported project override
 
 Browser-local choices apply to colour theme, file icon theme, and localization. Project config participates only for supported keys. Environment policy wins over both; it is not a default that projects or browsers can override.
 
-Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionNaming.model`, `.maxTokens`, `.thinkingLevel`, `.timeoutMs`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace `{}` contributes no overrides; missing leaves inherit.
+Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace `{}` contributes no overrides; missing leaves inherit.
 
 Each plugin's `enabled` and each top-level `plugins.<id>.settings.<key>` also resolve independently. An individual array/dictionary-valued setting still replaces entirely, including an explicit empty value. `defaultTheme` remains one atomic, coherent preference; `shortcuts` and deprecated `agent` are also atomic. JSON depth alone does not define a setting. Path additions have the separate composition rules below.
 
@@ -137,7 +146,7 @@ Boolean environment inputs accept only `true`/`false` (case-insensitive) or `1`/
 
 Settings identifies inherited sources and environment-enforced values. Enforced controls are read-only. Where a saved override has a **Reset saved override** control, resetting deletes that override and exposes the next applicable layer; it does not copy today's effective default into the writable file. Loading deployment defaults keeps them separate from writable overrides. Theme and localization enforcement temporarily masks saved browser choices without erasing them; removing policy restores those choices.
 
-The config API returns `config` (writable overrides), `effectiveConfig`, optional `defaultsPath` / `defaultsConfig`, `configSources` (JSON-pointer identifiers mapped to `defaults`, `config`, or the controlling environment variable), and `enforcedSettings` (identifiers mapped to environment variables). Source and enforcement pointers address declared leaves, such as `/sessionNaming/model` and `/pathAccess/allowedPaths`; the archive alias reports `/sessionArchive/directory`. Missing source entries inherit built-in/feature defaults; this is machine metadata, not browser/project provenance.
+The config API returns `config` (writable overrides), `effectiveConfig`, optional `defaultsPath` / `defaultsConfig`, `configSources` (JSON-pointer identifiers mapped to `defaults`, `config`, or the controlling environment variable), and `enforcedSettings` (identifiers mapped to environment variables). Source and enforcement pointers address declared leaves, such as `/defaultLocalization/language` and `/pathAccess/allowedPaths`; the archive alias reports `/sessionArchive/directory`. Missing source entries inherit built-in/feature defaults; this is machine metadata, not browser/project provenance.
 
 Use `PATCH /api/config` for explicit updates, or `PATCH /api/machines/<machineId>/config` for selected-machine-supported keys (`local` selects the gateway machine). The body has optional `set` (config-shaped values) and `unset` (JSON-pointer strings):
 
@@ -148,7 +157,7 @@ Use `PATCH /api/config` for explicit updates, or `PATCH /api/machines/<machineId
 }
 ```
 
-`unset` accepts known leaf pointers such as `/sessionNaming/model`, `/uploads/defaultFolder`, and `/pathAccess/allowedPaths`, as well as container resets such as `/sessionNaming`. Atomic settings reset at their top-level pointer, such as `/defaultTheme`. UI container-group resets remove only unlocked saved leaves in one request. An API container reset overlapping any enforced leaf is rejected, preserving saved choices hidden by enforcement. Escape `~` as `~0` and `/` as `~1` within pointer segments: a plugin setting named `a/b~c` uses `/plugins/git/settings/a~1b~0c`. Conflicting set/unset targets and changes to enforced settings are rejected. There is no null reset sentinel: `null` retains its schema-defined meaning, such as disabling a shortcut. Existing `PUT` endpoints remain available. They retain replacement semantics for unenforced settings, but omitted enforced settings preserve their hidden saved values. Supplying a different saved value for an enforced setting is rejected; unchanged saved values may round-trip. This protection also applies when no saved override exists: a legacy save cannot create one for an enforced setting. Federated protection requires the target to report enforcement metadata; upgrade older peers before relying on it.
+`unset` accepts known leaf pointers such as `/defaultLocalization/language`, `/uploads/defaultFolder`, and `/pathAccess/allowedPaths`, as well as container resets such as `/defaultLocalization`. Atomic settings reset at their top-level pointer, such as `/defaultTheme`. UI container-group resets remove only unlocked saved leaves in one request. An API container reset overlapping any enforced leaf is rejected, preserving saved choices hidden by enforcement. Escape `~` as `~0` and `/` as `~1` within pointer segments: a plugin setting named `a/b~c` uses `/plugins/git/settings/a~1b~0c`. Conflicting set/unset targets and changes to enforced settings are rejected. There is no null reset sentinel: `null` retains its schema-defined meaning, such as disabling a shortcut. Existing `PUT` endpoints remain available. They retain replacement semantics for unenforced settings, but omitted enforced settings preserve their hidden saved values. Supplying a different saved value for an enforced setting is rejected; unchanged saved values may round-trip. This protection also applies when no saved override exists: a legacy save cannot create one for an enforced setting. Federated protection requires the target to report enforcement metadata; upgrade older peers before relying on it.
 
 ### When changes apply
 
@@ -156,9 +165,9 @@ Process restarts depend on the key:
 
 - `host` / `port`: restart the gateway web/API service or process.
 - `maxUploadBytes`: restart both the web/API process and the session daemon on that machine.
-- `spawnSessions` / `subsessions` / `askUser` / `extensionDialogsTimeoutMs` / `environmentFacts`: restart the session daemon on that machine.
+- `spawnSessions` / `subsessions` / `sessionMessages` / `askUser` / `extensionDialogsTimeoutMs` / `environmentFacts`: restart the session daemon on that machine.
 - `sessionArchive.directory`: restart the session daemon on that machine; changes only the destination for new archives.
-- `sessionNaming`: saved model, token budget, thinking level, and timeout apply to the next naming request without a restart. Existing names and in-progress naming requests are unchanged.
+- Session naming: the removable Pi package reads its file for each new title; old core settings migrate on config load. See [Session naming](#session-naming).
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
 - `attachments.defaultFolder`: applies to new prompt-attachment saves after config/workspace refresh.
@@ -242,6 +251,7 @@ This is a browser-only preference, with no gateway default, project setting, or 
   },
   "spawnSessions": true,
   "subsessions": true,
+  "sessionMessages": true,
   "askUser": true,
   "extensionDialogsTimeoutMs": 300000,
   "environmentFacts": true,
@@ -334,6 +344,7 @@ worktree_path="$1"
 | 请求大小 | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | 机器 | Web/API 与 daemon 重启 |
 | 独立会话 | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | daemon | 重启 daemon |
 | 跟踪子会话 | `subsessions` | `PI_WEB_SUBSESSIONS` | daemon | 也需要 `spawnSessions`；重启 |
+| 会话消息 | `sessionMessages` | `PI_WEB_SESSION_MESSAGES` | daemon | 独立于 spawn 开关；重启 |
 | 问题表单 | `askUser` | `PI_WEB_ASK_USER` | daemon | 重启 daemon |
 | 扩展对话框超时 | `extensionDialogsTimeoutMs` | `PI_WEB_EXTENSION_DIALOGS_TIMEOUT_MS` | daemon | 重启 daemon |
 | 环境事实 | `environmentFacts` | `PI_WEB_ENVIRONMENT_FACTS` | daemon | 重启 daemon |
@@ -345,7 +356,6 @@ worktree_path="$1"
 | 快捷键 | `shortcuts.<actionId>` | `PI_WEB_SHORTCUTS` | 网关 | 保存/刷新配置 |
 | 默认主题 | `defaultTheme.themeId/auto` | `PI_WEB_DEFAULT_THEME` | 网关 | 浏览器覆盖优先；保存/刷新配置 |
 | 流式发送默认方式 | `defaultStreamingBehavior` | `PI_WEB_DEFAULT_STREAMING_BEHAVIOR` | 网关 | `steer` 或 `followUp`；默认 `steer` |
-| 会话命名 | `sessionNaming.model/maxTokens/thinkingLevel/timeoutMs` | `PI_WEB_SESSION_NAMING` | 机器 | 后续命名请求生效；无项目覆盖 |
 | 归档目的地 | `sessionArchive.directory` | `PI_WEB_SESSION_ARCHIVE`、`PI_WEB_SESSION_ARCHIVE_DIR` | 所选机器 daemon | 重启；不迁移既有归档或索引 |
 | 项目版本 | `version` | — | 项目 | 存在时必须为 `1` |
 | 配置文件 | — | `PI_WEB_CONFIG`、`XDG_CONFIG_HOME` | 进程 | 改环境后重启；不是项目配置 |
@@ -508,7 +518,7 @@ daemon 日志记录忽略的配置变更与模型列表应用，不输出提供�
 - 失败不清空目录，保留最后成功结果并记日志；daemon 关闭会中止在途刷新。
 - 下次请求模型列表才见新目录，已打开选择器可需重新打开。
 - 设置 daemon 环境 `PI_WEB_OFFLINE=true` 或 `PI_OFFLINE=true` 后重启，完全禁止目录联网，包括登录后刷新；读取对应存储已有目录。
-- `PI_WEB_SKIP_VERSION_CHECK`/`PI_SKIP_VERSION_CHECK` 只抑制版本检查，不禁止目录刷新。以上离线/跳过标记任意非空值（包括字符串 `0`、`false`）都启用，清空或移除才关闭。
+- `PI_WEB_SKIP_VERSION_CHECK`/`PI_SKIP_VERSION_CHECK` 只抑制版本检查，不禁止目录刷新。离线/跳过标记只接受 `true`/`false`（大小写不敏感）或 `1`/`0`；空值或其他值导致启动失败。任一离线标记为真即禁止目录刷新；恢复时将相关标记设为假或移除。
 
 <a id="project-trust-for-project-local-resources"></a>
 ### 项目信任
@@ -523,13 +533,25 @@ daemon 日志记录忽略的配置变更与模型列表应用，不输出提供�
 <a id="session-tools"></a>
 ### 会话守护进程工具
 
-`spawnSessions` 默认 `true`，提供 `spawn_session`，在同一项目其他工作区发起独立会话，发起后不向父会话回传结果。`subsessions` 默认 `true`，同时要求 `spawnSessions`，提供跟踪子会话工具。子会话始终使用父 cwd，`spawn_subsession` 没有 `cwd`；其他工作区使用独立 `spawn_session`。
+`spawnSessions` 默认 `true`，提供 `spawn_session`，在同一项目工作区创建独立会话，不自动返回结果或授予管理权限。`subsessions` 默认 `true`，同时要求 `spawnSessions`，提供 `spawn_subsession`、`list_subsessions`、`check_subsession`、`read_subsession`、`yield_to_subsessions`、`manage_subsession`。跟踪子会话固定父 cwd，`spawn_subsession` 不接受 `cwd`；其他工作区使用独立会话。
 
-跟踪子会话完成会自动通知/唤醒空闲父会话，无需轮询。父会话可继续独立工作，或在 join 点单独调用 `yield_to_subsessions` 作为批次最后动作：仍有工作则结束当前代理运行，没有工作则明确报告且不结束。`list_subsessions`、`check_subsession`、`read_subsession` 用于有意检查，不更改控制流；工作期间隐藏部分输出，完成后输出可用。过长完成结果不重复截断进上下文，指引使用 `check_subsession`。
+跟踪子会话运行结束只向父会话发送 idle/error 通知，不自动交付最终答案，也不证明任务完成。忙碌父会话在下个安全边界收到通知；父会话可继续工作，或用 `yield_to_subsessions` 等待新通知。已收到的通知不自动重复，详细状态和输出通过 check/read 显式检查。
 
-两种 spawn 都支持精确 `provider/model-id` 的 `model`；未知/错误格式拒绝。省略时继承父模型，思考级别也继承并限制到模型能力。`#provider/model-id` 引用表达用户模型选择，不自动改变当前会话。
+`manage_subsession` 仅控制直接子会话：`stop` 中断当前运行，`resume` 继续空闲会话，`archive` 归档空闲子会话。可选 `prompt` 只用于 resume；忙碌子会话须先 stop 再归档。停止不冻结进程或撤销已完成写入，不授予控制无关会话或孙会话的权限。
 
-`askUser` 默认 `true`，可在 **设置 → 会话守护进程** 切换。问题表单支持 1–20 问，每问最多 12 选项、可选多选、始终可自定义文本，可以不回答。普通消息取消开放表单，新表单替代旧表单；daemon 仍活跃时开放表单可跨浏览器/Web 重启保留。修改开关或升级工具实现需重启 daemon。管理生成子会话仍保留原管理上下文及显式工具拒绝。
+`sessionMessages` 默认 `true`，独立于 spawn 开关，提供 `send_session_message`；设置为 `false` 或 `PI_WEB_SESSION_MESSAGES=0` 并重启 daemon 后移除工具及投递能力。目标必须是同机器、同注册项目中的精确已知会话 ID；可跨工作区，不能发送到归档会话。空闲目标启动新运行，忙碌目标在安全代理边界收到 steering，不中断执行中的工具，压缩或独立 shell 结束后再投递。接受不代表已读或得到回答；队列不是耐久邮箱，停止或关闭会话可能丢弃待处理消息。发送不创建父子关系、检查/控制权限或结果订阅。运行时提供发送者 ID，子会话还获得父 ID，但身份不强制协作流程或额外权限。该工具仅向普通运行时提供，管理模式不暴露；目标解析继续拒绝跨普通/管理边界通信。
+
+两种 spawn 支持精确 `provider/model-id`；省略模型继承父模型，思考级别继承并限制到目标模型能力。`#provider/model-id` 引用不自动改变当前会话。
+
+#### 人工介入
+
+代理先在对话中写明问题，再调用 `request_human_intervention`（简短 `reason`）标记“需要输入”并结束当前运行。此工具不受 spawn、消息或问题表单开关控制，也用于审批或 PI WEB 之外的操作；仅写问题文本不设置指示器。静态空心环汇总到工作区、项目和机器，含折叠子会话组；未读状态独立。
+
+任何新代理运行都会清除代理请求的介入状态；只排队消息、阅读会话或浏览历史不会清除。仍需帮助时应重新请求。该状态随会话持久化并跨 daemon 重启保留，不是分支专属表单。新 `ask_user` 表单自动设置相同状态；待答扩展对话框也显示“需要输入”，但保留独立取消/超时生命周期，运行时对话框不跨 daemon 重启恢复。升级后重启 daemon 激活工具及跟踪。
+
+#### 问题表单
+
+`askUser` 默认 `true`，在 **设置 → 会话守护进程** 切换。表单支持 1–20 问，每问最多 12 选项、可选多选及自定义文本，可跳过。表单随对话持久化并跨重启保留，只有活动对话末尾表单开放；回答、跳过或发送消息关闭它，旧表单仍可展开只读查看。历史树回到该问题会重新开放，归档对话只读。修改开关或升级实现需重启 daemon。管理子会话仍保留原管理上下文及显式工具拒绝。
 
 <a id="extension-dialogs"></a>
 ### 扩展对话框

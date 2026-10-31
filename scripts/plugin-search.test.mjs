@@ -44,6 +44,10 @@ function resultNames(root) {
   return [...root.querySelectorAll(".plugin-result h3 a")].map((link) => link.textContent);
 }
 
+async function waitForResults(root) {
+  await vi.waitFor(() => expect(root.querySelector("[data-plugin-results]").getAttribute("aria-busy")).toBe("false"));
+}
+
 describe("website plugin search", () => {
   it("queries both keywords, merges duplicates, and renders untrusted metadata as text", async () => {
     const shared = { ...pkg("@scope/shared"), description: '<img src=x onerror="alert(1)">' };
@@ -106,22 +110,56 @@ describe("website plugin search", () => {
       if (url.searchParams.get("text").includes("pi-web.dev-plugin")) return response([pkg("specific")]);
       return response(url.searchParams.get("from") === "0" ? first : [first[0], winner], 102);
     });
-    const { window, root, status } = setup(fetch);
-    await vi.waitFor(() => expect(status.textContent).toContain("已显示 102 个包中的 20 个"));
-    expect(fetch).toHaveBeenCalledTimes(3);
-    expect(fetch.mock.calls.map(([url]) => url.searchParams.get("size"))).toEqual(["100", "100", "100"]);
+    const { window, root } = setup(fetch);
+    await waitForResults(root);
     expect(fetch.mock.calls.map(([url]) => url.searchParams.get("from"))).toEqual(["0", "0", "100"]);
-    expect(root.querySelector(".plugin-result a").textContent).toBe("winner");
+    expect(resultNames(root)[0]).toBe("winner");
     root.querySelector("[data-plugin-more]").click();
-    expect(root.querySelectorAll(".plugin-result")).toHaveLength(40);
+    expect(resultNames(root)).toHaveLength(40);
+    submit(window, root, "plugin-");
+    await waitForResults(root);
+    expect(resultNames(root)).toHaveLength(20);
+    expect(resultNames(root)[0]).toBe("plugin-099");
+    root.querySelector("[data-plugin-more]").click();
+    expect(resultNames(root)).toHaveLength(40);
+    expect(resultNames(root).every((name) => name.startsWith("plugin-"))).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(3);
-    submit(window, root, "files & tools");
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(6));
-    await vi.waitFor(() => expect(status.textContent).toContain("已显示 102 个包中的 20 个"));
-    expect(fetch.mock.calls.slice(3, 5).map(([url]) => url.searchParams.get("text"))).toEqual([
-      "files & tools keywords:pi-web.dev-plugin", "files & tools keywords:pi-web-plugin",
-    ]);
-    expect(root.querySelectorAll(".plugin-result")).toHaveLength(20);
+  });
+
+  it("filters keyword results by name and description rather than trusting npm free-text search", async () => {
+    const entries = [
+      { ...pkg("@scope/file-tools"), description: "Browse your workspace", monthlyDownloads: 300, date: "2024-01-01" },
+      { ...pkg("workspace-viewer"), description: "Find FILE tools", monthlyDownloads: 200, date: "2026-01-01" },
+      { ...pkg("file-only"), description: undefined },
+      { ...pkg("unrelated"), description: "Chat utilities" },
+    ];
+    // npm can return all keyword matches regardless of the submitted text.
+    const fetch = vi.fn(async () => response(entries));
+    const { window, root } = setup(fetch);
+    await waitForResults(root);
+    submit(window, root, "  FiLe   TOOLS  ");
+    await waitForResults(root);
+    expect(resultNames(root)).toEqual(["@scope/file-tools", "workspace-viewer"]);
+    changeSort(window, root, "updated");
+    await waitForResults(root);
+    expect(resultNames(root)).toEqual(["workspace-viewer", "@scope/file-tools"]);
+    submit(window, root, "nonexistentzz123");
+    await waitForResults(root);
+    expect(resultNames(root)).toEqual([]);
+    submit(window, root, "   ");
+    await waitForResults(root);
+    expect(resultNames(root)).toHaveLength(4);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an empty catalog loaded rather than fetching it again on every search", async () => {
+    const fetch = vi.fn(async () => response());
+    const { window, root } = setup(fetch);
+    await waitForResults(root);
+    submit(window, root, "plugin");
+    await waitForResults(root);
+    expect(resultNames(root)).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("sorts by monthly downloads by default, breaks ties by name, and reorders updates locally", async () => {

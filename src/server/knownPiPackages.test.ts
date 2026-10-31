@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isKnownAutoInstallablePiPackageId, KNOWN_AUTO_INSTALLABLE_PI_PACKAGES, resolveShippedPiPackagePath } from "./knownAutoInstallPiPackages.js";
+import { KNOWN_AUTO_INSTALLABLE_PI_PACKAGE_IDS, resolveShippedPiPackagePath } from "./knownAutoInstallPiPackages.js";
 import { KNOWN_PI_PACKAGES } from "./knownPiPackages.js";
 import { ActiveProfilePiPackageService, createDefaultPiPackageService } from "./piPackageService.js";
 
@@ -20,10 +20,10 @@ afterEach(async () => {
 });
 
 describe("optional shipped Pi packages", () => {
-  it("keeps the shipped catalog aligned with the remaining bundled packages", () => {
-    expect(KNOWN_PI_PACKAGES).toEqual(KNOWN_AUTO_INSTALLABLE_PI_PACKAGES);
-    expect(isKnownAutoInstallablePiPackageId(packageId)).toBe(false);
-    expect(KNOWN_AUTO_INSTALLABLE_PI_PACKAGES.some((entry) => entry.id === packageId)).toBe(false);
+  it("offers scheduled tasks for explicit installation without authorizing auto-installation", () => {
+    const id = "@jmfederico/pi-web-scheduled-tasks";
+    expect(KNOWN_PI_PACKAGES.find((known) => known.id === id)?.shippedPathSegments).toEqual(["dist", "pi-packages", "scheduled-tasks"]);
+    expect(KNOWN_AUTO_INSTALLABLE_PI_PACKAGE_IDS).not.toContain(id);
   });
 
   it.each(["user", "project"] as const)("removes a missing relative package from %s settings without removing other entries", async (scope) => {

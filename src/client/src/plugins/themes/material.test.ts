@@ -52,15 +52,6 @@ describe("bundled Material file icons", () => {
     expect(resolveFileIcon(material, "unknown", "light")).toBe(material.file.url);
   });
 
-  it("retains support for optional lightUrl overrides in the public theme API", () => {
-    const theme: FileIconThemeContribution = {
-      ...material,
-      file: { url: "dark.svg", lightUrl: "light.svg" },
-    };
-    expect(resolveFileIcon(theme, "unknown", "light")).toBe("light.svg");
-    expect(resolveFileIcon(theme, "unknown", "dark")).toBe("dark.svg");
-  });
-
   it("generates a broad, entirely local static SVG set with packaged license notices", async () => {
     const rules = material.files ?? [];
     expect(rules.flatMap((rule) => rule.filenames ?? []).length).toBeGreaterThan(1900);

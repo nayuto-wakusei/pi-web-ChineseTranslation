@@ -144,7 +144,6 @@ describe("SessionNotificationTray", () => {
     expect(required(view, ".notification-overflow").textContent).toContain("3");
     expect(required(view, ".notification-truncated").textContent).not.toBe("");
     expect(required(view, ".notification-row-dismiss").hasAttribute("disabled")).toBe(true);
-    for (const button of view.renderRoot.querySelectorAll("button")) expect(button.classList.contains("ui-button")).toBe(true);
     const toggle = required(view, ".notification-toggle");
     expect(required(view, `#${String(toggle.getAttribute("aria-controls"))}`)).toBe(required(view, ".notification-list"));
     view.notificationInbox = inbox({ dismissAllPending: true }); await settle(view);

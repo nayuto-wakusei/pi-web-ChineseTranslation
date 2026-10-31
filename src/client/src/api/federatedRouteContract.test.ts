@@ -11,6 +11,7 @@ import { PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS, WORKSPACE_FILE_FEDERATION_TIMEOUT
 import { PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH } from "../../../shared/pluginBackendProtocol";
 import { requestPairedPluginBackend } from "./pluginBackends";
 import { sessionMediaUrl, workspaceFilePreviewUrl } from "./urls";
+import { createPluginSessionLifecycle } from "../plugins/sessionLifecycle";
 
 const machineId = "remote-a";
 const workspace: Workspace = {
@@ -29,6 +30,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("federated route contract", () => {
@@ -321,6 +323,29 @@ describe("federated route contract", () => {
     const unmatched = observedRoutes.filter((route) => !matchesHttpRoute(route, FEDERATED_HTTP_ROUTES));
 
     expect(unmatched).toEqual([]);
+  });
+
+  it("federates every explicit plugin session lifecycle operation through the browser request boundary", async () => {
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/app/" });
+    vi.stubEnv("BASE_URL", "./");
+    const selection = { projectId: "p /%", workspaceId: "w ?#", sessionId: "s /%" };
+    const fetchMock = vi.fn<FetchLike>((_url, options) => Promise.resolve(jsonResponse(options?.method === "GET"
+      ? { sessionId: selection.sessionId, pinned: false, archived: false }
+      : { ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    const sessions = createPluginSessionLifecycle("remote/a%");
+    await sessions.get(selection);
+    for (const operation of ["pin", "unpin", "archive", "restore", "delete"] as const) {
+      await expect(sessions[operation](selection)).resolves.toBeUndefined();
+    }
+
+    const routes = fetchMock.mock.calls.map((call) => fetchCallToRoute(call, sessions.machineId));
+    expect(routes).toHaveLength(6);
+    expect(routes.every((route) => matchesHttpRoute(route, FEDERATED_HTTP_ROUTES))).toBe(true);
+    expect(fetchMock.mock.calls.map(([url]) => toUrl(url).pathname)).toEqual(
+      ["", "/pin", "/unpin", "/archive", "/restore", ""].map((suffix) =>
+        `/nested/app/api/machines/remote%2Fa%25/plugin-sessions/projects/p%20%2F%25/workspaces/w%20%3F%23/sessions/s%20%2F%25${suffix}`),
+    );
   });
 
   it("covers machine-scoped client WebSocket calls with remote proxy routes", () => {

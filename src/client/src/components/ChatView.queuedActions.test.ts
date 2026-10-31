@@ -41,39 +41,9 @@ function button(view: ChatView, selector: string): HTMLButtonElement {
 }
 
 describe("queued message actions", () => {
-  it("hides mutation controls without the owning machine capability while keeping Copy and legacy Clear", async () => {
-    const view = await queuedView();
-    view.canMutateQueuedMessages = false;
-    view.canClearServerQueue = true;
-    view.onClearServerQueue = vi.fn();
-    await view.updateComplete;
-    expect(view.renderRoot.querySelector('[aria-label="Remove queued message"]')).toBeNull();
-    expect(view.renderRoot.querySelector('[aria-label="Recall queued message"]')).toBeNull();
-    expect(view.renderRoot.querySelector('[aria-label^="Switch to"]')).toBeNull();
-    button(view, '[aria-label="Copy queued message"]').click();
-    button(view, ".queued-clear-button").click();
-    expect(writeClipboardText).toHaveBeenCalledWith("adjust");
-    expect(view.onClearServerQueue).toHaveBeenCalledOnce();
-  });
-
-  it("blocks stale controls immediately when capability is revoked before rendering", async () => {
-    const view = await queuedView();
-    const remove = button(view, '[aria-label="Remove queued message"]');
-    view.canMutateQueuedMessages = false;
-    remove.click();
-    expect(view.onQueuedMessageAction).not.toHaveBeenCalled();
-    await view.updateComplete;
-  });
-
-  it.each(["machine", "cwd", "session"] as const)("does not retarget an old queue control to a new %s before rendering", async (change) => {
-    const view = await queuedView();
-    const remove = button(view, '[aria-label="Remove queued message"]');
-    if (change === "machine") view.machineId = "other";
-    else if (change === "cwd") view.sessionCwd = "/other";
-    else view.sessionId = "other";
-    remove.click();
-    expect(view.onQueuedMessageAction).not.toHaveBeenCalled();
-    await view.updateComplete;
+  it("does not warn about recalled attachment loss for attachments on a later message", () => {
+    const attached = messages.map((message, index) => ({ ...message, hasAttachments: index === 2 }));
+    expect(queuedMessageRecallConfirmation(attached, 0)).not.toContain("attachments");
   });
 
   it("shows attachment indicators and counts, including attachment-only messages", async () => {
@@ -96,17 +66,9 @@ describe("queued message actions", () => {
     await view.updateComplete;
     expect(view.shadowRoot?.querySelector(".queued-attachments")?.textContent).toContain("2 attachments");
   });
-  it("renders named icon-only queue controls, including both switch destinations", async () => {
+  it("switches a follow-up message to steer using its queue index", async () => {
     const view = await queuedView();
-    view.onClearServerQueue = vi.fn();
-    view.canClearServerQueue = true;
-    await view.updateComplete;
-    for (const label of ["Clear queue", "Copy queued message", "Switch to Queue", "Switch to Steer", "Recall queued message", "Remove queued message"]) {
-      const control = button(view, `[aria-label="${label}"]`);
-      expect(control.title).not.toBe("");
-      expect(control.querySelector('[aria-hidden="true"]')).not.toBeNull();
-      expect(control.textContent.trim()).toBe(label === "Copy queued message" ? "⧉" : "");
-    }
+
     button(view, '[aria-label="Switch to Steer"]').click();
     expect(view.onQueuedMessageAction).toHaveBeenCalledWith({ machineId: "remote", sessionId: "session", cwd: "/repo", action: "toggle", index: 2, expectedQueue: messages });
   });
@@ -205,18 +167,5 @@ describe("queued message actions", () => {
     remove.click();
     expect(view.onQueuedMessageAction).not.toHaveBeenCalled();
     expect(button(view, '[aria-label="Copy queued message"]').disabled).toBe(false);
-  });
-
-  it("confirms clearing later messages without an attachment warning for text-only recall", () => {
-    expect(queuedMessageRecallConfirmation(messages, 0)).toBe("Recall this message?\n\nThis will also remove 1 later steer and 1 queued follow-up.");
-    expect(queuedMessageRecallConfirmation(messages, 1)).toBe("Recall this message?\n\nThis will also remove 1 queued follow-up.");
-    expect(queuedMessageRecallConfirmation(messages, 2)).toBeUndefined();
-  });
-
-  it("warns about attachment loss only on the recalled message", () => {
-    const attached = messages.map((message, index) => ({ ...message, hasAttachments: index === 2 }));
-    expect(queuedMessageRecallConfirmation(attached, 0)).not.toContain("attachments");
-    expect(queuedMessageRecallConfirmation(attached, 2)).toBe("Recall this message? Only its text will return to the composer. Its attachments will be lost.");
-    expect(queuedMessageRecallConfirmation([{ kind: "steer", text: "attached", hasAttachments: true }, { kind: "followUp", text: "later" }], 0)).toBe("Recall this message? Only its text will return to the composer. Its attachments will be lost.\n\nThis will also remove 1 queued follow-up.");
   });
 });

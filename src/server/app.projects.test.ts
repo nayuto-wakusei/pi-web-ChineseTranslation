@@ -172,7 +172,7 @@ describe("buildApp project routes", () => {
     expect(localAliasResponse.json()).toEqual(response.json());
   });
 
-  it("exposes the default upload config on workspace responses", async () => {
+  it("exposes default upload and attachment config on workspace responses", async () => {
     const addResponse = await appTestContext.app.inject({
       method: "POST",
       url: "/api/projects",
@@ -211,26 +211,6 @@ describe("buildApp project routes", () => {
       workspaces: [expect.objectContaining({
         projectId: project.id,
         effectiveConfig: { uploads: { defaultFolder: "project-uploads" }, attachments: { defaultFolder: ".pi-web/attachments" } },
-      })],
-    });
-  });
-
-  it("exposes the default attachments config on workspace responses", async () => {
-    const addResponse = await appTestContext.app.inject({
-      method: "POST",
-      url: "/api/projects",
-      payload: { name: "Attachment Defaults", path: appTestContext.projectDir, create: true },
-    });
-    const project = addResponse.json<Project>();
-
-    const workspacesResponse = await appTestContext.app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
-
-    expect(workspacesResponse.statusCode).toBe(200);
-    expect(workspacesResponse.json<WorkspaceProviderResolution>()).toMatchObject({
-      projectId: project.id,
-      workspaces: [expect.objectContaining({
-        projectId: project.id,
-        effectiveConfig: { uploads: { defaultFolder: ".pi-web/uploads" }, attachments: { defaultFolder: ".pi-web/attachments" } },
       })],
     });
   });

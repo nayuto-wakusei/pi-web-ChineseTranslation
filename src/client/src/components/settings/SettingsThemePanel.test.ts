@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { themePackPlugin } from "../../plugins/themes";
+import { builtInThemeCatalog } from "../../themeCatalog.testSupport";
+import type { QualifiedThemeContribution } from "../../plugins/types";
 import { PluginRegistry } from "../../plugins/registry";
 import { SettingsThemePanel } from "./SettingsThemePanel";
-import type { QualifiedThemeContribution } from "../../plugins/types";
+import { configResponse } from "../SettingsDialog.testSupport";
 
 const registries: PluginRegistry[] = [];
 afterEach(async () => {
@@ -14,10 +15,10 @@ afterEach(async () => {
 });
 
 describe("theme settings controls", () => {
-  it.each(["paper", "graphite"])("displays and explicitly saves the available migrated %s theme", async (name) => {
+  it.each(["paper", "graphite"])("displays and explicitly saves the available custom %s theme", async (name) => {
     const panel = await mountPanel();
     const palette = customTheme(name);
-    const preference = { themeId: `themes:${name}`, auto: true };
+    const preference = { themeId: `pi-web.custom-ui-codex:${name}`, auto: true };
     const useLocal = vi.fn();
     const setDefault = vi.fn();
     panel.preference = preference;
@@ -38,7 +39,7 @@ describe("theme settings controls", () => {
     await panel.updateComplete;
     expect(useLocal).not.toHaveBeenCalled();
     expect(setDefault).not.toHaveBeenCalled();
-    expect(preference).toEqual({ themeId: `themes:${name}`, auto: true });
+    expect(preference).toEqual({ themeId: `pi-web.custom-ui-codex:${name}`, auto: true });
     button(panel, "Use in this browser").click();
     button(panel, "Set gateway default").click();
     expect(useLocal).toHaveBeenCalledWith({ themeId: palette.id, auto: false });
@@ -46,11 +47,11 @@ describe("theme settings controls", () => {
     expect(panel.preference).toBe(preference);
   });
 
-  it("preserves the requested legacy choice and staged Auto state while its plugin disappears and returns", async () => {
+  it("preserves the requested custom choice and staged Auto state while its plugin disappears and returns", async () => {
     const panel = await mountPanel();
     const coreThemes = panel.themes;
     const palette = customTheme("graphite");
-    const preference = { themeId: "themes:graphite", auto: true };
+    const preference = { themeId: "pi-web.custom-ui-codex:graphite", auto: true };
     panel.preference = preference;
     await panel.updateComplete;
     const select = required(panel.shadowRoot?.querySelector("select"));
@@ -76,12 +77,13 @@ describe("theme settings controls", () => {
     expect(select.value).toBe(palette.id);
     expect(auto.checked).toBe(false);
     expect(button(panel, "Use in this browser").disabled).toBe(false);
-    expect(preference).toEqual({ themeId: "themes:graphite", auto: true });
+    expect(preference).toEqual({ themeId: "pi-web.custom-ui-codex:graphite", auto: true });
   });
 
   it("selects the saved theme when first opened and when options arrive later", async () => {
     const registry = new PluginRegistry();
-    await registry.registerBatch([{ id: "themes", plugin: themePackPlugin }]);
+    const catalog = builtInThemeCatalog();
+    registry.setDeclarativeThemes(catalog.themes, catalog.themePairs);
     const themes = registry.getThemes();
     for (const delayed of [false, true]) {
       const panel = new SettingsThemePanel();
@@ -164,6 +166,62 @@ describe("theme settings controls", () => {
     expect(button(panel, "Use in this browser").disabled).toBe(false);
   });
 
+  it("preserves the draft through catalog loading while allowing default and reset recovery", async () => {
+    const panel = await mountPanel();
+    selectTheme(panel, "themes:classic");
+    const themes = panel.themes;
+    const useLocal = vi.fn();
+    const useDefault = vi.fn();
+    const reset = vi.fn();
+    panel.onUseLocal = useLocal;
+    panel.onUseDefault = useDefault;
+    panel.onReset = reset;
+    panel.configResponse = configResponse({ defaultTheme: panel.defaultPreference });
+    panel.hasLocalOverride = true;
+    panel.catalogLoading = true;
+    panel.themes = [];
+    await panel.updateComplete;
+
+    const select = required(panel.shadowRoot?.querySelector("select"));
+    expect(select.disabled).toBe(true);
+    expect(select.value).toBe("themes:classic");
+    expect(panel.shadowRoot?.getElementById("theme-unavailable-help")).toBeNull();
+    expect(panel.shadowRoot?.textContent).not.toContain("(unavailable)");
+    expect([...panel.shadowRoot?.querySelectorAll('[role="status"]') ?? []].some((status) => status.textContent.includes("Loading"))).toBe(true);
+    expect(required(panel.shadowRoot?.querySelector<HTMLInputElement>('input[type="checkbox"]')).disabled).toBe(true);
+    button(panel, "Use in this browser").click();
+    expect(useLocal).not.toHaveBeenCalled();
+    expect(button(panel, "Set gateway default").disabled).toBe(true);
+    button(panel, "Use the default").click();
+    required(panel.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Reset saved override for /defaultTheme"]')).click();
+    expect(useDefault).toHaveBeenCalledOnce();
+    expect(reset).toHaveBeenCalledWith(["/defaultTheme"]);
+    expect(panel.hasLocalOverride).toBe(true);
+
+    panel.themes = themes;
+    panel.catalogLoading = false;
+    await panel.updateComplete;
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe("themes:classic");
+    button(panel, "Use in this browser").click();
+    expect(useLocal).toHaveBeenCalledWith({ themeId: "themes:classic", auto: true });
+  });
+
+  it("reports catalog failure and retries without changing the preference", async () => {
+    const panel = await mountPanel();
+    const retry = vi.fn();
+    panel.catalogError = "Network offline";
+    panel.onRetryCatalog = retry;
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelector('[role="alert"]')?.textContent).toContain("Network offline");
+    button(panel, "Retry").click();
+    expect(retry).toHaveBeenCalledOnce();
+    panel.catalogError = "";
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelector('[role="alert"]')).toBeNull();
+    expect(panel.preference).toEqual({ themeId: "themes:pi-web-dark", auto: true });
+  });
+
   it("disables edits while config is loading or saving", async () => {
     const panel = await mountPanel();
     panel.hasLocalOverride = true;
@@ -183,7 +241,8 @@ function customTheme(name: string): QualifiedThemeContribution {
 async function mountPanel(): Promise<SettingsThemePanel> {
   const registry = new PluginRegistry();
   registries.push(registry);
-  await registry.registerBatch([{ id: "themes", plugin: themePackPlugin }]);
+  const catalog = builtInThemeCatalog();
+  registry.setDeclarativeThemes(catalog.themes, catalog.themePairs);
   const panel = new SettingsThemePanel();
   panel.themes = registry.getThemes();
   document.body.append(panel);

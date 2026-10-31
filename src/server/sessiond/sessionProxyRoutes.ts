@@ -7,6 +7,8 @@ import { sessionDaemonProxyFailure } from "../../sessiond/sessionDaemonErrors.js
 import { requestCancellation, withRequestCancellation } from "../requestCancellation.js";
 import { assertManagedCwd, managementContextForRequest, managementHeaders, managementProjectRoot, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 import { REALTIME_SOCKET_HIGH_WATER_MARK } from "../realtime/sessionEventHub.js";
+import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../shared/capabilities.js";
+import { parsePiWebRuntimeComponent } from "../../shared/piWebStatusParsing.js";
 
 export interface SessionProxyDaemon {
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string>; body: string }>;
@@ -54,7 +56,47 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
     }
   };
 
-  // Binary media follows the same management authorization as JSON session reads.
+  const requireDaemonPins = async (reply: FastifyReply): Promise<boolean> => {
+    try {
+      const response = await daemon.request("GET", "/runtime");
+      const runtime = response.statusCode === 200 ? parsePiWebRuntimeComponent(parseJson(response.body)) : undefined;
+      if (runtime?.component === "sessiond" && runtime.available && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionPinsDaemonOwned)) return true;
+    } catch {
+      // Fail closed: never fall back to legacy web-owned pin state.
+    }
+    await reply.code(503).send({ error: "Daemon-owned session pins are unavailable. Update the web/API before restarting the updated session daemon." });
+    return false;
+  };
+
+  const pinPath = `${prefix}/navigation/projects/:projectId/workspaces/:workspaceId/session-pins`;
+  for (const method of ["GET", "PUT"] as const) {
+    app.route({ method, url: pinPath, handler: async (request, reply) => {
+      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return reply.code(403).send({ error: "Navigation pins are unavailable in management mode" });
+      if (!await requireDaemonPins(reply)) return;
+      return proxy(request, reply);
+    } });
+  }
+
+  for (const path of ["/sessions/cleanup/preview", "/sessions/cleanup"]) {
+    app.post(`${prefix}${path}`, async (request, reply) => {
+      const body = request.body;
+      if (body !== undefined && !isRecord(body)) {
+        return reply.code(400).send({ error: "Request body must be an object" });
+      }
+      const record = body ?? {};
+      if (record["skipPinned"] !== undefined && typeof record["skipPinned"] !== "boolean") {
+        return reply.code(400).send({ error: "skipPinned field must be a boolean" });
+      }
+      // Only sessiond resolves exclusions, freshly for every preview/execute.
+      const forwarded = { ...record };
+      delete forwarded["excludedPinnedSessionIds"];
+      if (record["skipPinned"] === true && !await requireDaemonPins(reply)) return;
+      request.body = forwarded;
+      return proxy(request, reply);
+    });
+  }
+
+  // Image responses cross this boundary as bytes, never as JSON or UTF-8 text.
   app.get(`${prefix}/sessions/:sessionId/media/:mediaId`, async (request, reply) => {
     const cancellation = requestCancellation(request, reply);
     try {
@@ -118,20 +160,20 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   });
 
   app.all(`${prefix}/activity`, (request, reply) => proxy(request, reply));
-  // Catalog reads can include provider I/O; forward browser cancellation.
-  app.get(`${prefix}/plugin-catalog/*`, async (request, reply) => {
+  const cancellableProxy = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       return await withRequestCancellation(request, reply, async (signal) => {
-        const context = await managementContextForRequest(request, managementEmbed, reply);
-        if (context !== undefined) return reply.code(403).send({ error: "Plugin catalog is unavailable in management mode" });
+        if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return reply.code(403).send({ error: "Plugin sessions are unavailable in management mode" });
         reply.header("cache-control", "no-store");
-        return sendDaemonBody(reply, await daemon.request("GET", stripPrefix(request.url, prefix), undefined, undefined, signal));
+        return sendDaemonBody(reply, await daemon.request(request.method, stripPrefix(request.url, prefix), request.body, undefined, signal));
       });
     } catch (error) {
       requestFailed(reply, error, t);
       return undefined;
     }
-  });
+  };
+  app.get(`${prefix}/plugin-catalog/*`, (request, reply) => cancellableProxy(request, reply));
+  app.all(`${prefix}/plugin-sessions/*`, (request, reply) => cancellableProxy(request, reply));
 
   app.all(`${prefix}/status`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/notices`, (request, reply) => proxy(request, reply));
@@ -165,6 +207,10 @@ async function managementBody(url: string, body: unknown, context: ManagementEmb
     return { ...body, cwd };
   }
   return body;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function stripPrefix(url: string, prefix: string): string {
@@ -326,8 +372,4 @@ function sendIfOpen(socket: WebSocket, data: RawData): void {
 function closeSocketWithError(socket: WebSocket, error: unknown, t: Translator = createTranslator("en", {})): void {
   socket.send(JSON.stringify({ type: "error", message: userFacingErrorMessage(error, t) }));
   socket.close();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

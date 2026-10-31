@@ -29,9 +29,9 @@ Pi 包/本地插件目录
 
 浏览器发现先装配 bundled 默认贡献，再装配 installed 覆盖，各组内部保留原发现顺序，模块下载完成先后不改变优先级。必需 Terminal 的失败边界和机器作用域不变；该顺序不允许用网关后端替代远端配对后端。
 
-Pi SDK 开发基线为 `1.3.0`，安装兼容范围以根 `package.json` 的 peer 声明为准。伴随扩展处理 `before_agent_start` 时须先判断事件是否包含 `prompt`；自定义消息触发的启动不能冒充当前请求的用户提示。
+Pi SDK 开发基线为 `1.4.0`，安装兼容范围以根 `package.json` 的 peer 声明为准。伴随扩展处理 `before_agent_start` 时须先判断事件是否包含 `prompt`；自定义消息触发的启动不能冒充当前请求的用户提示。
 
-SDK/AI 运行时值统一从 `src/piSdk.ts`、`src/piAi.ts` 导入，复用所选 Pi 安装；类型可继续使用公开包。Pi 扩展入口是例外，由 Pi 宿主解析公开 SDK，并通过 `PI_WEB_PI_PACKAGE_DIR` 把宿主安装传给 CLI/服务。不要让项目认证、管理策略或文件变更队列重新加载另一份 SDK。Pi 1.3.0 的 MCP、codemode、tool-search 工厂接入普通与完整特权管理资源；受限管理不加载这些 builtin。旧版 0.86.1/0.87.0 保持无 builtin 的行为；专用 MCP 认证的版本与凭据边界见[认证与模型](auth-models.md#mcp-认证)。
+SDK/AI 运行时值统一从 `src/piSdk.ts`、`src/piAi.ts` 导入，复用所选 Pi 安装；类型可继续使用公开包。Pi 扩展入口是例外，由 Pi 宿主解析公开 SDK，并通过 `PI_WEB_PI_PACKAGE_DIR` 把宿主安装传给 CLI/服务。不要让项目认证、管理策略或文件变更队列重新加载另一份 SDK。Pi 1.3.0/1.4.0 的 MCP、codemode、tool-search 工厂接入普通与完整特权管理资源；受限管理不加载这些 builtin。旧版 0.86.1/0.87.0 保持无 builtin 的行为；专用 MCP 认证的版本与凭据边界见[认证与模型](auth-models.md#mcp-认证)。
 
 | 所有者 | 不变量 |
 | --- | --- |
@@ -42,6 +42,12 @@ SDK/AI 运行时值统一从 `src/piSdk.ts`、`src/piAi.ts` 导入，复用所�
 | browserRoot | 内容公开可读，不能放凭据 |
 
 ## 浏览器贡献与状态归属
+
+主题可通过包元数据静态声明，不要求浏览器或服务端代码。网关拥有初始默认主题交付和机器无关的目录，浏览器拥有设备覆盖、取消和原子样式提交；失败保留当前可用配色。`custom-ui-codex` 仍是可关闭的展示插件，其配色也通过同一静态元数据声明，不在 `activate` 中注册，也不改变应用默认主题；不把其布局并入核心。精确发现、缓存与受支持选择器边界见[主题架构](../theme-architecture.md)和[样式契约](../theme-styling-contract.md)。
+
+v5 `transcriptRenderers` 只替换工具/可见自定义消息的正文，宿主持有外框、原文、默认视图和生命周期；渲染不执行工具或修改历史。工具 resolver 按发现顺序委托、替换或包装，自定义消息按精确类型首个匹配；失败回退不尝试其他贡献。公开输入与取消契约见[插件参考](../plugins.md#transcript-renderers)。
+
+会话生命周期服务由 daemon 持有，catalog 仍只读。插件以完整项目/工作区/会话身份显式 pin/archive/restore/delete，不能提供内部文件路径；能力不开放普通调用者读取或操作管理会话。清理资格与 pin 在执行时重新核对，显式插件命令不等于自动清理。详见[生命周期契约](../plugins.md#session-lifecycle)。
 
 当前公共入口是浏览器 API v5 与服务端 API v5，宿主仍支持浏览器 v4 和服务端 v3。旧类型名兼容保留，不代表旧入口自动获得 v5 的 catalog、作用域 backend、样式或高亮贡献。能力依赖按精确版本解析，浏览器/daemon 的配对状态依据真实 capability 与 revision，不从安装清单猜测已激活后端。
 
@@ -57,7 +63,7 @@ v5 catalog 固定到创建时的机器，只提供脱离内部引用的公开项
 
 主题/CSS 与语法高亮是浏览器贡献，样式注册和清理由宿主持有，异步高亮应遵守来源、可见性与生命周期。Markdown transformers 在 daemon 的浏览器投影阶段为完成及历史文本派生 `displayText`，不修改 canonical 消息、store、模型输入或审计，也不变更实际 `thinkingLevel`。浏览器继续净化并显示，部分流式文本在完成前不应用变换；用户/模型正文不是中文翻译目标。
 
-核心提供默认布局、共享控件和可选的通用树形组合能力，`custom-ui-codex` 持有可关闭的本地视觉与布局定制，中文化继续由独立语言插件提供。网关的 `ui-presentation` 能力装配可选展示贡献，渲染器只组织宿主提供的命名插槽；导航贡献可请求宿主将原有项目、工作区和会话列表组合为选中分支树。当前选择的数据加载、菜单、信任、权限和业务操作仍归宿主，不迁入插件，也不向插件投影未选中分支的会话内容。编辑器与消息视图在展示切换时保持原有生命周期，导航列表可重新装配。普通与管理视图使用相同展示边界，但只向插件投影当前作用域的标识、显示名称和已授权操作，不开放普通宿主会话连接。展示冲突拒绝激活，渲染失败撤下该插件的展示、样式与主题并恢复默认独立导航列表。公开区域和上下文见[展示契约](../plugins.md#ui-presentation)，生命周期入口见 [uiPresentationRuntime.ts](../../src/client/src/plugins/uiPresentationRuntime.ts) 与[内置展示插件](../../pi-web-plugins/custom-ui-codex/)。
+核心提供默认布局、共享控件和可选的通用树形组合能力，`custom-ui-codex` 持有可关闭的本地视觉与布局定制，中文化继续由独立语言插件提供。网关的 `ui-presentation` 能力装配可选展示贡献，渲染器只组织宿主提供的命名插槽；导航贡献可请求宿主将原有项目、工作区和会话列表组合为选中分支树。当前选择的数据加载、菜单、信任、权限和业务操作仍归宿主，不迁入插件，也不向插件投影未选中分支的会话内容。编辑器与消息视图在展示切换时保持原有生命周期，导航列表可重新装配。普通与管理视图使用相同展示边界，但只向插件投影当前作用域的标识、显示名称和已授权操作，不开放普通宿主会话连接。展示冲突拒绝激活，渲染失败撤下该插件的展示与运行时样式贡献并恢复默认独立导航列表；静态主题目录仍由网关的插件启用状态决定。公开区域和上下文见[展示契约](../plugins.md#ui-presentation)，生命周期入口见 [uiPresentationRuntime.ts](../../src/client/src/plugins/uiPresentationRuntime.ts) 与[内置展示插件](../../pi-web-plugins/custom-ui-codex/)。
 
 Relays 与 Workflows 的托管包来源跟随当前运行安装，迁移保留过滤器和显式移除记忆，不改写无关用户来源。
 

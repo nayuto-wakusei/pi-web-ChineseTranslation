@@ -4,6 +4,12 @@
 :host(pi-web-ui-presentation) .codex-commands { display: grid; gap: 2px; padding: 12px 8px 16px; }
 :host(pi-web-ui-presentation) .codex-command { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; justify-content: flex-start; border: 0; padding: 6px 8px; text-align: start; border-radius: 6px; font-size: 14px; font-weight: 400; background: transparent; }
 :host(pi-web-ui-presentation) .codex-command svg { flex: 0 0 auto; width: 16px; height: 16px; }
+:host(pi-web-ui-presentation) .codex-command[data-action-id="search"] { min-height: 48px; padding: 10px 12px; gap: 12px; font-size: 16px; }
+:host(pi-web-ui-presentation) .codex-command[data-action-id="search"] svg { width: 22px; height: 22px; }
+:host(session-search-dialog) { --session-search-width: min(1040px, 100%); --session-search-max-height: min(860px, 100%); --session-search-font-size: 16px; --session-search-input-height: 52px; --session-search-control-size: 44px; }
+:host(session-search-dialog) .ui-dialog-title { font-size: 18px; font-weight: 600; }
+:host(session-search-dialog) .ui-selection-option { border-color: transparent; border-radius: 4px; background: transparent; padding: 14px 38px 14px 14px; }
+:host(session-search-dialog) .ui-selection-option:hover, :host(session-search-dialog) .ui-selection-option:focus-visible { background: var(--pi-surface-hover); border-color: var(--pi-border); }
 :host(pi-web-ui-presentation) .codex-command:hover:not(:disabled) { background: var(--codex-sidebar-hover, var(--pi-surface-hover)); }
 :host(pi-web-ui-presentation) .codex-machines { flex: 0 0 auto; }
 :host(pi-web-ui-presentation) .codex-project-tree { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; padding: 0 8px 16px; }

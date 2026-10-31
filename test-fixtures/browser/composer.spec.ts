@@ -1,77 +1,121 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import type { PromptEditor } from "../../src/client/src/components/PromptEditor";
+
+type ComposerState = Partial<Pick<PromptEditor, "canSteer" | "defaultStreamingBehavior" | "sending" | "shortcuts">>;
+
+async function setState(page: Page, state: ComposerState): Promise<void> {
+  await page.locator("prompt-editor").evaluate(async (element: PromptEditor, state) => {
+    Object.assign(element, state);
+    await element.updateComplete;
+  }, state);
+}
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/composer.html");
+  await page.goto("/overlays.html");
   await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
+  await page.locator("prompt-editor").evaluate(async (editor: PromptEditor) => {
+    editor.status = {
+      sessionId: "browser-fixture", isStreaming: false, isCompacting: false, isBashRunning: false,
+      pendingMessageCount: 0, queuedMessages: [], cost: 0,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      model: { provider: "example", id: "a-long-model-name-that-must-not-hide-composer-actions" }, thinkingLevel: "medium",
+    };
+    editor.shortcuts = { "composer.send.desktop": "mod+enter", "composer.send.mobile": "mod+enter" };
+    editor.canStop = true;
+    editor.onSelectModel = () => { document.body.dataset["lastPicker"] = "model"; };
+    editor.onSelectThinking = () => { document.body.dataset["lastPicker"] = "thinking"; };
+    editor.onStop = () => { document.body.dataset["lastStop"] = "stopped"; };
+    editor.onSend = (_text, behavior) => { document.body.dataset["lastSend"] = behavior ?? "send"; };
+    await editor.updateComplete;
+    editor.replaceText("Review the configuration");
+  });
 });
 
-test("long transcript and composer keep independent geometry with navigation in the input", async ({ page }, testInfo) => {
-  const chat = page.locator("chat-view .chat");
+test("purpose hooks preserve compact geometry and independently operable settings/actions", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 760 });
   const editor = page.locator("prompt-editor");
-  const navigation = editor.getByRole("navigation", { name: "Chat navigation" });
-  await expect(navigation).toBeVisible();
-  await expect(page.locator("chat-view .chat-jumps")).toHaveCount(0);
-  await navigation.getByRole("button", { name: "Jump to end", exact: true }).click();
-  await expect.poll(async () => await chat.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(3);
-  await expect(page.locator('chat-view article[data-index="99"]')).toBeVisible();
-  const chatBox = await chat.boundingBox();
-  const editorBox = await editor.boundingBox();
-  const activity = await page.locator("conversation-layout .activity-region").boundingBox();
-  if (chatBox === null || editorBox === null || activity === null) throw new Error("Expected conversation geometry");
-  expect(chatBox.y + chatBox.height).toBeLessThanOrEqual(editorBox.y + 1);
-  expect(activity.height).toBeLessThanOrEqual(20);
-  expect(await chat.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
-  expect(await editor.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
-  const navBox = await navigation.boundingBox();
-  const attachBox = await editor.getByRole("button", { name: "Attach files", exact: true }).boundingBox();
-  if (navBox === null || attachBox === null) throw new Error("Expected editor controls");
-  expect(navBox.y + navBox.height).toBeLessThanOrEqual(attachBox.y + 1);
-  await page.screenshot({ path: testInfo.outputPath("composer-end.png"), fullPage: true });
-  await navigation.getByRole("button", { name: "Jump to top", exact: true }).click();
-  await expect.poll(async () => await chat.evaluate((element) => element.scrollTop)).toBe(0);
+  const root = editor.locator('[data-ui-context="composer"]');
+  const toolbar = root.locator(".ui-composer-toolbar");
+  const model = toolbar.locator('[data-composer-action="model"]');
+  const thinking = toolbar.locator('[data-composer-action="thinking"]');
+  const commands = toolbar.locator(".ui-composer-actions");
+  const send = commands.locator('[data-composer-action="send"]');
+  const stop = commands.locator('[data-composer-action="stop"]');
+  expect(await model.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  const settingsBox = await toolbar.locator(".ui-composer-settings").boundingBox();
+  const actionsBox = await commands.boundingBox();
+  if (!settingsBox || !actionsBox) throw new Error("Missing toolbar geometry");
+  expect(settingsBox.x + settingsBox.width).toBeLessThanOrEqual(actionsBox.x + 1);
+  await model.click();
+  await expect(page.locator("body")).toHaveAttribute("data-last-picker", "model");
+  await thinking.click();
+  await expect(page.locator("body")).toHaveAttribute("data-last-picker", "thinking");
+  await send.focus();
+  await send.press("Tab");
+  await expect(stop).toBeFocused();
+  await stop.press("Enter");
+  await expect(page.locator("body")).toHaveAttribute("data-last-stop", "stopped");
 });
 
-test("native attachment sources and Escape retain the shared popup owner", async ({ page, isMobile }, testInfo) => {
+test("configured defaults follow live queue/steer changes without losing editor focus or keyboard ownership", async ({ page }) => {
   const editor = page.locator("prompt-editor");
-  const attach = editor.getByRole("button", { name: "Attach files", exact: true });
-  if (isMobile) {
-    await attach.click();
-    await expect(editor.getByRole("group", { name: "Attachment source" })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(attach).toHaveAttribute("aria-expanded", "false");
-    for (const name of ["Photos", "Camera"]) {
-      await attach.click();
-      const chooserEvent = page.waitForEvent("filechooser");
-      await editor.getByRole("button", { name, exact: true }).click();
-      const chooser = await chooserEvent;
-      await chooser.setFiles({ name: `${name}.png`, mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jWQAAAABJRU5ErkJggg==", "base64") });
-      await expect(attach).toHaveAttribute("aria-expanded", "false");
-    }
-    await expect(editor.locator(".attachment-chip")).toHaveCount(2);
-    await expect(editor.locator(".attachment-camera-input")).toHaveAttribute("capture", "environment");
-    await expect(editor.locator(".attachment-image-input")).not.toHaveAttribute("capture");
-  } else {
-    const chooserEvent = page.waitForEvent("filechooser");
-    await attach.click();
-    const chooser = await chooserEvent;
-    await chooser.setFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Fixture attachment") });
-    await expect(editor.locator(".attachment-chip")).toHaveCount(1);
-    await expect(attach).not.toHaveAttribute("aria-expanded");
-  }
-  await page.screenshot({ path: testInfo.outputPath("composer-attachments.png"), fullPage: true });
-});
-
-test("completion and Chinese composition never become an accidental send", async ({ page }) => {
-  await page.evaluate(() => window.composerFixture.replace(""));
-  const editor = page.locator("prompt-editor");
+  const root = editor.locator('[data-ui-context="composer"]');
   const input = editor.locator(".cm-content");
+  // CodeMirror's Android path delays Enter and can drop its modifiers before
+  // public key handlers. Keep that existing editor issue outside this UI contract:
+  // a modified letter chord exercises submission ownership on every browser.
+  await setState(page, { shortcuts: { "composer.send.desktop": "mod+k", "composer.send.mobile": "mod+k" } });
   await input.focus();
-  await page.keyboard.type("/tr");
-  await expect(editor.locator("autocomplete-menu [popover]")).toBeVisible();
-  await page.keyboard.press("Enter");
-  await expect.poll(async () => await page.evaluate(() => window.composerFixture.draft())).toBe("/tree ");
-  expect(await page.evaluate(() => window.composerFixture.sendCount())).toBe(0);
-  await page.evaluate(() => window.composerFixture.compose());
-  expect(await page.evaluate(() => window.composerFixture.sendCount())).toBe(0);
-  expect((await page.evaluate(() => window.composerFixture.draft())).trim()).toBe("中文输入");
+  await expect(root).toHaveAttribute("data-default-action", "send");
+  await setState(page, { canSteer: true });
+  await expect(root).toHaveAttribute("data-default-action", "steer");
+  await expect(root.locator('[data-composer-action="steer"]')).toHaveAttribute("data-default", "true");
+  await expect(input).toBeFocused();
+  await input.press("ControlOrMeta+k");
+  await expect(page.locator("body")).toHaveAttribute("data-last-send", "steer");
+  await editor.evaluate((element: PromptEditor) => { element.replaceText("Queue another request"); });
+  await setState(page, { defaultStreamingBehavior: "followUp" });
+  await expect(root).toHaveAttribute("data-default-action", "queue");
+  await expect(root.locator('[data-composer-action="queue"]')).toHaveAttribute("data-default", "true");
+  await expect(input).toBeFocused();
+  await input.press("ControlOrMeta+k");
+  await expect(page.locator("body")).toHaveAttribute("data-last-send", "followUp");
+});
+
+test("media changes refresh the configured default without an unrelated component update", async ({ page }) => {
+  const root = page.locator('prompt-editor [data-ui-context="composer"]');
+  await setState(page, { shortcuts: { "composer.send.desktop": null, "composer.send.mobile": "mod+enter" } });
+  await page.setViewportSize({ width: 1200, height: 800 });
+  const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
+  await expect(root).toHaveAttribute("data-default-action", coarse ? "send" : "none");
+  await page.setViewportSize({ width: 700, height: 800 });
+  await expect(root).toHaveAttribute("data-default-action", "send");
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await expect(root).toHaveAttribute("data-default-action", coarse ? "send" : "none");
+});
+
+test("Playground's default cue follows eligibility and can be removed without changing geometry", async ({ page }) => {
+  const editor = page.locator("prompt-editor");
+  const root = editor.locator('[data-ui-context="composer"]');
+  const send = root.locator('[data-composer-action="send"]');
+  const decoration = (element: Element) => {
+    const style = getComputedStyle(element, "::after");
+    return { content: style.content, border: parseFloat(style.borderBlockEndWidth) };
+  };
+  const before = await send.boundingBox();
+  await page.evaluate(() => window.overlayFixture.applyTheme("playground:playground-dark"));
+  expect((await send.evaluate(decoration)).content).not.toBe("none");
+  expect((await send.evaluate(decoration)).border).toBeGreaterThan(0);
+  expect(await send.boundingBox()).toEqual(before);
+  await setState(page, { sending: true });
+  expect((await send.evaluate(decoration)).content).toBe("none");
+  await setState(page, { sending: false, canSteer: true });
+  const steer = root.locator('[data-composer-action="steer"]');
+  expect((await steer.evaluate(decoration)).border).toBeGreaterThan(0);
+  expect((await root.locator('[data-composer-action="queue"]').evaluate(decoration)).content).toBe("none");
+  await page.emulateMedia({ forcedColors: "active" });
+  expect((await steer.evaluate(decoration)).border).toBeGreaterThan(0);
+  await page.emulateMedia({ forcedColors: "none" });
+  await page.evaluate(() => window.overlayFixture.applyTheme("themes:pi-web-dark"));
+  expect((await steer.evaluate(decoration)).content).toBe("none");
 });

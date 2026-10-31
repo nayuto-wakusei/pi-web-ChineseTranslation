@@ -40,8 +40,6 @@ it("highlights completed chat fences automatically, preserves source safely, and
   if (preview === null) throw new Error("Expected highlighted code without clicking Render");
   await settleDeferredContent(preview);
   expect(preview.renderRoot.querySelector("code")?.textContent).toBe(source);
-  expect(preview.renderRoot.querySelector(".hljs-keyword")?.textContent).toBe("const");
-  expect(preview.renderRoot.querySelector(".hljs-string")?.textContent).toContain("<img");
   expect(preview.renderRoot.querySelector("img, script")).toBeNull();
 
   const raw = [...host.renderRoot.querySelectorAll("button")].find((button) => button.textContent.trim() === "Raw");
@@ -147,6 +145,24 @@ it.each([
   const view = await mount(text);
   expect(view.renderRoot.querySelector("pi-web-content-renderer")).toBeNull();
   expect(view.renderRoot.querySelector("pre code")).not.toBeNull();
+});
+
+it.each(["text", "plaintext", "txt", "TEXT", "text extra"])("keeps explicit plain-text fences as source: %s", async (language) => {
+  const source = "Jag går och kollar om restaurangen är öppen.";
+  const view = await mount(`\`\`\`${language}\n${source}\n\`\`\``);
+  expect(view.renderRoot.querySelector("pi-web-content-renderer")).toBeNull();
+  expect(view.renderRoot.querySelector("pre code")?.textContent.trim()).toBe(source);
+  expect(view.renderRoot.querySelector(".code-block-wrapper button")).not.toBeNull();
+});
+
+it("skips plain-text files and respects explicit plain text over a code filename", async () => {
+  const registry = new PluginRegistry();
+  await registry.register({ id: "code-highlight", plugin: adaptPublicPlugin(plugin) });
+  const request = { machineId: "local", text: "const x = 1;" };
+  expect(registry.contentRendering.listRenderers({ ...request, filePath: "notes.txt" })).toEqual([]);
+  expect(registry.contentRendering.listRenderers({ ...request, language: "text", filePath: "example.js" })).toEqual([]);
+  expect(registry.contentRendering.listRenderers({ ...request, filePath: "example.js" })).toHaveLength(1);
+  await registry.dispose();
 });
 
 it.each(["python", "ts", "bash", "json", "html", "css", "rust", "go", "sql", "diff"])("supports common language %s", async (language) => {

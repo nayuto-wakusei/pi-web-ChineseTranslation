@@ -16,7 +16,7 @@ npm test -- src/shared/themePreference.test.ts
 npm run verify
 ```
 
-该命令包含类型检查、lint、未使用代码分析和普通测试。参考[测试指南](../.agents/skills/testing-guide/SKILL.md)，选择能够证明行为的最小边界。
+该命令包含类型检查、lint、未使用代码分析和普通测试。参考[测试政策](testing.md)选择能够证明行为的最小边界，使用[测试夹具](testing-harnesses.md)查具体机制。优先复用、精简或合并现有覆盖；只有确有保护缺口才新增，不为形式完整堆叠用例。
 
 按 import 选择相关测试不能覆盖所有运行时读取的文件。文档、Docker 资产、包清单和生成产物改动还需显式选择所属检查；空测试集不是通过。本地提交钩子仍使用 `verify:staged`，不以仅 whitespace 检查代替。
 
@@ -31,6 +31,16 @@ $env:PI_WEB_TEST_BASH = 'D:\Program Files\Git\bin\bash.exe'
 $env:VITEST_MAX_WORKERS = '4'
 npm run verify
 ```
+
+## 开发启动
+
+`package.json` 持有开发服务的前置条件与 npm 生命周期；启动服务应走 npm，让 pre/main/post 顺序执行，前置失败不得启动。`npm run dev` 监督 watched sessiond、Web/API 和 client；`npm run dev:ui` 只监督 Web/API 与 client。拆分原生及 Docker 服务使用非 watched 的 `start:sessiond` 和 UI 组 `dev:ui`，不把 daemon 纳入 UI 自动重载。
+
+旧原生服务定义继续运行原有 shell 分组；需要采用共享监督时，在更新后的 checkout 执行一次 `pi-web install --dev`，自定义配置须带原来的 `--config`。重装服务会中断会话与终端；更新/重启命令不重写定义，doctor 提示需重装的旧定义。Docker 更新通过 recreate 应用新定义。具体进程边界见[运维](admin/operations.md)，网站单独发布见[网站部署](website-deployments.md)。
+
+## CI 与平台范围
+
+CI 将静态检查、Linux 普通测试、Windows 原生边界子集、Linux 包与运行时检查、隔离浏览器用例拆成独立任务。Windows 使用 `npm run test:windows` / `vitest.windows.config.ts`，重点覆盖真实文件系统、进程启动、模块加载和本地 transport；不因测试提及 Windows 就重复纯逻辑或 DOM 用例。Linux 仍运行完整普通测试；构建先于消费产物的检查。精确流程以仓库 workflow 为准，不把本地定向通过称为 CI 或全量通过。
 
 <a id="web-ui-performance"></a>
 ## Web UI 性能比较
@@ -69,7 +79,7 @@ npm run check:artifacts
 
 CI 和发布工作流在构建之后执行产物检查。Linux 上还执行 `npm run smoke:package-install`，验证真实全局安装、Web 与会话守护进程启动、公开 API 消费者解析以及原生 PTY。干净安装验收不能由源码或构建目录检查替代。
 
-安装烟测分别提供隔离的 Pi 1.3.0、0.87.0、0.86.1 宿主，不把 SDK 装成 PI WEB 私有依赖；检查显式安装路径、npm peer 与 PATH 解析、Pi 管理安装、宿主替换后重启和 SDK/AI 对象身份。TypeBox 通过服务端专用 npm 别名 `pi-web-typebox` 加载，避免 Pi 的扩展依赖解析接管它。Windows 的普通测试覆盖运行时选择和真实 stdio MCP；POSIX 安装/PTY 烟测仍须在 Linux 环境运行，未运行不能记为通过。
+安装烟测分别提供隔离的 Pi 1.4.0、1.3.0、0.87.0、0.86.1 宿主，不把 SDK 装成 PI WEB 私有依赖；检查显式安装路径、npm peer 与 PATH 解析、Pi 管理安装、宿主替换后重启和 SDK/AI 对象身份。TypeBox 通过服务端专用 npm 别名 `pi-web-typebox` 加载，避免 Pi 的扩展依赖解析接管它。Windows 的普通测试覆盖运行时选择和真实 stdio MCP；POSIX 安装/PTY 烟测仍须在 Linux 环境运行，未运行不能记为通过。
 
 ```sh
 npm run build
@@ -122,7 +132,7 @@ Node's receiver can enforce channel payload limits during assembly. Bun's native
 
 PI WEB reuses the user's existing Pi installation. The `/pi-web` extension gets that installation through Pi's public `getPackageDir()` API and passes it to the CLI as `PI_WEB_PI_PACKAGE_DIR`. Native service definitions retain that selection. Without an explicit selection, ordinary npm SDK resolution takes precedence; if no peer is locally resolvable, standalone commands can find an existing npm-installed `pi` executable on `PATH`. An invalid explicit selection is an error, not permission to silently select a different Pi or install one.
 
-Standalone application code imports SDK values through `src/piSdk.ts` and AI helpers through `src/piAi.ts`. Their shared loader, `src/piRuntime.ts`, resolves the selected installation's public package exports using `import-meta-resolve`. It does not register a Node loader hook, rewrite other modules' imports, or assume private SDK file paths. Pi's own dependencies and extension loader retain their ordinary resolution and module identity. Keep runtime imports behind this boundary; canonical type-only imports are safe because they disappear from emitted JavaScript. The fork retains its explicitly supported Pi SDK peers: `0.86.1`, `0.87.0`, and `1.3.0`; use the root package manifest as the supported-version contract. Development dependencies support the checkout's tests and typechecking rather than provisioning a published runtime.
+Standalone application code imports SDK values through `src/piSdk.ts` and AI helpers through `src/piAi.ts`. Their shared loader, `src/piRuntime.ts`, resolves the selected installation's public package exports using `import-meta-resolve`. It does not register a Node loader hook, rewrite other modules' imports, or assume private SDK file paths. Pi's own dependencies and extension loader retain their ordinary resolution and module identity. Keep runtime imports behind this boundary; canonical type-only imports are safe because they disappear from emitted JavaScript. The fork retains its explicitly supported Pi SDK peers: `0.86.1`, `0.87.0`, `1.3.0`, and `1.4.0`; use the root package manifest as the supported-version contract. Development dependencies support the checkout's tests and typechecking rather than provisioning a published runtime.
 
 Upgrading or downgrading Pi in place takes effect when services restart. If Pi moves to another path, reinstall the PI WEB service definitions from that Pi instance. The startup environment selects an installation, not a frozen copy of its version.
 

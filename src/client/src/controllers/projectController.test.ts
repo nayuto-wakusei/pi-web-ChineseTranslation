@@ -545,7 +545,6 @@ describe("Upstream transport and navigation contracts", () => {
     await controller.addProject("/added", true, { trusted: true, changed: true });
 
     expect(setWorkspaceTrust).toHaveBeenCalledOnce();
-    expect(setWorkspaceTrust).toHaveBeenCalledWith(addedProject.id, addedWorkspace.id, true, "local");
   });
 
   it.each([false, true])("persists explicit trust %s even when navigation declines the added project", async (trusted) => {

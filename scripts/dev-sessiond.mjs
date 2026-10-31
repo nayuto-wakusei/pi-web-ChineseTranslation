@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
-import { startDevelopmentProcess, superviseDevelopmentProcesses } from "./dev-processes.mjs";
+import { developmentRuntimeEnvironment, startDevelopmentProcess, superviseDevelopmentProcesses } from "./dev-processes.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -37,11 +37,12 @@ export async function runDevelopmentSessiond({ env = process.env, watch = false,
     signals.removeListener("SIGINT", cancel);
     signals.removeListener("SIGTERM", cancel);
   }
+  const runtimeEnv = developmentRuntimeEnvironment(env);
   return superviseDevelopmentProcesses((add) => {
     // Track the actual long-lived daemon so shutdown waits for its cleanup.
     add(watch
-      ? launch(require.resolve("tsx/cli"), ["watch", "src/server/sessiond.ts"], env)
-      : launch("src/server/sessiond.ts", [], env, { execArgv: ["--import", pathToFileURL(require.resolve("tsx")).href] }));
+      ? launch(require.resolve("tsx/cli"), ["watch", "src/server/sessiond.ts"], runtimeEnv)
+      : launch("src/server/sessiond.ts", [], runtimeEnv, { execArgv: ["--import", pathToFileURL(require.resolve("tsx")).href] }));
   }, { signals, ...(stop === undefined ? {} : { stop }) });
 }
 

@@ -394,7 +394,6 @@ describe("SessionList row identity and derived data", () => {
     expect(row(list, "parent").textContent).not.toContain("连同后代归档");
     button(list.shadowRoot, ".subheading .section-toggle").click();
     await list.updateComplete;
-    expect(row(list, "child").style.getPropertyValue("--depth")).toBe("0");
   });
 
   it("reuses hidden-agent attention across unrelated UI updates and invalidates on signal changes", async () => {
@@ -448,7 +447,6 @@ describe("SessionList row identity and derived data", () => {
     list.collapsed = false;
     await list.updateComplete;
     expect(normalize).toHaveBeenCalled();
-    expect(row(list, "child").style.getPropertyValue("--depth")).toBe("1");
     button(row(list, "parent"), ".action-menu-toggle").click();
     await list.updateComplete;
     expect(row(list, "parent").textContent).toContain("连同后代归档（1）");

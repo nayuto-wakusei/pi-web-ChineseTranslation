@@ -40,6 +40,7 @@ export function toClientEvent(event: unknown, thinkingLevel?: string, streamId?:
   if (eventType === "agent_end") return { type: "agent.end" };
   if (eventType === "message_end") {
     const message = getProperty(event, "message");
+    if (getString(message, "role") === "custom" && getBoolean(message, "display") !== true) return { type: "pi.event", eventType };
     return message === undefined ? { type: "message.end" } : { type: "message.end", message: annotateAssistantStreamId(annotateAssistantThinkingLevel(message, thinkingLevel), streamId) };
   }
   return { type: "pi.event", eventType: eventType ?? "unknown" };

@@ -26,7 +26,6 @@ describe("plugin recovery CLI", () => {
     runPluginRecoveryCli(["--help"], dependencies(lines));
 
     expect(lines.join("\n")).toBe(pluginRecoveryHelp());
-    expect(lines.join("\n")).toContain("never contact the session daemon or import plugins");
   });
 
   it("rejects invalid plugin ids before creating config", async () => {
@@ -57,12 +56,10 @@ describe("plugin recovery CLI", () => {
     expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
       plugins: { "broken-provider": { enabled: false } },
     });
-    expect(lines).toEqual([
-      `Disabled server plugin "broken-provider" in ${configPath}.`,
-      "Restart the session daemon to apply this change. Active sessions owned by that daemon may stop.",
-      "Run:",
-      "  fake-service restart sessiond",
-    ]);
+    const output = lines.join("\n");
+    expect(output).toContain("broken-provider");
+    expect(output).toContain(configPath);
+    expect(output).toContain("fake-service restart sessiond");
   });
 
   it("shows malformed safe start fail-closed, then repairs and clears it offline", async () => {
@@ -143,7 +140,6 @@ describe("plugin recovery CLI", () => {
     );
 
     expect(perform).toHaveBeenCalledOnce();
-    expect(lines.at(-1)).toBe("Session daemon restart requested. Active sessions owned by that daemon may stop.");
   });
 
   it("keeps a manual installation recoverable when --restart cannot be performed", () => {

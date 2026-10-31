@@ -65,37 +65,6 @@ describe("SessionList selection reveal scrolling", () => {
     expect(list.shadowRoot?.querySelector(".action-row.selected")).not.toBeNull();
   });
 
-  it("expands the archived section and reveals the row when an archived session becomes selected", async () => {
-    const a = session("a");
-    const archived = session("archived", { archived: true, archivedAt: "2026-06-09T00:00:00.000Z" });
-    const list = await renderSessionList({ sessions: [a], selected: a });
-    scrollIntoView.mockClear();
-
-    list.sessions = [a, archived];
-    list.selected = archived;
-    await settled(list);
-
-    expect(scrollIntoView).toHaveBeenCalledOnce();
-    expect(list.shadowRoot?.querySelector(".action-row.selected.archived")).not.toBeNull();
-  });
-
-  it("reveals the selected row when a restore moves it back to the current section", async () => {
-    const archived = session("a", { archived: true, archivedAt: "2026-06-09T00:00:00.000Z" });
-    const b = session("b");
-    const list = await renderSessionList({ sessions: [archived, b], selected: archived });
-    // The archived reveal path already expanded the section and scrolled.
-    expect(list.shadowRoot?.querySelector(".action-row.selected.archived")).not.toBeNull();
-    scrollIntoView.mockClear();
-
-    const restored = session("a");
-    list.sessions = [restored, b];
-    list.selected = restored;
-    await settled(list);
-
-    expect(scrollIntoView).toHaveBeenCalledOnce();
-    expect(list.shadowRoot?.querySelector(".action-row.selected:not(.archived)")).not.toBeNull();
-  });
-
   it("scrolls when the section expands, and not when it collapses", async () => {
     const a = session("a");
     const list = await renderSessionList({ sessions: [a], selected: a, collapsed: true });

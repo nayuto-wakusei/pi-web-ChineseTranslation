@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Pin lifecycle tooling, including nested npm hooks. Runtime launchers restore
+# the original tooling PATH before starting API/sessiond children.
+export PI_WEB_SERVICE_ORIGINAL_PATH="${PI_WEB_SERVICE_ORIGINAL_PATH-$PATH}"
+export PATH="/usr/local/lib/pi-web-node/bin:$PATH"
+exec /usr/local/lib/pi-web-node/bin/node /usr/local/lib/pi-web-node/lib/node_modules/npm/bin/npm-cli.js "$@"

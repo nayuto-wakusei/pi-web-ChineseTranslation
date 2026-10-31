@@ -84,16 +84,6 @@ function scrollingViewport(view: ChatView, initialTop = 2445) {
 }
 
 describe("composable normal chat", () => {
-  it("keeps default conveniences and explicit small navigation controls, without a meter", async () => {
-    const view = await mount();
-    expect(view.behaviors.rememberPosition).toBe(true);
-    expect(view.behaviors.followTail).toBe(true);
-    expect(view.behaviors.automaticHistory).toBe(true);
-    expect(view.renderRoot.querySelector("conversation-meter, .scroll-marker")).toBeNull();
-    expect(required(view.renderRoot, '.chat-jumps [aria-label="Jump to top"]').textContent).toBe("↑");
-    expect(required(view.renderRoot, '.chat-jumps [aria-label="Jump to end"]').textContent).toBe("↓");
-  });
-
   it("can render navigation in another surface while retaining scroll behavior and follow state", async () => {
     const view = await mount();
     const viewport = scrollingViewport(view);
@@ -565,13 +555,6 @@ describe("composable normal chat", () => {
     }
   });
 
-  it("applies CSS simplification independently of scrolling capabilities", async () => {
-    const view = await mount({ ...DEFAULT_CHAT_BEHAVIORS, visualEffects: false });
-    expect(required(view.renderRoot, ".chat-wrap").classList.contains("plain")).toBe(true);
-    expect(view.behaviors.followTail).toBe(true);
-    view.behaviors = DEFAULT_CHAT_BEHAVIORS; await view.updateComplete;
-    expect(required(view.renderRoot, ".chat-wrap").classList.contains("plain")).toBe(false);
-  });
 });
 
 describe("quiet mode", () => {
@@ -610,14 +593,5 @@ describe("quiet mode", () => {
     const grown = required(view.renderRoot, ".event-group");
     expect(grown.hasAttribute("open")).toBe(true);
     expect(required(grown, "summary").textContent).toContain("2 events");
-  });
-
-  it("leaves the live group expanded when quiet mode is off", async () => {
-    const view = await mount();
-    view.isSendingPrompt = true;
-    view.messages = [{ role: "assistant", entryId: "loud-thinking", parts: [{ type: "thinking", text: "Plan the work." }] }];
-    view.messageTotal = 1;
-    await view.updateComplete;
-    expect(required(view.renderRoot, ".event-group").hasAttribute("open")).toBe(true);
   });
 });

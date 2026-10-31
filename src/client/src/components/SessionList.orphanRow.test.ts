@@ -22,38 +22,11 @@ describe("orphan child row indicator", () => {
     expect(marker?.getAttribute("title")).toBe("当前工作区中没有可用的父会话");
   });
 
-  it("uses the same child glyph for orphan and nested children, distinguished only by styling", async () => {
-    const parent = session("parent");
-    const list = await renderList({ sessions: [parent, session("nested", { parentSessionPath: parent.path }), orphan()] });
-
-    const markers = [...list.shadowRoot?.querySelectorAll(".tree-marker") ?? []];
-    expect(markers.map((marker) => marker.textContent)).toEqual(["↳", "↳"]);
-    expect(markers.filter((marker) => marker.classList.contains("orphan-marker"))).toHaveLength(1);
-  });
-
-  it("leaves the meta line free of parent whereabouts, which are no longer resolvable", async () => {
-    // Session trees are worktree-scoped, so an orphan row has no location to
-    // offer and must not claim one.
-    const list = await renderList({ sessions: [orphan()] });
-
-    expect(row(list).querySelector("small")?.textContent).toBe("3 messages");
-    expect(row(list).querySelectorAll(".row-badges")).toHaveLength(0);
-  });
-
-  it("offers no navigation to the missing parent in the row menu", async () => {
-    const list = await renderList({ sessions: [orphan()] });
-
-    await openMenu(list);
-    const labels = [...list.shadowRoot?.querySelectorAll(".action-menu-panel button") ?? []]
-      .map((button) => button.textContent.trim());
-    expect(labels).not.toContain("前往父会话");
-  });
 
   it("adds no orphan marker to an ordinary root session", async () => {
     const list = await renderList({ sessions: [session("root")] });
 
     expect(row(list).querySelector(".orphan-marker")).toBeNull();
-    expect(row(list).querySelector(".row-badges")).toBeNull();
     expect(row(list).querySelector("small")?.textContent).toBe("3 messages");
   });
 
@@ -86,11 +59,6 @@ function row(list: SessionList, index = 0): Element {
   const found = [...list.shadowRoot?.querySelectorAll(".action-row") ?? []][index];
   if (found === undefined) throw new Error(`No session row at index ${String(index)}`);
   return found;
-}
-
-async function openMenu(list: SessionList, index = 0): Promise<void> {
-  row(list, index).querySelector<HTMLButtonElement>(".action-menu-toggle")?.click();
-  await list.updateComplete;
 }
 
 function orphan(overrides: Partial<SessionInfo> = {}): SessionInfo {

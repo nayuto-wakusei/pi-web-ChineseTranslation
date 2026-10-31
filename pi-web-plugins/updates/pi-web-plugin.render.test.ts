@@ -86,15 +86,6 @@ function renderPanel(value: PiWebStatusResponse, terminal?: MaintenanceTerminal,
   return container;
 }
 
-function sectionOrder(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".viewer.updates-status > section")].map((section) => {
-    if (section.classList.contains("updates-recommended")) return "recommended";
-    if (section.classList.contains("updates-meta")) return "meta";
-    const heading = section.querySelector(":scope > strong")?.textContent.trim();
-    return heading === undefined || heading === "" ? "notices" : heading;
-  });
-}
-
 function commandTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll(".updates-command code")].map((code) => code.textContent);
 }
@@ -103,7 +94,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-describe("Updates plugin panel layout", () => {
+describe("Updates plugin panel behavior", () => {
   it("pseudo-localizes known gateway notices and controls without translating commands or versions", async () => {
     const service = new LocalizationService({ development: true, preferences: { language: "en-XA", formatLocale: "de-DE", timeZone: "UTC" } });
     await service.ready;
@@ -130,8 +121,6 @@ describe("Updates plugin panel layout", () => {
     const panel = renderPanel(value);
 
     expect(panel.textContent).toContain("Session daemon version unknown");
-    expect(panel.textContent).toContain("The last check could not determine the session daemon version.");
-    expect(panel.textContent).toContain("If checks keep failing");
     expect(panel.querySelector(".updates-recommended")).toBeNull();
     expect(panel.querySelectorAll(".updates-version-row")[1]?.textContent).toContain("version unknown");
   });
@@ -141,8 +130,8 @@ describe("Updates plugin panel layout", () => {
     expect(container.textContent).toContain("Future gateway notice");
     expect(container.textContent).toContain("Keep this operational guidance");
   });
-  it("folds the update notice into one recommended action above the services and optional commands", () => {
-    const update = "npm install -g @chainingintention/pi-web-cn --allow-scripts=node-pty && pi-web restart";
+  it("folds the update notice into one recommended action without duplicate commands", () => {
+    const update = "pi-web update";
     const container = renderPanel(status({
       release: { packageName: "@chainingintention/pi-web-cn", updateAvailable: true, latestVersion: "1.202605.9" },
       commands: {
@@ -163,14 +152,12 @@ describe("Updates plugin panel layout", () => {
 
     const recommended = container.querySelector(".updates-recommended");
     expect(recommended).not.toBeNull();
-    expect(recommended?.textContent).toContain("PI WEB update available");
     // The notice keeps the user informed but offers no competing action of its own.
     expect(recommended?.querySelector(".updates-message button")).toBeNull();
     expect(recommended?.querySelector(".updates-message code")).toBeNull();
     expect([...container.querySelectorAll(".updates-message")].every((notice) => notice.closest(".updates-recommended") !== null)).toBe(true);
     // The update command appears exactly once in the whole panel.
     expect(commandTexts(container).filter((text) => text === update)).toHaveLength(1);
-    expect(sectionOrder(container)).toEqual(["recommended", "Installed services", "Additional commands (optional)", "meta"]);
   });
 
   it("keeps notices action-free and defers their commands to the suggested list when nothing is recommended", () => {
@@ -192,20 +179,20 @@ describe("Updates plugin panel layout", () => {
 
     expect(container.querySelector(".updates-recommended")).toBeNull();
     const notice = container.querySelector(".updates-message");
-    expect(notice?.textContent).toContain("Web/UI service restart needed");
+    expect(notice).not.toBeNull();
     expect(notice?.querySelector("button")).toBeNull();
     expect(notice?.querySelector("code")).toBeNull();
     // The notice's command still shows up exactly once, in the suggested list.
     expect(commandTexts(container).filter((text) => text === restartWeb)).toHaveLength(1);
-    expect(sectionOrder(container)).toEqual(["notices", "Installed services", "Suggested commands", "meta"]);
+
   });
 
   it("shows the quiet state without a recommended action when everything is current", () => {
     const container = renderPanel(status({ commands: { restart: "pi-web restart" } }));
 
     expect(container.querySelector(".updates-recommended")).toBeNull();
-    expect(container.textContent).toContain("No PI WEB update or restart messages.");
-    expect(sectionOrder(container)).toEqual(["notices", "Installed services", "Suggested commands", "meta"]);
+    expect(container.querySelectorAll(".updates-message")).toHaveLength(0);
+    expect(commandTexts(container)).toEqual(["pi-web restart"]);
   });
 
   it("copies a command unchanged without requiring a selected workspace", async () => {

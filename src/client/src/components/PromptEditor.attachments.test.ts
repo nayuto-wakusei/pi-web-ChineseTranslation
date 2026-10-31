@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER } from "../api";
 import { clearStagedAttachments, saveStagedAttachments } from "../promptAttachmentStaging";
-import { attachmentFolderDeliveryLabel, PromptEditor } from "./PromptEditor";
+import { PromptEditor } from "./PromptEditor";
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -45,13 +45,8 @@ function triggerSessionSwitch(editor: PromptEditor, previous: { machineId: strin
 describe("PromptEditor attachments folder label", () => {
   it("defaults the attachments folder to the built-in default", () => {
     expect(new PromptEditor().attachmentsFolder).toBe(DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER);
-    expect(DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER).toBe(".pi-web/attachments");
   });
 
-  it("labels the folder delivery option with the workspace-effective folder", () => {
-    expect(attachmentFolderDeliveryLabel(".pi-web/attachments")).toBe("Save to .pi-web/attachments");
-    expect(attachmentFolderDeliveryLabel("docs/inbox")).toBe("Save to docs/inbox");
-  });
 });
 
 describe("PromptEditor folder delivery sends the displayed folder", () => {
@@ -78,9 +73,6 @@ describe("PromptEditor folder delivery sends the displayed folder", () => {
 
     invokeSend(editor);
 
-    // Label/save parity: the delivery label and the folder sent with the save
-    // request come from the same workspace-effective prop.
-    expect(attachmentFolderDeliveryLabel(editor.attachmentsFolder)).toBe("Save to project-attachments");
     expect(sent).toHaveLength(1);
     expect(sent[0]).toEqual(["check this", undefined, [expect.objectContaining({ name: "notes.txt" })], "folder", "project-attachments"]);
   });

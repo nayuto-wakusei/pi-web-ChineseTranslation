@@ -6,11 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setClientTranslations } from "../i18n";
 import { api, configApi, piPackagesApi, pluginsApi } from "../api";
 import { SettingsDialog } from "./SettingsDialog";
+import * as themeCatalog from "../themeCatalog";
+import { builtInThemeCatalog } from "../themeCatalog.testSupport";
 import { configResponse, pluginsResponse, remoteMachine, secondRemoteMachine } from "./SettingsDialog.testSupport";
 import type { SettingsMcpPanel } from "./settings/SettingsMcpPanel";
 
 beforeEach(() => {
   setClientTranslations("en", {});
+  vi.spyOn(themeCatalog, "loadThemeCatalog").mockResolvedValue(builtInThemeCatalog());
   vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
   vi.spyOn(configApi, "config").mockResolvedValue(configResponse({}));
   vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([]));

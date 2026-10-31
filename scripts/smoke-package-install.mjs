@@ -13,7 +13,7 @@ import { smokeInstalledServices } from "./smoke-installed-services.mjs";
 
 const NPM_VERSION = "12.0.1";
 // These are independently provisioned fixture hosts, never PI WEB dependencies.
-const HOST_PI_VERSIONS = ["1.3.0", "0.87.0", "0.86.1"];
+const HOST_PI_VERSIONS = ["1.4.0", "1.3.0", "0.87.0", "0.86.1"];
 const MARKER = "pi-web-package-pty-ok";
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -322,7 +322,36 @@ async function smokePiPackageExtension(packageRoot, host) {
     await command.handler("version", { ui: { notify: (message, type) => notifications.push({ message, type }) } });
     assert.equal(notifications.length, 1);
     assert.equal(notifications[0].type, "info", notifications[0].message);
-    assert.ok(notifications[0].message.includes("pi-web version"), notifications[0].message);
+    assert.ok(notifications[0].message.includes("PI WEB version"), notifications[0].message);
+    const namingSettings = SettingsManager.inMemory({ packages: [${JSON.stringify(join(packageRoot, "dist/pi-packages/session-naming"))}] });
+    const naming = new DefaultResourceLoader({
+      cwd: ${JSON.stringify(agentDir)}, agentDir: ${JSON.stringify(agentDir)},
+      settingsManager: namingSettings, noSkills: true, noPromptTemplates: true, noThemes: true,
+    });
+    await naming.reload();
+    assert.deepEqual(naming.getExtensions().errors, [], "Session naming must load through the installed Pi");
+    assert.deepEqual(naming.getExtensions().warnings ?? [], [], "No naming dependency warnings");
+    assert.equal(naming.getExtensions().extensions.length, 1);
+    assert.ok(naming.getExtensions().extensions[0].handlers.has("before_agent_start"));
+    namingSettings.setPackages([]);
+    await naming.reload();
+    assert.equal(naming.getExtensions().extensions.length, 0, "Removing naming must unload its extension");
+    const scheduled = new DefaultResourceLoader({
+      cwd: ${JSON.stringify(agentDir)}, agentDir: ${JSON.stringify(agentDir)},
+      settingsManager: SettingsManager.inMemory({ packages: [${JSON.stringify(join(packageRoot, "dist/pi-packages/scheduled-tasks"))}] }),
+      noPromptTemplates: true, noThemes: true,
+    });
+    await scheduled.reload();
+    const scheduledExtensions = scheduled.getExtensions();
+    assert.deepEqual(scheduledExtensions.errors, [], "Scheduled tasks companion must load through Pi");
+    assert.deepEqual(scheduledExtensions.warnings ?? [], [], "No scheduled tasks dependency warnings");
+    assert.deepEqual(scheduled.getSkills().diagnostics, []);
+    assert.ok(scheduled.getSkills().skills.some(skill => skill.name === "scheduled-tasks"));
+    const scheduledTools = scheduledExtensions.extensions.flatMap(extension => [...extension.tools.values()].map(tool => tool.definition));
+    assert.deepEqual(scheduledTools.map(tool => tool.name).sort(), [
+      "targets", "overview", "inspect", "create", "update", "pause", "archive", "delete", "dispatch", "history", "execution", "report",
+    ].map(name => "scheduled_tasks_" + name).sort());
+    assert.ok(scheduledTools.every(tool => tool.exposure === "deferred"));
   `);
   // No systemctl/launchctl on PATH, no live D-Bus, socket or HTTP endpoint.
   // Invalid port makes version reporting explain unavailable config, not probe localhost.
@@ -335,6 +364,16 @@ async function smokePiPackageExtension(packageRoot, host) {
 async function smokeInstalledSessionDaemon(packageRoot, host, layout, options = {}) {
   const stateDir = join(root, `daemon-${layout}`);
   const socketPath = join(stateDir, "sessiond.sock");
+  const configPath = join(stateDir, "config.json");
+  const namingMigration = layout === "global" || layout === "managed-legacy";
+  if (namingMigration) {
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(configPath, JSON.stringify({ sessionNaming: { maxTokens: 64 } }));
+    if (layout === "managed-legacy") {
+      await mkdir(join(stateDir, "agent"), { recursive: true });
+      await writeFile(join(stateDir, "agent", "session-naming"), "blocks the optional config migration");
+    }
+  }
   const entrypoint = options.entrypoint ?? join(packageRoot, "dist", "server", "sessiond.js");
   const child = spawn(process.execPath, [...(options.nodeOptions ?? []), entrypoint], {
     cwd: packageRoot,
@@ -343,7 +382,7 @@ async function smokeInstalledSessionDaemon(packageRoot, host, layout, options = 
       PI_WEB_PI_PACKAGE_DIR: options.discoverOnPath || options.localPeers ? undefined : host.hostRoot,
       PATH: options.localPeers ? join(options.pathHost.prefix, "bin")
         : options.discoverOnPath ? join(host.prefix, "bin") : process.env["PATH"],
-      PI_WEB_DATA_DIR: stateDir, PI_WEB_SESSIOND_SOCKET: socketPath,
+      PI_WEB_DATA_DIR: stateDir, PI_WEB_SESSIOND_SOCKET: socketPath, PI_WEB_CONFIG: configPath,
       PI_CODING_AGENT_DIR: join(stateDir, "agent"),
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -386,6 +425,13 @@ async function smokeInstalledSessionDaemon(packageRoot, host, layout, options = 
     assert.ok(runtime, `Installed ${layout} daemon never became ready: ${output}`);
     assert.equal(runtime.status, 200, runtime.body);
     assert.equal(JSON.parse(runtime.body).piVersion, host.version);
+    if (layout === "global") {
+      assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")), {}, "Retired core naming key must be removed after migration");
+      assert.deepEqual(JSON.parse(await readFile(join(stateDir, "agent", "session-naming", "config.json"), "utf8")), { maxTokens: 64 });
+    } else if (layout === "managed-legacy") {
+      assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")), { sessionNaming: { maxTokens: 64 } }, "Failed optional migration must retain source data");
+      assert.ok(output.includes("Session naming migration failed"), "Optional migration failure must be reported without preventing readiness");
+    }
   } finally {
     if (!exited) child.kill("SIGTERM");
     await Promise.race([closed, delay(5_000)]);

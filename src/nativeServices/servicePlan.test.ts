@@ -299,29 +299,6 @@ describe("production native service planning", () => {
     });
   });
 
-  // The launcher is the single source of truth for runtime selection and version
-  // floors, so a production plan must not carry a node-version requirement of its own. A
-  // bun-only machine has to pass preflight in both strategy branches.
-  it("carries no node-version requirement in any production strategy", async () => {
-    const named = await resolveProductionNativeServicePlan(productionInput(), {
-      probe: completedProbe("satisfied"),
-      fileExists: () => true,
-    });
-    expect(named.ok).toBe(true);
-    const bundled = await resolveProductionNativeServicePlan(productionInput(), {
-      probe: completedProbe("unsatisfied", "command not found"),
-      fileExists: () => true,
-    });
-    expect(bundled.ok).toBe(true);
-
-    for (const resolution of [named, bundled]) {
-      if (!resolution.ok) throw new Error(JSON.stringify(resolution.failures));
-      const kinds = resolution.plan.services.flatMap((service) => service.prerequisites.map((prerequisite) => prerequisite.kind));
-      expect(kinds).not.toContain("node-version");
-      expect(kinds).toContain("runtime");
-    }
-  });
-
   it("mixes configured, named, and bundled decisions without unrelated checks", async () => {
     const input = productionInput();
     input.executables.sessiond.configuredCommand = "custom-sessiond";
@@ -451,8 +428,8 @@ describe("development native service planning", () => {
         },
         {
           id: "uiDev",
-          shellCommand: "exec /usr/bin/env bash -c 'trap \"kill 0\" EXIT; npm run dev:web & npm run dev:client & wait'",
-          strategy: { kind: "development-npm-script-group", scripts: ["dev:web", "dev:client"], interpreter: "bash" },
+          shellCommand: "exec npm run dev:ui",
+          strategy: { kind: "development-npm-script", script: "dev:ui" },
           restart: "never",
           workingDirectory: "/checkout with space",
           after: [],
@@ -460,19 +437,11 @@ describe("development native service planning", () => {
           prerequisites: [
             { id: "uiDev.node", kind: "node-version", minimumVersion: "22.19.0" },
             { id: "uiDev.command.npm", kind: "command-available", command: "npm" },
-            { id: "uiDev.command.bash", kind: "command-available", command: "bash" },
-            { id: "uiDev.package-scripts", kind: "package-scripts", scripts: ["dev:web", "dev:client"] },
+            { id: "uiDev.package-scripts", kind: "package-scripts", scripts: ["dev:ui"] },
           ],
         },
       ],
     });
-
-    const serviceCommandRequirements = plan.services.flatMap((service) => service.prerequisites)
-      .filter((prerequisite) => prerequisite.kind === "command-available")
-      .map((prerequisite) => prerequisite.command);
-    expect(serviceCommandRequirements).toEqual(["npm", "npm", "bash"]);
-    expect(serviceCommandRequirements).not.toContain("pi-web-server");
-    expect(serviceCommandRequirements).not.toContain("pi-web-sessiond");
 
     expect(planValidationProbeRequests(plan)).toMatchObject([
       {
@@ -484,7 +453,6 @@ describe("development native service planning", () => {
           { id: "sessiond.package-scripts" },
           { id: "uiDev.node" },
           { id: "uiDev.command.npm" },
-          { id: "uiDev.command.bash" },
           { id: "uiDev.package-scripts" },
         ],
       },

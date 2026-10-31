@@ -11,7 +11,7 @@ import { InMemoryTerminalSelectionMemory } from "../../../../pi-web-plugins/term
 import type { WorkspaceFilesCapabilityV1, WorkspacePanelContext as PublicWorkspacePanelContext } from "../../../plugin-api";
 import type { Machine, Project, SessionInfo, TerminalCommandRun, Workspace } from "../api";
 import { machineScopedBundledPluginId } from "../../../shared/machinePluginIds";
-import { initialAppState } from "../appState";
+import { initialAppState, type AppState } from "../appState";
 import { localization } from "../localization/browser";
 import { pluginRecoveryMessages as recovery } from "../pluginRecoveryMessages";
 import { AppShellController } from "../appShell/appShellController";
@@ -1024,17 +1024,13 @@ describe("PiWebApp plugin host", () => {
     expect(focusNavigationTarget).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { mobile: true, count: 1, selected: true, target: "sessions" },
-    { mobile: true, count: 2, selected: true, target: "workspaces" },
-    { mobile: false, count: 1, selected: true, target: "workspaces" },
-    { mobile: true, count: 0, selected: false, target: "workspaces" },
-    { mobile: true, count: 1, selected: false, target: "workspaces" },
-  ])("advances after project loading without an unnecessary mobile workspace choice: %j", async ({ mobile, count, selected, target }) => {
+  // Mobile topology and loading transitions are covered through the real
+  // WorkspaceController in PiWebApp.mobileNavigation.test.ts.
+  it("keeps the desktop workspace step after selecting a single-workspace project", async () => {
     const app = createApp();
     const shell: unknown = Reflect.get(app, "appShell");
     if (!(shell instanceof AppShellController)) throw new Error("App shell unavailable");
-    shell.isMobileNavigationLayout = mobile;
+    shell.isMobileNavigationLayout = false;
     const focusNavigationTarget = vi.fn();
     if (!Reflect.set(app, "focusNavigationTarget", focusNavigationTarget)) throw new Error("Could not stub navigation focus");
     if (!Reflect.set(app, "withChatScrollTransition", async (action: () => Promise<void>) => { await action(); })) throw new Error("Could not stub navigation transition");
@@ -1042,10 +1038,10 @@ describe("PiWebApp plugin host", () => {
     setAppState(app, { ...initialAppState(), selectedProject: project, selectedWorkspace: workspace, workspaces: [workspace, { ...workspace, id: "previous-other" }] });
     await callAsyncAppMethod(app, "selectNavigationItem", "projects", "workspaces", async () => {
       await Promise.resolve();
-      const workspaces = Array.from({ length: count }, (_, index) => ({ ...workspace, id: `loaded-${String(index)}` }));
-      setAppState(app, { ...appState(app), workspaces, selectedWorkspace: selected ? workspaces[0] : undefined });
+      const loadedWorkspace = { ...workspace, id: "loaded-workspace" };
+      setAppState(app, { ...appState(app), workspaces: [loadedWorkspace], selectedWorkspace: loadedWorkspace });
     });
-    expect(focusNavigationTarget).toHaveBeenCalledWith(target, expect.any(Function));
+    expect(focusNavigationTarget).toHaveBeenCalledWith("workspaces", expect.any(Function));
   });
 
   it.each(["success", "unavailable"] as const)("opens the restored session before advancing to Chat (%s)", async (outcome) => {
@@ -3431,6 +3427,35 @@ describe("PiWebApp plugin host", () => {
     expect(browser.replaced).toEqual([]);
     expect(callAppMethod(app, "visibleBrowserErrorsForCurrentRoute", appState(app))).toEqual([]);
     expect(appState(app).browserErrors).toEqual({});
+  });
+
+  it("treats an old Notices history entry as unavailable after conditions clear without rewriting history", async () => {
+    const browser = installBrowserWindow("http://localhost/app?project=project-1&workspace=workspace-1&view=chat&step=origin");
+    const app = createDetachedApp();
+    const selectedSession = runtimeRecoverySession(workspace);
+    const status: NonNullable<AppState["status"]> = {
+      sessionId: selectedSession.id, isStreaming: false, isCompacting: false, isBashRunning: false,
+      pendingMessageCount: 0, queuedMessages: [], cost: 0,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      warnings: [{ severity: "warning", message: "Persistent condition" }],
+    };
+    setAppState(app, { ...initialAppState(), selectedProject: project, selectedWorkspace: workspace, workspaces: [workspace], selectedSession, status, mainView: "chat" });
+    await markPluginLoadingReady(app);
+    expect(callAppMethod(app, "visibleWorkspacePanels")).toEqual(expect.arrayContaining([expect.objectContaining({ id: "core:notices" })]));
+    window.history.pushState({}, "", "?project=project-1&workspace=workspace-1&tool=core%3Anotices&view=workspace&step=notices");
+    window.history.pushState({}, "", "?project=project-1&workspace=workspace-1&view=chat&step=later");
+    setAppState(app, { ...appState(app), status: { ...status, warnings: [] } });
+    browser.pushed.splice(0); browser.replaced.splice(0);
+    window.history.back();
+    await vi.waitFor(() => { expect(browser.url.searchParams.get("step")).toBe("notices"); });
+    callAppMethod(app, "onPopState");
+    await vi.waitFor(() => { expect(appState(app).mainView).toBe("workspace"); });
+    expect(callAppMethod(app, "availableWorkspacePanelId", "core:notices")).toBeUndefined();
+    expect(callAppMethod(app, "workspaceContentError")).not.toBe("");
+    expect(browser.url.searchParams.get("tool")).toBe("core:notices");
+    expect(browser.pushed).toHaveLength(0); expect(browser.replaced).toHaveLength(0);
+    window.history.back();
+    await vi.waitFor(() => { expect(browser.url.searchParams.get("step")).toBe("origin"); });
   });
 
   it("preserves an unavailable panel on popstate and the adjacent history entries", async () => {

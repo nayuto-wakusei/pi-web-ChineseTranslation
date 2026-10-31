@@ -1,36 +1,11 @@
 import type { TemplateResult } from "lit";
 
 /**
- * Shared Lit `TemplateResult` inspection seam for tests — an ESCAPE HATCH.
- *
- * This repository runs Vitest with no DOM environment (`vitest.config.ts` sets
- * the default node environment), so real shadow-DOM click harnesses are not
- * available. The `testing-guide` skill treats direct `TemplateResult`
- * inspection (calling `render()`, reading `strings`/`values`, and invoking an
- * event handler found near a stable marker) as an escape hatch that is only
- * proportionate when:
- *
- *   1. the test is specifically verifying Lit template event wiring;
- *   2. a DOM/custom-element render harness would add disproportionate setup,
- *      flakiness, or noise for the behavior being checked;
- *   3. the assertion checks observable component/controller effects, not Lit
- *      internals;
- *   4. the lookup is anchored to stable semantic markup, labels, or
- *      user-facing text rather than incidental handler order;
- *   5. the test stays narrow.
- *
- * Because that escape hatch was being copy-pasted as ad-hoc per-file helper
- * variants, the skill's "consolidate deliberately rather than copy-pasting
- * variants" rule applies: this module is the single, strictly-typed,
- * type-guarded consolidation. Prefer public component/controller/helper seams
- * first; reach for these helpers only for genuine event-wiring extraction, and
- * keep each call site anchored to a stable marker. Do NOT use these helpers for
- * general content, text, attribute, ordering, styling, layout, focus, keyboard,
- * or accessibility assertions — move those to a public seam.
- *
- * Every accessor is type-guarded and fails with a clear error if Lit's private
- * template shape cannot be inspected, so tests never silently assert against
- * `undefined`.
+ * Type-guarded helpers for narrow Lit template event-wiring tests.
+ * Prefer production logic or mounted DOM interaction; use extraction only when
+ * a DOM harness would require disproportionate setup. Anchor to semantic
+ * markers and assert observable effects, not template structure or copy.
+ * See docs/testing-harnesses.md for usage guidance.
  */
 
 export type TemplateEventHandler<E extends Event = Event> = (event: E) => void;
@@ -197,49 +172,6 @@ export function findOptionalTemplateEventHandlerAfterValue<E extends Event = Eve
   }
 }
 
-/**
- * Find a click handler on the deepest template whose flattened text includes
- * `text`.
- *
- * Anchors wiring to user-facing row/label text (e.g. a file name) rather than
- * incidental handler order.
- */
-export function templateClickHandlerForText<E extends Event = Event>(template: TemplateResult, text: string, clickMarker = "@click"): TemplateEventHandler<E> {
-  const handler = findOptionalTemplateClickHandlerForText<E>(template, text, clickMarker);
-  if (handler === undefined) throw new Error(`Expected click handler near ${text}`);
-  return handler;
-}
-
-/** Optional variant of {@link templateClickHandlerForText}. */
-export function findOptionalTemplateClickHandlerForText<E extends Event = Event>(value: unknown, text: string, clickMarker = "@click"): TemplateEventHandler<E> | undefined {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const nested = findOptionalTemplateClickHandlerForText<E>(item, text, clickMarker);
-      if (nested !== undefined) return nested;
-    }
-    return undefined;
-  }
-  if (!isTemplateResult(value)) return undefined;
-
-  for (const item of templateValues(value)) {
-    const nested = findOptionalTemplateClickHandlerForText<E>(item, text, clickMarker);
-    if (nested !== undefined) return nested;
-  }
-  if (!templateText(value).includes(text)) return undefined;
-
-  const strings = templateStrings(value);
-  const values = templateValues(value);
-  for (let index = 0; index < values.length; index += 1) {
-    const candidate = values[index];
-    if (strings[index]?.includes(clickMarker) !== true || !isTemplateEventHandler<E>(candidate)) continue;
-    let following = strings[index + 1] ?? "";
-    for (let next = index + 1; next < values.length && !following.includes("</button>"); next += 1) {
-      following += templateText(values[next]) + (strings[next + 1] ?? "");
-    }
-    if (following.split("</button>")[0]?.includes(text) === true) return candidate;
-  }
-  return undefined;
-}
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");

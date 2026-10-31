@@ -84,7 +84,7 @@ describe("session root pins", () => {
     expect(pinnedSessionRows(rows, []).rows).toEqual(rows);
   });
 
-  it("keeps child pins authoritative while root preferences only reorder existing members", async () => {
+  it("groups canonical pins under section headings without promoting unpinned ordering preferences", async () => {
     const a = session("a");
     const b = session("b");
     const c = session("c");
@@ -95,13 +95,12 @@ describe("session root pins", () => {
     expect(pinnedSessionRootIds(list.sessions, list.pinnedSessionIds)).toEqual(["b", "a"]);
     expect(rowIds(list)).toEqual(["b", "a", "child", "c"]);
     expect([...shadow(list).querySelectorAll(".pin-heading")].map((item) => item.textContent)).toEqual(["Pinned", "Recent"]);
-    expect(row(list, "child").querySelector(".pin-indicator")).not.toBeNull();
-    expect(row(list, "c").querySelector(".pin-indicator")).toBeNull();
-    const toggle = vi.fn();
-    list.onTogglePin = toggle;
-    button(await openMenu(list, "child"), "Unpin").click();
-    expect(toggle).toHaveBeenCalledWith(child);
-    expect(list.pinnedSessionIds).toEqual(["child", "b"]);
+    const contents = [...shadow(list).querySelectorAll(".pin-heading, .action-row")].map((item) => item.classList.contains("action-row") ? item.getAttribute("title") : item.textContent);
+    expect(contents).toEqual(["Pinned", b.path, a.path, child.path, "Recent", c.path]);
+    list.pinnedRootIds = ["a", "b"];
+    await list.updateComplete;
+    expect(rowIds(list)).toEqual(["a", "child", "b", "c"]);
+    expect(shadow(list).querySelectorAll(".pin-heading")).toHaveLength(2);
     list.pinnedSessionIds = [];
     await list.updateComplete;
     expect(shadow(list).querySelectorAll(".pin-heading")).toHaveLength(0);

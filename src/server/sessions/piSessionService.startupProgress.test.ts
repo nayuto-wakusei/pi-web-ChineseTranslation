@@ -34,6 +34,7 @@ function recordingWorkspaceActivity() {
   return {
     calls,
     workspaceActivity: {
+      applySessionIntervention: () => { calls.push("applySessionIntervention"); },
       applySessionStatus: () => { calls.push("applySessionStatus"); },
       applySessionActivity: () => { calls.push("applySessionActivity"); },
       removeSession: () => { calls.push("removeSession"); },
@@ -143,6 +144,8 @@ describe("PiSessionService session startup progress", () => {
         "Creating session: Loading session extensions",
         "Idle",
       ]);
+      expect(startupEvents(hub).at(-1)).toMatchObject({ activity: { sessionId: "session-1", phase: "idle", label: "Idle" } });
+      expect(startupEvents(hub).at(-1)?.activity.detail).toBeUndefined();
     }
     await withStatus.service.dispose();
     await withoutStatus.service.dispose();
@@ -163,16 +166,6 @@ describe("PiSessionService session startup progress", () => {
       { intent: "open", stage: "extensions", catalogRefreshing: false },
       undefined,
     ]);
-    await service.dispose();
-  });
-
-  it("ends the startup window with an idle report when creation succeeds", async () => {
-    const { hub, service } = startupService();
-
-    await service.start("/workspace");
-
-    expect(startupEvents(hub).at(-1)).toMatchObject({ activity: { sessionId: "session-1", phase: "idle", label: "Idle" } });
-    expect(startupEvents(hub).at(-1)?.activity.detail).toBeUndefined();
     await service.dispose();
   });
 

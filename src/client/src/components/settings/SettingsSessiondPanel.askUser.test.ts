@@ -60,6 +60,7 @@ function configResponse(askUser: boolean, askUserOverride = false): PiWebConfigR
       allowedHosts: false,
       spawnSessions: false,
       subsessions: false,
+      sessionMessages: false,
       askUser: askUserOverride,
     },
   };

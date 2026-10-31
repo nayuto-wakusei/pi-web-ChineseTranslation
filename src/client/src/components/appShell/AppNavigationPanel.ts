@@ -45,8 +45,6 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) presentationRuntime: UiPresentationRuntime | undefined;
   @property({ attribute: false }) presentationContext: UiPresentationContextV1 = { mode: "normal" };
   @property({ attribute: false }) selectedMachine?: Machine;
-  /** PWA display mode: surfaces the single-machine identity in the header. */
-  @property({ type: Boolean }) locationIndicator = false;
   @property({ attribute: false }) machineStatuses: Record<string, MachineHealth> = {};
   @property({ attribute: false }) machineActivities: Record<string, Record<string, WorkspaceActivity>> = {};
   @property({ attribute: false }) machineStatusSnapshots: Record<string, MachineStatusSnapshot> = {};
@@ -56,13 +54,15 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) selectedWorkspace?: Workspace;
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ attribute: false }) pinnedSessionIds: string[] = [];
+  @property({ type: Boolean }) projectSelectionLoading = false;
+  @property({ type: Boolean }) sessionsLoading = false;
+  @property({ attribute: false }) selectedSession?: SessionInfo;
   @property({ attribute: false }) pinnedRootIds: string[] = [];
   @property({ type: Boolean }) workspaceSelectionVisible = true;
   @property({ attribute: false }) onMoveProject?: (project: Project, direction: -1 | 1) => void;
   @property({ attribute: false }) onMoveWorkspace?: (workspace: Workspace, direction: -1 | 1) => void;
   @property({ attribute: false }) onMoveSessionPin?: (session: SessionInfo, direction: -1 | 1) => void;
   @property({ attribute: false }) onTogglePanel?: () => void;
-  @property({ attribute: false }) selectedSession?: SessionInfo;
   @property({ attribute: false }) workspaceActivities: Record<string, WorkspaceActivity> = {};
   @property({ attribute: false }) sessionActivities: Record<string, SessionActivity> = {};
   @property({ attribute: false }) sessionStatuses: Record<string, SessionStatus> = {};
@@ -310,7 +310,7 @@ export class AppNavigationPanel extends LitElement {
   override render() {
     const treeLayout = this.presentationRuntime?.navigationLayout() === "tree";
     const showMachines = shouldShowMachinesSection(this.machines);
-    const showMachineSwitcher = !this.managementMode || showMachines || this.locationIndicator;
+    const showMachineSwitcher = !this.managementMode || showMachines;
     const showHeaderActions = this.refreshControl !== undefined || this.onShowActions !== undefined;
     const showHeader = this.showBrand || showMachineSwitcher || showHeaderActions || this.onTogglePanel !== undefined;
     return html`
@@ -322,7 +322,6 @@ export class AppNavigationPanel extends LitElement {
             .machines=${this.machines}
             .selected=${this.selectedMachine}
             .onEdit=${this.onEditMachine}
-            .locationIndicator=${this.locationIndicator}
             .statuses=${this.machineStatuses}
             .activities=${this.machineActivities}
             .unreadMachineIds=${this.unreadPresence.machines}
@@ -384,6 +383,7 @@ export class AppNavigationPanel extends LitElement {
         .activities=${this.workspaceActivities}
         .workspacesByProjectId=${this.workspacesByProjectId}
         .unreadProjectIds=${this.unreadPresence.projects}
+        .selectionLoading=${this.projectSelectionLoading}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
         .collapsible=${!treeLayout && this.collapsible}
         .collapsed=${!treeLayout && this.projectsCollapsed}
@@ -492,6 +492,7 @@ export class AppNavigationPanel extends LitElement {
         .scopeKey=${sessionListScopeKey(this.selectedMachine?.id, this.selectedWorkspace?.id)}
         .sessions=${treeLayout ? this.treeSessions() : this.sessions}
         .pinnedSessionIds=${this.pinnedSessionIds}
+        .loading=${this.sessionsLoading}
         .pinnedRootIds=${this.pinnedRootIds}
         .onMovePin=${this.managementMode || this.onMoveSessionPin === undefined ? undefined : this.childCallbacks.moveSessionPin}
         .statuses=${this.sessionStatuses}

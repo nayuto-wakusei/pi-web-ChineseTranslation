@@ -63,15 +63,6 @@ describe("buildTranscriptView", () => {
     expect(textPart.truncated).toEqual({ shown: 100, full: 800 });
   });
 
-  it("maxChars does not flag values at or under the cap", () => {
-    const messages = [assistant("short")];
-    const view = buildTranscriptView(messages, { maxChars: 100 });
-    const textPart = view.entries[0]?.parts[0];
-    if (textPart?.kind !== "text") throw new Error("expected text part");
-    expect(textPart.text).toBe("short");
-    expect(textPart.truncated).toBeUndefined();
-  });
-
   it("includeToolArgs returns raw args alongside the summary", () => {
     const messages = [toolCall("bash", { command: "ls" })];
     const view = buildTranscriptView(messages, { includeToolArgs: true });
@@ -119,14 +110,11 @@ describe("buildTranscriptView", () => {
     expect(buildTranscriptView(messages, { search: "needle_nested" }).matched).toBe(1);
   });
 
-  it("maxChars boundary: exact length is not flagged, one over is", () => {
-    const exact = buildTranscriptView([assistant("x".repeat(50))], { maxChars: 50 }).entries[0]?.parts[0];
-    if (exact?.kind !== "text") throw new Error("expected text part");
-    expect(exact.truncated).toBeUndefined();
-
-    const over = buildTranscriptView([assistant("x".repeat(51))], { maxChars: 50 }).entries[0]?.parts[0];
-    if (over?.kind !== "text") throw new Error("expected text part");
-    expect(over.truncated).toEqual({ shown: 50, full: 51 });
+  it.each([49, 50, 51])("maxChars preserves text at/below the boundary and flags overflow (length: %i)", (length) => {
+    const part = buildTranscriptView([assistant("x".repeat(length))], { maxChars: 50 }).entries[0]?.parts[0];
+    if (part?.kind !== "text") throw new Error("expected text part");
+    expect(part.text).toBe("x".repeat(Math.min(length, 50)));
+    expect(part.truncated).toEqual(length > 50 ? { shown: 50, full: length } : undefined);
   });
 
   it("maxChars: 0 clips everything and flags it (not treated as 'no cap')", () => {

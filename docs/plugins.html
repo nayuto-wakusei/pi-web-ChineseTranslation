@@ -83,6 +83,7 @@
 <p>本指南说明可实现的功能和使用方式；实现时请查阅<a href="#agent-development">公开契约与示例</a>，不要把本页作为第二份 API 声明。</p>
 <p><a id="what-can-be-built"></a><span id="overview"></span><span id="possibilities"></span><span id="extend"></span></p>
 <h2>可实现的功能</h2>
+<p>浏览器 v5 还可用 <a href="#transcript-renderers">transcript renderers</a> 定制内置工具条目及可见自定义消息的正文，不改变工具执行或历史。</p>
 <div class="table-scroll" role="region" tabindex="0" aria-label="参考表"><table class="reference-table">
 <thead>
 <tr>
@@ -158,15 +159,16 @@
 <p>在 <code>activate()</code> 中声明贡献，在 <code>start()</code> 中初始化依赖支持的工作，在 <code>dispose()</code> 中释放资源。长时间工作遵循 <code>lifetimeSignal</code>。简单浏览器插件仅需返回贡献。</p>
 <p><a id="scoped-discovery-and-backend"></a></p>
 <h3>作用域发现与后端</h3>
+<p>v5 catalog 的会话投影包含布尔 <code>pinned</code>、运行状态 <code>not-hosted</code> / <code>idle</code> / <code>busy</code>，以及 <code>created</code>、<code>modified</code>、<code>archivedAt</code>（ISO 时间或 <code>null</code>）。未知时间不是旧时间；非归档会话 <code>archivedAt</code> 也是 <code>null</code>。按空闲年龄使用 <code>modified</code>，按归档时长使用 <code>archivedAt</code>；不要用归档文件的 mtime 替代。<code>pinned</code> 汇总保留作用域的保护，不只当前工作区。依赖这些字段需要更新宿主，没有独立能力回退。清理策略执行前重新读取资格和 pin；catalog 只读，实际变更使用<a href="#session-lifecycle">生命周期能力</a>。</p>
 <p>浏览器 API v5 的 <code>catalog</code> 固定到创建上下文时的机器，只读查询公开项目、工作区和会话投影，不返回 transcript 或内部会话路径。切换选择不会改变已保留 catalog 的目标；会话使用完整、区分大小写的精确 ID，不接受缩写。</p>
 <p>可选 <code>backend</code> 指向同包配对的实际服务端入口：<code>backend.forScope({ kind: &quot;machine&quot; })</code>、<code>{ kind: &quot;project&quot;, projectId }</code> 或 <code>{ kind: &quot;workspace&quot;, projectId, workspaceId }</code> 返回请求/通道 peer。没有 session backend scope。宿主重新解析 authority，插件不传可信 cwd；机器与后端 revision 不匹配时拒绝，不静默使用网关同名后端。操作是否支持取决于实际 peer/capability，不由 API 版本单独保证。旧浏览器 v4 与服务端 v3 继续使用其原契约。</p>
 <p>服务端可声明 <code>PI_WEB_HOST_CATALOG_CAPABILITY</code> 获取目标宿主的公开 catalog；Pi 配套扩展通过公开服务端入口的 <code>createCompanionBackend(pi.events, pluginId)</code> 发现本地配对 backend，要求在 PI WEB 已托管事件总线上运行。普通宿主会话连接不开放管理会话，完整特权也不取消该边界。普通 catalog 排除当前配置的管理 root；它不替历史文件补写耐久 scope，曾更换管理 root 的遗留文件需人工隔离。</p>
 <p><a id="styles-highlighting-and-display"></a></p>
 <h3>样式、高亮与显示文本</h3>
-<p>v5 <code>stylesheets</code> 贡献包含 <code>id</code>、HTTP(S) <code>url</code> 和可选 <code>order</code>（默认 <code>1000</code>，较小先加载，同序按限定贡献 ID）。使用模块相对 URL 生成 CSS 文件地址，文件内资产相对 CSS 地址解析；不支持内联 CSS 或运行时 <code>@import</code>。v5 主题使用样式表；需要共享样式的组件使用公开 <code>StylesheetIntegrationCapabilityV1</code> 注册 shadow root 或创建 Lit lifecycle controller，并在断开时释放。主题属于网关应用，浏览器设备偏好优先于网关默认值。</p>
+<p>v5 <code>stylesheets</code> 贡献包含 <code>id</code>、HTTP(S) <code>url</code> 和可选 <code>order</code>（默认 <code>1000</code>，较小先加载，同序按限定贡献 ID）。使用模块相对 URL 生成 CSS 文件地址，文件内资产相对 CSS 地址解析；不支持内联 CSS 或运行时 <code>@import</code>。新主题通过<a href="#css-first-themes">静态包元数据</a>声明；运行时 themes/themePairs 已弃用但继续兼容并发出警告。v5 主题使用样式表；需要共享样式的组件使用公开 <code>StylesheetIntegrationCapabilityV1</code> 注册 shadow root 或创建 Lit lifecycle controller，并在断开时释放。主题属于网关应用，浏览器设备偏好优先于网关默认值。</p>
 <p>共享基础 UI 通过 <code>{ pluginId: &quot;pi-web&quot;, id: &quot;stylesheet-integration&quot;, version: 1, parse }</code> 声明依赖并在 <code>start</code> 中解析；组件使用 <code>createController(this, { sharedUi: true })</code> 或 <code>registerRoot(root, { sharedUi: true })</code>。省略 opt-in 只接收贡献样式，不接收共享按钮、选择器、工具栏、标签和文件行。宿主持有注入、排序与清理；原生事件、键盘交互、焦点与 ARIA 仍由消费者持有。共享 UI 不包含菜单、表单和对话框，插件不得深导入客户端私有样式。</p>
 <p><code>stylesheet-integration</code> 能力可由支持的浏览器 v4/v5 入口声明，能力版本与入口版本独立；这不使旧入口获得 v5 专属的 <code>stylesheets</code> 贡献字段。</p>
-<p>基础主题同步提供默认布局与控件表现，主题 CSS 可扩展配色与布局；基础规则在 <code>pi-web-base</code> cascade layer，普通未分层主题规则遵循 CSS cascade 覆盖。内部选择器、共享类和外观仍属实验性，不因能力版本而冻结；具体控件入口见<a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/ui-primitives.md">共享 UI 导航</a>。</p>
+<p>基础主题同步提供默认布局与控件表现，主题 CSS 可扩展配色与布局；基础规则在 <code>pi-web-base</code> cascade layer，普通未分层主题规则遵循 CSS cascade 覆盖。<a href="theme-styling-contract.md">主题样式契约</a>列明受支持的消息、选择、导航行、编辑器及菜单挂钩；其余内部选择器、共享类和外观仍属实验性，不因能力版本而冻结；具体控件入口见<a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/ui-primitives.md">共享 UI 导航</a>。</p>
 <p>宿主锚点弹层支持面板 CSS 变量 <code>--ui-popup-placement</code>，可取 <code>below-end</code>、<code>below-start</code>、<code>above-start</code> 或 <code>left-end</code>。宿主显式定位选项优先；未指定选项时读取该变量，空值或不支持的值使用默认 <code>below-end</code>。样式只选择首选对齐，宿主仍按可见视口约束尺寸并在必要时切换上下方向，继续管理焦点和弹层关闭。</p>
 <p>v5 <code>syntaxHighlighters</code> 返回有序、不重叠的 UTF-16 范围 token，不返回 HTML；宿主负责安全显示，插件遵守输入 <code>signal</code>。v5 内容渲染器还可提供 <code>title</code>、同步 <code>supports(request)</code>，并接收机器、语言和文件路径提示；正文仍是不可信输入，净化与清理要求不变。精确签名以公开声明为准。</p>
 <p>Pi 的 Markdown transformer 链在 daemon 的浏览器投影阶段运行，仅对完成及历史的用户、assistant 文本和 thinking 派生 <code>displayText</code>；部分流式文本完成后才应用，文件预览不受影响。canonical 消息、持久化历史、模型输入、审计原文和实际 <code>thinkingLevel</code> 不变。“复制消息”和消息操作使用原文；代码围栏的 Raw/Copy 使用变换后的围栏源码。</p>
@@ -209,6 +211,40 @@
 });</code></pre></div>
 <p>所有字段都可省略：<code>machineId</code>、<code>projectId</code>、<code>workspaceId</code>、<code>sessionId</code>、<code>view</code> 及完整贡献 ID 的 <code>tool</code>。省略机器意味着调用时选中的机器。这不是路由补丁：省略字段使用宿主普通恢复默认值，不复制当前会话、工具或贡献查询；默认值可以恢复记忆中的会话。打开已知会话时提供项目和工作区作用域。宿主不会遍历查找 ID，也不会创建不存在的目的地。</p>
 <p>Promise 在恢复完成时结束，也可在被较新导航取代时正常结束。缺失或不可用的目的地使用普通宿主 UI，不再额外拒绝 Promise。参数类型错误或无效 <code>view</code> 会在改变 URL/UI 前以 <code>TypeError</code> 拒绝。</p>
+<h3 id="transcript-renderers">Transcript renderers</h3>
+<p>Browser v5 plugins can contribute <code>transcriptRenderers</code> to customize tool entries, including built-in tools, and displayed custom messages. The host retains the transcript frame and its controls; the plugin supplies the entry body. Rendering changes presentation, not tool execution or session history. Hidden custom messages remain hidden; this API does not expose <code>appendEntry</code>.</p>
+<p>Each contribution has a unique local <code>id</code>. Declare the host capability <code>pi-web/transcript-rendering@1</code> (<code>pluginId: &quot;pi-web&quot;</code>, <code>id: &quot;transcript-rendering&quot;</code>, <code>version: 1</code>) in <code>requires</code> when the plugin needs this feature on older hosts. The capability is a feature marker; rendering uses contributions, not capability methods.</p>
+<p><strong>Tools</strong> contribute <code>{ id, target: &quot;tool&quot;, resolve(toolName, next) }</code>. There is no declarative <code>toolName</code> field: the resolver chooses which names to handle. Resolvers run synchronously in plugin discovery order, so the first resolver gets first refusal. Asynchronous import completion does not change that order. A resolver returns a <code>TranscriptToolRenderer</code>—an object with <code>render(input): TemplateResult | undefined</code>—or <code>undefined</code>.</p>
+<ul>
+<li><strong>Delegate:</strong> return <code>next()</code> for a name you do not handle.</li>
+<li><strong>Replace:</strong> return your own renderer without calling <code>next()</code>.</li>
+<li><strong>Wrap:</strong> call <code>next()</code> to obtain the downstream renderer, then return a renderer that calls <code>downstream.render(input)</code> and decorates its result.</li>
+</ul>
+<p><code>next()</code> returns renderer callbacks, not HTML. Treat the returned renderer as read-only; return a new renderer object to replace or wrap it. The web transcript supplies its core default renderer at the end of the chain, so wrappers can decorate the normal tool card as well as another plugin&#39;s renderer. Delegating unchanged all the way to that default keeps the normal view without a custom-view toggle. The resolver type still permits <code>undefined</code> for contexts without a supplied default. Returning <code>undefined</code> from a resolver ends selection; the host does not automatically try later resolvers and instead shows the core fallback. Returning <code>undefined</code> from a selected renderer&#39;s <code>render</code> also shows that fallback without restarting selection.</p>
+<p><strong>Custom messages</strong> contribute <code>{ id, target: &quot;custom-message&quot;, customType, render }</code>. The first eligible contribution in discovery order with an exact, case-sensitive <code>customType</code> wins, like TUI custom-message rendering. Messages have no <code>next</code> callback. Declining or failing does not try a later matching message renderer.</p>
+<p>The <a href="https://github.com/jmfederico/pi-web/tree/main/examples/transcript-renderer-plugin">standalone example</a> demonstrates actual tool chaining: a wrapper resolver precedes the checks renderer in the same contribution array. Its core pattern is:</p>
+<pre><code class="language-ts">{
+  id: &quot;checks-wrapper&quot;,
+  target: &quot;tool&quot;,
+  resolve(toolName, next) {
+    if (toolName !== &quot;example_checks&quot;) return next();
+    const downstream = next();
+    if (!downstream) return undefined;
+    return {
+      render(input) {
+        const body = downstream.render(input);
+        return body === undefined ? undefined : html`
+          &lt;div&gt;&lt;p&gt;Rendered by the example plugin&lt;/p&gt;${body}&lt;/div&gt;
+        `;
+      },
+    };
+  },
+}
+</code></pre>
+<p><code>scope</code> contains <code>machineId</code> and <code>sessionId</code>, with optional <code>projectId</code> and <code>workspaceId</code>. A tool <code>entry</code> contains <code>toolName</code>, <code>status</code> (<code>pending</code>, <code>running</code>, <code>success</code>, or <code>error</code>), and optional <code>toolCallId</code>, <code>args</code>, <code>content</code>, <code>details</code>, and <code>resultText</code>. A custom-message <code>entry</code> contains <code>customType</code>, <code>content</code>, and optional <code>entryId</code> and <code>details</code>. Treat opaque <code>args</code>, <code>content</code>, and <code>details</code> as untrusted data: validate your own schema before using them.</p>
+<p>Both tool and message <code>render</code> callbacks receive <code>{ scope, entry, signal, fail }</code>. Rendering is synchronous and returns a Lit <code>TemplateResult</code> or <code>undefined</code>; returning a Promise is unsupported. Unlike resolver delegation through <code>next()</code>, returning <code>undefined</code> from <code>render</code> declines the current body and retains the existing view without restarting selection. An empty template deliberately renders an empty body. A thrown error or <code>fail(error)</code> restores the existing view. The host&#39;s default-view control also lets the user bypass the custom body.</p>
+<p>Rendering may repeat as inputs change. Keep it repeatable and do not execute tools or session operations as a side effect of rendering. Honor <code>signal</code> for asynchronous work and release resources: it aborts when inputs change, the entry unmounts, the plugin is disabled, or the user selects the default view. Report asynchronous failures through <code>fail</code>; obsolete calls are ignored.</p>
+<p>Use the existing <a href="#styles-highlighting-and-display">stylesheet integration</a> for plugin-owned shadow roots and <a href="theme-architecture.md">theme tokens and cascade layers</a> for appearance. The host&#39;s frame remains core-owned; renderer bodies do not replace it or introduce a separate styling contract.</p>
 <h3 id="content-previews-in-chat-and-files">聊天与文件内容预览</h3>
 <p>浏览器插件的 <code>contentRenderers</code> 提供 <code>id</code>、围栏 <code>languages</code> 或不含点的 <code>fileExtensions</code>，同步 <code>render(input)</code> 返回 Lit 模板。<code>renderMode</code> 默认为 <code>manual</code>，用户选择命名视图后才激活；<code>automatic</code> 可自动显示。v5 还可用 <code>title</code> 命名视图、同步 <code>supports(request)</code> 判断资格，并接收机器、语言和文件路径提示；旧 v4 输入不变。</p>
 <p>同一渲染器用于聊天围栏、文件 Markdown 围栏和独立文本文件，并遵循所属机器可用性。浏览器先发现 bundled 默认插件，再发现 installed 覆盖，各组内部顺序保持不变。匹配项保持插件发现顺序，最后一个匹配的 automatic 渲染器是默认；后来的 manual 渲染器不抢占自动默认。异步加载完成顺序不决定优先级，用户显式选择优先。每个渲染器与“源码”（Raw）是单行横向滚动的命名按钮，同时仅挂载所选预览，不使用选择器菜单。</p>
@@ -221,6 +257,7 @@
 <p>会话快照中的 <code>metadata</code> 只包含主动发布的 UI-safe 命名空间数据，不暴露任意 custom entries。命名空间不构成权限或所有权隔离，插件须校验自己的 schema 并安全显示；旧宿主可省略该字段。服务端发布与浏览器读取都不应放入秘密。</p>
 <p><code>messageActions</code> 默认针对持久 entry，调用时提供受保护的 <code>history.fork()</code>/<code>goBack()</code>；<code>target: &quot;display&quot;</code> 针对当前显示切片，可包含未持久化文本，但没有历史操作助手。两者提供的普通原文均排除 thinking/tool payload，不使用派生 <code>displayText</code>。可见性和可用性判断同步且无副作用，真正操作由调用上下文固定到原机器/会话；插件自己决定确认。</p>
 <span id="host-capabilities"></span><h3 id="conversations-and-companion-extensions">会话与配套扩展</h3>
+<p>宿主 Pi sessions 能力的 <code>run()</code> 接受可选 <code>model</code>（精确 <code>provider/model-id</code>）和 <code>thinkingLevel</code>；省略使用普通会话默认值，返回 handle 可包含有效启动设置。宿主不静默替换不可用覆盖；错误码 <code>PI_SESSION_MODEL_UNAVAILABLE</code> 或 <code>PI_SESSION_THINKING_UNAVAILABLE</code> 保证未提交初始提示，调用者可显式移除被拒覆盖再重试。其他启动/完成错误不提供该保证；<a href="scheduled-tasks.md#model-and-thinking-overrides">定时任务</a>记录自己的设置回退。</p>
 <p>服务端插件可创建普通、可见的 Pi 会话，可带初始提示词，也可不带。配套 Pi 扩展可与后端交换消息，使用 Pi API 执行代理工作。</p>
 <p><strong>会话一旦发布就属于用户。</strong> 初始任务完成、浏览器关闭或发起插件销毁，都不会丢弃会话或停止用户后续工作；用户可以继续对话。</p>
 <p>消息连接只针对该机器已托管的会话，不自动打开已保存会话。发送成功不能证明配套扩展已安装或工作成功，集成必须自己报告进度与结果。连接不重放启动消息；关闭连接不停止代理。</p>
@@ -282,7 +319,9 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
 <li><strong>Mermaid</strong>默认手动模式，点击“渲染”预览 <code>mermaid</code> 围栏和 <code>.mmd</code>/<code>.mermaid</code> 文件。内置引擎在不透明来源、网络受阻的沙箱中本地运行，不发送源码给图表服务。交互链接和外部资源不可用。禁用后保持代码显示；纯浏览器插件只需刷新页面。</li>
 <li><strong>信息</strong>作为应用级面板显示 PI WEB 状态与可复制诊断，无需先选择工作区。</li>
 <li><strong>更新</strong>在需要时显示更新/重启建议，并提供手动检查。</li>
-<li><strong>工作区任务</strong>将项目命令显示为可运行操作。</li>
+<li><strong>工作区任务</strong>将项目命令显示为可运行操作，与定时派发对话不同。</li>
+<li><strong>Session naming</strong> 可移除 Pi 扩展，负责新会话首条提示命名；配置与迁移见<a href="config.md#session-naming">会话命名</a>。</li>
+<li><strong>Scheduled agent tasks（beta）</strong> 可选包，提供代理管理的计划与只读“计划任务”面板；Web 插件默认禁用。安装、时区及执行历史见<a href="scheduled-tasks.md">指南</a>。</li>
 </ul>
 <h3 id="managed-agents-review">管理工作区指令</h3>
 <p>管理嵌入的文件工具栏提供 <code>AGENTS.md</code> 二级菜单。存在待确认更新时，入口持续闪烁提示；减少动态效果的设备使用静态强调。“覆盖并备份”先将当前工作区的原文件保存到 <code>.pi-web/agents-backups/</code>，再写入授权项目提供的模板；“不覆盖”保留文件并停止当前版本的提示。只关闭菜单或按 Escape 不提交决定，提示仍保留。</p>
@@ -429,10 +468,98 @@ const summary = await response.text();
 <p>Feature-detect the optional activation-context <code>localization</code> service. Register ICU messages with <code>localization.registerMessages</code>, use stable IDs and English fallback messages, and dispose registrations with the plugin lifecycle. Language packs contribute catalogs instead of scanning DOM or injecting HTML. UI language, formatting locale, time zone, and hour cycle are independent; see <a href="localization.md">Localization</a>. The bundled <code>zh-cn</code> plugin supplies Chinese ICU catalogs and the legacy <code>translate</code> dictionaries. The legacy browser bridge follows the selected UI language, while CLI/server text follows the owning machine&#39;s language configuration. Do not translate user/model text, protocol identifiers, or remote-owned payloads.</p>
 
 <h3 id="managed-package-sources">Managed package sources</h3>
-<p>Bundled Relays and Workflows registrations follow the running installation&#39;s shipped package paths. Source migration preserves package resource filters and remembered explicit removals. Missing historical global-install sources from either <code>@jmfederico/pi-web</code> or <code>@chainingintention/pi-web-cn</code> can be repaired to the current installation; unrelated user package sources are not rewritten.</p>
+<p>Relays、Workflows 和 Session naming 随 PI WEB 分发及更新，daemon 启动时将已配置来源对齐到当前安装并保留资源过滤器。在“设置 → Pi 包”移除会持久记录；仅执行 <code>pi remove</code> 可能在下次 daemon 启动重新安装。</p>
+<p>Bundled Relays, Workflows, and Session naming registrations follow the running installation&#39;s shipped package paths. Source migration preserves package resource filters and remembered explicit removals. Missing historical global-install sources from either <code>@jmfederico/pi-web</code> or <code>@chainingintention/pi-web-cn</code> can be repaired to the current installation; unrelated user package sources are not rewritten.</p>
 <p>Management resource requests retain management context and authorized workspace scope; a resource URL never grants access beyond that context or falls back to the gateway&#39;s ordinary workspace.</p>
 
 
+<h3 id="css-first-themes">CSS-first themes</h3>
+<p>Themes extend the built-in base theme: they can supply layout and control rules as well as palette properties. The base provides the default shell, responsive layout, shared controls, and transcript presentation in the <code>pi-web-base</code> cascade layer. Normal unlayered theme rules override those defaults. A supported contract covers conversation, choice, project/workspace/session navigation-row, composer-control, and popup/menu hooks; specialised local component/plugin styles outside that boundary are still being migrated. See <a href="theme-architecture.md">theme architecture</a> for composition, examples, and current limits.</p>
+<p>Declare new themes as static package metadata. A theme-only package ships CSS and assets without browser JavaScript or a server module. The gateway reads themes without evaluating package code and includes its default-theme details and CSS in the initial page. Details include the associated light/dark pair; both variants&#39; CSS are included for Auto. The app can show that palette while a different browser preference loads through an ordinary request. General settings fetch the full inventory once per dialog, with explicit retry on failure and HTTP caching across requests. Built-in palettes use the same declarative mechanism. Optional Custom UI Codex contributes presentation styles and static theme metadata; it does not change the default theme, and Paper / Graphite remain ordinary catalog choices. Defaults, device precedence, and enforcement are described in <a href="config.md#default-theme-and-streaming">configuration</a>.</p>
+<p>For example, ship this <code>package.json</code> alongside <code>assets/dark.css</code> and <code>assets/light.css</code>:</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;pi-web-ocean-themes&quot;,
+  &quot;version&quot;: &quot;1.0.0&quot;,
+  &quot;files&quot;: [&quot;assets&quot;],
+  &quot;piWeb&quot;: {
+    &quot;plugins&quot;: [{
+      &quot;id&quot;: &quot;ocean-themes&quot;,
+      &quot;browserRoot&quot;: &quot;assets&quot;,
+      &quot;themes&quot;: [{
+        &quot;id&quot;: &quot;ocean-dark&quot;,
+        &quot;name&quot;: &quot;Ocean Dark&quot;,
+        &quot;colorScheme&quot;: &quot;dark&quot;,
+        &quot;stylesheets&quot;: [{ &quot;id&quot;: &quot;palette&quot;, &quot;path&quot;: &quot;dark.css&quot; }]
+      }, {
+        &quot;id&quot;: &quot;ocean-light&quot;,
+        &quot;name&quot;: &quot;Ocean Light&quot;,
+        &quot;colorScheme&quot;: &quot;light&quot;,
+        &quot;stylesheets&quot;: [{ &quot;id&quot;: &quot;palette&quot;, &quot;path&quot;: &quot;light.css&quot; }]
+      }],
+      &quot;themePairs&quot;: [{
+        &quot;id&quot;: &quot;ocean&quot;,
+        &quot;name&quot;: &quot;Ocean&quot;,
+        &quot;light&quot;: &quot;ocean-light&quot;,
+        &quot;dark&quot;: &quot;ocean-dark&quot;
+      }]
+    }]
+  }
+}
+</code></pre>
+<p>Theme and pair declarations require <code>id</code> and <code>name</code>, and accept optional <code>description</code> and finite numeric <code>order</code>. Themes also require <code>colorScheme</code> (<code>light</code> or <code>dark</code>) and a nonempty <code>stylesheets</code> list. Each stylesheet requires a local <code>id</code> and a <code>path</code> relative to <code>browserRoot</code>, with optional finite numeric <code>order</code>. Local IDs begin with a lowercase letter and contain only lowercase letters, digits, dots, or hyphens. Theme and pair IDs must be distinct within an entry; stylesheet IDs must be distinct within each theme. Pair members must reference local themes with matching light/dark schemes.</p>
+<p>Keep paths inside the browser-public root, without leading slashes, backslashes, empty segments, <code>.</code> or <code>..</code> segments. Everything in <code>browserRoot</code> is public; ship only intended assets. The gateway supplies qualified theme IDs such as <code>ocean-themes:ocean-dark</code> and default/enforced policy. Initial delivery contains only the default selection, or Classic while a legacy runtime default awaits browser activation. <code>GET api/theme?themeId=…&amp;auto=…</code> supplies another selection on demand, and General settings use <code>GET api/themes</code> for the complete enabled picker inventory. The application HTML embeds the same bootstrap envelope when it is available. The development Vite server obtains that identical envelope server-to-server through <code>GET</code>/<code>HEAD api/theme-bootstrap</code>; this one route is anonymous because the dev server has no user session. <code>GET api/theme</code> and <code>GET api/themes</code> remain behind ordinary authentication, and theme CSS keeps ordinary static-resource access. Metadata responses support private HTTP caching with ETag revalidation. It supplies revision-path stylesheet URLs so relative CSS fonts and images use the same immutable asset revision. Keep those assets under the same root, and bundle CSS imports before shipping. Theme-only changes need a browser reload, not a session-daemon restart.</p>
+<h4 id="migrating-runtime-themes">Migrating runtime themes</h4>
+<p>Browser <code>activate().contributions.themes</code> and <code>themePairs</code> are deprecated but remain supported, with a browser-console deprecation warning. V5 runtime themes still use CSS stylesheet URLs; v4 themes retain their required <code>tokens: ThemeTokens</code> contract and cannot declare stylesheet contributions. Existing token palettes continue to work through semantic-property fallbacks, and switching away clears their overrides. Runtime themes require browser activation and cannot benefit from early static discovery.</p>
+<p>Move theme and pair metadata into the same entry&#39;s <code>piWeb.plugins[]</code> declaration. Replace stylesheet <code>url</code> expressions with <code>path</code> values relative to <code>browserRoot</code>, and ship the CSS and referenced assets there. Convert v4 tokens into CSS custom properties. Preserve the plugin ID and local theme/pair IDs to keep saved choices valid, and remove the old runtime registrations rather than registering the same themes twice. Remove <code>module</code> only if the browser entry has no other work; remove <code>serverModule</code> only if no backend is needed.</p>
+<p>Put palette custom properties on <code>:root</code> so they inherit into shadow trees; use ordinary selectors in the same file for direct rules in participating roots.</p>
+<p><code>dark.css</code> might start with:</p>
+<pre><code class="language-css">:root {
+  --pi-bg: #071923;
+  --pi-surface: #102b38;
+  --pi-text: #e4f5ff;
+  --pi-accent: #60d7ee;
+}
+</code></pre>
+<h4 id="semantic-appearance-properties">Semantic appearance properties</h4>
+<p>Themes can override these properties independently of the base palette:</p>
+<table>
+<thead>
+<tr>
+<th>Properties</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--pi-font</code>, <code>--pi-mono</code></td>
+<td>UI and code font-family stacks; control sizes and line heights stay component-owned</td>
+</tr>
+<tr>
+<td><code>--pi-thinking</code>, <code>--pi-tool</code></td>
+<td>Thinking and tool activity tones</td>
+</tr>
+<tr>
+<td><code>--pi-syntax-comment</code>, <code>--pi-syntax-keyword</code>, <code>--pi-syntax-string</code>, <code>--pi-syntax-number</code>, <code>--pi-syntax-title</code>, <code>--pi-syntax-deletion</code></td>
+<td>Syntax-highlighting colours, independent of success/warning/error feedback</td>
+</tr>
+<tr>
+<td><code>--pi-chat-conversation-bg</code>, <code>--pi-chat-conversation-border</code></td>
+<td>Ordinary conversation surface and leading edge</td>
+</tr>
+<tr>
+<td><code>--pi-chat-user-bg</code>, <code>--pi-chat-user-border</code></td>
+<td>User-message surface and leading edge</td>
+</tr>
+<tr>
+<td><code>--pi-chat-system-bg</code></td>
+<td>System-message surface</td>
+</tr>
+<tr>
+<td><code>--pi-chat-activity-bg</code>, <code>--pi-chat-compacting-bg</code></td>
+<td>Session activity and compaction surfaces</td>
+</tr>
+</tbody></table>
+<p>Define these on <code>:root</code>, alongside the base palette. Font properties accept font-family stacks, not complete <code>font</code> shorthands; keep <code>--pi-mono</code> monospaced for code alignment. The terminal&#39;s xterm grid and copy-selection overlay retain their configured font so cell geometry stays aligned. Existing themes may omit them: components fall back to base palette colours, existing colour mixes, and system fonts. Built-in themes declare them explicitly; most colours alias or mix base palette properties. Syntax deletions default to <code>--pi-danger</code>; the legacy <code>--pi-error</code> property remains a fallback for older external themes. Theme properties control appearance; direct CSS rules can also customise migrated base layouts. Components retain interaction and scroll controllers, while the base theme supplies default responsive CSS and visual accessibility treatments. These properties, like shared UI classes, remain experimental.</p>
+<p>The example above is a partial palette. Use the <a href="https://github.com/jmfederico/pi-web/tree/main/pi-web-plugins/themes/assets">built-in palette files</a> as a reference for the shared <code>--pi-*</code> vocabulary. <code>colorScheme</code> remains required metadata for native controls and browser appearance; declaring CSS alone does not set it. Theme pair <code>light</code> and <code>dark</code> values are local theme IDs from the same plugin. Auto mode follows the device preference within the pair; unpaired themes stay selected. See <a href="config.md#theme-default-and-device-choices">theme selection and defaults</a> for device choices, fallback, and the preserved built-in IDs. Machine-bound remote theme contributions remain ignored; themes are app-wide.</p>
 <p><a id="agent-development"></a><span id="develop"></span><span id="agent-docs"></span><span id="ask-ai"></span></p><h2>代理开发</h2>
 <p>给代理具体目标、数据来源及允许的动作：</p>
 <div class="code-card"><div class="copy-row"><strong>示例</strong><button class="copy-button" data-copy="#plugin-example-5">复制</button></div><pre id="plugin-example-5"><code class="language-text">为此项目创建 PI WEB 插件。
@@ -486,6 +613,54 @@ const summary = await response.text();
 <li>工作区发现与会话支持功能分离，代理行为放在 Pi 配套扩展，而不是导入宿主内部模块。</li>
 </ul>
 <p><a id="trust-and-recovery"></a><span id="lifecycle-recovery"></span><span id="trust"></span></p>
+<h2 id="session-lifecycle">Session lifecycle</h2>
+<p>Plugins can manage a saved session by its full <code>{ projectId, workspaceId, sessionId }</code> identity, without selecting it in the browser or opening its runtime. The host resolves the workspace; plugins do not supply session file paths.</p>
+<p>Browser v5 invocation contexts expose optional <code>context.sessions</code>, bound to that context&#39;s machine. Check for its presence on older hosts. Server plugins declare <code>PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY</code> from <code>@jmfederico/pi-web/server-plugin-api</code> in <code>requires</code>, then resolve it in <code>start({ capabilities })</code>. The capability is local to that daemon and becomes available after workspace providers have settled; workspace providers must not depend on it.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>get(target)</code></td>
+<td>Read <code>{ sessionId, pinned, archived }</code>.</td>
+</tr>
+<tr>
+<td><code>pin(target)</code></td>
+<td>Persist a pin in the target workspace for an active or archived session.</td>
+</tr>
+<tr>
+<td><code>unpin(target)</code></td>
+<td>Remove that workspace&#39;s pin; pins in other scopes remain in effect.</td>
+</tr>
+<tr>
+<td><code>archive(target)</code></td>
+<td>Archive that session, without implicitly archiving descendants.</td>
+</tr>
+<tr>
+<td><code>restore(target)</code></td>
+<td>Restore an archived session without starting its runtime.</td>
+</tr>
+<tr>
+<td><code>delete(target)</code></td>
+<td>Permanently delete an already-archived session.</td>
+</tr>
+</tbody></table>
+<pre><code class="language-ts">// In a browser plugin&#39;s event handler, using IDs returned by context.catalog:
+const sessions = context.sessions;
+if (sessions === undefined) throw new Error(&quot;This host does not support session lifecycle operations&quot;);
+const target = { projectId, workspaceId, sessionId };
+await sessions.pin(target);
+const state = await sessions.get(target);
+</code></pre>
+<p><strong>Pins protect cleanup, not explicit plugin commands.</strong> A plugin can explicitly archive a pinned session or delete it once archived; it does not need to unpin first. Native busy-session and archived-only deletion safeguards still apply. Plugins are trusted code and must decide when to request confirmation for destructive actions. Cleanup previews remain estimates: cleanup rechecks eligibility and pins when it runs, rather than freezing a session list.</p>
+<p>Calls accept an optional <code>{ signal }</code>. Cancellation or plugin disposal prevents new work; it does not undo a mutation already admitted by the host. Call mutations from event handlers or background work, not render or availability callbacks. Errors are reported to the caller; do not automatically retry a destructive operation after an ambiguous transport failure without checking the current state.</p>
+<h3 id="pin-storage-upgrade">Pin-storage upgrade</h3>
+<p>Session pins are daemon-owned managed state in <code>$PI_WEB_DATA_DIR/session-pins.json</code>. The updated daemon imports existing pin scopes, ordering, revisions, and cleared scopes from <code>navigation-preferences.json</code> once. Project and workspace ordering stays web/API-owned in the original file. Browser pin actions, plugin commands, and cleanup then use the same daemon-owned pins.</p>
+<p>Upgrade/restart the web/API process <strong>before</strong> starting the updated session daemon, then reload the browser. Do not keep an older web/API process writing pins after the daemon takes ownership. New web/API processes do not fall back to legacy pin writes if the daemon is unavailable or outdated. <strong>Restarting sessiond interrupts active sessions and terminals</strong>; schedule this cutover when they can be interrupted.</p>
+<p>普通插件会话生命周期能力不开放管理会话；管理身份、授权和审计边界不因显式 pin/archive/delete 操作而消失。</p>
 <h2>信任与恢复</h2>
 <p><strong>仅安装可信插件。</strong> 浏览器入口在页面内运行；服务端入口在守护进程内使用其文件系统、环境及进程权限，没有独立沙箱。阻塞或故障服务端代码可影响同一守护进程所有会话；超时只能帮助配合取消的工作，不能停止阻塞代码。管理嵌入继续保留独立认证、授权资源、能力与审计边界，不向插件放开普通模式能力。</p>
 <p>先在目标机器 <strong>设置 → PI WEB 插件</strong> 检查安装、启用、兼容和激活状态。浏览器失败看控制台，服务端失败在目标机器执行 <code>pi-web logs</code>。过期或需重启状态通常需要重启守护进程后刷新浏览器。</p>

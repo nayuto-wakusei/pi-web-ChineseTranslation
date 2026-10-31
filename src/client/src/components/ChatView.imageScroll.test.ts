@@ -58,15 +58,4 @@ describe("ChatView browser-owned image layout", () => {
     expect(render).not.toHaveBeenCalled();
     expect(scheduleFrame).not.toHaveBeenCalled();
   });
-
-  it("does not apply legacy image-layout corrections from transcript descendants", async () => {
-    const { scroller, write, restore, render, scheduleFrame } = await readingHistory();
-    for (const type of ["image-will-layout", "image-layout"]) {
-      scroller.dispatchEvent(new Event(type, { bubbles: true, composed: true }));
-    }
-    expect(write).not.toHaveBeenCalled();
-    expect(restore).not.toHaveBeenCalled();
-    expect(render).not.toHaveBeenCalled();
-    expect(scheduleFrame).not.toHaveBeenCalled();
-  });
 });

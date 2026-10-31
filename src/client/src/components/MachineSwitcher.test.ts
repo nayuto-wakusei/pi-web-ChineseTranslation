@@ -3,7 +3,7 @@ import { installPopoverFake } from "./anchoredPopup.testSupport";
 installPopoverFake();
 
 import { afterEach, describe, expect, it } from "vitest";
-import type { Machine, MachineHealth, MachineStatus, WorkspaceActivity } from "../api";
+import type { Machine, MachineHealth, MachineStatus } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { machineStatusSnapshot } from "../machineStatus.testSupport";
 import { MachineSwitcher } from "./MachineSwitcher";
@@ -58,7 +58,7 @@ describe("machine-switcher status indicator", () => {
   });
 
   it("keeps the unread dot on the single-machine info bubble", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], { local: machineStatusSnapshot({ machine: { "core:unread": true } }) }, {}, true);
+    const switcher = await mountSwitcher([machine("local", "local")], { local: machineStatusSnapshot({ machine: { "core:unread": true } }) });
 
     const dot = switcher.shadowRoot?.querySelector(".machine-info .activity-indicator.unread");
     expect(dot).not.toBeNull();
@@ -75,18 +75,10 @@ describe("machine icons", () => {
   });
 
   it("dims the icon of an offline machine", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], {}, { local: health("offline") }, true);
+    const switcher = await mountSwitcher([machine("local", "local")], {}, { local: health("offline") });
 
     const icon = switcher.shadowRoot?.querySelector<HTMLImageElement>(".machine-info .machine-icon");
     expect(icon?.classList.contains("dimmed")).toBe(true);
-  });
-
-  it("places the switcher button's activity indicator to the right of the favicon", async () => {
-    const switcher = await mountSwitcher([machine("local", "local"), machine("remote-a", "remote")], { local: machineStatusSnapshot({ machine: { "core:unread": true } }) });
-
-    const icon = requiredElement(switcherButton(switcher), ".machine-icon");
-    const dot = requiredElement(switcherButton(switcher), ".activity-indicator");
-    expect(icon.compareDocumentPosition(dot)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("shows each machine's own favicon in the dropdown", async () => {
@@ -129,8 +121,8 @@ describe("machine icons", () => {
 });
 
 describe("single-machine info bubble", () => {
-  it("renders a static bubble instead of a dropdown when only the local machine exists in PWA mode", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], {}, {}, true);
+  it("renders a static bubble instead of a dropdown when only the local machine exists", async () => {
+    const switcher = await mountSwitcher([machine("local", "local")], {});
 
     expect(switcher.shadowRoot?.querySelector(".machine-switcher-button")).toBeNull();
     const info = switcher.shadowRoot?.querySelector<HTMLElement>(".machine-info");
@@ -138,7 +130,7 @@ describe("single-machine info bubble", () => {
     expect(info?.querySelector(".machine-chevron")).toBeNull();
   });
 
-  it("renders the static machine name in browser mode", async () => {
+  it("renders the static machine name without the URL", async () => {
     const switcher = await mountSwitcher([machine("local", "local")], {});
 
     expect(switcher.shadowRoot?.querySelector(".machine-info")?.textContent).toContain("local");
@@ -146,26 +138,19 @@ describe("single-machine info bubble", () => {
     expect(switcher.shadowRoot?.querySelector(".machine-switcher-button")).toBeNull();
   });
 
-  it("carries the machine name, icon and URL", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], {}, {}, true);
+  it("keeps the URL in the tooltip alongside the machine name and icon", async () => {
+    const switcher = await mountSwitcher([machine("local", "local")], {});
 
     const info = switcher.shadowRoot?.querySelector<HTMLElement>(".machine-info");
-    expect(info?.querySelector(".machine-info-url")?.textContent).toBe(document.location.host);
+    expect(info?.textContent).not.toContain(document.location.host);
+    expect(info?.title).toContain(document.location.host);
     expect(info?.querySelector(".machine-icon")).not.toBeNull();
     expect(info?.querySelector(".machine-status")).toBeNull();
     expect(info?.querySelector(".machine-switcher-label")?.textContent).toBe("local");
   });
 
-  it("places the activity indicator to the right of the favicon", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], { local: machineStatusSnapshot({ machine: { "core:unread": true } }) }, {}, true);
-
-    const icon = requiredElement(switcher.shadowRoot, ".machine-info .machine-icon");
-    const dot = requiredElement(switcher.shadowRoot, ".machine-info .activity-indicator");
-    expect(icon.compareDocumentPosition(dot)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  });
-
   it("does not open a menu when clicked", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], {}, {}, true);
+    const switcher = await mountSwitcher([machine("local", "local")], {});
 
     switcher.shadowRoot?.querySelector<HTMLElement>(".machine-info")?.click();
     await switcher.updateComplete;
@@ -174,7 +159,7 @@ describe("single-machine info bubble", () => {
   });
 
   it("is not keyboard-focusable", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], {}, {}, true);
+    const switcher = await mountSwitcher([machine("local", "local")], {});
 
     expect(await switcher.focusSelectedOrFirst()).toBe(false);
   });
@@ -182,7 +167,6 @@ describe("single-machine info bubble", () => {
   it("renders PI-WEB while no machines are loaded", async () => {
     const switcher = new MachineSwitcher();
     switcher.machines = [];
-    switcher.locationIndicator = true;
     document.body.append(switcher);
     await switcher.updateComplete;
 
@@ -191,7 +175,7 @@ describe("single-machine info bubble", () => {
   });
 });
 
-async function mountSwitcher(machines: Machine[], statusSnapshots: Record<string, MachineStatusSnapshot>, statuses: Record<string, MachineHealth> = {}, locationIndicator = false): Promise<MachineSwitcher> {
+async function mountSwitcher(machines: Machine[], statusSnapshots: Record<string, MachineStatusSnapshot>, statuses: Record<string, MachineHealth> = {}): Promise<MachineSwitcher> {
   const switcher = new MachineSwitcher();
   switcher.machines = machines;
   const selected = machines[0];
@@ -199,7 +183,6 @@ async function mountSwitcher(machines: Machine[], statusSnapshots: Record<string
   switcher.selected = selected;
   switcher.statusSnapshots = statusSnapshots;
   switcher.statuses = statuses;
-  switcher.locationIndicator = locationIndicator;
   document.body.append(switcher);
   await switcher.updateComplete;
   return switcher;
@@ -209,12 +192,6 @@ function switcherButton(switcher: MachineSwitcher): HTMLElement {
   const button = switcher.shadowRoot?.querySelector(".machine-switcher-button");
   if (!(button instanceof HTMLElement)) throw new Error("Expected the machine switcher button");
   return button;
-}
-
-function requiredElement(root: ParentNode | null | undefined, selector: string): Element {
-  const element = root?.querySelector(selector);
-  if (element === null || element === undefined) throw new Error(`Expected ${selector}`);
-  return element;
 }
 
 function optionFor(switcher: MachineSwitcher, machineName: string): Element {
@@ -241,125 +218,3 @@ function machine(id: string, kind: Machine["kind"]): Machine {
     updatedAt: "2026-06-04T00:00:00.000Z",
   };
 }
-
-describe("local activity and management compatibility", () => {
-describe("machine-switcher unread indicator", () => {
-  it("shows an unread dot on the switcher button while the selected machine has unread sessions", async () => {
-    const switcher = await mountSwitcher([machine("local", "local"), machine("remote-a", "remote")], new Set(["local"]));
-    const button = switcherButton(switcher);
-    const dot = button.querySelector(".activity-indicator.unread");
-    expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("title")).toBe("此机器上有未读会话");
-
-    switcher.unreadMachineIds = new Set();
-    await switcher.updateComplete;
-
-    expect(switcherButton(switcher).querySelector(".activity-indicator.unread")).toBeNull();
-  });
-
-  it("marks only the unread machines among the dropdown options", async () => {
-    const switcher = await mountSwitcher(
-      [machine("local", "local"), machine("remote-a", "remote"), machine("remote-b", "remote")],
-      new Set(["remote-b"]),
-    );
-
-    switcherButton(switcher).click();
-    await switcher.updateComplete;
-
-    expect(unreadDot(optionFor(switcher, "local"))).toBeNull();
-    expect(unreadDot(optionFor(switcher, "remote-a"))).toBeNull();
-    expect(unreadDot(optionFor(switcher, "remote-b"))).not.toBeNull();
-  });
-
-  it("wraps the work dot in an unread ring when the machine is busy and unread", async () => {
-    const switcher = await mountSwitcher([machine("local", "local"), machine("remote-a", "remote")], new Set(["local"]));
-    switcher.activities = { local: { "/repo": workspaceActivity("/repo", true, false) } };
-    await switcher.updateComplete;
-
-    const button = switcherButton(switcher);
-    const ring = button.querySelector(".unread-ring");
-    expect(ring?.querySelector(".activity-indicator.session")).not.toBeNull();
-    expect(ring?.getAttribute("title")).toBe("此机器上有未读会话 · 机器活动中");
-    // One mark only: the ring replaces the standalone unread dot.
-    expect(button.querySelector(".activity-indicator.unread")).toBeNull();
-  });
-});
-
-describe("machine identity", () => {
-  it("keeps the single-machine name visible in browser mode", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], new Set());
-
-    expect(switcher.shadowRoot?.querySelector(".machine-switcher-label")?.textContent).toBe("local");
-    expect(switcher.shadowRoot?.querySelector(".machine-switcher-button")).toBeNull();
-  });
-
-  it("shows a static local gateway bubble for one machine in PWA mode", async () => {
-    const switcher = await mountSwitcher([machine("local", "local")], new Set(), true);
-
-    const info = switcher.shadowRoot?.querySelector<HTMLElement>(".machine-info");
-    expect(info?.querySelector<HTMLImageElement>(".machine-icon")?.getAttribute("src")).toBe(`${document.baseURI}favicon.svg`);
-    expect(info?.querySelector(".machine-info-url")?.textContent).toBe(document.location.host);
-    expect(switcher.shadowRoot?.querySelector(".machine-switcher-button")).toBeNull();
-    expect(await switcher.focusSelectedOrFirst()).toBe(false);
-  });
-
-  it("uses each machine deployment icon and the local gateway URL in the picker", async () => {
-    const remote = { ...machine("remote-a", "remote"), baseUrl: "https://fleet-a.example.com/pi-web/" };
-    const switcher = await mountSwitcher([machine("local", "local"), remote], new Set());
-
-    switcherButton(switcher).click();
-    await switcher.updateComplete;
-
-    const options = [...(switcher.shadowRoot?.querySelectorAll(".machine-option") ?? [])];
-    expect(options[0]?.querySelector("small")?.textContent).toContain(document.location.host);
-    expect(options.map((option) => option.querySelector("img")?.getAttribute("src"))).toEqual([
-      `${document.baseURI}favicon.svg`,
-      "https://fleet-a.example.com/pi-web/favicon.svg",
-    ]);
-  });
-});
-
-async function mountSwitcher(machines: Machine[], unreadMachineIds: ReadonlySet<string>, locationIndicator = false): Promise<MachineSwitcher> {
-  const switcher = new MachineSwitcher();
-  switcher.machines = machines;
-  const selected = machines[0];
-  if (selected === undefined) throw new Error("Expected at least one machine");
-  switcher.selected = selected;
-  switcher.unreadMachineIds = unreadMachineIds;
-  switcher.locationIndicator = locationIndicator;
-  document.body.append(switcher);
-  await switcher.updateComplete;
-  return switcher;
-}
-
-function switcherButton(switcher: MachineSwitcher): HTMLElement {
-  const button = switcher.shadowRoot?.querySelector(".machine-switcher-button");
-  if (!(button instanceof HTMLElement)) throw new Error("Expected the machine switcher button");
-  return button;
-}
-
-function optionFor(switcher: MachineSwitcher, machineName: string): Element {
-  const options = [...(switcher.shadowRoot?.querySelectorAll(".machine-option") ?? [])];
-  const option = options.find((candidate) => candidate.textContent.includes(machineName));
-  if (option === undefined) throw new Error(`Expected a machine option for ${machineName}`);
-  return option;
-}
-
-function unreadDot(option: Element): Element | null {
-  return option.querySelector(".activity-indicator.unread");
-}
-
-function workspaceActivity(cwd: string, hasSessionActivity: boolean, hasTerminalActivity: boolean): WorkspaceActivity {
-  return { cwd, hasSessionActivity, hasTerminalActivity, updatedAt: "2026-06-04T00:00:00.000Z" };
-}
-
-function machine(id: string, kind: Machine["kind"]): Machine {
-  return {
-    id,
-    name: id,
-    kind,
-    createdAt: "2026-06-04T00:00:00.000Z",
-    updatedAt: "2026-06-04T00:00:00.000Z",
-  };
-}
-});

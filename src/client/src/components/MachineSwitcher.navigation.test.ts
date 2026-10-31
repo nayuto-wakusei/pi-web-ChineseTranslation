@@ -102,7 +102,7 @@ describe("machine-switcher status indicator", () => {
   });
 
 });
-async function mountSwitcher(machines: Machine[], statusSnapshots: Record<string, MachineStatusSnapshot>, statuses: Record<string, MachineHealth> = {}, locationIndicator = false): Promise<MachineSwitcher> {
+async function mountSwitcher(machines: Machine[], statusSnapshots: Record<string, MachineStatusSnapshot>, statuses: Record<string, MachineHealth> = {}): Promise<MachineSwitcher> {
   const switcher = new MachineSwitcher();
   switcher.machines = machines;
   const selected = machines[0];
@@ -110,7 +110,6 @@ async function mountSwitcher(machines: Machine[], statusSnapshots: Record<string
   switcher.selected = selected;
   switcher.statusSnapshots = statusSnapshots;
   switcher.statuses = statuses;
-  switcher.locationIndicator = locationIndicator;
   document.body.append(switcher);
   await switcher.updateComplete;
   return switcher;

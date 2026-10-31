@@ -8,6 +8,7 @@ import { PromptEditor } from "../../src/client/src/components/PromptEditor";
 import { ConversationLayout } from "../../src/client/src/components/ConversationLayout";
 import { StatusBar } from "../../src/client/src/components/StatusBar";
 import { SettingsDialog } from "../../src/client/src/components/SettingsDialog";
+import { SessionSearchDialog } from "../../src/client/src/components/SessionSearchDialog";
 import { ActionPalette } from "../../src/client/src/components/ActionPalette";
 import { NavigationSectionsController, type NavigationSection } from "../../src/client/src/appShell/navigationState";
 import type { ThemePreference } from "../../src/client/src/theme";
@@ -18,6 +19,7 @@ import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../../src/shared/pluginRecovery
 import type { UiPresentationContextV1 } from "../../src/plugin-api";
 import chinesePlugin from "../../pi-web-plugins/zh-cn/pi-web-plugin";
 import plugin from "../../pi-web-plugins/custom-ui-codex/pi-web-plugin";
+import customUiPackage from "../../pi-web-plugins/custom-ui-codex/package.json";
 
 await initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }]));
 await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
@@ -26,7 +28,7 @@ api.files = () => Promise.resolve([]);
 api.models = () => Promise.resolve({ models: [] });
 const configResponse = (config: PiWebConfigValues): PiWebConfigResponse => ({
   path: "/fixture/config.json", exists: true, config, effectiveConfig: config,
-  envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
+  envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, sessionMessages: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
 });
 const legacyTheme = new URLSearchParams(location.search).get("legacy-theme");
 const legacyPreference: ThemePreference | undefined = legacyTheme === "paper" || legacyTheme === "graphite"
@@ -91,7 +93,19 @@ navigation.unreadSessionIds = new Set([session.id]);
 navigation.canReloadSessions = true;
 navigation.canStartSession = true;
 navigation.onStartSession = () => undefined;
-navigation.onSearchSessions = () => undefined;
+navigation.onSearchSessions = () => {
+  const dialog = new SessionSearchDialog();
+  dialog.onClose = () => { dialog.remove(); };
+  dialog.onSelect = () => { dialog.remove(); };
+  dialog.onSearch = (query) => {
+    dialog.query = query;
+    dialog.response = { matchCount: 36, truncated: false, results: [{ session, matches: Array.from({ length: 36 }, (_, messageIndex) => ({
+      messageIndex, role: messageIndex % 2 === 0 ? "user" : "assistant", occurrenceCount: 1,
+      excerpts: [{ text: `${query}：当前工作区的会话正文匹配，保留完整的中文上下文，方便确认问题与回答。`.repeat(4), matchRanges: [{ start: 0, length: query.length }] }],
+    })) }] };
+  };
+  document.body.append(dialog);
+};
 navigation.onAddProject = () => undefined;
 navigation.onShowSettings = () => { void window.customUiFixture.openSettings(); };
 navigation.onMoveSessionPin = () => undefined;
@@ -170,10 +184,6 @@ composer.append(editor);
 const statusBar = new StatusBar();
 statusBar.slot = "status";
 statusBar.status = editor.status;
-statusBar.warningCount = 2;
-statusBar.onToggleWarnings = () => {
-  statusBar.warningsExpanded = !statusBar.warningsExpanded;
-};
 layout.append(chat, composer, statusBar);
 const conversation = document.createElement("div");
 conversation.className = "conversation";
@@ -191,6 +201,13 @@ async function settle(): Promise<void> {
   for (let index = 0; index < 3; index++) await new Promise<void>((resolve) => { requestAnimationFrame(() => { resolve(); }); });
 }
 async function apply(): Promise<void> {
+  const declaration = customUiPackage.piWeb.plugins[0];
+  if (declaration === undefined) throw new Error("Missing custom UI declaration");
+  registry.setDeclarativeThemes(enabled ? declaration.themes.map((theme) => ({
+    ...theme, id: `${declaration.id}:${theme.id}`, pluginId: declaration.id, localId: theme.id,
+    colorScheme: theme.colorScheme === "light" ? "light" : "dark",
+    stylesheets: theme.stylesheets.map((sheet) => ({ ...sheet, id: `${declaration.id}:${theme.id}:${sheet.id}`, url: new URL(`../../pi-web-plugins/custom-ui-codex/${sheet.path}`, import.meta.url).href })),
+  })) : [], enabled ? declaration.themePairs.map((pair) => ({ ...pair, id: `${declaration.id}:${pair.id}`, pluginId: declaration.id, localId: pair.id, light: `${declaration.id}:${pair.light}`, dark: `${declaration.id}:${pair.dark}` })) : []);
   syncNavigationSections();
   const snapshot = context();
   navigation.managementMode = snapshot.mode === "management";
@@ -198,7 +215,7 @@ async function apply(): Promise<void> {
     control.presentationRuntime = registry.uiPresentation;
     control.presentationContext = snapshot;
   }
-  const base = scheme === "light" ? new URL("../../src/client/src/plugins/themes/pi-web-light.css?no-inline", import.meta.url).href : new URL("../../src/client/src/plugins/themes/pi-web-dark.css?no-inline", import.meta.url).href;
+  const base = scheme === "light" ? new URL("../../pi-web-plugins/themes/assets/pi-web-light.css?no-inline", import.meta.url).href : new URL("../../pi-web-plugins/themes/assets/pi-web-dark.css?no-inline", import.meta.url).href;
   const palette = registry.getThemes().find(({ localId }) => localId === (scheme === "light" ? "paper" : "graphite"));
   document.documentElement.style.colorScheme = scheme;
   await pluginStyles.setContributions([{ id: "base", url: base }, ...registry.getStylesheets("local"), ...(palette?.stylesheets ?? [])]);

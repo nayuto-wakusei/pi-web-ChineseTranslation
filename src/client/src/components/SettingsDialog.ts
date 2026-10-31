@@ -8,16 +8,16 @@ import { css, html, LitElement, type PropertyValues, type TemplateResult } from 
 import { customElement, property, state } from "lit/decorators.js";
 import { cache } from "lit/directives/cache.js";
 import { live } from "lit/directives/live.js";
-import "./ModalSurface";
-import type { ModalSurface } from "./ModalSurface";
 import type { AppAction } from "../actions";
-import { configApi, piPackagesApi, pluginsApi, type AuthRequestTarget, type Machine, type MachineRuntime, type SessionModel, type PiPackageMutationResponse, type PiPackageScope, type PiPackagesResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebPluginsResponse } from "../api";
-import type { SettingsSection } from "../settingsRoute";
+import { loadThemeCatalog, type BrowserThemeCatalog } from "../themeCatalog";
+import { configApi, piPackagesApi, pluginsApi, type Machine, type MachineHealth, type MachineRuntime, type PiPackageMutationResponse, type PiPackageScope, type PiPackagesResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebPluginsResponse } from "../api";
 import type { McpAuthContext, McpAuthHandler } from "./settings/SettingsMcpPanel";
 import "./settings/SettingsMcpPanel";
+import type { SettingsSection } from "../settingsRoute";
+import "./ModalSurface";
+import type { ModalSurface } from "./ModalSurface";
 import "./settings/SettingsGeneralPanel";
 import type { SettingsGeneralPanel } from "./settings/SettingsGeneralPanel";
-import type { MachineHealth } from "../api";
 import "./settings/SettingsThemePanel";
 import type { QualifiedFileIconThemeContribution, QualifiedThemeContribution } from "../plugins/types";
 import "./settings/SettingsFileIconThemePanel";
@@ -54,6 +54,10 @@ export class SettingsDialog extends LitElement {
   @property({ attribute: false }) presentationContext: UiPresentationContextV1 = { mode: "normal" };
   @property({ attribute: false }) actions: AppAction[] = [];
   @property({ attribute: false }) themes: readonly QualifiedThemeContribution[] = [];
+  @property({ attribute: false }) onThemeCatalogLoaded: (catalog: BrowserThemeCatalog) => void = () => undefined;
+  @state() private themeCatalogLoading = false;
+  @state() private themeCatalogError = "";
+  private themeCatalogRequested = false;
   @property({ attribute: false }) fileIconThemes: readonly QualifiedFileIconThemeContribution[] = [];
   @property({ attribute: false }) fileIconPreference: string | undefined;
   @property({ attribute: false }) onSelectFileIconTheme?: (id: string) => void;
@@ -65,7 +69,6 @@ export class SettingsDialog extends LitElement {
   @property({ attribute: false }) onUseDefaultTheme?: () => void;
   @property({ attribute: false }) mcpContext: McpAuthContext | undefined;
   @property({ attribute: false }) onMcpAuth?: McpAuthHandler;
-  @property({ attribute: false, hasChanged: (next: AuthRequestTarget | undefined, previous: AuthRequestTarget | undefined) => next?.machineId !== previous?.machineId || next?.projectId !== previous?.projectId }) namingModelsTarget: AuthRequestTarget | undefined;
   @property({ attribute: false }) machine: Machine | undefined;
   @property({ attribute: false }) machineRuntime: MachineRuntime | undefined;
   @property({ attribute: false }) machines: Machine[] = [];
@@ -89,11 +92,6 @@ export class SettingsDialog extends LitElement {
   @state() private loading = true;
   @state() private accessLoading = true;
   @state() private sessiondLoading = true;
-  @state() private namingModels: SessionModel[] = [];
-  @state() private namingModelsLoading = true;
-  @state() private namingModelsErrorPresentation: DisplayText = "";
-  private get namingModelsError(): string { return displayText(this.namingModelsErrorPresentation); }
-  private set namingModelsError(value: DisplayText) { this.namingModelsErrorPresentation = value; }
   @state() private pluginLoading = true;
   @state() private packageLoading = true;
   @state() private saving = false;
@@ -124,13 +122,13 @@ export class SettingsDialog extends LitElement {
   private loadRequestSeq = 0;
   private accessLoadRequestSeq = 0;
   private sessiondLoadRequestSeq = 0;
-  private namingModelsLoadRequestSeq = 0;
   private pluginLoadRequestSeq = 0;
   private packageLoadRequestSeq = 0;
   private packageMutationSeq = 0;
 
   override connectedCallback(): void {
     super.connectedCallback();
+    this.loadThemeCatalogForGeneral();
     void this.loadConfig();
     void this.loadAccessConfigForTarget();
     void this.reloadSessiondState();
@@ -139,15 +137,15 @@ export class SettingsDialog extends LitElement {
   }
 
   override disconnectedCallback(): void {
-    this.namingModelsLoadRequestSeq += 1;
     if (this.savedMessageTimer !== undefined) window.clearTimeout(this.savedMessageTimer);
     this.savedMessageTimer = undefined;
     super.disconnectedCallback();
   }
 
   protected override updated(changed: PropertyValues<this>): void {
-    if (changed.has("namingModelsTarget") && (!changed.has("machine") || settingsMachineTarget(changed.get("machine")).id === this.settingsTarget().id)) void this.loadNamingModelsForTarget();
     if (changed.has("section")) {
+      this.loadThemeCatalogForGeneral();
+      // The surface must render its slot before the mobile tab row has layout.
       const surface = this.renderRoot.querySelector<ModalSurface>("modal-surface");
       void surface?.updateComplete.then(() => {
         if (this.isConnected) this.renderRoot.querySelector(".settings-nav button.selected")?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -199,6 +197,25 @@ export class SettingsDialog extends LitElement {
     if (!this.packageManagementSupportNeedsReload(previousRuntime, currentTarget)) return;
     this.resetPackageStateForTargetChange();
     if (this.isConnected) void this.loadPackagesForTarget(currentTarget);
+  }
+
+  private loadThemeCatalogForGeneral(): void {
+    if (this.isConnected && this.section === "general" && !this.themeCatalogRequested) void this.loadThemeInventory();
+  }
+
+  private async loadThemeInventory(): Promise<void> {
+    if (this.themeCatalogLoading) return;
+    this.themeCatalogRequested = true;
+    this.themeCatalogLoading = true;
+    this.themeCatalogError = "";
+    try {
+      const catalog = await loadThemeCatalog();
+      if (this.isConnected) this.onThemeCatalogLoaded(catalog);
+    } catch (error) {
+      if (this.isConnected) this.themeCatalogError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.themeCatalogLoading = false;
+    }
   }
 
   override render(): TemplateResult {
@@ -301,9 +318,6 @@ export class SettingsDialog extends LitElement {
   }
 
   private renderActiveSection(): TemplateResult {
-    // Keep the section -> panel routing in sync with the public
-    // `activeSettingsPanelTag` seam below, which tests assert against instead of
-    // scraping this template's markup.
     if (this.section === "mcp") {
       const target = this.settingsTarget();
       return html`
@@ -320,10 +334,6 @@ export class SettingsDialog extends LitElement {
         <settings-sessiond-panel
           .configResponse=${this.sessiondConfigResponse}
           .targetId=${target.id}
-          .namingContextKey=${JSON.stringify([this.namingModelsTarget?.machineId, this.namingModelsTarget?.projectId])}
-          .namingModels=${this.namingModels}
-          .namingModelsLoading=${this.namingModelsLoading}
-          .namingModelsError=${this.namingModelsError}
           .loading=${this.sessiondLoading}
           .saving=${this.saving}
           .error=${this.sessiondError}
@@ -409,10 +419,13 @@ export class SettingsDialog extends LitElement {
         <settings-theme-panel
           slot="appearance"
           .themes=${this.themes}
+          .catalogLoading=${this.themeCatalogLoading}
+          .catalogError=${this.themeCatalogError}
+          .onRetryCatalog=${() => this.loadThemeInventory()}
           .configResponse=${this.configResponse}
           .onReset=${(paths: string[]) => this.saveConfig({}, paths)}
           .preference=${this.themePreference}
-          .defaultPreference=${effectiveThemePreference(undefined, this.configResponse?.effectiveConfig.defaultTheme, this.themes)}
+          .defaultPreference=${effectiveThemePreference(undefined, this.configResponse?.effectiveConfig.defaultTheme)}
           .activeThemeId=${this.activeThemeId}
           .hasLocalOverride=${this.hasLocalThemeOverride}
           .loading=${this.loading || this.configResponse === undefined}
@@ -510,36 +523,8 @@ export class SettingsDialog extends LitElement {
   private async reloadSessiondState(target = this.settingsTarget()): Promise<void> {
     await Promise.all([
       this.loadSessiondConfigForTarget(target),
-      this.loadNamingModelsForTarget(target),
       this.onRefreshMachineRuntime?.(target.id),
     ]);
-  }
-
-  private async loadNamingModelsForTarget(target = this.settingsTarget()): Promise<void> {
-    const requestSeq = ++this.namingModelsLoadRequestSeq;
-    this.namingModels = [];
-    this.namingModelsLoading = false;
-    this.namingModelsError = "";
-    const context = this.namingModelsTarget;
-    if (context?.machineId !== target.id) {
-      this.namingModelsError = t("ui.sessionNaming.selectProject", "Select a project on this machine to load naming models.");
-      return;
-    }
-    const captured = { ...context };
-    const isCurrent = () => requestSeq === this.namingModelsLoadRequestSeq && this.isCurrentSettingsTarget(target)
-      && this.namingModelsTarget?.machineId === captured.machineId && this.namingModelsTarget.projectId === captured.projectId;
-    this.namingModelsLoading = true;
-    try {
-      const response = await configApi.namingModels(captured);
-      if (isCurrent()) this.namingModels = response.models;
-    } catch (error) {
-      if (isCurrent()) {
-        const diagnostic = errorMessage(error);
-        this.namingModelsError = () => settingsDialogMessages.t("loadModels", { target: settingsFeedbackTargetLabel(target), error: settingsFeedbackSelectedError(diagnostic, target) });
-      }
-    } finally {
-      if (isCurrent()) this.namingModelsLoading = false;
-    }
   }
 
   private async loadSessiondConfigForTarget(target = this.settingsTarget()): Promise<void> {
@@ -806,12 +791,7 @@ export class SettingsDialog extends LitElement {
       if (!this.isCurrentSettingsTarget(target)) return;
       this.sessiondConfigResponse = response;
       if (target.kind === "local" && this.configResponse !== undefined) this.configResponse = mergeSelectedMachineSessiondConfig(this.configResponse, response);
-      const changedPaths = [...Object.keys(config).map((key) => `/${key}`), ...unset];
-      const namingOnly = changedPaths.length > 0 && changedPaths.every((path) => path === "/sessionNaming" || path.startsWith("/sessionNaming/"));
-      const message = () => namingOnly
-        ? settingsDialogMessages.t("namingSaved", { name: target.name })
-        : settingsDialogMessages.t("sessiondSaved", { name: target.name, naming: String(config.sessionNaming !== undefined) });
-      this.showSavedMessage(message, "sessiond");
+      this.showSavedMessage(() => settingsDialogMessages.t("sessiondSaved", { name: target.name }), "sessiond");
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
         const diagnostic = errorMessage(error);
@@ -980,10 +960,6 @@ export class SettingsDialog extends LitElement {
   }
 
   private resetSessiondStateForTargetChange(): void {
-    this.namingModelsLoadRequestSeq += 1;
-    this.namingModels = [];
-    this.namingModelsLoading = false;
-    this.namingModelsError = "";
     this.sessiondLoadRequestSeq += 1;
     this.sessiondLoading = false;
     this.sessiondError = "";

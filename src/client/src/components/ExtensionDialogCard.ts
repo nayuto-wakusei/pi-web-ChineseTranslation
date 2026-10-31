@@ -5,8 +5,7 @@ import { uiTranscriptCardStyles } from "./ui/transcriptCardStyles";
 import { LocalizationController } from "../localization/browser";
 import { extensionDialogMessages as messages } from "../extensionDialogMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
-
-import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
+import { LitElement, css, html, svg, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 import {
@@ -28,14 +27,15 @@ export function extensionDialogCloseLabel(reason: ExtensionDialogCloseReason): s
   return messages.t(reason);
 }
 
-/** One-line summary of what a closed dialog resolved to, for the outcome card. */
-export function extensionDialogCloseSummary(closed: ClosedExtensionDialog): string {
+/** Input answers stay hidden unless the user explicitly reveals this card's answer. */
+export function extensionDialogCloseSummary(closed: ClosedExtensionDialog, revealInputAnswer = false): string {
   switch (closed.reason) {
     case "answered": {
       const answer = closed.answer;
       // An answered close without an answer value breaks the wire contract;
       // the card still renders rather than crashing the transcript.
       if (answer === undefined) return messages.t("missingAnswer");
+      if (closed.dialog.kind === "input" && !revealInputAnswer) return messages.t("hiddenAnswer");
       if (typeof answer === "boolean") return messages.t("booleanAnswer", { answer: answer ? "yes" : "no" });
       return answer === "" ? messages.t("emptyAnswer") : messages.t("textAnswer", { answer });
     }
@@ -97,6 +97,7 @@ export class ExtensionDialogCard extends LitElement {
 
   @state() private inputValue = "";
   @state() private closing = false;
+  @state() private answerVisible = false;
   @state() private countdownNow = 0;
   private dialogIdentity: string | undefined;
   private countdownTimer: number | undefined;
@@ -107,6 +108,7 @@ export class ExtensionDialogCard extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.answerVisible = false;
     this.stopCountdownTimer();
     super.disconnectedCallback();
   }
@@ -121,6 +123,7 @@ export class ExtensionDialogCard extends LitElement {
       this.dialogIdentity = identity;
       this.inputValue = "";
       this.closing = false;
+      this.answerVisible = false;
     }
     this.syncCountdownTimer();
   }
@@ -203,16 +206,35 @@ export class ExtensionDialogCard extends LitElement {
   }
 
   private renderClosed(closed: ClosedExtensionDialog): TemplateResult {
+    const canReveal = closed.reason === "answered" && closed.dialog.kind === "input" && closed.answer !== undefined;
+    const visibilityLabel = messages.t(this.answerVisible ? "hideAnswer" : "seeAnswer");
     return html`
       <article class="ui-transcript-surface card closed-card" aria-labelledby="extension-dialog-closed-heading">
         <header class="ui-transcript-card-header card-header">
           <h2 id="extension-dialog-closed-heading" dir="auto">${closed.dialog.title}</h2>
           <span class=${`ui-transcript-card-status header-status ${closed.reason} ${closed.reason === "answered" ? "ui-transcript-card-status--success" : closed.reason === "cancelled" ? "" : "ui-transcript-card-status--warning"}`}>${extensionDialogCloseLabel(closed.reason)}</span>
+          <div class="closed-actions">
+            ${canReveal ? html`
+              <button
+                class="ui-button ui-button--compact ui-button--icon answer-visibility"
+                type="button"
+                aria-label=${visibilityLabel}
+                title=${visibilityLabel}
+                aria-expanded=${String(this.answerVisible)}
+                aria-controls="extension-dialog-answer"
+                @click=${() => { this.answerVisible = !this.answerVisible; }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                  ${this.answerVisible
+                    ? svg`<path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.2A10 10 0 0 1 12 5c6 0 10 7 10 7a18 18 0 0 1-3 3.8M6.2 6.2A18 18 0 0 0 2 12s4 7 10 7a10 10 0 0 0 5.8-1.8" />`
+                    : svg`<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />`}
+                </svg>
+              </button>
+            ` : null}
+            <button class="ui-button ui-button--compact secondary-action" type="button" @click=${() => { this.dismissClosed(closed); }}>${messages.t("dismiss")}</button>
+          </div>
         </header>
-        <p class="closed-summary" dir="auto">${extensionDialogCloseSummary(closed)}</p>
-        <footer class="dialog-footer">
-          <button class="ui-button ui-button--compact secondary-action" type="button" @click=${() => { this.dismissClosed(closed); }}>${messages.t("dismiss")}</button>
-        </footer>
+        <p id="extension-dialog-answer" class="closed-summary" dir="auto">${extensionDialogCloseSummary(closed, this.answerVisible)}</p>
       </article>
     `;
   }
@@ -299,6 +321,10 @@ export class ExtensionDialogCard extends LitElement {
       overflow-wrap: anywhere;
     }
     .header-status { min-width: 0; max-inline-size: 50%; overflow-wrap: anywhere; }
+    .closed-card .card-header { gap: 8px; padding-block: 6px; }
+    .closed-actions { display: flex; flex: 0 1 auto; min-width: 0; }
+    .closed-actions .secondary-action { overflow-wrap: anywhere; }
+    .answer-visibility { flex: 0 0 auto; }
     .dialog-message {
       margin: 0;
       padding: 12px 16px;

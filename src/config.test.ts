@@ -2,14 +2,13 @@ import { mkdtemp, readFile, rm, writeFile, chmod, lstat, readdir, stat, symlink 
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AGENT_SESSION_DIR_ENV_KEYS, detectDeprecatedAgentInputs, environmentFactsEnabled, DEFAULT_ATTACHMENT_FOLDER, DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, agentSessionDirEnvOverride, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled, sessionArchiveDirectory, applyPiWebConfigEnv, overlayPiWebConfig, piWebConfigSources, piWebConfigEnforcedSettings, resolveEffectivePiWebConfig } from "./config.js";
+import { AGENT_SESSION_DIR_ENV_KEYS, detectDeprecatedAgentInputs, environmentFactsEnabled, DEFAULT_ATTACHMENT_FOLDER, DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, agentSessionDirEnvOverride, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, sessionMessagesEnabled, subsessionsEnabled, sessionArchiveDirectory, applyPiWebConfigEnv, overlayPiWebConfig, piWebConfigSources, piWebConfigEnforcedSettings, resolveEffectivePiWebConfig } from "./config.js";
 
 
 
 
 
 
-import { KNOWN_THINKING_LEVELS } from "./shared/thinkingLevels.js";
 
 let tempDir: string;
 let configPath: string;
@@ -59,11 +58,12 @@ describe("default localization", () => {
     expect(JSON.parse(await readFile(configPath, "utf8"))).not.toHaveProperty("defaultLocalization");
   });
 
-  it.each([null, { language: "en_US" }, { language: "en-XA" }, { timeZone: "invalid" }, { extra: true }])("rejects invalid file defaults %j on load and save", async (defaultLocalization) => {
+  it("validates localization defaults on both load and save", async () => {
+    // Detailed invalid-value coverage belongs to defaultLocalization.test.ts.
+    const defaultLocalization = { language: "en_US" };
     await writeFile(configPath, JSON.stringify({ defaultLocalization }), "utf8");
     expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config defaultLocalization");
     // The persistence boundary also validates runtime input from untyped callers.
-    // @ts-expect-error deliberately invalid config input
     expect(() => savePiWebConfig({ defaultLocalization }, testOptions())).toThrow("PI WEB config defaultLocalization");
   });
 });
@@ -109,41 +109,6 @@ describe("sessionArchive config", () => {
     expect(sessionArchiveDirectory({ ...env, PI_WEB_SESSION_ARCHIVE_DIR: "" }, config, tempDir)).toBe(join(tempDir, "configured"));
     expect(sessionArchiveDirectory({}, { sessionArchive: { directory: tempDir } }, resolve(tempDir, "other"))).toBe(tempDir);
     expect(sessionArchiveDirectory(env, { sessionArchive: {} }, tempDir)).toBe(join(tempDir, "state", "archived-sessions"));
-  });
-});
-
-describe("sessionNaming config", () => {
-  it.each([{}, { model: "provider/model" }, { maxTokens: 24 }, { timeoutMs: 1 }, { timeoutMs: 10000 }, { timeoutMs: 2147483647 }, { model: "provider/org/model", maxTokens: Number.MAX_SAFE_INTEGER }, ...KNOWN_THINKING_LEVELS.map((thinkingLevel) => ({ thinkingLevel }))])("round-trips overrides %j without adding defaults", (sessionNaming) => {
-    savePiWebConfig({ sessionNaming }, testOptions());
-    expect(loadPiWebConfig(testOptions()).config.sessionNaming).toEqual(sessionNaming);
-    expect(effectivePiWebConfig(testOptions()).config.sessionNaming).toEqual(sessionNaming);
-  });
-
-  it("preserves overrides on unrelated saves and resets with an empty object", async () => {
-    const sessionNaming = { model: "provider/model", maxTokens: 80, thinkingLevel: "off" as const, timeoutMs: 15000 };
-    savePiWebConfig({ sessionNaming }, testOptions());
-    savePiWebConfig({ ...loadPiWebConfig(testOptions()).config, port: 9000 }, testOptions());
-    expect(loadPiWebConfig(testOptions()).config.sessionNaming).toEqual(sessionNaming);
-    savePiWebConfig({ ...loadPiWebConfig(testOptions()).config, sessionNaming: {} }, testOptions());
-    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({ port: 9000, sessionNaming: {} });
-    savePiWebConfig({}, testOptions());
-    expect(loadPiWebConfig(testOptions()).config).not.toHaveProperty("sessionNaming");
-    expect(effectivePiWebConfig(testOptions()).config).not.toHaveProperty("sessionNaming");
-  });
-
-  it.each([
-    null, [], "provider/model", { unknown: true },
-    ...["", "model", "/model", "provider/", " provider/model", "provider/model ", "provider /model", 42, null].map((model) => ({ model })),
-    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "24", null].map((maxTokens) => ({ maxTokens })),
-    ...["", "ultra", "MINIMAL", " minimal ", null, false, 42, {}, []].map((thinkingLevel) => ({ thinkingLevel })),
-    ...[0, -1, 1.5, 2147483648, Number.MAX_SAFE_INTEGER, "10000", null, false, {}, []].map((timeoutMs) => ({ timeoutMs })),
-  ])("rejects invalid overrides %j when loading", async (sessionNaming) => {
-    await writeFile(configPath, JSON.stringify({ sessionNaming }), "utf8");
-    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config sessionNaming");
-  });
-
-  it.each([NaN, Infinity, -Infinity, 0, 2147483648])("rejects invalid timeout %s before saving", (timeoutMs) => {
-    expect(() => savePiWebConfig({ sessionNaming: { timeoutMs } }, testOptions())).toThrow("sessionNaming.timeoutMs");
   });
 });
 
@@ -437,7 +402,7 @@ describe("PI WEB config persistence", () => {
     const absolutePiCommand = join(tempDir, "bin", "pi");
     for (const command of ["acme-agent", absolutePiCommand]) {
       expect(() => effectiveAgentConfig({}, { agent: { command } })).toThrow(`PI WEB config agent.dir or PI_WEB_AGENT_DIR is required when agent.command is ${JSON.stringify(command)}`);
-      expect(() => savePiWebConfig({ agent: { command } }, testOptions())).toThrow(`PI WEB config agent.dir or PI_WEB_AGENT_DIR is required when agent.command is ${JSON.stringify(command)}`);
+      expect(() => savePiWebConfig({ agent: { command } }, { env: { PI_WEB_CONFIG: configPath } })).toThrow(`PI WEB config agent.dir or PI_WEB_AGENT_DIR is required when agent.command is ${JSON.stringify(command)}`);
     }
   });
 
@@ -628,6 +593,37 @@ describe("extensionDialogsTimeoutMs", () => {
   });
 });
 
+describe("sessionMessages configuration", () => {
+  it("defaults on independently of spawnSessions and subsessions", () => {
+    expect(sessionMessagesEnabled({}, { spawnSessions: false, subsessions: false })).toBe(true);
+    expect(effectivePiWebConfig(testOptions()).config.sessionMessages).toBe(true);
+    expect(sessionMessagesEnabled({}, { sessionMessages: false, spawnSessions: true, subsessions: true })).toBe(false);
+  });
+
+  it("round-trips false and resolves defaults, writable config, then environment", async () => {
+    const defaultsPath = join(tempDir, "defaults.json");
+    await writeFile(defaultsPath, JSON.stringify({ sessionMessages: false }));
+    const options = { env: { ...testOptions().env, PI_WEB_DEFAULTS_CONFIG: defaultsPath } };
+    expect(effectivePiWebConfig(options).config.sessionMessages).toBe(false);
+    savePiWebConfig({ sessionMessages: true }, options);
+    expect(effectivePiWebConfig(options).config.sessionMessages).toBe(true);
+    const enforcedOptions = { env: { ...options.env, PI_WEB_SESSION_MESSAGES: "0" } };
+    expect(effectivePiWebConfig(enforcedOptions).config.sessionMessages).toBe(false);
+    expect(loadPiWebConfig(enforcedOptions).config.sessionMessages).toBe(true);
+    expect(piWebConfigSources(loadPiWebConfig(enforcedOptions), enforcedOptions)["/sessionMessages"]).toBe("PI_WEB_SESSION_MESSAGES");
+    savePiWebConfig({ sessionMessages: false }, options);
+    expect(loadPiWebConfig(options).config.sessionMessages).toBe(false);
+    savePiWebConfig({}, options);
+    expect(loadPiWebConfig(options).config).not.toHaveProperty("sessionMessages");
+    expect(effectivePiWebConfig(options).config.sessionMessages).toBe(false);
+  });
+
+  it.each([null, "false", 0, {}, []])("rejects nonboolean file value %j", async (sessionMessages) => {
+    await writeFile(configPath, JSON.stringify({ sessionMessages }));
+    expect(() => loadPiWebConfig(testOptions())).toThrow("sessionMessages must be a boolean");
+  });
+});
+
 describe("spawnSessionsEnabled", () => {
   it("is on by default when nothing is configured", () => {
     expect(spawnSessionsEnabled({}, {})).toBe(true);
@@ -781,9 +777,9 @@ describe("configuration layers", () => {
   });
 
   it("overlays namespaces but replaces ordinary object and array settings", () => {
-    const base = { basePaths: ["/base"], shortcuts: { one: "a" }, defaultTheme: { themeId: "themes:light", auto: true }, sessionNaming: { maxTokens: 10 }, defaultLocalization: { language: "de" }, plugins: { git: { enabled: false, settings: { value: { old: 1 }, keep: [1] } } } };
-    const result = overlayPiWebConfig(base, { basePaths: [], shortcuts: {}, sessionNaming: {}, defaultLocalization: {}, plugins: { git: { settings: { value: {} } } } });
-    expect(result).toMatchObject({ basePaths: [], shortcuts: {}, sessionNaming: { maxTokens: 10 }, defaultLocalization: { language: "de" }, plugins: { git: { enabled: false, settings: { value: {}, keep: [1] } } } });
+    const base = { basePaths: ["/base"], shortcuts: { one: "a" }, defaultTheme: { themeId: "themes:light", auto: true }, defaultLocalization: { language: "de" }, plugins: { git: { enabled: false, settings: { value: { old: 1 }, keep: [1] } } } };
+    const result = overlayPiWebConfig(base, { basePaths: [], shortcuts: {}, defaultLocalization: {}, plugins: { git: { settings: { value: {} } } } });
+    expect(result).toMatchObject({ basePaths: [], shortcuts: {}, defaultLocalization: { language: "de" }, plugins: { git: { enabled: false, settings: { value: {}, keep: [1] } } } });
     expect(base.plugins.git.settings.value).toEqual({ old: 1 });
   });
 });
@@ -815,8 +811,8 @@ describe("environment setting resolution", () => {
       defaultLocalization: { language: "de" }, defaultStreamingBehavior: "followUp" as const,
       quietMode: true, plugins: { git: { enabled: false, settings: { key: { value: 1 } } } },
       basePaths: [], pathAccess: { allowedPaths: ["/a,b"] }, uploads: {}, attachments: {},
-      maxUploadBytes: 100, sessionNaming: { timeoutMs: 10 }, sessionArchive: { directory: "archive" },
-      spawnSessions: false, subsessions: false, askUser: false, environmentFacts: false, extensionDialogsTimeoutMs: 0,
+      maxUploadBytes: 100, sessionArchive: { directory: "archive" },
+      spawnSessions: false, sessionMessages: false, subsessions: false, askUser: false, environmentFacts: false, extensionDialogsTimeoutMs: 0,
     };
     const env = Object.fromEntries(Object.entries(config).map(([key, value]) => [
       `PI_WEB_${key.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}`,
@@ -836,19 +832,17 @@ describe("environment setting resolution", () => {
   it("enforces only supplied fields in schema-declared settings containers", () => {
     const env = {
       PI_WEB_UPLOADS: "{}", PI_WEB_ATTACHMENTS: '{"defaultFolder":"forced"}',
-      PI_WEB_SESSION_NAMING: '{"model":"provider/forced"}', PI_WEB_SESSION_ARCHIVE: "{}",
+      PI_WEB_SESSION_ARCHIVE: "{}",
       PI_WEB_PATH_ACCESS: '{"allowedPaths":[]}',
     };
     expect(piWebConfigEnforcedSettings(env)).toEqual({
-      "/attachments/defaultFolder": "PI_WEB_ATTACHMENTS", "/sessionNaming/model": "PI_WEB_SESSION_NAMING", "/pathAccess/allowedPaths": "PI_WEB_PATH_ACCESS",
+      "/attachments/defaultFolder": "PI_WEB_ATTACHMENTS", "/pathAccess/allowedPaths": "PI_WEB_PATH_ACCESS",
     });
     expect(applyPiWebConfigEnv({
       uploads: { defaultFolder: "deployed" }, attachments: { defaultFolder: "saved" },
-      sessionNaming: { model: "provider/saved", maxTokens: 48, thinkingLevel: "minimal" },
       sessionArchive: { directory: "/archive" }, pathAccess: { allowedPaths: ["/saved"] },
     }, env)).toMatchObject({
       uploads: { defaultFolder: "deployed" }, attachments: { defaultFolder: "forced" },
-      sessionNaming: { model: "provider/forced", maxTokens: 48, thinkingLevel: "minimal" },
       sessionArchive: { directory: "/archive" }, pathAccess: { allowedPaths: [] },
     });
   });
@@ -865,6 +859,7 @@ describe("environment setting resolution", () => {
   });
 
   it.each([
+    ["PI_WEB_SESSION_MESSAGES", "yes"], ["PI_WEB_SESSION_MESSAGES", ""],
     ["PI_WEB_QUIET_MODE", "yes"], ["PI_WEB_SPAWN_SESSIONS", "no"], ["PI_WEB_SUBSESSIONS", "2"],
     ["PI_WEB_QUIET_MODE", ""], ["PI_WEB_SPAWN_SESSIONS", ""], ["PI_WEB_SUBSESSIONS", ""],
     ["PI_WEB_ASK_USER", ""], ["PI_WEB_ENVIRONMENT_FACTS", ""], ["PI_WEB_INSTALLATION_NAME", "bad\nname"],
@@ -880,6 +875,7 @@ describe("environment setting resolution", () => {
     const expected = /^(true|1)$/i.test(value);
     expect(applyPiWebConfigEnv({}, { PI_WEB_QUIET_MODE: value }).quietMode).toBe(expected);
     expect(spawnSessionsEnabled({ PI_WEB_SPAWN_SESSIONS: value })).toBe(expected);
+    expect(sessionMessagesEnabled({ PI_WEB_SESSION_MESSAGES: value }, { sessionMessages: !expected })).toBe(expected);
     expect(subsessionsEnabled({ PI_WEB_SUBSESSIONS: value })).toBe(expected);
     expect(askUserEnabled({ PI_WEB_ASK_USER: value })).toBe(expected);
     expect(environmentFactsEnabled({ PI_WEB_ENVIRONMENT_FACTS: value })).toBe(expected);
@@ -887,7 +883,7 @@ describe("environment setting resolution", () => {
 });
 
 function testOptions(): { env: NodeJS.ProcessEnv } {
-  return { env: { PI_WEB_CONFIG: configPath } };
+  return { env: { PI_WEB_CONFIG: configPath, PI_CODING_AGENT_DIR: join(tempDir, "agent") } };
 }
 
 describe("upstream configuration contracts with local extensions", () => {

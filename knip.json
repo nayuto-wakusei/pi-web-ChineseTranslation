@@ -15,7 +15,8 @@
     "pi-web-plugins/**/server-plugin.ts",
     "pi-web-plugins/mermaid/mermaid-engine.ts",
     "pi-packages/**/pi-web-plugin.ts",
-    "pi-packages/relays/extensions/index.ts",
+    "pi-packages/**/server-plugin.ts",
+    "pi-packages/**/extensions/index.ts",
     "scripts/*.mjs"
   ],
   "project": [

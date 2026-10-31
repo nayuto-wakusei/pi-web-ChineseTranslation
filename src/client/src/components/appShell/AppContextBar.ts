@@ -8,7 +8,7 @@ import type { UiPresentationContextV1 } from "../../../../plugin-api";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Machine, Project, SessionInfo, Workspace } from "../../api";
-import { browserGatewayDisplayUrl, machineIconUrl } from "../../instanceIdentity";
+import { machineIconUrl } from "../../instanceIdentity";
 import { shortSessionId } from "../../sessionLabels";
 import { renderNavigationMenuIcon } from "../tabIcons";
 import type { NavigationSection } from "../../appShell/navigationState";
@@ -74,12 +74,12 @@ export class AppContextBar extends LitElement {
           <li class="context-item">
               ${machineChoice ? html`
                 <button type="button" class=${machineChipClass} title=${machineContextTitle(machine)} aria-label=${m.t("machineSelection", { label: machineContextLabel(machine) })} @click=${() => { this.onOpenSection?.("machines"); }}>
-                  ${this.renderMachineChipContent(machine, this.locationIndicator)}
+                  ${this.renderMachineChipContent(machine)}
                 </button>
               ` : html`
                 <!-- No machine choice: the chip is the instance identity, not a control. -->
                 <span class="${machineChipClass} static" title=${machineContextTitle(machine)}>
-                  ${this.renderMachineChipContent(machine, this.locationIndicator)}
+                  ${this.renderMachineChipContent(machine)}
                 </span>
               `}
           </li>
@@ -107,14 +107,12 @@ export class AppContextBar extends LitElement {
     `;
   }
 
-  private renderMachineChipContent(machine: Machine | undefined, locationIndicator: boolean) {
+  private renderMachineChipContent(machine: Machine | undefined) {
     const identity = machine ?? { id: "local", name: "PI-WEB", kind: "local" as const, createdAt: "", updatedAt: "" };
-    if (!locationIndicator && this.machines.length > 1) return html`<span class="context-value">${machineSelectionLabel(identity)}</span>`;
-    const detail = locationIndicator ? machineContextDetail(identity, browserGatewayDisplayUrl()) : undefined;
+    const label = this.machines.length > 1 ? machineSelectionLabel(identity) : machineContextLabel(identity);
     return html`
       <img class="context-chip-icon" src=${machineIconUrl(identity)} alt="" @error=${this.hideBrokenIcon} />
-      <span class="context-value">${machineContextLabel(identity)}</span>
-      ${detail === undefined ? null : html`<span class="context-detail">${detail}</span>`}
+      <span class="context-value">${label}</span>
     `;
   }
 
@@ -198,7 +196,6 @@ export class AppContextBar extends LitElement {
     .context-action-icon { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
     .context-chip { box-sizing: border-box; flex: 0 0 auto; min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 0; background: transparent; color: var(--pi-text); padding: 0 12px; font: inherit; text-align: start; }
     .context-chip-icon { flex: 0 0 auto; width: 14px; height: 14px; }
-    .context-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pi-muted); font-size: 11px; }
     button.context-chip:hover { background: var(--pi-surface-hover); }
     .context-chip.empty { color: var(--pi-muted); }
     .context-kind { display: none; }
@@ -221,22 +218,9 @@ function machineContextLabel(machine: Machine | undefined): string {
   return machine?.name ?? "PI-WEB";
 }
 
-/** The plain picker label used in browser mode, where the chip carries no location identity. */
+/** Distinguish remote selections without adding their URL to the breadcrumb. */
 function machineSelectionLabel(machine: Machine): string {
   return machine.kind === "remote" ? m.t("remoteMachine", { name: machine.name }) : machine.name;
-}
-
-/**
- * The host the machine is reached at: the serving gateway for the local
- * machine (what a PWA hides), the remote host otherwise.
- */
-export function machineContextDetail(machine: Machine, gatewayDisplay: string): string | undefined {
-  if (machine.kind === "local" || machine.baseUrl === undefined) return gatewayDisplay;
-  try {
-    return new URL(machine.baseUrl).host;
-  } catch {
-    return undefined;
-  }
 }
 
 function machineContextTitle(machine: Machine | undefined): string {

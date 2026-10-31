@@ -109,7 +109,7 @@ services:
   sessiond:
     build: *pi-web-dev-build
     image: ${PI_WEB_DEV_IMAGE:-pi-web:dev}
-    command: ["pi-web-service", "scripts/dev-sessiond.mjs"]
+    command: ["pi-web-npm", "run", "start:sessiond"]
     working_dir: /usr/local/lib/node_modules/@chainingintention/pi-web-cn
     depends_on:
       web:
@@ -132,7 +132,7 @@ services:
   web:
     build: *pi-web-dev-build
     image: ${PI_WEB_DEV_IMAGE:-pi-web:dev}
-    command: ["bash", "-c", "trap 'kill 0' EXIT; (pi-web-service node_modules/typescript/bin/tsc -p tsconfig.plugins.json && pi-web-service scripts/dev-web.mjs) & (cd /build/pi-web && pi-web-service node_modules/vite/bin/vite.js --host 0.0.0.0) & wait"]
+    command: ["pi-web-npm", "run", "dev:ui"]
     working_dir: /usr/local/lib/node_modules/@chainingintention/pi-web-cn
     depends_on:
       data-init:

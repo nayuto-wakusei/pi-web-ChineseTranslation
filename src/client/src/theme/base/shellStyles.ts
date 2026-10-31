@@ -2,6 +2,7 @@ import { css } from "lit";
 import { uiButtonStyles, uiMenuStyles, uiToolbarStyles, uiTabStyles } from "./controlStyles";
 import { chatNavigationStyles } from "./chatNavigationStyles";
 import { promptEditorIntegrationStyles } from "./promptEditorIntegrationStyles";
+import { activityIndicatorStyles } from "./activityIndicatorStyles";
 
 // The base theme owns default shell layout and presentation; components retain behaviour.
 
@@ -145,6 +146,7 @@ export const workspacePanelStyles = css`
 `;
 
 export const listStyles = css`
+  ${activityIndicatorStyles}
   ${uiButtonStyles}
   ${uiToolbarStyles}
   ${uiMenuStyles}
@@ -155,6 +157,7 @@ export const listStyles = css`
   h2 { flex: 0 0 auto; margin: 0; color: var(--pi-muted); font-size: 12px; text-transform: uppercase; }
   section > h2 { position: relative; z-index: 3; background: var(--pi-bg); box-shadow: ${scrollBoundaryShadow}; }
   .list-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .list-status { padding: 10px; color: var(--pi-muted); }
   .subheading { margin-top: 14px; }
   .section-toggle { width: 100%; gap: 8px; }
   .section-toggle span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -184,16 +187,8 @@ export const listStyles = css`
   .badge { display: inline-block; margin-left: 5px; border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); padding: 0 5px; font-size: 11px; font-weight: 400; }
   .action-activity { position: absolute; top: 50%; inset-inline-start: calc(6px + var(--depth, 0) * 16px + var(--agent-offset, 0px)); transform: translateY(-50%); z-index: 1; display: grid; place-items: center; width: 10px; height: 10px; }
   .action-activity .activity-indicator { margin: 0; vertical-align: 0; }
-  .activity-indicator { flex: 0 0 auto; display: inline-block; width: 7px; height: 7px; margin-right: 6px; background: var(--pi-success); animation: pulse 1s ease-in-out infinite; vertical-align: 1px; }
-  .activity-indicator.session { border-radius: 50%; background: var(--pi-success); }
-  .activity-indicator.terminal { border-radius: 2px; background: var(--pi-accent); }
-  /* Client-side sending (upload in flight); distinct from server activity, which propagates to workspace/machine rows. */
-  .activity-indicator.sending { border-radius: 50%; background: var(--pi-warning); }
-  /* Unread is a stable state, not ongoing work: keep it static and accent-colored. */
-  .activity-indicator.unread { border-radius: 50%; background: var(--pi-accent); animation: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--pi-accent) 20%, transparent); }
-  /* Unread + ongoing work: a static accent ring wraps the still-pulsing work dot. */
-  .unread-ring { flex: 0 0 auto; box-sizing: border-box; display: inline-grid; place-items: center; width: 9px; height: 9px; margin-right: 6px; border: 1.5px solid var(--pi-accent); border-radius: 50%; vertical-align: 1px; }
-  .unread-ring .activity-indicator { width: 5px; height: 5px; margin: 0; vertical-align: 0; }
+  .activity-indicator, .unread-ring { margin-right: 6px; vertical-align: 1px; }
+  .unread-ring .activity-indicator { margin: 0; vertical-align: 0; }
   .action-activity .unread-ring { margin: 0; vertical-align: 0; }
   .action-menu { position: relative; align-self: stretch; }
   .action-menu-toggle { height: 100%; }
@@ -210,18 +205,15 @@ export const listStyles = css`
   .workspace-label-link:hover, .workspace-label-link:focus { text-decoration: underline; }
   .workspace-detail-row .workspace-label { overflow: visible; white-space: normal; flex-wrap: wrap; }
   .workspace-detail-row .workspace-label-base, .workspace-detail-row .workspace-label-item, .workspace-detail-row .workspace-label-render { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; white-space: normal; }
-  @keyframes pulse { 0%, 100% { transform: scale(.75); opacity: .55; } 50% { transform: scale(1.2); opacity: 1; } }
   }
 `;
 
 export const statusBarStyles = css`
   @layer pi-web-base {
-  :host { display: block; color: var(--pi-muted); font: 12px var(--pi-font, system-ui, sans-serif); }
-  .bar { display: flex; justify-content: flex-end; gap: 12px; align-items: center; min-width: 0; padding: 7px 12px; border-top: 1px solid var(--pi-border); background: var(--pi-bg); white-space: nowrap; overflow: hidden; }
+  /* Only this non-interactive footer consumes the shell's reserved bottom inset. */
+  :host { display: block; margin-block-end: calc(0px - var(--pi-app-safe-area-bottom, 0px)); color: var(--pi-muted); font: 12px var(--pi-font, system-ui, sans-serif); }
+  .bar { box-sizing: border-box; display: flex; justify-content: flex-end; gap: 12px; align-items: center; min-width: 0; min-height: max(32px, var(--pi-app-safe-area-bottom, 0px)); padding: 7px 12px; border-top: 1px solid var(--pi-border); background: var(--pi-bg); white-space: nowrap; overflow: hidden; }
   span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .warning-toggle { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; margin-right: auto; border: 0; background: transparent; color: inherit; padding: 0; font: inherit; line-height: 1; white-space: nowrap; cursor: pointer; }
-  .warning-toggle:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
-  .warning-toggle-icon { flex: 0 0 auto; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .activity { display: inline-flex; align-items: center; gap: 6px; color: var(--pi-muted); }
   .activity.active { color: var(--pi-success); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .45; flex: 0 0 auto; }

@@ -4,7 +4,14 @@
   "type": "module",
   "piWeb": {
     "plugins": [
-      { "id": "pi-web.custom-ui-codex", "browserRoot": ".", "module": "pi-web-plugin.js", "defaultEnabled": true }
+      {
+        "id": "pi-web.custom-ui-codex", "browserRoot": ".", "module": "pi-web-plugin.js", "defaultEnabled": true,
+        "themes": [
+          { "id": "paper", "name": "Paper", "description": "White and neutral grays with restrained status colors.", "order": 40, "colorScheme": "light", "stylesheets": [{ "id": "palette", "path": "paper.css" }] },
+          { "id": "graphite", "name": "Graphite", "description": "Charcoal and neutral grays with restrained status colors.", "order": 50, "colorScheme": "dark", "stylesheets": [{ "id": "palette", "path": "graphite.css" }] }
+        ],
+        "themePairs": [{ "id": "paper-graphite", "name": "Paper / Graphite", "description": "Follow the system light/dark preference with neutral gray themes.", "order": 20, "light": "paper", "dark": "graphite" }]
+      }
     ]
   }
 }

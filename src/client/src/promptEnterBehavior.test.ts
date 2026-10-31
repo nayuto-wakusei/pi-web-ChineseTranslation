@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createMobilePromptEnterMedia,
-  MOBILE_PROMPT_ENTER_MEDIA_QUERY,
   parsePromptEnterPreference,
   PROMPT_ENTER_PREFERENCE_STORAGE_KEY,
   readPromptEnterPreference,
@@ -15,10 +14,6 @@ import {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("promptEnterBehavior", () => {
-  it("keeps touch keyboard behavior independent of control sizing", () => {
-    expect(MOBILE_PROMPT_ENTER_MEDIA_QUERY).toBe("(pointer: coarse), (max-width: 760px)");
-  });
-
   it.each([
     { width: 760, coarse: false },
     { width: 760, coarse: true },
@@ -40,15 +35,9 @@ describe("promptEnterBehavior", () => {
     expect(shouldSendPromptOnEnter(media, "newline")).toBe(false);
   });
 
-  it("uses the environment default when the preference is auto", () => {
-    expect(shouldSendPromptOnEnter({ matches: false } satisfies PromptEnterMedia, "auto")).toBe(true);
+  it("defaults to sending without media support and honors explicit preferences", () => {
     expect(shouldSendPromptOnEnter(undefined, "auto")).toBe(true);
-    expect(shouldSendPromptOnEnter({ matches: true } satisfies PromptEnterMedia, "auto")).toBe(false);
-  });
-
-  it("lets explicit preferences override the environment", () => {
-    expect(shouldSendPromptOnEnter({ matches: true } satisfies PromptEnterMedia, "send")).toBe(true);
-    expect(shouldSendPromptOnEnter({ matches: false } satisfies PromptEnterMedia, "newline")).toBe(false);
+    expect(shouldSendPromptOnEnter(undefined, "send")).toBe(true);
     expect(shouldSendPromptOnEnter(undefined, "newline")).toBe(false);
   });
 

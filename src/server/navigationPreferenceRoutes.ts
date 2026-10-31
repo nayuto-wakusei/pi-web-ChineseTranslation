@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { NAVIGATION_PREFERENCE_ROUTES } from "../shared/navigationPreferences.js";
+import type { SessionPinStore } from "./storage/sessionPinStore.js";
 import { InvalidNavigationPreferenceError, NavigationPreferenceConflictError, parseNavigationPreference, type NavigationPreferenceScope, type NavigationPreferenceStore } from "./storage/navigationPreferenceStore.js";
 import { managementContextForRequest, type ManagementEmbedRuntime } from "./managementEmbed.js";
 import { createTranslator, userFacingErrorMessage, type Translator } from "../shared/i18n.js";
@@ -28,6 +29,34 @@ export function registerNavigationPreferenceRoutes(
   prefix = "/api",
   options: NavigationPreferenceRouteOptions = {},
 ): void {
+  registerPreferenceRoutes(app, store, prefix, [0, 1], options);
+}
+
+/** Only sessiond registers these handlers; the web/API exclusively proxies them. */
+export function registerSessionPinRoutes(
+  app: FastifyInstance,
+  pins: Pick<SessionPinStore, "get" | "put">,
+  prefix = "",
+): void {
+  registerPreferenceRoutes(app, {
+    get: (scope) => {
+      if (scope.kind !== "session-pins") throw new Error("Expected session pin scope");
+      return pins.get(scope);
+    },
+    put: (scope, value) => {
+      if (scope.kind !== "session-pins") throw new Error("Expected session pin scope");
+      return pins.put(scope, value);
+    },
+  }, prefix, [2]);
+}
+
+function registerPreferenceRoutes(
+  app: FastifyInstance,
+  store: Pick<NavigationPreferenceStore, "get" | "put">,
+  prefix: string,
+  indexes: readonly (0 | 1 | 2)[],
+  options: NavigationPreferenceRouteOptions = {},
+): void {
   const translate = options.translator ?? createTranslator("en", {});
   const normalRequest = async (request: FastifyRequest, reply: FastifyReply): Promise<boolean> => {
     try {
@@ -38,7 +67,8 @@ export function registerNavigationPreferenceRoutes(
     }
     return false;
   };
-  NAVIGATION_PREFERENCE_ROUTES.forEach((path, index) => {
+  indexes.forEach((index) => {
+    const path = NAVIGATION_PREFERENCE_ROUTES[index];
     app.get<{ Params: PreferenceParams }>(`${prefix}${path}`, async (request, reply) => {
       if (!await normalRequest(request, reply)) return;
       return store.get(preferenceScope(index, request.params));

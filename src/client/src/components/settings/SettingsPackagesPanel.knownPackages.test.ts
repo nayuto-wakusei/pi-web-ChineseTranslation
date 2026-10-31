@@ -27,25 +27,12 @@ describe("settings-packages-panel installable known packages", () => {
     expect(section?.textContent).toContain("Relays");
     expect(section?.textContent).toContain(packagesMessages.t("relayDescription"));
 
-    knownPackageInstallButton(panel, "Relays").click();
-    await panel.updateComplete;
-
-    expect(onInstallPackage).toHaveBeenCalledWith("/pi-web/dist/pi-packages/relays");
-  });
-
-  it("does not install an optional known package until the user clicks Install", async () => {
-    const onInstallPackage = vi.fn();
-    const source = "/fixtures/optional-package";
-    const panel = await mountPanel(
-      { packages: [], installableKnownPackages: [{ id: "optional-package", label: "Optional package", description: "Optional package fixture.", source }] },
-      { onInstallPackage },
-    );
-
-    expect(panel.shadowRoot?.textContent).toContain("Available packages");
+    const installButton = knownPackageInstallButton(panel, "Relays");
     expect(onInstallPackage).not.toHaveBeenCalled();
-    knownPackageInstallButton(panel, "Optional package").click();
+    installButton.click();
     await panel.updateComplete;
-    expect(onInstallPackage).toHaveBeenCalledExactlyOnceWith(source);
+
+    expect(onInstallPackage).toHaveBeenCalledExactlyOnceWith("/pi-web/dist/pi-packages/relays");
   });
 
   it("disables the known-package install button while any package operation is pending", async () => {

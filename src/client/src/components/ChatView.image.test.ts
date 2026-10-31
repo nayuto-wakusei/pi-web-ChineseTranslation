@@ -3,9 +3,9 @@ import { installNativeDialogFake } from "./nativeDialog.testSupport";
 installNativeDialogFake();
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChatView, chatImagePartSource, chatMessageAnchorKey, chatToolOutputLabel } from "./ChatView";
-import { ImageGalleryDialog } from "./ImageGalleryDialog";
+import { ChatView, chatImagePartSource, chatToolOutputLabel } from "./ChatView";
 import { TranscriptImage } from "./TranscriptImage";
+import { ImageGalleryDialog } from "./ImageGalleryDialog";
 import { imageButton, nativeImage, settleImage } from "./imagePresentation.testSupport";
 
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
@@ -35,12 +35,7 @@ describe("ChatView image content derivation", () => {
     expect(chatToolOutputLabel("")).toBe("tool output");
   });
 
-  it("keys a tool image message to its stable scroll anchor", () => {
-    const message = { entryId: "image-entry", role: "tool" as const, parts: [] };
-    expect(chatMessageAnchorKey(7, message)).toBe('m:["image-entry","tool","message"]');
-    expect(chatMessageAnchorKey(8, message)).toBe(chatMessageAnchorKey(7, message));
-    expect(chatMessageAnchorKey(7)).toBeUndefined();
-  });
+
 });
 
 describe("ChatView image event wiring", () => {
@@ -55,22 +50,30 @@ describe("ChatView image event wiring", () => {
     return { view, presentation, image: nativeImage(presentation) };
   }
 
-  it("leaves native image loading to the browser rather than issuing load-event scroll corrections", async () => {
-    const { view, presentation, image } = await mountImage();
-    const chat = view.renderRoot.querySelector<HTMLElement>(".chat");
-    if (chat === null) throw new Error("Expected chat viewport");
-    const scroll = vi.fn();
-    Object.defineProperty(chat, "scrollTop", { get: () => 200, set: scroll });
-    expect(image.loading).toBe("lazy");
-    expect(image.getAttribute("decoding")).toBe("async");
-    image.dispatchEvent(new Event("load"));
-    image.dispatchEvent(new Event("error"));
-    await presentation.updateComplete;
-    expect(scroll).not.toHaveBeenCalled();
-    expect(nativeImage(presentation)).toBe(image);
+  it("presents tool images as conversation while keeping their technical context in collapsed activity", async () => {
+    const view = new ChatView();
+    view.messages = [
+      { role: "tool", entryId: "tool-image", parts: [
+        { type: "toolResult", toolName: "read", text: "Read image file", isError: false },
+        { type: "image", mimeType: "image/png", data: "QUJD" },
+      ] },
+      { role: "assistant", entryId: "reply", parts: [{ type: "text", text: "Here is the image." }] },
+    ];
+    document.body.append(view);
+    await view.updateComplete;
+
+    const activity = view.renderRoot.querySelector<HTMLDetailsElement>(".event-group");
+    const imageMessage = view.renderRoot.querySelector("article.tool-image-output");
+    expect(activity?.open).toBe(false);
+    expect(imageMessage?.classList.contains("conversation-message")).toBe(true);
+    expect(imageMessage?.closest(".event-group")).toBeNull();
+    expect(imageMessage?.querySelector(".label")?.textContent).toBe("read output");
+    expect(imageMessage?.querySelector("pi-web-transcript-image")).not.toBeNull();
+    expect(view.renderRoot.querySelector("article.assistant")?.classList.contains("conversation-message")).toBe(true);
+    expect(activity?.querySelector(".conversation-message")).toBeNull();
   });
 
-  it("opens and closes the image zoom target on click and close", async () => {
+  it("opens and closes the image zoom target without waiting for native loading", async () => {
     const { view, presentation } = await mountImage();
     imageButton(presentation).click();
     await view.updateComplete;

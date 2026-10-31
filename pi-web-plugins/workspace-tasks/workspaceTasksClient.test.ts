@@ -8,22 +8,14 @@ import { loadWorkspaceTasksConfig, type WorkspaceTasksFileReader } from "./works
 beforeEach(() => { setTranslator(translateChinese); });
 
 describe("workspace tasks client", () => {
-  it("loads the configured path through the public workspace file helper", async () => {
-    const readFile = vi.fn<WorkspaceTasksFileReader["readFile"]>(() => Promise.resolve({ content: JSON.stringify({ version: 1, tasks: [] }), truncated: false, binary: false }));
-
-    await loadWorkspaceTasksConfig({ readFile });
-
-    expect(readFile).toHaveBeenCalledWith(TASKS_CONFIG_PATH);
-  });
-
   it("loads and parses a valid tasks config through the public workspace file helper", async () => {
-    const files = reader({
+    const readFile = vi.fn<WorkspaceTasksFileReader["readFile"]>(() => Promise.resolve({
       content: JSON.stringify({ version: 1, tasks: [{ id: "build", title: "Build", command: "npm run build" }] }),
       truncated: false,
       binary: false,
-    });
+    }));
 
-    await expect(loadWorkspaceTasksConfig(files)).resolves.toEqual({
+    await expect(loadWorkspaceTasksConfig({ readFile })).resolves.toEqual({
       kind: "loaded",
       path: TASKS_CONFIG_PATH,
       config: {
@@ -31,6 +23,7 @@ describe("workspace tasks client", () => {
         tasks: [{ id: "build", title: "Build", command: "npm run build", confirm: false }],
       },
     });
+    expect(readFile).toHaveBeenCalledExactlyOnceWith(TASKS_CONFIG_PATH);
   });
 
   it("treats a missing optional tasks config as unconfigured", async () => {

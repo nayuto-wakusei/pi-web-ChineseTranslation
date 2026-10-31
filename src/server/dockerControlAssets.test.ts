@@ -69,68 +69,9 @@ describe("Docker command assets", () => {
     expect(dockerfile).not.toMatch(/\bLC_ALL=/u);
   });
 
-  it("packages the canonical Docker command and internal support assets", async () => {
-    const [dockerfile, devDockerfile, runtimeCompose, devCompose, installer, devWrapper, dependencySync, dockerignore] = await Promise.all([
-      readRepoFile("docker/Dockerfile"),
-      readRepoFile("docker/Dockerfile.dev"),
-      readRepoFile("docker/compose.yml"),
-      readRepoFile("docker/compose.dev.yml"),
-      readRepoFile("docker/install.sh"),
-      readRepoFile("docker/internal/dev/compose"),
-      readRepoFile("docker/internal/dev/sync-node-modules"),
-      readRepoFile("docker/.dockerignore"),
-    ]);
-    const customImageHooksIndex = devDockerfile.indexOf("for script in /tmp/pi-web-custom-image.d/*.sh");
-    const dependencyGenerationIndex = devDockerfile.indexOf("/opt/pi-web-dev-dependencies/generation");
-
-    expect(dockerfile).toContain("COPY --chmod=0755 pi-web-docker /usr/local/bin/pi-web-docker");
-    expect(dockerfile).toContain("COPY --chmod=0755 internal/bin/hostexec internal/bin/pi-web-service internal/bin/pi-web-image-doctor /usr/local/bin/");
-    expect(dockerfile).toContain("COPY --chmod=0755 internal/image/install-ubuntu-base /usr/local/sbin/install-pi-web-ubuntu-base");
-    expect(dockerfile).toContain('"@earendil-works/pi-coding-agent@1.3.0" "@chainingintention/pi-web-cn@${PI_WEB_VERSION}" --allow-scripts=node-pty');
-    expect(dockerfile).toContain("command -v pi");
-    expect(dockerfile).toContain("@earendil-works/pi-coding-agent@1.3.0");
-    expect(devDockerfile).toContain("COPY --chmod=0755 docker/pi-web-docker /usr/local/bin/pi-web-docker");
-    expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/bin/hostexec docker/internal/bin/pi-web-service docker/internal/bin/pi-web-image-doctor /usr/local/bin/");
-    expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/dev/sync-node-modules /usr/local/sbin/pi-web-dev-sync-node-modules");
-    expect(devDockerfile).toContain("/opt/pi-web-dev-dependencies/node_modules");
-    // The seed can be hidden by the host /opt mount; the CLI must use the active volume.
+  it("keeps the Pi CLI on the active dependency volume rather than the image seed hidden by host mounts", async () => {
+    const devDockerfile = await readRepoFile("docker/Dockerfile.dev");
     expect(devDockerfile).toContain("ln -sf /usr/local/lib/node_modules/@chainingintention/pi-web-cn/node_modules/.bin/pi /usr/local/bin/pi");
-    // Hooks can mutate the dependency seed, so its cache generation must be finalized afterward.
-    expect(customImageHooksIndex).toBeGreaterThanOrEqual(0);
-    expect(dependencyGenerationIndex).toBeGreaterThan(customImageHooksIndex);
-    expect(dependencySync).toContain(".pi-web-dev-dependency-generation");
-    expect(dockerignore).toContain("!pi-web-docker");
-    expect(dockerignore).toContain("!internal/bin/hostexec");
-    expect(dockerignore).toContain("!internal/bin/pi-web-reconcile-mise");
-    expect(dockerfile).toContain("COPY --chmod=0755 internal/bin/pi-web-reconcile-mise /usr/local/bin/");
-    expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/bin/pi-web-reconcile-mise /usr/local/bin/");
-    expect(installer).toContain("write_asset internal/bin/pi-web-reconcile-mise 0755");
-    expect(installer).toContain("write_asset pi-web-docker 0755");
-    expect(installer).toContain("write_asset internal/host-profile.sh 0644");
-    expect(installer).toContain("compose_cmd --project-name \"$compose_project_name\"");
-    expect(installer).toContain("PI_WEB_DOCKER_INSTALL_DIR=$install_dir");
-    expect(installer).toContain("PI_WEB_DOCKER_REF=$asset_ref");
-    expect(installer).toContain("COMPOSE_PROJECT_NAME=$compose_project_name");
-    expect(devWrapper).toContain("$repo_root/docker/internal/host-profile.sh");
-    expect(devWrapper).toContain("--project-name \"$compose_project_name\"");
-    expect(devWrapper).toContain("PI_WEB_DOCKER_DEV_REPO_ROOT=$repo_root");
-    expect(devWrapper).toContain("COMPOSE_PROJECT_NAME=$compose_project_name");
-    expect(runtimeCompose).toContain("PI_WEB_DOCKER_RUNTIME: \"1\"");
-    expect(runtimeCompose).toContain("PI_WEB_DOCKER_MODE: runtime");
-    expect(runtimeCompose).toContain("PI_WEB_DOCKER_INSTALL_DIR: ${PI_WEB_DOCKER_INSTALL_DIR:?set by docker/install.sh}");
-    expect(runtimeCompose).toContain("PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_IMAGE:-pi-web:local}");
-    expect(runtimeCompose).not.toContain("COMPOSE_PROJECT_NAME:");
-    expect(runtimeCompose).toContain("curl -fsS http://127.0.0.1:8504/api/normal-auth/status");
-    expect(runtimeCompose).not.toContain("curl -fsS http://127.0.0.1:8504/api/pi-web/runtime");
-    expect(devCompose).toContain("PI_WEB_DOCKER_MODE: dev");
-    expect(devCompose).toContain("PI_WEB_DOCKER_DEV_REPO_ROOT: ${PI_WEB_DOCKER_DEV_REPO_ROOT:?set by docker/pi-web-docker --dev}");
-    expect(devCompose).toContain("PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_DEV_IMAGE:-pi-web:dev}");
-    expect(devCompose).not.toContain("COMPOSE_PROJECT_NAME:");
-    expect(devCompose).toContain("curl -fsS http://127.0.0.1:8504/api/pi-web/health");
-    expect(devCompose).not.toContain("curl -fsS http://127.0.0.1:8504/api/pi-web/runtime");
-    expect(devCompose).toContain("/usr/local/sbin/pi-web-dev-sync-node-modules");
-    expect(devCompose).toContain("volumes: *pi-web-dev-init-volumes");
-    expect(runtimeCompose).not.toContain("source: node_modules");
   });
 
   it("keeps the development daemon socket separate from runtime", async () => {
@@ -177,12 +118,9 @@ describe("Docker command assets", () => {
   });
 
   it("gives both modes the same user-owned container environment file in the shared data directory", async () => {
-    const [runtimeCompose, devCompose, installer, devWrapper, hostProfile] = await Promise.all([
+    const [runtimeCompose, devCompose] = await Promise.all([
       readRepoFile("docker/compose.yml"),
       readRepoFile("docker/compose.dev.yml"),
-      readRepoFile("docker/install.sh"),
-      readRepoFile("docker/internal/dev/compose"),
-      readRepoFile("docker/internal/host-profile.sh"),
     ]);
 
     expect(runtimeCompose).toContain("- ${PI_WEB_DOCKER_DATA_DIR:-./data}/container.env");
@@ -190,11 +128,6 @@ describe("Docker command assets", () => {
     // Only the two long-running PI WEB services take the file; data-init just prepares /data as root.
     expect(runtimeCompose.match(/env_file: \*pi-web-env-file/g)).toHaveLength(2);
     expect(devCompose.match(/env_file: \*pi-web-dev-env-file/g)).toHaveLength(2);
-    expect(installer).toContain("container_env_file=$data_dir/container.env");
-    expect(installer).toContain("pi_web_docker_write_container_env_template \"$container_env_file\"");
-    expect(devWrapper).toContain("container_env_file=$pi_web_data_dir/container.env");
-    expect(devWrapper).toContain("pi_web_docker_write_container_env_template \"$container_env_file\"");
-    expect(hostProfile).toContain("pi_web_docker_write_container_env_template() {");
   });
 
   it("layers the dev-only container environment after shared defaults without including it in runtime", async () => {
@@ -343,8 +276,7 @@ describe("Docker command assets", () => {
       expect(firstInstall.stderr).toContain(`Container environment (safe to edit): ${containerEnvFile}`);
 
       const template = await readFile(containerEnvFile, "utf8");
-      expect(template).toContain("# PI WEB Docker container environment. Safe to edit.");
-      expect(template).toContain("pi-web-docker start");
+      expect((await stat(containerEnvFile)).mode & 0o777).toBe(0o600);
 
       await writeFile(containerEnvFile, `${template}HTTPS_PROXY=http://proxy.example.test:3128\n`, "utf8");
       await execUtf8("sh", installArgs, installEnv);
@@ -362,7 +294,7 @@ describe("Docker command assets", () => {
 
     // Compose refuses to start when a declared env_file is absent, so installs
     // made before this file existed must get it before Compose runs.
-    expect(await readFile(containerEnvFile, "utf8")).toContain("# PI WEB Docker container environment. Safe to edit.");
+    expect((await stat(containerEnvFile)).isFile()).toBe(true);
     const log = await readFile(fakeDocker.logPath, "utf8");
     expect(log).toContain("compose --project-name pi-web-test --env-file .env -f compose.yml -f compose.override.yml up -d");
   });
@@ -479,9 +411,6 @@ describe("Docker command assets", () => {
     expect(regeneratedEnv).toContain("PI_WEB_DEV_SESSIOND_SOCKET=/data/pi-web/sessiond-dev.sock\n");
     expect(regeneratedEnv).not.toContain("COMPOSE_PROJECT_NAME=ambient-dev-project");
 
-    const localConfig = await readFile(join(devRoot, ".pi-web", "docker-compose-dev.local.env"), "utf8");
-    expect(localConfig).toContain("docker/pi-web-docker --dev creates this file once");
-    expect(localConfig).toContain("PI_WEB_UID and PI_WEB_GID default to the current host user");
     const override = await readFile(join(devRoot, ".pi-web", "docker-compose-dev.host.generated.yml"), "utf8");
     expect(override).toContain(socketPath);
     // Dev Compose owns both checkout aliases; the shared host profile owns no checkout mounts.

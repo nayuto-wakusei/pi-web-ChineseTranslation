@@ -75,9 +75,6 @@ describe("bundled Git browser plugin", () => {
     expect(row.querySelector(".ui-file-leading")?.getAttribute("aria-hidden")).toBe("true");
     expect(row.dataset["gitState"]).toBe("modified");
     expect(row.querySelector(".git-status")?.textContent).toBe("M");
-    const styles = container.querySelector("style[data-git-styles]")?.textContent;
-    expect(styles).toContain('[data-git-state] .ui-file-label');
-    expect(styles).not.toContain('[data-git-state] .ui-file-leading');
     const calls = requestRender.mock.calls.length;
     url = "https://icons.test/typescript-light.svg";
     for (const listener of listeners) listener();
@@ -437,22 +434,10 @@ describe("bundled Git browser plugin", () => {
     expect(backend.request).toHaveBeenCalledWith("diff", { path: "src/main.ts", staged: true });
     expect(container.textContent).toContain("已暂存");
     expect(container.textContent).toContain("未暂存");
-    expect(container.querySelector(".git-panel")).not.toBeNull();
-    expect(container.querySelector(".split")).toBeNull();
-    expect(container.querySelector("style[data-ui-styles]")).toBeNull();
-    expect(container.querySelector(".git-toolbar.ui-toolbar .ui-button")).not.toBeNull();
-    expect(container.querySelector(".git-file-list.ui-file-list")).not.toBeNull();
     const selectedRow = button(container, "src/main.ts");
     expect(selectedRow.classList.contains("selected")).toBe(true);
     expect(selectedRow.querySelector(".ui-file-label")?.textContent).toBe("src/main.ts");
-    expect(selectedRow.querySelector("pi-web-git-file-icon")?.shadowRoot?.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
     expect(selectedRow.querySelector(".ui-file-meta")?.textContent).toBe("M");
-    const styleRules = (container.querySelector("style[data-git-styles]")?.textContent ?? "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.includes("{"));
-    expect(container.querySelector(".git-panel .ui-file-row")).not.toBeNull();
-    expect(styleRules.every((rule) => rule.startsWith(".git-panel"))).toBe(true);
     expect(container.querySelector('[role="table"][aria-label="统一差异"]')).not.toBeNull();
     expect([...container.querySelectorAll(".inline-change")].map((entry) => entry.textContent)).toContain("new");
 

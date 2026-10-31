@@ -19,6 +19,7 @@ import { corePlugin } from "../plugins/core";
 import type { WorkspacePanelContext } from "../plugins/types";
 import { PiWebApp } from "./PiWebApp";
 import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
+import * as themeCatalogApi from "../themeCatalog";
 import { ChatView } from "./ChatView";
 import { StatusBar } from "./StatusBar";
 import { ConversationLayout } from "./ConversationLayout";
@@ -31,6 +32,7 @@ import { ProjectList } from "./ProjectList";
 import { SessionList } from "./SessionList";
 import { loadNavigationPreferences, saveNavigationPreferences } from "../navigationPreferences";
 import { NavigationDialog } from "./appShell/NavigationDialog";
+import type { AppMobileMainTabs } from "./appShell/AppMobileMainTabs";
 import { deepActiveElement } from "./modalLayerRegistry";
 import { AppShellController } from "../appShell/appShellController";
 import { SessionController } from "../controllers/sessionController";
@@ -65,6 +67,9 @@ beforeEach(() => {
   unexpectedRequest.mockClear();
   window.history.replaceState(null, "", "/");
   vi.stubGlobal("fetch", themeStylesheetFetch(unexpectedRequest));
+  // Theme discovery is outside this render-only fixture's orchestration boundary.
+  vi.spyOn(themeCatalogApi, "loadThemeBootstrap").mockResolvedValue({ catalog: { themes: [], themePairs: [] }, stylesheets: [] });
+  vi.spyOn(themeCatalogApi, "loadThemeCatalog").mockResolvedValue({ themes: [], themePairs: [] });
   // Scroll scheduling is not under test; happy-dom supplies no layout metrics.
   installDeferredContent();
 });
@@ -714,6 +719,55 @@ describe("application rendering boundaries", () => {
     }
   });
 
+  it("updates Notices availability without changing routes or pins and scopes dismiss requests to the current session", async () => {
+    saveNavigationPreferences({ pinnedIds: ["chat", "core:notices"], mobileCollapsed: false });
+    const dismiss = vi.spyOn(SessionController.prototype, "dismissWarning").mockResolvedValue(undefined);
+    const snapshot = sessionStatus(session.id, [{ severity: "warning", message: "Persistent condition", dismiss: { id: "billing" } }]);
+    const { app } = await mountMobileNavigationApp({ selectedSession: session, selectedWorkspace: workspace, status: snapshot, mainView: "chat" });
+    const tabs = app.shadowRoot?.querySelector<AppMobileMainTabs>("app-mobile-main-tabs");
+    expect(tabs?.tabs.find((tab) => tab.id === "core:notices")?.badge).toBe(1);
+    tabs?.onSelect?.("core:notices"); await settle(app);
+    const panel = app.shadowRoot?.querySelector<WorkspacePanel>("workspace-panel");
+    panel?.shadowRoot?.querySelector("session-notices-panel")?.shadowRoot?.querySelector<HTMLButtonElement>(".session-warning-dismiss")?.click();
+    expect(dismiss).toHaveBeenCalledWith("billing");
+    panel?.dispatchEvent(new CustomEvent("session-notice-dismiss", { detail: { machineId: "other", sessionId: session.id, dismissId: "billing" } }));
+    expect(dismiss).toHaveBeenCalledOnce();
+    const url = window.location.href;
+    patchState(app, { status: sessionStatus(session.id) }); await settle(app);
+    expect(tabs?.tabs.some((tab) => tab.id === "core:notices")).toBe(false);
+    expect(panel?.shadowRoot?.querySelector("session-notices-panel")).toBeNull();
+    expect(panel?.error).not.toBe("");
+    expect(window.location.href).toBe(url);
+    expect(loadNavigationPreferences().pinnedIds).toEqual(["chat", "core:notices"]);
+    patchState(app, { status: snapshot }); await settle(app);
+    expect(tabs?.tabs.some((tab) => tab.id === "core:notices")).toBe(true);
+    expect(panel?.shadowRoot?.querySelector("session-notices-panel")?.status?.warnings).toEqual(snapshot.warnings);
+  });
+
+  it.each([false, true])("places Notices after Chat, or first when Chat has no tab (desktop=%s)", async (desktop) => {
+    const app = new RenderOnlyApp();
+    patchState(app, { selectedSession: session, selectedWorkspace: workspace, status: sessionStatus(session.id, [{ severity: "warning", message: "Persistent condition" }]), mainView: "chat" });
+    const registry: unknown = Reflect.get(app, "plugins");
+    if (!(registry instanceof PluginRegistry)) throw new Error("Expected plugin registry");
+    Reflect.set(app, "verifiedPluginModeByMachine", new Map([["local", "recovery-disabled"]]));
+    await registry.register({ id: "ordered-panel", plugin: { apiVersion: 5, name: "Ordered panel", activate: () => ({ contributions: {
+      applicationPanels: [{ id: "files", title: "Files", order: 10, render: () => html`Files` }],
+    } }) } });
+    const shell: unknown = Reflect.get(app, "appShell");
+    if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
+    shell.isDesktopSideBySideLayout = desktop;
+    shell.isMobileNavigationLayout = !desktop;
+    document.body.append(app); await settle(app);
+    if (desktop) {
+      const panel = app.shadowRoot?.querySelector<WorkspacePanel>("workspace-panel");
+      expect(panel?.panels.map(({ id }) => id)).toEqual(["core:notices", "ordered-panel:files"]);
+    } else {
+      const tabs = app.shadowRoot?.querySelector<AppMobileMainTabs>("app-mobile-main-tabs");
+      const ids = tabs?.tabs.map(({ id }) => id) ?? [];
+      expect(ids.slice(ids.indexOf("chat"))).toEqual(["chat", "core:notices", "ordered-panel:files"]);
+    }
+  });
+
   it("keeps the activity notice in the blocked composer until dismissal without losing drafts or attachments", async () => {
     const send = vi.spyOn(SessionController.prototype, "send").mockResolvedValue(true);
     const key = machineSessionKey("local", session.id);
@@ -744,11 +798,6 @@ describe("application rendering boundaries", () => {
     const chat = app.shadowRoot?.querySelector("chat-view");
     expect(chat?.hasAttribute("inert")).toBe(false);
     expect(chat?.shadowRoot?.textContent).not.toContain("Recently active in another PI-WEB instance");
-    expect(chat?.shadowRoot?.textContent).toContain("Ordinary runtime warning");
-    const statusBar = app.shadowRoot?.querySelector<StatusBar>("status-bar");
-    expect(statusBar?.warningCount).toBe(1);
-    statusBar?.shadowRoot?.querySelector<HTMLButtonElement>(".warning-toggle")?.click();
-    await settle(app);
     expect(chat?.shadowRoot?.textContent).not.toContain("Ordinary runtime warning");
     expect(app.shadowRoot?.querySelector(".composer-activity-notice")).toBe(notice);
     expect(editor.disabled).toBe(true);
@@ -767,6 +816,83 @@ describe("application rendering boundaries", () => {
     expect(send).toHaveBeenCalledOnce();
   });
 
+  it("scopes activity acknowledgement by machine/session and asks again after activity elsewhere clears", async () => {
+    const status = { ...sessionStatus(session.id), recentlyActiveElsewhere: true };
+    const app = await mountApp({ selectedSession: session, status });
+    await settle(app);
+    dismissActivityNotice(app);
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(false);
+    // Missing activity information, a stale session status, or unrelated warnings must not erase acknowledgement.
+    patchState(app, { status: undefined });
+    await settle(app);
+    const missingActivityStatus: SessionStatus = { ...status };
+    delete missingActivityStatus.recentlyActiveElsewhere;
+    patchState(app, { status: missingActivityStatus });
+    await settle(app);
+    patchState(app, { status: sessionStatus("unrelated-session") });
+    await settle(app);
+    patchState(app, { status: { ...status, warnings: [{ severity: "warning", message: "New runtime warning" }] } });
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(false);
+
+    const otherSession = { ...session, id: "other-session" };
+    patchState(app, { selectedSession: otherSession, status: { ...status, sessionId: otherSession.id } });
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(true);
+    patchState(app, { selectedSession: session, status });
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(false);
+
+    patchState(app, { selectedMachine: { id: "remote", name: "Remote", kind: "remote", baseUrl: "https://remote.test", createdAt: "now", updatedAt: "now" } });
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(true);
+    dismissActivityNotice(app);
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(false);
+    patchState(app, { selectedMachine: undefined });
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(false);
+
+    patchState(app, { status: sessionStatus(session.id) });
+    await settle(app);
+    patchState(app, { status });
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(true);
+    expect(app.shadowRoot?.querySelector(".composer-activity-notice")).not.toBeNull();
+  });
+
+  it("re-arms the notice when activity clears and resumes while another session is selected", async () => {
+    const status = { ...sessionStatus(session.id), recentlyActiveElsewhere: true };
+    const app = await mountApp({ selectedSession: session, status, sessionStatuses: { [session.id]: status } });
+    await settle(app);
+    dismissActivityNotice(app);
+    await settle(app);
+
+    const otherSession = { ...session, id: "other-session" };
+    patchState(app, { selectedSession: otherSession, status: sessionStatus(otherSession.id) });
+    await settle(app);
+    patchState(app, { sessionStatuses: { [session.id]: sessionStatus(session.id) } });
+    await settle(app);
+    patchState(app, { sessionStatuses: { [session.id]: status } });
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(false);
+    expect(app.shadowRoot?.querySelector(".composer-activity-notice")).toBeNull();
+
+    patchState(app, { selectedSession: session, status });
+    await settle(app);
+    expect(promptEditor(app).disabled).toBe(true);
+    expect(app.shadowRoot?.querySelector(".composer-activity-notice")).not.toBeNull();
+  });
+
+  it("does not re-enable archived sessions when the activity notice is dismissed", async () => {
+    const app = await mountApp({ selectedSession: { ...session, archived: true }, status: { ...sessionStatus(session.id), recentlyActiveElsewhere: true } });
+    await settle(app);
+    dismissActivityNotice(app);
+    await settle(app);
+    expect(app.shadowRoot?.querySelector(".composer-activity-notice")).toBeNull();
+    expect(promptEditor(app).disabled).toBe(true);
+  });
   it("does not update the selected chat for unrelated shell state, but does update its transcript", async () => {
     const app = await mountApp({ selectedSession: session, sessions: [session], messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }] });
     await settle(app);

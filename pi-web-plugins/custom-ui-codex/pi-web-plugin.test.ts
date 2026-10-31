@@ -10,8 +10,8 @@ describe("custom UI Codex", () => {
     expect(metadata.piWeb.plugins[0]).toMatchObject({ id: "pi-web.custom-ui-codex", defaultEnabled: true });
     expect(plugin.requires.map(({ id, version }) => [id, version])).toEqual([["ui-presentation", 1]]);
     expect(activation.contributions.uiPresentations.map(({ region }) => region)).toEqual(["files-toolbar", "navigation", "context-bar", "chat-chrome", "settings-navigation"]);
-    expect(activation.contributions.themes.map(({ id }) => id)).toEqual(["paper", "graphite"]);
-    expect(activation.contributions.themePairs[0]).toMatchObject({ id: "paper-graphite", light: "paper", dark: "graphite" });
+    expect(metadata.piWeb.plugins[0]?.themes.map(({ id }) => id)).toEqual(["paper", "graphite"]);
+    expect(metadata.piWeb.plugins[0]?.themePairs[0]).toMatchObject({ id: "paper-graphite", light: "paper", dark: "graphite" });
     expect(activation.contributions.uiPresentations[1]).toMatchObject({ region: "navigation", navigationLayout: "tree" });
     expect(activation.contributions.stylesheets.map(({ id }) => id)).toEqual(["codex", "chat-settings"]);
     for (const presentation of activation.contributions.uiPresentations) {

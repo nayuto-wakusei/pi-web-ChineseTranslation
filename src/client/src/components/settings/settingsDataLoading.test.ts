@@ -9,7 +9,7 @@ const configResponse: PiWebConfigResponse = {
   exists: true,
   config: { host: "127.0.0.1" },
   effectiveConfig: { host: "127.0.0.1" },
-  envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
+  envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, sessionMessages: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
 };
 
 const pluginsResponse: PiWebPluginsResponse = pluginLifecycleResponse([]);

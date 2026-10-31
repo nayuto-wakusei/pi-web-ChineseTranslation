@@ -66,13 +66,15 @@ describe("PiSessionService session search and pins", () => {
 
   it("returns message-level user and assistant matches with transcript positions", async () => {
     const cwd = join(tempDir, "workspace");
-    const active = sessionEntry("active-id", cwd, { allMessagesText: "Needle twice needle and answer needle" });
-    const service = createService([active], [], undefined, new Map([
+    const active = sessionEntry("active-id", cwd);
+    const other = sessionEntry("other-id", join(tempDir, "other"));
+    const service = createService([active, other], [], undefined, new Map([
       [active.path, [
         { type: "message", message: { role: "user", content: "Needle twice needle" } },
         { type: "message", message: { role: "assistant", content: [{ type: "text", text: "answer needle" }] } },
         { type: "message", message: { role: "toolResult", content: "needle in tool output" } },
       ]],
+      [other.path, [{ type: "message", message: { role: "user", content: "needle" } }]],
     ]));
 
     const response = await service.searchContent(cwd, "needle");
@@ -83,6 +85,25 @@ describe("PiSessionService session search and pins", () => {
       { messageIndex: 1, role: "assistant", occurrenceCount: 1 },
       { messageIndex: 0, role: "user", occurrenceCount: 2 },
     ]);
+    expect(Object.keys(response.results[0]?.matches[0] ?? {}).sort()).toEqual(["excerpts", "messageIndex", "occurrenceCount", "role"]);
+    await expect(service.searchContent(cwd, "NEEDLE answer")).resolves.toMatchObject({ matchCount: 1 });
+    await expect(service.searchContent(cwd, "nedle")).resolves.toMatchObject({ matchCount: 2 });
+  });
+
+  it("keeps exact results across sessions ahead of recent typo matches at the shared 200-message limit", async () => {
+    const cwd = join(tempDir, "workspace");
+    const recent = sessionEntry("recent", cwd, { modified: new Date("2026-06-10T00:00:00.000Z") });
+    const older = sessionEntry("older", cwd);
+    const service = createService([recent, older], [], undefined, new Map([
+      [recent.path, Array.from({ length: 210 }, () => ({ type: "message", message: { role: "user", content: "servr" } }))],
+      [older.path, [{ type: "message", message: { role: "user", content: "server" } }]],
+    ]));
+    const response = await service.searchContent(cwd, "server");
+    expect(response.matchCount).toBe(211);
+    expect(response.truncated).toBe(true);
+    expect(response.results.map(({ session }) => session.id)).toEqual(["older", "recent"]);
+    expect(response.results.flatMap(({ matches }) => matches)).toHaveLength(200);
+    expect(response.results[1]?.matches.at(-1)?.messageIndex).toBe(11);
   });
 
   it("persists normal pins across service instances while isolating management users and workspaces", async () => {
@@ -150,18 +171,11 @@ class ListOnlySessionManager implements PiSessionManagerGateway {
   }
 
   open(path: string): PiSessionManager {
-    const entry = this.entries.find((candidate) => candidate.path === path);
-    const branch = this.histories.get(path);
-    if (entry === undefined || branch === undefined) throw new Error("not used");
-    return {
-      getCwd: () => entry.cwd,
-      getSessionId: () => entry.id,
-      getSessionFile: () => entry.path,
-      getBranch: () => branch,
-      getLeafId: () => null,
-      branch: () => { throw new Error("not used"); },
-      resetLeaf: () => { throw new Error("not used"); },
-    };
+    throw new Error(`Search must use the cached readBranch path: ${path}`);
+  }
+
+  readBranch(path: string): Promise<unknown[] | undefined> {
+    return Promise.resolve(this.histories.get(path));
   }
 }
 

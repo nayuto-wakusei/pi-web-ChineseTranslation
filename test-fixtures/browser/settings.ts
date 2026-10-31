@@ -18,7 +18,7 @@ document.head.append(style);
 function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
   return {
     path: "/fixture/config.json", exists: true, config, effectiveConfig: config,
-    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
+    envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, sessionMessages: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
   };
 }
 
@@ -44,7 +44,6 @@ const dialog = new SettingsDialog();
 dialog.actions = [{ id: "fixture", title: "打开导航", description: "选择应用中的其他页面", group: "通用", shortcut: "Ctrl+K", run: () => undefined }];
 dialog.machine = first;
 dialog.machines = [local, first, second];
-dialog.namingModelsTarget = { machineId: first.id, projectId: "fixture-project" };
 dialog.onNavigate = (section) => { dialog.section = section; };
 dialog.onClose = () => { dialog.remove(); };
 document.body.append(dialog);

@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { localization } from "./localization/browser";
-import { commandResultMessages, localizedCommandResult } from "./commandResultMessages";
+import { localizedCommandResult } from "./commandResultMessages";
 import definitions from "./commandResults.messages";
 import { parseCommandResult } from "./api/parsers";
 import type { CommandFeedback, CommandResultPresentation } from "../../shared/commandResultPresentation";
@@ -22,7 +22,7 @@ it("validates all static source messages and renders every feedback kind in Engl
     const result = parseCommandResult({ type: "done", message: "fallback", presentation: { kind: "commandResult", feedback: { code } } });
     if (result.type === "done" && result.presentation !== undefined) allFeedback.push(result.presentation.feedback);
   }
-  expect(allFeedback).toHaveLength(24);
+  expect(new Set(allFeedback.map(({ code }) => code))).toEqual(new Set(Object.keys(definitions)));
   for (const data of allFeedback) {
     const presentation: CommandResultPresentation = { kind: "commandResult", feedback: data };
     for (const language of ["en", "en-XA", "ar-XB"]) {
@@ -36,8 +36,6 @@ it("validates all static source messages and renders every feedback kind in Engl
       if (data.code === "unknown") expect(output).toContain(data.command);
     }
   }
-  await localization.setPreferences({ language: "en", formatLocale: "en" });
-  expect(commandResultMessages.t("nameUsage")).toBe("Usage: /name <session name>");
 });
 
 it("formats statistics regionally with explicit USD, never inferring currency from locale", async () => {

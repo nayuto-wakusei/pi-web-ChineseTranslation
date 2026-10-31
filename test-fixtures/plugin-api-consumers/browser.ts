@@ -1,6 +1,21 @@
 import type {
+  ApplicationPanelContext,
+  ApplicationPanelContribution,
+  ContributionQueryValue,
+  DisplayedMessageActionContext,
+  MessageActionContext,
+  PluginNavigate,
+  PluginNavigationDestination,
+  PluginNavigationPatchDestination,
+  PluginNavigationOptions,
+  PluginRuntimeContext,
+  PluginRuntimeContextV5,
+  PluginSessionSnapshot,
+  QualifiedContributionId,
+  SessionLabelContext,
   ContentRenderingCapability,
   ContentRendererInput,
+  TranscriptRendererContribution,
   JsonValue,
   LocalizationContribution,
   TranslationParameters,
@@ -22,6 +37,68 @@ import type {
   TerminalCommandRun,
 } from "@chainingintention/pi-web-cn/plugin-api";
 
+export const transcriptToolRenderer: TranscriptRendererContribution = {
+  id: "tool", target: "tool",
+  resolve(toolName, next) {
+    const name: string = toolName;
+    if (name !== "read") return next();
+    const downstream = next();
+    return {
+      render(input) {
+        const status: "pending" | "running" | "success" | "error" = input.entry.status;
+        const sessionId: string = input.scope.sessionId;
+        void [status, sessionId, input.entry.args, input.entry.details, input.signal, input.fail];
+        // @ts-expect-error Tool targets infer tool input, not custom-message input.
+        input.entry.customType;
+        // @ts-expect-error Transcript rendering conveys no provenance.
+        input.source;
+        return downstream?.render(input);
+      },
+    };
+  },
+};
+
+export const transcriptMessageRenderer: TranscriptRendererContribution = {
+  id: "message", target: "custom-message", customType: "notice",
+  render(input) {
+    const customType: string = input.entry.customType;
+    void [customType, input.entry.content];
+    // @ts-expect-error Custom-message targets infer message input, not tool input.
+    input.entry.toolName;
+    return undefined;
+  },
+};
+
+export function checkTranscriptContributions(v4: PluginContributions, v5: PluginContributionsV5): void {
+  v5.transcriptRenderers = [transcriptToolRenderer, transcriptMessageRenderer];
+  // @ts-expect-error Transcript contributions are v5-only.
+  v4.transcriptRenderers = [];
+}
+
+export function previewSessionAgePolicy(sessions: readonly PluginSessionSnapshot[], cutoff: number) {
+  return sessions.filter((session) => {
+    if (session.pinned !== false || session.runtime === "busy") return false;
+    const timestamp = session.archived ? session.archivedAt : session.modified;
+    return timestamp !== null && Date.parse(timestamp) < cutoff;
+  });
+}
+
+export async function manageSavedSession(context: PluginRuntimeContextV5): Promise<void> {
+  const sessions = context.sessions;
+  if (sessions === undefined) return; // Hosts predating this optional service.
+  const selected = { projectId: "fixture-project", workspaceId: "fixture-workspace", sessionId: "fixture-session" };
+  await sessions.get(selected);
+  await sessions.pin(selected);
+  await sessions.unpin(selected);
+  await sessions.archive(selected);
+  await sessions.restore(selected);
+  await sessions.delete(selected);
+  // @ts-expect-error Session paths are resolved by the host, not supplied as authority.
+  await sessions.archive({ cwd: "/repo", sessionId: selected.sessionId });
+}
+
+// Existing plugins can extend workspace run records and read their identity
+// without a maintenance-scope check.
 export interface WorkspaceRunExtension extends TerminalCommandRun {
   pluginTag?: string;
 }

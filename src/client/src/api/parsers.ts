@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { parseSessionArchiveConfig, parseSessionNamingConfig } from "../../../shared/piWebConfigParsing";
+import { parseSessionArchiveConfig } from "../../../shared/piWebConfigParsing";
 import type { McpAuthServersResponse, SessionTranscriptSnapshot } from "../../../shared/apiTypes";
 import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, EXTENSION_DIALOG_OPTION_LIMIT, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type AskUserRequest, type PendingExtensionDialog, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogKind, type ExtensionDialogOutcome, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelCatalogResponse, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceEffectiveConfig, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
 import type { GlobalSessionEvent, PiPackageInfo, PiPackageInstallableSuggestion, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, ServerNotice, ServerNoticeEvent, ServerNoticeSeverity, ServerNoticeSnapshot, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot } from "../../../shared/apiTypes";
@@ -309,6 +309,8 @@ export function parseSessionInfo(value: unknown): SessionInfo {
     path: requireString(record, "path"),
     cwd: requireString(record, "cwd"),
     ...(persisted === undefined ? {} : { persisted }),
+    ...optionalField("interventionRequired", parseOptionalBoolean(record["interventionRequired"], "interventionRequired")),
+    ...optionalField("agentSubsession", parseOptionalBoolean(record["agentSubsession"], "agentSubsession")),
     ...(name === undefined ? {} : { name }),
     ...(metadata === undefined ? {} : { metadata }),
     created: requireString(record, "created"),
@@ -634,6 +636,7 @@ export function parseSessionStatus(value: unknown): SessionStatus {
     sessionId: requireString(record, "sessionId"),
     ...optionalField("persisted", parseOptionalBoolean(record["persisted"], "persisted")),
     recentlyActiveElsewhere: recentlyActiveElsewhere ?? warnings?.some(isLegacyOtherInstanceActivityWarning) ?? false,
+    ...optionalField("interventionRequired", parseOptionalBoolean(record["interventionRequired"], "interventionRequired")),
     isStreaming: requireBoolean(record, "isStreaming"),
     isCompacting: requireBoolean(record, "isCompacting"),
     isBashRunning: requireBoolean(record, "isBashRunning"),
@@ -769,6 +772,162 @@ function requireSessionActivityPhase(record: Record<string, unknown>, key: strin
   return value;
 }
 
+/**
+ * Socket stream frame validation. The session and realtime sockets accept only
+ * the frame types validated here: these frames render transcript content,
+ * status, and workspace state straight into the UI, so a malformed frame must
+ * be dropped at the socket boundary rather than trusted on its type name
+ * alone. Each validator rebuilds the event from checked fields only, so stray
+ * fields do not pass the boundary either.
+ */
+export function parseSessionStreamEvent(value: unknown): SessionUiEvent {
+  const record = requireRecord(value);
+  switch (record["type"]) {
+    case "message.append":
+      // The message payload is a projected Pi message; only its presence is
+      // guaranteed at this boundary.
+      return { type: "message.append", message: requirePresent(record, "message") };
+    case "assistant.start":
+      return { type: "assistant.start", message: requirePresent(record, "message") };
+    case "assistant.delta":
+      return { type: "assistant.delta", text: requireString(record, "text"), ...optionalField("streamId", optionalString(record, "streamId")) };
+    case "assistant.thinking.delta":
+      return { type: "assistant.thinking.delta", text: requireString(record, "text"), ...optionalField("streamId", optionalString(record, "streamId")) };
+    case "tool.start":
+      return {
+        type: "tool.start",
+        toolName: requireString(record, "toolName"),
+        toolCallId: requireString(record, "toolCallId"),
+        summary: requireString(record, "summary"),
+        ...optionalField("args", record["args"]),
+      };
+    case "tool.update":
+      return {
+        type: "tool.update",
+        toolName: requireString(record, "toolName"),
+        toolCallId: requireString(record, "toolCallId"),
+        text: requireString(record, "text"),
+        ...optionalField("content", record["content"]),
+        ...optionalField("details", record["details"]),
+      };
+    case "tool.end":
+      return {
+        type: "tool.end",
+        toolName: requireString(record, "toolName"),
+        toolCallId: requireString(record, "toolCallId"),
+        text: requireString(record, "text"),
+        isError: requireBoolean(record, "isError"),
+        ...optionalField("content", record["content"]),
+        ...optionalField("details", record["details"]),
+      };
+    case "shell.start":
+      return {
+        type: "shell.start",
+        command: requireString(record, "command"),
+        ...optionalField("excludeFromContext", parseOptionalBoolean(record["excludeFromContext"], "excludeFromContext")),
+      };
+    case "shell.chunk":
+      return { type: "shell.chunk", chunk: requireString(record, "chunk") };
+    case "shell.end":
+      return {
+        type: "shell.end",
+        ...optionalField("output", optionalString(record, "output")),
+        ...optionalField("exitCode", optionalNumberOrNull(record, "exitCode")),
+        ...optionalField("cancelled", parseOptionalBoolean(record["cancelled"], "cancelled")),
+        ...optionalField("truncated", parseOptionalBoolean(record["truncated"], "truncated")),
+        ...optionalField("fullOutputPath", optionalString(record, "fullOutputPath")),
+        ...optionalField("isError", parseOptionalBoolean(record["isError"], "isError")),
+      };
+    case "agent.start":
+      return { type: "agent.start" };
+    case "agent.end":
+      return { type: "agent.end" };
+    case "message.end":
+      return { type: "message.end", ...optionalField("message", record["message"]) };
+    case "status.update":
+      return { type: "status.update", status: parseSessionStatus(record["status"]) };
+    case "activity.update":
+      return { type: "activity.update", activity: parseSessionActivity(record["activity"]) };
+    case "command.output":
+      return parseCommandOutputEvent(record);
+    case "session.error":
+      return { type: "session.error", message: requireString(record, "message") };
+    case "session.diagnostic":
+      return { type: "session.diagnostic", message: requireString(record, "message") };
+    case "session.name":
+      return parseSessionNameEvent(record);
+    case "session.created":
+      return { type: "session.created", session: parseSessionInfo(record["session"]) };
+    case "session.tree.changed":
+      return { type: "session.tree.changed" };
+    case "pi.event":
+      return { type: "pi.event", eventType: requireString(record, "eventType") };
+    default:
+      throw new Error("Unsupported session stream event type");
+  }
+}
+type RealtimeStreamEvent =
+  | Extract<GlobalSessionEvent, { type: "status.update" | "activity.update" | "session.name" | "session.created" | "models.changed" | "workspaces.changed" | "session-pins.changed" | "notices.updated" }>
+  | MachineStatusUiEvent;
+export function parseRealtimeStreamEvent(value: unknown): RealtimeStreamEvent {
+  const record = requireRecord(value);
+  switch (record["type"]) {
+    case "status.update":
+      return { type: "status.update", status: parseSessionStatus(record["status"]) };
+    case "activity.update":
+      return { type: "activity.update", activity: parseSessionActivity(record["activity"]) };
+    case "session.name":
+      return parseSessionNameEvent(record);
+    case "session.created":
+      return { type: "session.created", session: parseSessionInfo(record["session"]) };
+    case "models.changed":
+      return { type: "models.changed", revision: requireNonNegativeSafeInteger(record, "revision") };
+    case "workspaces.changed":
+      return { type: "workspaces.changed", projectId: requireNonEmptyString(record, "projectId") };
+    case "session-pins.changed":
+      return {
+        type: "session-pins.changed",
+        projectId: requireNonEmptyString(record, "projectId"),
+        workspaceId: requireNonEmptyString(record, "workspaceId"),
+        revision: requireNonNegativeSafeInteger(record, "revision"),
+      };
+    case "notices.updated":
+      return parseServerNoticeEvent(record);
+    case "machine.status":
+      return { type: "machine.status", status: requireMachineStatusSnapshot(record["status"]) };
+    default:
+      throw new Error("Unsupported realtime stream event type");
+  }
+}
+function requirePresent(record: Record<string, unknown>, key: string): unknown {
+  const value = record[key];
+  if (value === undefined) throw new Error(`Expected field: ${key}`);
+  return value;
+}
+function optionalNumberOrNull(record: Record<string, unknown>, key: string): number | null | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "number") throw new Error(`Expected optional number|null field: ${key}`);
+  return value;
+}
+function parseCommandOutputEvent(record: Record<string, unknown>): Extract<SessionUiEvent, { type: "command.output" }> {
+  const level = requireString(record, "level");
+  if (level !== "info" && level !== "success" && level !== "error") throw new Error("Invalid command output level");
+  return {
+    type: "command.output",
+    level,
+    message: requireString(record, "message"),
+    ...optionalField("presentation", parseCommandOutputPresentation(record["presentation"])),
+  };
+}
+function parseSessionNameEvent(record: Record<string, unknown>): Extract<SessionUiEvent, { type: "session.name" }> {
+  return {
+    type: "session.name",
+    sessionId: requireNonEmptyString(record, "sessionId"),
+    ...optionalField("name", optionalString(record, "name")),
+  };
+}
 function parseSessionUnreadSummary(value: unknown): SessionUnreadSummary {
   const record = requireRecord(value);
   const completedAt = requireBoundedNonEmptyString(
@@ -891,12 +1050,6 @@ export function parseServerNoticeEvent(value: unknown): ServerNoticeEvent {
   const record = requireRecord(value);
   if (record["type"] !== "notices.updated") throw new Error("Invalid server notice event type");
   return { type: "notices.updated", snapshot: parseServerNoticeSnapshot(record["snapshot"]) };
-}
-
-function parseModelScopeChangedEvent(value: unknown): Extract<GlobalSessionEvent, { type: "models.changed" }> {
-  const record = requireRecord(value);
-  if (record["type"] !== "models.changed") throw new Error("Invalid model scope event type");
-  return { type: "models.changed", revision: requireNonNegativeSafeInteger(record, "revision") };
 }
 
 function parseServerNotice(value: unknown): ServerNotice {
@@ -1071,12 +1224,14 @@ function highestNotificationSeverity(notifications: readonly SessionNotification
 export function parseSessionCleanupPreviewResponse(value: unknown): SessionCleanupPreviewResponse {
   const record = requireRecord(value);
   const skippedBusySessionIds = record["skippedBusySessionIds"] === undefined ? undefined : arrayOfString(record["skippedBusySessionIds"], "skippedBusySessionIds");
+  const skippedPinnedSessionIds = record["skippedPinnedSessionIds"] === undefined ? undefined : arrayOfString(record["skippedPinnedSessionIds"], "skippedPinnedSessionIds");
   return {
     generatedAt: requireString(record, "generatedAt"),
     thresholds: parseSessionCleanupThresholds(record["thresholds"]),
     projects: arrayOf(parseSessionCleanupProjectSummary)(record["projects"]),
     totals: parseSessionCleanupTotals(record["totals"]),
     ...(skippedBusySessionIds === undefined ? {} : { skippedBusySessionIds }),
+    ...(skippedPinnedSessionIds === undefined ? {} : { skippedPinnedSessionIds }),
   };
 }
 
@@ -1554,6 +1709,7 @@ function optionalConfigSources(value: unknown): Record<string, string> | undefin
 
 function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
   const record = requireRecord(value);
+  if (Object.hasOwn(record, "sessionNaming")) throw new Error("Retired PI WEB sessionNaming config field");
   return {
     ...optionalField("host", optionalString(record, "host")),
     ...optionalField("port", optionalNumber(record, "port")),
@@ -1573,14 +1729,13 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("agent", optionalAgent(record["agent"])),
     ...optionalField("spawnSessions", optionalBoolean(record, "spawnSessions")),
     ...optionalField("subsessions", optionalBoolean(record, "subsessions")),
+    ...optionalField("sessionMessages", optionalBoolean(record, "sessionMessages")),
     ...optionalField("askUser", optionalBoolean(record, "askUser")),
     ...optionalField("environmentFacts", optionalBoolean(record, "environmentFacts")),
     ...optionalField("extensionDialogsTimeoutMs", optionalNumber(record, "extensionDialogsTimeoutMs")),
-    ...optionalField("sessionNaming", record["sessionNaming"] === undefined ? undefined : parseSessionNamingConfig(record["sessionNaming"], "response")),
     ...optionalField("sessionArchive", record["sessionArchive"] === undefined ? undefined : parseSessionArchiveConfig(record["sessionArchive"], "response")),
   };
 }
-
 function optionalAgent(value: unknown): PiWebConfigValues["agent"] | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB agent field");
@@ -1666,7 +1821,7 @@ function parsePiWebConfigEnvOverrides(value: unknown): PiWebConfigEnvOverrides {
     allowedHosts: requireBoolean(record, "allowedHosts"),
     spawnSessions: requireBoolean(record, "spawnSessions"),
     subsessions: requireBoolean(record, "subsessions"),
-    // Older servers predate the ask_user tool; a missing flag means "not overridden".
+    sessionMessages: optionalBoolean(record, "sessionMessages") ?? false,
     askUser: requireBoolean(record, "askUser"),
     agentCommand: optionalBoolean(record, "agentCommand") ?? false,
     agentDir: optionalBoolean(record, "agentDir") ?? false,
@@ -2258,148 +2413,6 @@ function numberOrNull(record: Record<string, unknown>, key: string): number | nu
 
 function optionalField(key: string, value: unknown): object {
   return value === undefined ? {} : { [key]: value };
-}
-export function parseSessionStreamEvent(value: unknown): SessionUiEvent {
-  const record = requireRecord(value);
-  switch (record["type"]) {
-    case "message.append":
-      // The message payload is a projected Pi message; only its presence is
-      // guaranteed at this boundary.
-      return { type: "message.append", message: requirePresent(record, "message") };
-    case "assistant.start":
-      return { type: "assistant.start", message: requirePresent(record, "message") };
-    case "assistant.delta":
-      return { type: "assistant.delta", text: requireString(record, "text"), ...optionalField("streamId", optionalString(record, "streamId")) };
-    case "assistant.thinking.delta":
-      return { type: "assistant.thinking.delta", text: requireString(record, "text"), ...optionalField("streamId", optionalString(record, "streamId")) };
-    case "tool.start":
-      return {
-        type: "tool.start",
-        toolName: requireString(record, "toolName"),
-        toolCallId: requireString(record, "toolCallId"),
-        summary: requireString(record, "summary"),
-        ...optionalField("args", record["args"]),
-      };
-    case "tool.update":
-      return {
-        type: "tool.update",
-        toolName: requireString(record, "toolName"),
-        toolCallId: requireString(record, "toolCallId"),
-        text: requireString(record, "text"),
-        ...optionalField("content", record["content"]),
-        ...optionalField("details", record["details"]),
-      };
-    case "tool.end":
-      return {
-        type: "tool.end",
-        toolName: requireString(record, "toolName"),
-        toolCallId: requireString(record, "toolCallId"),
-        text: requireString(record, "text"),
-        isError: requireBoolean(record, "isError"),
-        ...optionalField("content", record["content"]),
-        ...optionalField("details", record["details"]),
-      };
-    case "shell.start":
-      return {
-        type: "shell.start",
-        command: requireString(record, "command"),
-        ...optionalField("excludeFromContext", parseOptionalBoolean(record["excludeFromContext"], "excludeFromContext")),
-      };
-    case "shell.chunk":
-      return { type: "shell.chunk", chunk: requireString(record, "chunk") };
-    case "shell.end":
-      return {
-        type: "shell.end",
-        ...optionalField("output", optionalString(record, "output")),
-        ...optionalField("exitCode", optionalNumberOrNull(record, "exitCode")),
-        ...optionalField("cancelled", parseOptionalBoolean(record["cancelled"], "cancelled")),
-        ...optionalField("truncated", parseOptionalBoolean(record["truncated"], "truncated")),
-        ...optionalField("fullOutputPath", optionalString(record, "fullOutputPath")),
-        ...optionalField("isError", parseOptionalBoolean(record["isError"], "isError")),
-      };
-    case "agent.start":
-      return { type: "agent.start" };
-    case "agent.end":
-      return { type: "agent.end" };
-    case "message.end":
-      return { type: "message.end", ...optionalField("message", record["message"]) };
-    case "status.update":
-      return { type: "status.update", status: parseSessionStatus(record["status"]) };
-    case "activity.update":
-      return { type: "activity.update", activity: parseSessionActivity(record["activity"]) };
-    case "command.output":
-      return parseCommandOutputEvent(record);
-    case "session.error":
-      return { type: "session.error", message: requireString(record, "message") };
-    case "session.diagnostic":
-      return { type: "session.diagnostic", message: requireString(record, "message") };
-    case "session.name":
-      return parseSessionNameEvent(record);
-    case "session.created":
-      return { type: "session.created", session: parseSessionInfo(record["session"]) };
-    case "session.tree.changed":
-      return { type: "session.tree.changed" };
-    case "pi.event":
-      return { type: "pi.event", eventType: requireString(record, "eventType") };
-    default:
-      throw new Error("Unsupported session stream event type");
-  }
-}
-type RealtimeStreamEvent =
-  | Extract<GlobalSessionEvent, { type: "status.update" | "activity.update" | "session.name" | "session.created" | "models.changed" | "workspaces.changed" | "notices.updated" }>
-  | MachineStatusUiEvent;
-export function parseRealtimeStreamEvent(value: unknown): RealtimeStreamEvent {
-  const record = requireRecord(value);
-  switch (record["type"]) {
-    case "status.update":
-      return { type: "status.update", status: parseSessionStatus(record["status"]) };
-    case "activity.update":
-      return { type: "activity.update", activity: parseSessionActivity(record["activity"]) };
-    case "session.name":
-      return parseSessionNameEvent(record);
-    case "session.created":
-      return { type: "session.created", session: parseSessionInfo(record["session"]) };
-    case "models.changed":
-      return parseModelScopeChangedEvent(record);
-    case "workspaces.changed":
-      return { type: "workspaces.changed", projectId: requireNonEmptyString(record, "projectId") };
-    case "notices.updated":
-      return parseServerNoticeEvent(record);
-    case "machine.status":
-      return { type: "machine.status", status: requireMachineStatusSnapshot(record["status"]) };
-    default:
-      throw new Error("Unsupported realtime stream event type");
-  }
-}
-function requirePresent(record: Record<string, unknown>, key: string): unknown {
-  const value = record[key];
-  if (value === undefined) throw new Error(`Expected field: ${key}`);
-  return value;
-}
-function optionalNumberOrNull(record: Record<string, unknown>, key: string): number | null | undefined {
-  const value = record[key];
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value !== "number") throw new Error(`Expected optional number|null field: ${key}`);
-  return value;
-}
-function parseCommandOutputEvent(record: Record<string, unknown>): Extract<SessionUiEvent, { type: "command.output" }> {
-  const level = requireString(record, "level");
-  if (level !== "info" && level !== "success" && level !== "error") throw new Error("Invalid command output level");
-  return {
-    type: "command.output",
-    level,
-    message: requireString(record, "message"),
-    ...optionalField("presentation", parseCommandOutputPresentation(record["presentation"])),
-    ...optionalField("notificationId", optionalString(record, "notificationId")),
-  };
-}
-function parseSessionNameEvent(record: Record<string, unknown>): Extract<SessionUiEvent, { type: "session.name" }> {
-  return {
-    type: "session.name",
-    sessionId: requireNonEmptyString(record, "sessionId"),
-    ...optionalField("name", optionalString(record, "name")),
-  };
 }
 export function parseWorkspaceTrustResponse(value: unknown): import("../../../shared/apiTypes").WorkspaceTrustResponse {
   const record = requireRecord(value);

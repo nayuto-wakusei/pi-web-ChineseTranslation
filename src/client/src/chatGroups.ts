@@ -19,13 +19,18 @@ interface MessageSlices {
 
 /** Reuse immutable source-message slices without retaining discarded transcripts. */
 export class ChatMessageGrouper {
-  private readonly slices = new WeakMap<ChatLine, MessageSlices>();
+  private slices = new WeakMap<ChatLine, MessageSlices>();
+  private preserveCustomMessage: ((customType: string) => boolean) | undefined;
 
-  group(messages: ChatLine[], indexOffset = 0): ChatGroup[] {
+  group(messages: ChatLine[], indexOffset = 0, preserveCustomMessage?: (customType: string) => boolean): ChatGroup[] {
+    if (this.preserveCustomMessage !== preserveCustomMessage) {
+      this.slices = new WeakMap();
+      this.preserveCustomMessage = preserveCustomMessage;
+    }
     return groupMessages(messages, indexOffset, (message) => {
       let slices = this.slices.get(message);
       if (slices === undefined) {
-        slices = splitMessage(message);
+        slices = splitMessage(message, preserveCustomMessage);
         this.slices.set(message, slices);
       }
       return slices;
@@ -45,8 +50,8 @@ export function groupConsecutiveImageOutputs(groups: readonly ChatGroup[]): Chat
   return result;
 }
 
-export function groupChatMessages(messages: ChatLine[], indexOffset = 0): ChatGroup[] {
-  return groupMessages(messages, indexOffset, splitMessage);
+export function groupChatMessages(messages: ChatLine[], indexOffset = 0, preserveCustomMessage?: (customType: string) => boolean): ChatGroup[] {
+  return groupMessages(messages, indexOffset, (message) => splitMessage(message, preserveCustomMessage));
 }
 
 function groupMessages(messages: ChatLine[], indexOffset: number, slicesFor: (message: ChatLine) => MessageSlices): ChatGroup[] {
@@ -81,10 +86,10 @@ function groupMessages(messages: ChatLine[], indexOffset: number, slicesFor: (me
   return groups;
 }
 
-function splitMessage(message: ChatLine): MessageSlices {
+function splitMessage(message: ChatLine, preserveCustomMessage: (customType: string) => boolean = () => false): MessageSlices {
   const readableParts: ChatPart[] = [];
   const technicalParts: ChatPart[] = [];
-  for (const part of message.parts) {
+  for (const part of message.parts.flatMap((part) => part.type === "customMessage" && !preserveCustomMessage(part.customType) ? part.parts : [part])) {
     if (part.type === "toolResultBoundary" || part.type === "empty") continue;
     (isReadablePart(message, part) ? readableParts : technicalParts).push(part);
   }
@@ -162,6 +167,6 @@ function toolNameFromParts(parts: ChatPart[]): string | undefined {
 
 function isReadablePart(message: ChatLine, part: ChatPart): boolean {
   if (message.source === "compaction" || message.source === "branch_summary") return false;
-  if (part.type === "skillInvocation" || part.type === "image" || part.type === "askUserQuestion" || part.type === "askUserRecord") return true;
+  if (part.type === "skillInvocation" || part.type === "image" || part.type === "askUserQuestion" || part.type === "askUserRecord" || part.type === "customMessage") return true;
   return part.type === "text" && (message.role === "user" || message.role === "assistant" || message.role === "system" || message.role === "bash");
 }

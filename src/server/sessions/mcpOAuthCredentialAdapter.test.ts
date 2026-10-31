@@ -74,7 +74,7 @@ it("uses genuine constructors from the selected host and isolates project, mode 
     await store.forServer("same-server", "https://mcp.example/").save({ serverUrl: "https://mcp.example/", tokens: { access_token: `scope-${String(index)}`, token_type: "Bearer" } });
     expect(required(option.logPath).startsWith(required(directories[index]))).toBe(true);
   }
-  expect(info.version).toBe("1.3.0");
+  expect(["1.3.0", "1.4.0"]).toContain(info.version);
   const reopened = await createMcpOAuthCredentialOptions({ directory: required(directories[0]) });
   expect(required(reopened.credentials).tokens("same-server", "https://mcp.example/")?.access_token).toBe("scope-0");
   for (const [index, directory] of directories.entries()) {

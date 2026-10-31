@@ -40,7 +40,6 @@ describe("session daemon settings config helpers", () => {
 
     expect(mergeSelectedMachineSessiondConfig(gateway, selectedMachine).envOverrides.agentDirSource).toBeUndefined();
   });
-
   it("merges local selected-machine daemon config into gateway config without dropping gateway-only values", () => {
     const gateway = configResponse({
       host: "127.0.0.1",
@@ -86,12 +85,39 @@ describe("session daemon settings config helpers", () => {
         allowedHosts: false,
         spawnSessions: true,
         subsessions: false,
+        sessionMessages: false,
         askUser: false,
         agentCommand: false,
         agentDir: false,
         agentSessionDir: false,
       },
     });
+  });
+
+  it("replaces selected-machine messaging values and metadata without leaking gateway overrides", () => {
+    const gateway = configResponse({ host: "gateway", sessionMessages: false });
+    gateway.defaultsConfig = { sessionMessages: false };
+    gateway.configSources = { "/host": "config", "/sessionMessages": "environment" };
+    gateway.enforcedSettings = { "/sessionMessages": "PI_WEB_SESSION_MESSAGES" };
+    const selected = configResponse({ sessionMessages: true }, { sessionMessages: true }, { sessionMessages: false });
+    selected.defaultsConfig = { sessionMessages: true };
+    selected.configSources = { "/sessionMessages": "environment" };
+    selected.enforcedSettings = { "/sessionMessages": "PI_WEB_SESSION_MESSAGES" };
+    const merged = mergeSelectedMachineSessiondConfig(gateway, selected);
+    expect(merged.config).toEqual({ host: "gateway", sessionMessages: true });
+    expect(merged.effectiveConfig.sessionMessages).toBe(false);
+    expect(merged.defaultsConfig?.sessionMessages).toBe(true);
+    expect(merged.envOverrides.sessionMessages).toBe(true);
+    expect(merged.enforcedSettings).toEqual(selected.enforcedSettings);
+    expect(merged.configSources).toEqual({ "/host": "config", "/sessionMessages": "environment" });
+
+    const cleared = mergeSelectedMachineSessiondConfig(gateway, configResponse({}));
+    expect(cleared.config).not.toHaveProperty("sessionMessages");
+    expect(cleared.effectiveConfig).not.toHaveProperty("sessionMessages");
+    expect(cleared.defaultsConfig).not.toHaveProperty("sessionMessages");
+    expect(cleared.enforcedSettings).not.toHaveProperty("/sessionMessages");
+    expect(cleared.configSources).not.toHaveProperty("/sessionMessages");
+    expect(cleared.envOverrides.sessionMessages).toBe(false);
   });
 });
 
@@ -118,6 +144,7 @@ function configResponse(
       allowedHosts: false,
       spawnSessions: false,
       subsessions: false,
+      sessionMessages: false,
       askUser: false,
       agentCommand: false,
       agentDir: false,

@@ -10,11 +10,11 @@ The architecture now resolves the main choices below; migration cautions in this
 
 - Paths: introduce a base setting; retain existing paths as additions.
 - Plugins: explicit namespace with independently resolved enablement and top-level plugin-setting values; replace object/array values, not the entire plugin namespace.
-- Revised container decision: the shared schema registry declares `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionNaming.model`/`maxTokens`/`thinkingLevel`/`timeoutMs`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`/`formatLocale`/`timeZone`/`hourCycle` as independent settings. Retain their object representations and scopes; resolve leaves across defaults, writable config, applicable project config, and environment policy.
+- Revised container decision: the shared schema registry declares `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`/`formatLocale`/`timeZone`/`hourCycle` as independent settings. Retain their object representations and scopes; resolve leaves across defaults, writable config, applicable project config, and environment policy.
 - Empty declared containers contribute no overrides; missing leaves inherit. This preserves the baseline project `uploads: {}` / `attachments: {}` folder inheritance, superseding the whole-object fallback concern below. Individual array/dictionary-valued settings replace completely; there is no generic recursive merge. `defaultTheme` remains one coherent atomic preference, `shortcuts` an atomic dictionary, and deprecated `agent` atomic.
 - Existing container JSON environment names enforce only supplied leaves, including `pathAccess.allowedPaths`. Source/enforcement metadata uses leaf pointers; the archive-directory alias maps to `/sessionArchive/directory`.
 - Environment lists: canonical JSON plus documented legacy shorthand per setting. Booleans: strict `true`/`false` (case-insensitive) or `1`/`0`; invalid explicit env fails startup.
-- Updates/reset: one `set`/`unset` operation; no magic persisted values or changed omission semantics. Known leaf pointers (including `/sessionNaming/model`) and root container resets are accepted. UI group resets remove only unlocked saved leaves in one request; API container resets overlapping enforced leaves are rejected to preserve hidden saved choices.
+- Updates/reset: one `set`/`unset` operation; no magic persisted values or changed omission semantics. Known leaf pointers (including `/defaultLocalization/language`) and root container resets are accepted. UI group resets remove only unlocked saved leaves in one request; API container resets overlapping enforced leaves are rejected to preserve hidden saved choices.
 - Project-capable settings: project config overrides writable machine config, below environment enforcement. Explicit path additions remain additive.
 
 The inventory and recommended migration order below remain historical baseline evidence. Their whole-object proposals for now-declared containers are superseded by these revised decisions, not current behavior.
@@ -52,7 +52,7 @@ All rows currently support the global file unless marked deprecated. “Additive
 | `uploads` | **object**: `defaultFolder` | None | Add env. Project object currently shallow-overlays global object. With its one field, explicit `{}` currently inherits global; under whole-object replacement it would reveal built-in default instead. |
 | `attachments` | **object**: `defaultFolder` | None | Same migration issue as `uploads`. |
 | `sessionArchive` | **object**: `directory` | `PI_WEB_SESSION_ARCHIVE_DIR` | Env wins in `sessionArchiveDirectory()`, not the shared effective-config response. Centralize resolution/provenance; preserve destination-only behavior, index location, and no automatic archive migration. |
-| `sessionNaming` | **object**: `model`, `maxTokens`, `thinkingLevel`, `timeoutMs` | None | Additive with a whole-object JSON env override. Missing fields use feature defaults; reset removes the object override rather than copying resolved values. |
+| `sessionNaming` | **retired** from core schema/API | None | File-only migration copies old defaults and saved tuning into the removable package if absent, then removes the writable key. Existing package config takes precedence; obsolete deployment-default entries require manual cleanup. Failures log errors, retain source data, and allow startup to continue. The package owns subsequent tuning and its JSON environment override. |
 | `plugins` | **dictionary**: plugin ID → `{ enabled?, settings?, … }`; `settings` is an open **dictionary** | None | Whole-map source replacement is possible but differs from existing project plugin composition. Do not deep merge new defaults/writable/env sources. Preserve required-plugin constraints. See plugin section. |
 | `agent` | **object**: deprecated `dir`, `command` | `PI_WEB_AGENT_DIR`, `PI_CODING_AGENT_DIR`; deprecated command env detected | Do not expand this deprecated namespace. `dir` still works; `command` is ignored with warning. Preserve deprecated alias precedence until explicit removal. Pi paths remain an external/bootstrap boundary. |
 
@@ -116,7 +116,7 @@ Browser parsers commonly discard malformed stored data and tolerate unavailable 
 
 Prompt/ask drafts, transcript expansion/scroll state, cached sessions, image dimensions, tab navigation memory, and transcript caches are application state, not configuration. Exclude them from configuration reset.
 
-Gateway `navigation-preferences.json` separately stores versioned scoped ordering/pin arrays with revision-controlled writes. Classify it as shared application state or deliberately migrate its ownership; do not conflate it with browser tab preferences or silently remove cross-browser sharing.
+Gateway `navigation-preferences.json` stores versioned project/workspace ordering with revision-controlled writes. Session pins migrate once into daemon-owned `session-pins.json`, preserving scoped IDs and revisions; see [the pin-storage upgrade](plugins.md#pin-storage-upgrade). Both files are shared application state, not browser tab preferences or user-editable configuration.
 
 ## Runtime/bootstrap inventory
 

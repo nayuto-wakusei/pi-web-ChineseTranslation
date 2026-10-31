@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { FilePreviewerInput, PluginActivationContextV5, PluginCapability, PluginRuntimeContextV5, WorkspacePanelContextV5, PluginCatalog } from "@chainingintention/pi-web-cn/plugin-api";
-import { html, svg, type TemplateResult } from "lit";
+import { html, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { filesLocalizationFixture } from "./filesLocalization.testSupport";
 import { FilesRuntime } from "./FilesRuntime";
@@ -130,7 +130,6 @@ describe("Files plugin activation", () => {
     const rendered = panel?.render(workspaceContext);
     if (rendered === undefined) throw new Error("Files panel contribution was unavailable");
 
-    expect(templateText(rendered)).toContain("pi-web-files-panel");
     expect(rendered.values).toContain(workspaceContext);
     expect(rendered.values).toContain(runtime);
 
@@ -214,10 +213,6 @@ function createWorkspaceContext(): WorkspacePanelContextV5 {
     terminal: { open: vi.fn(), runCommand: vi.fn() },
     navigation: { version: 1, contributionId: "files:workspace.files", query: {}, set: vi.fn() },
   };
-}
-
-function templateText(result: TemplateResult): string {
-  return result.strings.join("");
 }
 
 function catalog(): PluginCatalog {

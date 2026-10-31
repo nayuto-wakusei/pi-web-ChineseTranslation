@@ -7,7 +7,7 @@ description: Project code quality and architecture expectations for implementati
 
 Use this skill as a design lens, not as a framework tutorial. The goal is to shape code so future agents and humans can understand it, change it safely, and test it without needing to reverse-engineer hidden coupling.
 
-For test-specific strategy, test helper conventions, and UI test harness choices, use the `testing-guide` skill. This skill still treats testability as a production-code design concern.
+For coverage decisions, read [testing policy](../../../docs/testing.md); for helper and UI harness mechanics, read [test harnesses](../../../docs/testing-harnesses.md). This skill still treats testability as a production-code design concern.
 
 Respect the project's existing conventions and the framework/library idioms already in use. If a dependency expects a particular pattern, such as inheritance, decorators, lifecycle hooks, or a registration API, use that pattern deliberately and keep the surrounding project code as simple and composable as possible.
 

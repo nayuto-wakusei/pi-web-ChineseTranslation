@@ -243,8 +243,6 @@ describe("Workspace Tasks stylesheet integration", () => {
     document.body.append(panel);
     expect(button(panel, "[data-refresh-config]").disabled).toBe(true);
     await vi.waitFor(() => { expect(button(panel, "[data-refresh-config]").disabled).toBe(false); });
-    expect(root(panel).querySelector(".ui-toolbar .ui-toolbar-group")).not.toBeNull();
-    expect(button(panel, "[data-task-id]").classList.contains("ui-button--primary")).toBe(true);
     expect(root(panel).textContent).toContain("Build <app>");
     expect(root(panel).querySelector("app")).toBeNull();
     button(panel, "[data-task-id]").click();

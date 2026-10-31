@@ -42,7 +42,7 @@ entry token 交换为私有 Agent Session 后，access/capability tickets 必须
 
 模型认证和默认偏好独立于普通模式。即使完整特权开启，管理会话也仍是管理身份，不能由普通会话或普通宿主插件连接读取。
 
-专用 MCP OAuth 仅在 Pi 1.3.0 普通或完整特权会话中可用；完整特权仍使用管理独立凭据，不借用普通项目或共享 agent 的 MCP OAuth 存储。媒体读取同样保持管理 scope，管理端仅读取已托管会话；普通媒体及插件 catalog 排除当前配置的管理 root。历史文件无耐久 scope、旧管理 root 需人工隔离的限制见[会话媒体](../modules/files-terminals.md#会话媒体)，不能扩展为全部历史 API 已自动隔离的承诺。
+专用 MCP OAuth 仅在 Pi 1.3.0 或 1.4.0 普通或完整特权会话中可用；完整特权仍使用管理独立凭据，不借用普通项目或共享 agent 的 MCP OAuth 存储。媒体读取同样保持管理 scope，管理端仅读取已托管会话；普通媒体及插件 catalog 排除当前配置的管理 root。历史文件无耐久 scope、旧管理 root 需人工隔离的限制见[会话媒体](../modules/files-terminals.md#会话媒体)，不能扩展为全部历史 API 已自动隔离的承诺。
 
 ## 三种权限状态
 

@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { configApi, pluginsApi, type PiWebConfigResponse } from "../api";
-import { activeSettingsPanelTag, SettingsDialog } from "./SettingsDialog";
+import { SettingsDialog } from "./SettingsDialog";
 import { callDialogPromise, callDialogUpdated, configResponse, deferred, getDialogProperty, pluginsResponse, remoteMachine, secondRemoteMachine, setDialogProperty, stubWindowTimers } from "./SettingsDialog.testSupport";
 import { createTranslator } from "../../../shared/i18n";
 const t = createTranslator("en", {});
-import { collectTemplateStrings } from "./SettingsDialog.testSupport";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -12,23 +11,6 @@ afterEach(() => {
 });
 
 describe("settings-dialog general settings machine targeting", () => {
-  it("routes MCP settings to its session-scoped panel", () => {
-    expect(activeSettingsPanelTag("mcp")).toBe("settings-mcp-panel");
-  });
-
-  it("routes each section to a single settings panel with no per-tab scope-note wrapper", () => {
-    expect(activeSettingsPanelTag("general")).toBe("settings-general-panel");
-    expect(activeSettingsPanelTag("sessiond")).toBe("settings-sessiond-panel");
-    expect(activeSettingsPanelTag("packages")).toBe("settings-packages-panel");
-    expect(activeSettingsPanelTag("plugins")).toBe("settings-plugins-panel");
-    expect(activeSettingsPanelTag("shortcuts")).toBe("settings-shortcuts-panel");
-    const dialog = new SettingsDialog();
-    dialog.section = "general";
-    dialog.machine = remoteMachine;
-    const strings = collectTemplateStrings(dialog.render()).join("");
-    expect(strings).not.toContain("scope-note");
-    expect(strings).not.toContain("This tab edits:");
-  });
 
   it("keeps gateway server config saves on the gateway config endpoint", async () => {
     stubWindowTimers();

@@ -11,15 +11,10 @@ import type { PiWebRuntimeComponent } from "../shared/apiTypes.js";
 import { loadNodeTranslator } from "../localization.js";
 import { createTranslator } from "../shared/i18n.js";
 
-const webCapabilities = [
-  "sessions.deleteArchived", "sessions.bulkMutations", "sessions.cleanup", "sessions.reload",
-  "sessions.clearQueue", "sessions.queueMessageActions", "sessions.persistedState", "sessions.notifications", "sessions.unread",
-  "sessions.askUser", "prompt.attachments", "workspace.fileSuggestions", "piPackages.manage",
-  "settings.selectedMachine", "settings.agentProfile", "plugins.lifecycle",
-];
 const webOnlyCapabilities = [
   "workspace.fileSuggestions", "piPackages.manage", "settings.selectedMachine", "settings.agentProfile", "plugins.lifecycle",
 ];
+import { WEB_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
 
 const originalSkipVersionCheck = process.env["PI_WEB_SKIP_VERSION_CHECK"];
 const originalHome = process.env["HOME"];
@@ -199,7 +194,7 @@ describe("PI WEB status", () => {
 
     const runtime = await getPiWebRuntime(daemon);
 
-    expect(runtime.components.web.capabilities).toEqual(webCapabilities);
+    expect(runtime.components.web.capabilities).toEqual([...WEB_RUNTIME_CAPABILITIES]);
     expect(runtime.components.sessiond.capabilities).toEqual([]);
     expect(runtime.capabilities).toEqual(webOnlyCapabilities);
   });
@@ -272,7 +267,7 @@ describe("PI WEB status", () => {
     });
 
     expect(runtime.components.web.available).toBe(true);
-    expect(runtime.components.web.capabilities).toEqual(webCapabilities);
+    expect(runtime.components.web.capabilities).toEqual([...WEB_RUNTIME_CAPABILITIES]);
     expect(runtime.components.web.runtimeVersion).toBeDefined();
     expect(runtime.components.web).not.toHaveProperty("deprecatedAgentInputs");
     expect(runtime.components.web.error).toContain("Could not check for deprecated agent configuration inputs");

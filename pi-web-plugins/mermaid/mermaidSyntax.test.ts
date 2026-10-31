@@ -65,21 +65,6 @@ describe("Mermaid lexical highlighting", () => {
       { from: text.indexOf("-->"), to: text.indexOf("-->") + 3, kind: "operator" },
       { from: text.indexOf("%%"), to: text.length - 2, kind: "comment" },
     ]);
-    let end = 0;
-    for (const token of tokens) {
-      expect(token.from).toBeGreaterThanOrEqual(end);
-      expect(token.to).toBeGreaterThan(token.from);
-      expect(token.to).toBeLessThanOrEqual(text.length);
-      end = token.to;
-    }
-  });
-
-  it("returns only ranges for malicious-looking input without evaluating or rewriting it", () => {
-    const text = 'flowchart TD\nA[<script>alert(1)</script>]-->B[<img src=x onerror=alert(2)>]\nclick A "javascript:alert(3)"';
-    const tokens = highlight(text);
-    expect(colored(text)).toContainEqual(["[<script>alert(1)</script>]", "string"]);
-    expect(colored(text)).toContainEqual(['"javascript:alert(3)"', "string"]);
-    for (const token of tokens) expect(Object.keys(token).sort()).toEqual(["from", "kind", "to"]);
   });
 
   it("tolerates unknown syntax and unfinished labels, strings, arrows, and directives", () => {

@@ -200,6 +200,7 @@ export class SessionController {
   private sessionRefreshInFlight = false;
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
   private searchSeq = 0;
+  private searchAbort: AbortController | undefined;
   private searchTargetSeq = 0;
   private pendingQueuedSendSeq = 0;
   private readonly pendingSessionStarts = new Map<string, PendingSessionStart>();
@@ -250,6 +251,8 @@ export class SessionController {
     this.selectionSeq += 1;
     this.searchSeq += 1;
     this.stopPolling();
+    this.searchAbort?.abort();
+    this.searchAbort = undefined;
     if (this.searchTimer !== undefined) clearTimeout(this.searchTimer);
     this.searchTimer = undefined;
     this.selectedSessionJoinNavigation = undefined;
@@ -382,6 +385,8 @@ export class SessionController {
     const machineId = selectedMachineId(state);
     this.searchSeq += 1;
     const seq = this.searchSeq;
+    this.searchAbort?.abort();
+    this.searchAbort = undefined;
     if (this.searchTimer !== undefined) clearTimeout(this.searchTimer);
     this.searchTimer = undefined;
     this.setState({ sessionSearchQuery: query, sessionSearchResults: undefined, isSearchingSessions: false, sessionSearchError: "" });
@@ -395,15 +400,19 @@ export class SessionController {
   }
 
   private async performSessionSearch(seq: number, query: string, workspaceId: string, cwd: string, machineId: string): Promise<void> {
+    const controller = new AbortController();
+    this.searchAbort = controller;
     try {
-      const results = await this.api.searchContent(cwd, query, machineId);
+      const results = await this.api.searchContent(cwd, query, machineId, { signal: controller.signal });
       const state = this.getState();
-      if (seq !== this.searchSeq || selectedMachineId(state) !== machineId || state.selectedWorkspace?.id !== workspaceId || state.sessionSearchQuery.trim() !== query) return;
+      if (seq !== this.searchSeq || selectedMachineId(state) !== machineId || state.selectedWorkspace?.id !== workspaceId || state.selectedWorkspace.path !== cwd || state.sessionSearchQuery.trim() !== query) return;
       this.setState({ sessionSearchResults: results, isSearchingSessions: false });
     } catch (error) {
       const state = this.getState();
-      if (seq !== this.searchSeq || selectedMachineId(state) !== machineId || state.selectedWorkspace?.id !== workspaceId) return;
+      if (seq !== this.searchSeq || selectedMachineId(state) !== machineId || state.selectedWorkspace?.id !== workspaceId || state.selectedWorkspace.path !== cwd) return;
       this.setState({ sessionSearchResults: { results: [], matchCount: 0, truncated: false }, isSearchingSessions: false, sessionSearchError: String(error) });
+    } finally {
+      if (this.searchAbort === controller) this.searchAbort = undefined;
     }
   }
 
@@ -1215,7 +1224,14 @@ export class SessionController {
         if (selectedSession === undefined) return;
         const refreshedSelected = sessions.find((session) => session.id === selectedSession.id);
         if (refreshedSelected !== undefined) {
-          if (refreshedSelected !== selectedSession) this.setState({ selectedSession: refreshedSelected });
+          if (selectedSession.archived !== true && refreshedSelected.archived === true) {
+            // External lifecycle commands retire the live binding just like native archive.
+            const change = selectionAfterArchivingSession(this.automaticSessionCandidates(sessions), selectedSession.id, selectedSession.id);
+            if (change.type === "select") await this.selectSessionAfterNavigation(change.session, expected);
+            else if (change.type === "clear") await this.clearSessionAfterNavigation(expected);
+          } else if (selectedSession.archived === true && refreshedSelected.archived !== true) {
+            await this.selectSessionAfterNavigation(refreshedSelected, expected);
+          } else if (refreshedSelected !== selectedSession) this.setState({ selectedSession: refreshedSelected });
           return;
         }
         const candidates = this.automaticSessionCandidates(sessions);

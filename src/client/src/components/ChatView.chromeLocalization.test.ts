@@ -4,9 +4,6 @@ import { render } from "lit";
 import { ChatView } from "./ChatView";
 import { localization } from "../localization/browser";
 import { chatChromeMessages as messages } from "../chatChromeMessages";
-import definitions from "./chatChrome.messages";
-import { parseSessionStatus } from "../api/parsers";
-import { sessionWarningSetSignature } from "../sessionWarningVisibility";
 
 vi.mock("../clipboard", () => ({ writeClipboardText: vi.fn().mockResolvedValue(false) }));
 let release: (() => void) | undefined;
@@ -21,6 +18,8 @@ function required<T>(value: T | null | undefined): T {
 }
 async function fixture() {
   const view = new ChatView();
+  view.canMutateQueuedMessages = true;
+  view.canClearServerQueue = true;
   view.sessionId = "raw-session";
   view.behaviors = { ...view.behaviors, followTail: false, rememberPosition: false, automaticHistory: false };
   view.messages = [{ role: "user", entryId: "raw-entry", parts: [{ type: "text", text: "Raw message" }] }];
@@ -33,8 +32,7 @@ async function fixture() {
     warnings: [{ severity: "warning", message: "Raw diagnostic <tag> العربية", source: "Raw source", path: "/raw/path", dismiss: { id: "raw-dismiss" } }],
     cost: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
   view.onQueuedMessageAction = vi.fn().mockResolvedValue(undefined); view.onClearServerQueue = vi.fn();
-  view.canClearServerQueue = true; view.canMutateQueuedMessages = true;
-  view.onToggleWarnings = vi.fn(); view.onDismissWarning = vi.fn(); view.onLoadMore = vi.fn();
+  view.onLoadMore = vi.fn();
   const navigation = document.createElement("div");
   view.onNavigationChange = (controls) => { render(controls, navigation); };
   document.body.append(view, navigation); await view.updateComplete;
@@ -67,7 +65,7 @@ it("keeps queue controls, raw content and externally rendered navigation live wi
     expect(root.textContent).toContain(messages.t("range", { from: 1001, to: 1001, total: 12345 }));
     expect(root.textContent).toContain(messages.t("queuedCount", { count: 1234 }));
     expect(root.querySelector(".queued-dialogs")?.textContent).toBe(messages.t("queuedDialogs", { count: 2 }));
-    expect(root.querySelector(".session-warning-message")?.textContent).toBe("Raw diagnostic <tag> العربية");
+    expect(root.querySelector(".session-warning-message")).toBeNull();
     expect(root.querySelector(".queued-message formatted-text")).toHaveProperty("text", "Raw local <tag>");
     expect(root.querySelector("tag")).toBeNull(); expect(load.disabled).toBe(true);
   }
@@ -75,46 +73,6 @@ it("keeps queue controls, raw content and externally rendered navigation live wi
   view.pendingDialogs = view.pendingDialogs.slice(0, 2); await view.updateComplete;
   expect(root.querySelector(".queued-dialogs")?.textContent).toBe(messages.t("queuedDialogs", { count: 1 }));
   required(root.querySelector<HTMLButtonElement>(".queued-clear-button")).click(); expect(view.onClearServerQueue).toHaveBeenCalledOnce();
-  required(root.querySelector<HTMLButtonElement>(".session-warning-dismiss")).click(); expect(view.onDismissWarning).toHaveBeenCalledWith("raw-dismiss");
-  required(root.querySelector<HTMLButtonElement>(".session-warnings-collapse")).click(); expect(view.onToggleWarnings).toHaveBeenCalledOnce();
-});
-
-it("translates the owned billing warning live without changing status identity, diagnostics or dismissal", async () => {
-  const usageUrl = "https://claude.ai/settings/usage";
-  release = localization.registerCatalog({ id: "billing-warning-test", namespace: "core.chatChrome", locale: "de", load: () => Promise.resolve({
-    ...Object.fromEntries(Object.entries(definitions).map(([key, descriptor]) => [key, descriptor.message])),
-    anthropicSubscriptionAuth: "Anthropic-Abonnement aktiv. Zusätzliche Nutzung wird pro Token berechnet. Nutzung verwalten: {usageUrl}.",
-  }) });
-  const { view, root } = await fixture();
-  const status = parseSessionStatus({
-    ...required(view.status),
-    warnings: [
-      { severity: "warning", message: "Wire fallback", source: "anthropic", dismiss: { id: "anthropicExtraUsage" }, presentation: { kind: "anthropicSubscriptionAuth" } },
-      { severity: "error", message: "Raw diagnostic <tag> العربية", source: "runtime", path: "/raw/path" },
-      { severity: "warning", message: "Wire fallback", source: "anthropic", dismiss: { id: "legacy-dismiss" } },
-    ],
-  });
-  view.status = status; await view.updateComplete;
-  const signature = sessionWarningSetSignature(status.warnings);
-  const button = required(root.querySelector<HTMLButtonElement>(".session-warning-dismiss"));
-  button.focus();
-  const billing = required(root.querySelector(".session-warning-message"));
-  for (const language of ["de", "en-XA", "ar-XB", "en"]) {
-    await localization.setPreferences({ language, formatLocale: "en" }); await view.updateComplete;
-    expect(view.status).toBe(status);
-    expect(sessionWarningSetSignature(status.warnings)).toBe(signature);
-    expect(root.querySelector(".session-warning-message")).toBe(billing);
-    expect(billing.textContent).toBe(messages.t("anthropicSubscriptionAuth", { usageUrl }));
-    expect(billing.textContent).toContain(usageUrl);
-    expect(billing.textContent).not.toBe("Wire fallback");
-    expect(root.querySelectorAll(".session-warning-message")[1]?.textContent).toBe("Raw diagnostic <tag> العربية");
-    expect(root.querySelectorAll(".session-warning-message")[2]?.textContent).toBe("Wire fallback");
-    expect(root.querySelector("tag")).toBeNull();
-    expect(root.querySelector(".session-warning-dismiss")).toBe(button);
-    expect(root.activeElement).toBe(button);
-  }
-  button.click();
-  expect(view.onDismissWarning).toHaveBeenCalledWith("anthropicExtraUsage");
 });
 
 it("localizes runtime fallback but preserves diagnostic reasons, queue disablement and recall action identity", async () => {

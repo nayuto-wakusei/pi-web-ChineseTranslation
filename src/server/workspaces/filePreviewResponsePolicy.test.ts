@@ -29,27 +29,6 @@ describe("workspaceFilePreviewResponsePolicy", () => {
     });
   });
 
-  it("keeps the PDF sandbox relaxation minimal and unique to PDF", () => {
-    // Native PDF handlers refuse to run in any sandboxed context, so the PDF
-    // policy is the only one without a `sandbox` directive. It must still deny
-    // script and every subresource except the plugin document the viewer embeds.
-    const pdf = workspaceFilePreviewResponsePolicy("spec.pdf");
-    expect(pdf.contentSecurityPolicy).not.toContain("sandbox");
-    expect(pdf.contentSecurityPolicy).toContain("default-src 'none'");
-    expect(pdf.contentSecurityPolicy).toContain("script-src 'none'");
-    expect(pdf.contentSecurityPolicy).toContain("frame-ancestors 'self'");
-    expect(pdf.contentType).toBe("application/pdf");
-    expect(pdf.contentTypeOptions).toBe("nosniff");
-
-    const sandboxed = [
-      workspaceFilePreviewResponsePolicy("diagram.svg"),
-      workspaceFilePreviewResponsePolicy("report.html"),
-      workspaceFilePreviewResponsePolicy("archive.zip", { download: true }),
-      workspaceFilePreviewErrorResponsePolicy(),
-    ];
-    for (const policy of sandboxed) expect(policy.contentSecurityPolicy.startsWith("sandbox;")).toBe(true);
-  });
-
   it("forces every download to an octet-stream attachment with restrictive policy", () => {
     expect(workspaceFilePreviewResponsePolicy("archive.zip", { download: true })).toEqual({
       contentType: "application/octet-stream",

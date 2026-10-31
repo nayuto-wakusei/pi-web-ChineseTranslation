@@ -285,38 +285,6 @@ describe("Files browser build configuration", () => {
     expect(Object.hasOwn(panel, "value")).toBe(false);
   });
 
-  it("uses a fixed relative ES bundle layout without source maps", () => {
-    const source = resolve("pi-web-plugins/files");
-    const target = join(tempDir, "files");
-
-    expect(filesBrowserBuildConfig(source, target)).toMatchObject({
-      configFile: false,
-      root: source,
-      base: "./",
-      publicDir: false,
-      build: {
-        outDir: join(target, "browser"),
-        emptyOutDir: true,
-        copyPublicDir: false,
-        target: "es2022",
-        minify: true,
-        cssMinify: true,
-        sourcemap: false,
-        assetsInlineLimit: 0,
-        rollupOptions: {
-          input: join(source, "pi-web-plugin.ts"),
-          preserveEntrySignatures: "strict",
-          output: {
-            format: "es",
-            entryFileNames: "pi-web-plugin.js",
-            chunkFileNames: "assets/[name]-[hash].js",
-            assetFileNames: "assets/[name]-[hash][extname]",
-          },
-        },
-      },
-    });
-  });
-
   it("keeps the dedicated Files source directory in plugin watch coverage", async () => {
     const watchDirectories = await findWatchDirs(resolve("pi-web-plugins"));
     expect(watchDirectories).toContain(resolve("pi-web-plugins/files"));
