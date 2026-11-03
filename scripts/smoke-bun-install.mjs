@@ -16,6 +16,7 @@ import { WebSocket } from "ws";
 
 const exec = promisify(execFile);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const metadata = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
 const root = await mkdtemp(join(tmpdir(), "pi-web-bun-install-"));
 const children = [];
 const marker = "pi-web-bun-pty-✓";
@@ -57,7 +58,6 @@ try {
     // Pack an allowlisted payload copy so read-only checkouts work unchanged.
     const payload = join(root, "payload");
     await mkdir(payload);
-    const metadata = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
     for (const path of new Set(["package.json", "README.md", "LICENSE", ...metadata.files.filter(path => !path.startsWith("!"))])) {
       await cp(join(repoRoot, path), join(payload, path), { recursive: true });
     }
@@ -67,7 +67,7 @@ try {
     tarball = join(root, "pack", archives[0]);
   }
   await run(bun, ["add", "--global", "--ignore-scripts", resolve(tarball)], root);
-  const packageRoot = join(env.BUN_INSTALL_GLOBAL_DIR, "node_modules", "@jmfederico", "pi-web");
+  const packageRoot = join(env.BUN_INSTALL_GLOBAL_DIR, "node_modules", metadata.name);
   const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
   assert.equal(manifest.dependencies["node-pty"], undefined);
   assert.ok(manifest.optionalDependencies["node-pty"]);

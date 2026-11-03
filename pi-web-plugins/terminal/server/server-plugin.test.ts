@@ -120,13 +120,13 @@ describe.skipIf(process.platform === "win32")("Terminal peer server entry", () =
       await expect(backendRequest(peer, other("terminal.list", null))).resolves.toEqual([]);
       await expect(backendRequest(peer, other("terminal.list-runs", null))).resolves.not.toEqual(expect.arrayContaining([expect.objectContaining({ id: runId })]));
       await expect(backendRequest(peer, other("terminal.get-run", { runId }))).resolves.toBeNull();
-      await expect(backendRequest(peer, other("terminal.cancel-run", { runId }))).rejects.toThrow("not found");
+      await expect(backendRequest(peer, other("terminal.cancel-run", { runId }))).rejects.toThrow("此工作区中未找到终端命令运行记录");
       for (const operation of ["terminal.close", "terminal.continue"]) {
-        await expect(backendRequest(peer, other(operation, { terminalId }))).rejects.toThrow("not found");
+        await expect(backendRequest(peer, other(operation, { terminalId }))).rejects.toThrow("此工作区中未找到终端");
       }
       for (const input of [{ terminalId }, { terminalId, cols: 80, rows: 24 }]) {
         expect(() => peer.openChannel?.({ ...other("terminal.attach", input), send: () => undefined }))
-          .toThrow("not found");
+          .toThrow("此工作区中未找到终端");
       }
       await expect(backendRequest(peer, owner("terminal.cancel-run", { runId }))).resolves.toMatchObject({ id: runId });
       await backendRequest(peer, owner("terminal.close", { terminalId }));
