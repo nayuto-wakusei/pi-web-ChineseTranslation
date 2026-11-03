@@ -2,10 +2,10 @@
 
 export type ManagedAgentsStatus =
   | { available: false }
-  | { available: true; pending: boolean; revision: string; modifiedAt: string | null; templateModifiedAt: string | null; templateRevision: string };
+  | { available: true; pending: boolean; revision: string; modifiedAt: string | null; templateModifiedAt: string | null; templateRevision: string; promptPending?: boolean; promptRevision?: string };
 
 export interface ManagedAgentsDecision {
-  action: "overwrite" | "keep";
+  action: "overwrite" | "keep" | "acknowledge";
   revision: string;
 }
 

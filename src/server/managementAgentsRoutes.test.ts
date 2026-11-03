@@ -50,6 +50,11 @@ describe("managed AGENTS.md gateway", () => {
     expect(initial.statusCode).toBe(200);
     const current = status(initial.json<ManagedAgentsStatus>());
     expect(current.pending).toBe(true);
+    expect(current.promptPending).toBe(true);
+    const acknowledged = await app.inject({ method: "POST", url, payload: { action: "acknowledge", revision: current.revision } });
+    expect(acknowledged.statusCode).toBe(200);
+    expect(acknowledged.json()).toMatchObject({ pending: true, promptPending: false, revision: current.revision, promptRevision: current.promptRevision });
+    expect(await readFile(join(workspacePath, "AGENTS.md"), "utf8")).toBe("WORKSPACE_LOCAL");
     const replaced = await app.inject({ method: "POST", url, payload: { action: "overwrite", revision: current.revision } });
     expect(replaced.statusCode).toBe(200);
     expect(replaced.json()).toMatchObject({ pending: false });
@@ -72,11 +77,11 @@ describe("managed AGENTS.md gateway", () => {
     expect(await readFile(join(workspacePath, "AGENTS.md"), "utf8")).toBe("WORKSPACE_LOCAL");
   });
 
-  it("returns conflict without acknowledging a stale decision", async () => {
+  it.each(["keep", "acknowledge"])("returns conflict without acknowledging a stale %s", async (action) => {
     const url = `/api/projects/p1/workspaces/feature/agents-instructions${query}`;
     const current = status((await app.inject(url)).json<ManagedAgentsStatus>());
     await writeFile(join(workspacePath, "AGENTS.md"), "NEW_EDIT");
-    const response = await app.inject({ method: "POST", url, payload: { action: "keep", revision: current.revision } });
+    const response = await app.inject({ method: "POST", url, payload: { action, revision: current.revision } });
     expect(response.statusCode).toBe(409);
     expect(await readFile(join(workspacePath, "AGENTS.md"), "utf8")).toBe("NEW_EDIT");
   });

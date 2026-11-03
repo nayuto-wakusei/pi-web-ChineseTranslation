@@ -45,7 +45,7 @@ CI 将静态检查、Linux 普通测试、Windows 原生边界子集、Linux 包
 <a id="web-ui-performance"></a>
 ## Web UI 性能比较
 
-使用隔离浏览器夹具比较流式更新、会话切换及大量会话导航，不连接真实模型或修改用户项目。脚本在 `127.0.0.1:8517` 临时启动夹具，完成后关闭；运行前应确保该端口空闲，并保持机器、浏览器、数据与后台负载可比。
+使用隔离浏览器夹具比较聊天更新、会话切换、大量会话导航、真实滚动及 200 条结果的搜索对话框渲染，不连接真实模型或修改用户项目。脚本在 `127.0.0.1:8517` 临时启动夹具，完成后关闭；运行前应确保该端口空闲，并保持机器、浏览器、数据与后台负载可比。滚动按下一动画帧计量，其他场景取 Lit 更新完成；搜索耗时只反映浏览器渲染，不包含后端扫描或防抖。可加 `--profile` 为每个场景写出 CDP CPU profile。
 
 ```sh
 node scripts/measure-ui-performance.mjs node_modules/.cache/pi-web/performance/baseline.json baseline 3ce6b61b
@@ -53,9 +53,9 @@ node scripts/measure-ui-performance.mjs node_modules/.cache/pi-web/performance/a
 node scripts/measure-ui-performance.mjs node_modules/.cache/pi-web/performance/custom-ui.json custom-ui --custom-ui
 ```
 
-参数依次为输出 JSON、比较标签及可选源码基线或 `--custom-ui`。源码基线通过只读 `git ls-tree` / `git show` 加载，不切换分支或回退工作区；不传基线则使用当前源码，`--custom-ui` 启用定制展示。比较过程中断言保留内容与渲染行数，避免通过丢弃消息或会话产生虚假收益。原始 JSON 记录浏览器版本、样本、长任务、请求与节点数量，以及回收前后的 heap。
+参数依次为输出 JSON、比较标签及可选源码基线或 `--custom-ui`。源码基线通过只读 `git ls-tree` / `git show` 加载，不切换分支或回退工作区；不传基线则使用当前源码，`--custom-ui` 启用定制展示。比较过程中断言保留内容与渲染行数，避免通过丢弃消息或会话产生虚假收益。原始 JSON 记录浏览器版本、样本、长任务、请求与节点数量，以及回收前后的 heap。夹具消息带时间戳元数据，并单独记录初始挂载耗时（`mountMs`，聊天与导航含首帧），因此日期与列表格式化成本计入；搜索场景的挂载只覆盖空对话框更新。
 
-夹具的就绪耗时不是完整网关或应用首屏耗时，零延迟定时器探针不是真实用户 INP；Lit 更新耗时也不包含随后一帧。heap 样本只能辅助观察，不足以单独证明内存泄漏已修复。应保留原始分布，对中位数、尾部耗时和正确性一起判断，不把一次较快样本当作普遍收益。
+夹具的就绪耗时不是完整网关或应用首屏耗时，也不覆盖网络与插件启动；零延迟定时器探针不是真实用户 INP；Lit 更新耗时也不包含随后一帧。heap 样本只能辅助观察，不足以单独证明内存泄漏已修复。应保留原始分布，对中位数、尾部耗时和正确性一起判断，不把一次较快样本当作普遍收益。
 
 初始 JavaScript 资源量另从生产构建测量：
 

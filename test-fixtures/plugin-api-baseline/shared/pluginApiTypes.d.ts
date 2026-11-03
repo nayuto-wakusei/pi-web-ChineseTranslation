@@ -7,9 +7,11 @@ export type ManagedAgentsStatus = {
     modifiedAt: string | null;
     templateModifiedAt: string | null;
     templateRevision: string;
+    promptPending?: boolean;
+    promptRevision?: string;
 };
 export interface ManagedAgentsDecision {
-    action: "overwrite" | "keep";
+    action: "overwrite" | "keep" | "acknowledge";
     revision: string;
 }
 export type TranslationParameters = Readonly<Record<string, string | number>>;

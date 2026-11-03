@@ -35,7 +35,7 @@ export async function decideManagedAgents(projectPath: string, project: ManagedP
       });
     }
     const after = await snapshot(root, project);
-    if (decision.action === "keep" && after.revision !== before.revision) throw new ManagedAgentsConflictError();
+    if (decision.action !== "overwrite" && after.revision !== before.revision) throw new ManagedAgentsConflictError();
     await atomicWrite(stateDirectory, STATE_FILE, `${JSON.stringify({ version: 1, templateFingerprint: after.templateFingerprint })}\n`);
     return statusFromSnapshot(root, after);
   });
@@ -65,11 +65,12 @@ async function statusFromSnapshot(root: string, current: Awaited<ReturnType<type
     }
     acknowledged = value.templateFingerprint;
   }
-  const newerTemplate = current.templateModifiedAt !== null && (current.modifiedAt === null
-    || Date.parse(current.templateModifiedAt) > Date.parse(current.modifiedAt));
+  const pending = current.content?.toString("utf8") !== current.desired;
   return {
     available: true,
-    pending: newerTemplate && current.content?.toString("utf8") !== current.desired && acknowledged !== current.templateFingerprint,
+    pending,
+    promptPending: pending && acknowledged !== current.templateFingerprint,
+    promptRevision: current.templateFingerprint,
     revision: current.revision,
     modifiedAt: current.modifiedAt,
     templateRevision: current.templateRevision,

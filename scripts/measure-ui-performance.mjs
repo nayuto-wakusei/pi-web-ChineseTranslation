@@ -29,10 +29,20 @@ try {
       resourceBytes: performance.getEntriesByType("resource").reduce((total, entry) => total + entry.encodedBodySize, 0),
     }));
     const scenarios = {};
-    for (const scenario of ["chat", "switch", "navigation"]) {
+    for (const scenario of ["chat", "switch", "navigation", "scroll", "search"]) {
+      const profiler = run === 0 && process.argv.includes("--profile") ? await context.newCDPSession(page) : undefined;
+      if (profiler !== undefined) {
+        await profiler.send("Profiler.enable");
+        await profiler.send("Profiler.start");
+      }
       scenarios[scenario] = await page.evaluate((value) => window.runUiPerformanceScenario(value), scenario);
-      const expected = scenario === "chat" ? [600, 600] : scenario === "switch" ? [120, 120] : [5000, 50];
-      if (scenarios[scenario].retainedMessages !== expected[0] || scenarios[scenario].renderedRows !== expected[1]) throw new Error(`Unexpected retained/rendered content in ${scenario}`);
+      if (profiler !== undefined) {
+        const { profile } = await profiler.send("Profiler.stop");
+        await writeFile(output.replace(/\.json$/u, `-${scenario}.cpuprofile`), JSON.stringify(profile));
+        await profiler.detach();
+      }
+      const expected = scenario === "chat" || scenario === "scroll" ? [600, 600] : scenario === "switch" ? [120, 120] : scenario === "search" ? [200, 200] : [5000, 50];
+      if (scenarios[scenario].retainedMessages !== expected[0] || scenarios[scenario].renderedRows !== expected[1]) throw new Error(`Unexpected retained/rendered content in ${scenario}: ${scenarios[scenario].retainedMessages}/${scenarios[scenario].renderedRows}`);
       if (run === 0) await page.screenshot({ path: output.replace(/\.json$/u, `-${scenario}.png`) });
     }
     const session = await context.newCDPSession(page);
@@ -45,9 +55,9 @@ try {
     await context.close();
   }
   await mkdir(dirname(output), { recursive: true });
-  await writeFile(output, JSON.stringify({ label, sourceRef: sourceRef ?? null, customUi, measuredAt: new Date().toISOString(), browser: browser.version(), definitions: { startup: "Isolated component-fixture load, not the gateway/application startup", durations: "Lit update completion in milliseconds, excluding the following animation frame", timerDelays: "Synthetic zero-delay timer responsiveness probes, not real-user INP", heap: "Chromium collected heap before and after removing the fixture stage" }, samples }, null, 2) + "\n");
+  await writeFile(output, JSON.stringify({ label, sourceRef: sourceRef ?? null, customUi, profiled: process.argv.includes("--profile"), measuredAt: new Date().toISOString(), browser: browser.version(), definitions: { startup: "Isolated component-fixture load, not the gateway/application startup", dataset: "Chat messages include ISO timestamps; chat/scroll retain600 rows, switch120, navigation5000 sessions/50 rows, search200 matches", mountMs: "Initial component update plus first frame for chat/navigation; search measures empty dialog update only", durations: "Lit update completion excluding following frame, except scroll measures scroll write through next animation frame; search excludes backend scanning and debounce", longTasks: "Includes initial scenario mount, not only measured updates", timerDelays: "Synthetic zero-delay timer responsiveness probes, not real-user INP", heap: "Chromium collected heap before and after removing the fixture stage" }, samples }, null, 2) + "\n");
   console.log(output);
-  for (const scenario of ["chat", "switch", "navigation"]) {
+  for (const scenario of ["chat", "switch", "navigation", "scroll", "search"]) {
     const values = samples.flatMap((sample) => sample.scenarios[scenario].durations).sort((a, b) => a - b);
     console.log(`${scenario}: median ${values[Math.floor(values.length / 2)].toFixed(2)} ms; p95 ${values[Math.floor(values.length * 0.95)].toFixed(2)} ms`);
   }

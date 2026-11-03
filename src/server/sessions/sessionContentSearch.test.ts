@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { findMatchRanges, searchSessionContent } from "./sessionContentSearch.js";
+import { compileSessionContentQuery, findMatchRanges, searchSessionContent } from "./sessionContentSearch.js";
 
 describe("session content search", () => {
+  it("keeps per-term typo decisions separate and repeated terms literal", () => {
+    const query = compileSessionContentQuery("server sender");
+    expect(searchSessionContent([{ role: "user", content: "servr" }], query, 20).matchCount).toBe(0);
+    expect(searchSessionContent([{ role: "user", content: "servr sendr" }], query, 20).matches[0]).toMatchObject({ rank: 2, occurrenceCount: 2 });
+    expect(searchSessionContent([{ role: "user", content: "SERVER" }], "server server", 20).matches[0]).toMatchObject({ rank: 1, occurrenceCount: 1 });
+    expect(searchSessionContent([{ role: "user", content: "servr" }], "SERVER", 20).matches[0]).toMatchObject({ rank: 2, occurrenceCount: 1 });
+    expect(searchSessionContent([{ role: "user", content: "i\u0307" }], "\u0130", 20).matches[0]).toMatchObject({ rank: 1, occurrenceCount: 1 });
+  });
+
   it("returns user and assistant message matches with stable transcript indices", () => {
     const messages = [
       { role: "system", content: "needle" },

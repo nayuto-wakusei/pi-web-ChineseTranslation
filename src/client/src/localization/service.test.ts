@@ -58,6 +58,64 @@ describe("localization deployment policy", () => {
 });
 
 describe("localization", () => {
+  it("reuses native date/list formatters without caching values and resets them with preferences", async () => {
+    const service = new LocalizationService({ preferences: { language: "en", formatLocale: "en-GB", timeZone: "UTC" } });
+    const NativeDate = Intl.DateTimeFormat;
+    const dates = vi.spyOn(Intl, "DateTimeFormat");
+    const lists = vi.spyOn(Intl, "ListFormat");
+    try {
+      const first = new Date("2026-01-01T17:45:00Z");
+      const second = new Date("2026-01-02T18:30:00Z");
+      expect(service.date(first, { dateStyle: "medium", timeStyle: "short" })).toBe(new NativeDate("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(first));
+      expect(service.date(second, { timeStyle: "short", dateStyle: "medium" })).toBe(new NativeDate("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(second));
+      expect(dates).toHaveBeenCalledTimes(1);
+      expect(service.list(["A", "B"], { style: "long", type: "conjunction" })).toBe("A and B");
+      expect(service.list(["C", "D"], { type: "conjunction", style: "long" })).toBe("C and D");
+      expect(lists).toHaveBeenCalledTimes(1);
+      await service.setPreferences({ language: "en", formatLocale: "de-DE", timeZone: "Europe/Berlin", hourCycle: "h23" });
+      dates.mockClear();
+      lists.mockClear();
+      expect(service.time(first)).toBe("18:45");
+      expect(service.list(["A", "B"])).toBe("A und B");
+      expect(dates).toHaveBeenCalledTimes(1);
+      expect(lists).toHaveBeenCalledTimes(1);
+    } finally {
+      dates.mockRestore();
+      lists.mockRestore();
+    }
+  });
+
+  it("does not memoize dynamic list options or reuse a mutated option value", () => {
+    const service = new LocalizationService();
+    const options: Intl.ListFormatOptions = { type: "conjunction" };
+    expect(service.list(["A", "B"], options)).toBe("A and B");
+    options.type = "disjunction";
+    expect(service.list(["A", "B"], options)).toBe("A or B");
+    const dynamic: Intl.ListFormatOptions = { get type() { return options.type; } };
+    expect(service.list(["A", "B"], dynamic)).toBe("A or B");
+    options.type = "conjunction";
+    expect(service.list(["A", "B"], dynamic)).toBe("A and B");
+  });
+
+  it("bounds native date formatter retention for many option combinations", () => {
+    const service = new LocalizationService();
+    const dates = vi.spyOn(Intl, "DateTimeFormat");
+    const styles = ["full", "long", "medium", "short"] as const;
+    const first = { dateStyle: "full", timeStyle: "full", timeZone: "Etc/GMT+0" } as const;
+    try {
+      for (let index = 0; index < 65; index++) {
+        service.date(0, { dateStyle: styles[index % 4], timeStyle: styles[Math.floor(index / 4) % 4], timeZone: `Etc/GMT+${String(Math.floor(index / 16))}` });
+      }
+      expect(dates).toHaveBeenCalledTimes(65);
+      service.date(0, first);
+      expect(dates).toHaveBeenCalledTimes(66);
+      service.date(1, first);
+      expect(dates).toHaveBeenCalledTimes(66);
+    } finally {
+      dates.mockRestore();
+    }
+  });
+
   it("lists installed catalog languages without loading, deduplicates, and removes released languages", async () => {
     const { service } = setup();
     const load = vi.fn(() => Promise.resolve({}));

@@ -20,8 +20,10 @@ export function compileSessionContentQuery(query: string): (texts: readonly stri
     value,
     pattern: new RegExp(escapeRegExp(value), "giu"),
     fuzzy: /^[a-z]{4,64}$/u.test(value) ? new RegExp(`\\b[a-z]{${String(value.length - 1)},${String(value.length + 1)}}\\b`, "gi") : undefined,
+    typoCache: new Map<string, boolean>(),
   }));
-  const typoCache = new Map<string, boolean>();
+  const singleTermPhrase = terms.length === 1 && terms[0]?.value === needle;
+  let cachedTypos = 0;
   return (texts) => {
     if (needle === "") return undefined;
     const exact = texts.map((text) => ({ text, ranges: rangesForPattern(text, phrase) }));
@@ -29,7 +31,8 @@ export function compileSessionContentQuery(query: string): (texts: readonly stri
     const parts: MatchedText[] = texts.map((text) => ({ text, ranges: [] }));
     let rank = 1;
     for (const term of terms) {
-      let ranges = texts.map((text) => rangesForPattern(text, term.pattern));
+      // A single-term phrase already failed the identical literal scan above.
+      let ranges = singleTermPhrase ? texts.map((): MatchRange[] => []) : texts.map((text) => rangesForPattern(text, term.pattern));
       if (!ranges.some((matches) => matches.length > 0)) {
         if (term.fuzzy === undefined) return undefined;
         // Bound typo work to short ASCII words; punctuation and CJK stay literal.
@@ -38,11 +41,13 @@ export function compileSessionContentQuery(query: string): (texts: readonly stri
           const matches: MatchRange[] = [];
           for (const word of text.matchAll(pattern)) {
             const value = word[0].toLowerCase();
-            const key = `${term.value}\0${value}`;
-            let matchesTypo = typoCache.get(key);
+            let matchesTypo = term.typoCache.get(value);
             if (matchesTypo === undefined) {
               matchesTypo = distance(value, term.value) <= 1;
-              if (typoCache.size < 4096) typoCache.set(key, matchesTypo);
+              if (cachedTypos < 4096) {
+                term.typoCache.set(value, matchesTypo);
+                cachedTypos++;
+              }
             }
             if (matchesTypo) matches.push({ start: word.index, length: word[0].length });
           }

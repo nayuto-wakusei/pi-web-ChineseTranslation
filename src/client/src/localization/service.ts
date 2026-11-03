@@ -22,6 +22,31 @@ interface RegisteredSource {
   active: boolean;
 }
 
+function cachedNativeFormatter<T>(cache: Map<string, T>, locale: string, options: object | undefined, create: () => T): T {
+  // Native Intl accepts inherited/accessor options too; leave those to Intl so
+  // caching never changes their evaluation or coercion semantics.
+  if (options !== undefined && Object.getPrototypeOf(options) !== Object.prototype && Object.getPrototypeOf(options) !== null) return create();
+  const entries: [string, string | number | boolean][] = [];
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(options ?? {}))) {
+    if (!("value" in descriptor)) return create();
+    const value: unknown = descriptor.value;
+    if (value === undefined) continue;
+    if (typeof value !== "string" && typeof value !== "boolean" && (typeof value !== "number" || !Number.isFinite(value))) return create();
+    entries.push([key, value]);
+  }
+  entries.sort(([left], [right]) => left.localeCompare(right));
+  const key = JSON.stringify([locale, entries]);
+  const existing = cache.get(key);
+  if (existing !== undefined) return existing;
+  const formatter = create();
+  if (cache.size >= 64) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, formatter);
+  return formatter;
+}
+
 export const LOCALIZATION_FIELDS = ["language", "formatLocale", "timeZone", "hourCycle"] as const;
 export type LocalizationField = typeof LOCALIZATION_FIELDS[number];
 export interface LocalizationPolicy {
@@ -105,6 +130,8 @@ export class LocalizationService {
   private readonly contributions = new Map<string, RegisteredCatalog>();
   private readonly listeners = new Set<() => void>();
   private readonly formats = new Map<string, IntlMessageFormat>();
+  private readonly dateFormats = new Map<string, Intl.DateTimeFormat>();
+  private readonly listFormats = new Map<string, Intl.ListFormat>();
   private readonly reported = new Set<string>();
   private preferencesRevision = 0;
   private pending: Promise<void> = Promise.resolve();
@@ -161,6 +188,8 @@ export class LocalizationService {
 
   private notify(): void {
     this.formats.clear();
+    this.dateFormats.clear();
+    this.listFormats.clear();
     for (const listener of this.listeners) listener();
   }
 
@@ -339,6 +368,12 @@ export class LocalizationService {
       ...(this.current.hourCycle === undefined ? {} : { hourCycle: this.current.hourCycle, hour12: undefined }) };
   }
 
+  private dateFormatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+    const effective = this.dateOptions(options);
+    return cachedNativeFormatter(this.dateFormats, this.current.formatLocale, effective,
+      () => new Intl.DateTimeFormat(this.current.formatLocale, effective));
+  }
+
   private format(namespace: string, registration: RegisteredSource, key: string, values?: MessageValues): string | TemplateResult | (string | TemplateResult)[] {
     const source = registration.definitions[key];
     if (!source) throw new Error(`Unknown message: ${namespace}.${key}`);
@@ -355,7 +390,7 @@ export class LocalizationService {
           // FormatJS includes newer Intl option types than our ES2022 lib; pass them through to native Intl.
           // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           getNumberFormat: (_locale, options) => new Intl.NumberFormat(this.current.formatLocale, options as Intl.NumberFormatOptions),
-          getDateTimeFormat: (_locale, options) => new Intl.DateTimeFormat(this.current.formatLocale, this.dateOptions(options ?? {})),
+          getDateTimeFormat: (_locale, options) => this.dateFormatter(options ?? {}),
           getPluralRules: (pluralLocale, options) => new Intl.PluralRules(pluralLocale, options),
         };
         let ast = parse(text);
@@ -378,15 +413,16 @@ export class LocalizationService {
     return new Intl.NumberFormat(this.current.formatLocale, options).format(value);
   }
   date(value: Date | number, options: Intl.DateTimeFormatOptions = { dateStyle: "medium" }): string {
-    return new Intl.DateTimeFormat(this.current.formatLocale, this.dateOptions(options)).format(value);
+    return this.dateFormatter(options).format(value);
   }
   time(value: Date | number, options: Intl.DateTimeFormatOptions = { timeStyle: "short" }): string {
-    return new Intl.DateTimeFormat(this.current.formatLocale, this.dateOptions(options)).format(value);
+    return this.dateFormatter(options).format(value);
   }
   relativeTime(value: number, unit: Intl.RelativeTimeFormatUnit, options: Intl.RelativeTimeFormatOptions = { numeric: "auto" }): string {
     return new Intl.RelativeTimeFormat(this.current.formatLocale, options).format(value, unit);
   }
   list(values: Iterable<string>, options?: Intl.ListFormatOptions): string {
-    return new Intl.ListFormat(this.current.formatLocale, options).format(values);
+    return cachedNativeFormatter(this.listFormats, this.current.formatLocale, options,
+      () => new Intl.ListFormat(this.current.formatLocale, options)).format(values);
   }
 }

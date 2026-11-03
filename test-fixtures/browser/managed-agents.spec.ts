@@ -1,14 +1,25 @@
 import { expect, test } from "@playwright/test";
 
 for (const width of [1280, 360]) {
-  test(`reviews instructions without dismissing an undecided notification at ${String(width)}px`, async ({ page }, testInfo) => {
+  test(`prompts once per template and retains mismatch notification at ${String(width)}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 760 });
     await page.goto("/managed-agents.html");
     const trigger = page.locator(".agents-trigger");
     await expect(trigger).toHaveClass(/pending/);
-    await trigger.click();
     const menu = page.getByRole("dialog", { name: "AGENTS.md" });
     await expect(menu).toBeVisible();
+    await expect(page.locator("body")).toHaveAttribute("data-decision", "acknowledge");
+    const dot = page.locator(".pending-dot");
+    const anchor = await trigger.boundingBox();
+    const marker = await dot.boundingBox();
+    if (anchor === null || marker === null) throw new Error("Missing notification geometry");
+    expect(marker.x).toBeGreaterThan(anchor.x + anchor.width / 2);
+    expect(marker.y + marker.height).toBeLessThan(anchor.y + anchor.height / 2);
+    await expect(trigger).toHaveCSS("animation-name", "none");
+    await expect(dot).not.toHaveCSS("animation-name", "none");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(dot).toHaveCSS("animation-name", "none");
+    await expect(dot).toBeVisible();
     await expect(menu).toContainText("平台模板更新时间");
     const bounds = await menu.boundingBox();
     expect(bounds).not.toBeNull();
@@ -20,16 +31,22 @@ for (const width of [1280, 360]) {
     await menu.getByRole("button", { name: "关闭", exact: true }).click();
     await expect(menu).not.toBeVisible();
     await expect(trigger).toHaveClass(/pending/);
-    await expect(page.locator("body")).not.toHaveAttribute("data-decision");
+    await page.evaluate(() => window.dispatchEvent(new Event("fixture-agents-refresh")));
+    await expect(menu).not.toBeVisible();
     await trigger.click();
     await page.keyboard.press("Escape");
     await expect(trigger).toHaveClass(/pending/);
     await trigger.click();
     await menu.getByRole("button", { name: "不覆盖", exact: true }).click();
-    await expect(trigger).not.toHaveClass(/pending/);
+    await expect(trigger).toHaveClass(/pending/);
     await expect(page.locator("body")).toHaveAttribute("data-decision", "keep");
     await trigger.click();
     await menu.getByRole("button", { name: "覆盖并备份", exact: true }).click();
     await expect(page.locator("body")).toHaveAttribute("data-decision", "overwrite");
+    await expect(trigger).not.toHaveClass(/pending/);
+    await page.evaluate(() => window.dispatchEvent(new Event("fixture-agents-template")));
+    await expect(menu).toBeVisible();
+    await expect(trigger).toHaveClass(/pending/);
+    await expect(page.locator("body")).toHaveAttribute("data-decision", "acknowledge");
   });
 }

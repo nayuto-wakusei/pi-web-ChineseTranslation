@@ -187,9 +187,15 @@ test("search stays readable with long Chinese results and restores default sizin
     await page.goto("/custom-ui.html");
     await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
     const search = page.locator('[data-action-id="search"]');
-    const trigger = await search.boundingBox();
-    expect(trigger?.height).toBeGreaterThanOrEqual(44);
-    await expect(search).toHaveCSS("font-size", "16px");
+    const commands = page.locator(".codex-commands .codex-command");
+    await expect(commands).toHaveCount(3);
+    const commandStyles = await commands.evaluateAll((buttons) => buttons.map((button) => {
+      const style = getComputedStyle(button);
+      const icon = button.querySelector("svg")?.getBoundingClientRect();
+      return { height: button.getBoundingClientRect().height, fontSize: style.fontSize, padding: style.padding, gap: style.gap, iconWidth: icon?.width, iconHeight: icon?.height };
+    }));
+    expect(new Set(commandStyles.map((style) => JSON.stringify(style))).size).toBe(1);
+    await page.screenshot({ path: testInfo.outputPath(`search-command-${String(width)}.png`) });
     await search.click();
     const dialog = page.locator("session-search-dialog");
     const input = dialog.getByRole("searchbox");

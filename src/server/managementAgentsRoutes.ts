@@ -30,7 +30,7 @@ export function registerManagementAgentsRoutes(app: FastifyInstance, workspaces:
 }
 
 function parseDecision(value: unknown): ManagedAgentsDecision {
-  if (typeof value !== "object" || value === null || !("action" in value) || (value.action !== "overwrite" && value.action !== "keep")
+  if (typeof value !== "object" || value === null || !("action" in value) || (value.action !== "overwrite" && value.action !== "keep" && value.action !== "acknowledge")
     || !("revision" in value) || typeof value.revision !== "string" || !/^[a-f0-9]{64}$/.test(value.revision)
     || Object.keys(value).some((key) => key !== "action" && key !== "revision")) {
     throw new UserFacingError("managementAgents.invalidDecision", "Choose whether to overwrite AGENTS.md using the current revision.");

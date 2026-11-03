@@ -9,7 +9,12 @@ export function parseManagedAgentsStatus(value: unknown): ManagedAgentsStatus {
     || !("modifiedAt" in value) || (value.modifiedAt !== null && (typeof value.modifiedAt !== "string" || !Number.isFinite(Date.parse(value.modifiedAt))))
     || !("templateModifiedAt" in value) || (value.templateModifiedAt !== null && (typeof value.templateModifiedAt !== "string" || !Number.isFinite(Date.parse(value.templateModifiedAt))))
     || !("templateRevision" in value) || typeof value.templateRevision !== "string") throw new Error("Invalid managed instructions status");
-  return { available: true, pending: value.pending, revision: value.revision, modifiedAt: value.modifiedAt, templateModifiedAt: value.templateModifiedAt, templateRevision: value.templateRevision };
+  const promptPending = "promptPending" in value ? value.promptPending : undefined;
+  const promptRevision = "promptRevision" in value ? value.promptRevision : undefined;
+  if ((promptPending !== undefined || promptRevision !== undefined)
+    && (typeof promptPending !== "boolean" || typeof promptRevision !== "string" || promptRevision === "")) throw new Error("Invalid managed instructions status");
+  return { available: true, pending: value.pending, revision: value.revision, modifiedAt: value.modifiedAt, templateModifiedAt: value.templateModifiedAt, templateRevision: value.templateRevision,
+    ...(typeof promptPending === "boolean" && typeof promptRevision === "string" ? { promptPending, promptRevision } : {}) };
 }
 
 function managedAgentsPath(projectId: string, workspaceId: string, machineId: string): string {

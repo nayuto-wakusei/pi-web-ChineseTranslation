@@ -39,7 +39,7 @@ Add `new LocalizationController(this)` to each localized Lit component (import f
 
 ## Format regional values
 
-Use `localization.number(value, options)`, `date(value, options)`, `time(value, options)`, `relativeTime(value, unit, options)`, and `list(values, options)`. They use native `Intl` formatting. ICU number/date/time arguments use the same regional preferences; plural rules use the language of the selected message, including English fallback.
+Use `localization.number(value, options)`, `date(value, options)`, `time(value, options)`, `relativeTime(value, unit, options)`, and `list(values, options)`. They use native `Intl` formatting. ICU number/date/time arguments use the same regional preferences; plural rules use the language of the selected message, including English fallback. Date, time, and list formatter instances are reused for equivalent locale and options and cleared when localization notifications or preference changes occur; formatted values are never cached. Number and relative-time formatting are unchanged.
 
 Preferences are independent:
 

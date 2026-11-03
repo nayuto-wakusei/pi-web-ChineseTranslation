@@ -305,15 +305,15 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin
 <a id="managed-agents-review"></a>
 ### 管理工作区指令
 
-管理嵌入的文件工具栏提供 `AGENTS.md` 二级菜单。存在待确认更新时，入口持续闪烁提示；减少动态效果的设备使用静态强调。“覆盖并备份”先将当前工作区的原文件保存到 `.pi-web/agents-backups/`，再写入授权项目提供的模板；“不覆盖”保留文件并停止当前版本的提示。只关闭菜单或按 Escape 不提交决定，提示仍保留。
+管理嵌入的文件工具栏提供 `AGENTS.md` 二级菜单。待确认表示工作区文件内容与授权当前模板不同，与模板/本地文件时间戳或旧“不覆盖”决定无关；时间戳元数据只用于显示。存在待确认内容时，入口按钮右上角圆点脉冲提示，减少动态效果时为静态。每个模板指纹首次检出不一致会自动打开既有复核弹窗并说明原因；弹窗实际展示后，显式 acknowledge 只记录已阅、不改文件。关闭菜单或按 Escape 不构成覆盖或不覆盖决定。
 
-平台可通过签名的 `projects[].agentsInstructionsUpdatedAt` 提供带时区的 ISO 模板更新时间。有此时间时，仅在模板晚于本地文件修改时间、正文不同且当前快照尚未确认时提示；本地文件更新或与模板同时间，不会仅因本地变化闪烁，仍可打开菜单手动覆盖。未提供模板时间时，界面显示“未提供”且不自动闪烁，仍可手动选择覆盖或保留；PI WEB 不推测平台更新时间。“覆盖并备份”和“不覆盖”都会持久确认当前快照；后续符合条件的模板更新可再次提示。
+“覆盖并备份”先将当前工作区的原文件保存到 `.pi-web/agents-backups/`，再写入授权项目提供的模板；“不覆盖”保留文件并记录该模板已阅，但内容仍不同，圆点继续显示，之后仍可手动覆盖并备份。已阅按工作区保存在现有状态中并兼容既有 v1 记录。同一模板指纹在已阅后若文件再次变化，圆点恢复但不自动弹窗；模板正文、修订或 `updatedAt` 变化会产生新指纹，不一致时可再次自动弹出一次。当前签名上下文中的模板是唯一来源；未刷新上下文时，不承诺检测远端平台侧模板变化。
 
 确认针对当前机器、项目和工作区，切换工作区不会将旧请求结果应用到新位置。网关重新验证管理身份与工作区授权；浏览器不能指定模板正文、任意路径或备份位置。确认期间文件或模板已变化时，返回冲突而不覆盖，需重新查看后决定。缺少文件时的首次创建仍沿用项目初始化规则；已有文件不因项目解析或会话初始化自动替换。
 
 指令确认只处理不超过 **1 MiB** 的普通文件，拒绝文件或相关托管目录的符号链接。备份保留原有 `AGENTS.<timestamp>.<fingerprint>[suffix].md` 命名，不覆盖历史备份。POSIX 平台确认覆盖时保留原文件访问权限，目标缺失时以 `0600` 创建；备份也以 `0600` 创建，仅文件所有者（服务账号）可读写。Windows 访问控制仍由系统 ACL 决定，不以 POSIX 权限位承诺隔离。
 
-公开工作区文件能力的可选 `files.managedAgents` 提供 `status(options?)` 与 `decide({ action: "overwrite" | "keep", revision })`。`status` 返回不可用状态 `{ available: false }`，或带 `available: true`、`pending`、不透明 `revision`、文件修改时间 `modifiedAt`、平台模板更新时间 `templateModifiedAt` 和 `templateRevision` 的快照；两个时间字段可为 `null`。`decide` 必须提交所查看快照的 `revision`，返回决定后的状态。普通模式及旧宿主可省略此能力，插件应按能力是否存在展示入口，而不是自行拼接私有请求。
+公开工作区文件能力的可选 `files.managedAgents` 提供 `status(options?)` 与 `decide({ action: "overwrite" | "keep" | "acknowledge", revision })`。`status` 返回不可用状态 `{ available: false }`，或带 `available: true`、`pending`、不透明 `revision`、文件修改时间 `modifiedAt`、平台模板更新时间 `templateModifiedAt` 和 `templateRevision` 的快照；两个时间字段可为 `null`。新宿主还会成对提供可选 `promptPending` 与不透明 `promptRevision`；缺失时只提供手动复核，不发送 acknowledge 请求。`revision` 仍是完整快照 CAS 标识，不是稳定模板身份。`decide` 必须提交所查看快照的 `revision`，返回决定后的状态。普通模式及旧宿主可省略此能力，插件应按能力是否存在展示入口，而不是自行拼接私有请求。
 
 ### 工作区任务
 

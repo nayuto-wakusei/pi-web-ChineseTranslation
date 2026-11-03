@@ -1,4 +1,11 @@
 {
+  "core.copyId": {
+    "session": "复制会话 ID",
+    "workspace": "复制工作区 ID",
+    "project": "复制项目 ID",
+    "machine": "复制机器 ID",
+    "failed": "无法复制 ID，请重试。"
+  },
   "core.actions": {
     "actions_show_title": "显示操作",
     "actions_show_description": "打开命令面板",

@@ -7,6 +7,7 @@ import { createTranslator } from "../../src/shared/i18n";
 import chinesePlugin from "../../pi-web-plugins/zh-cn/pi-web-plugin";
 import { setTranslator } from "../../pi-web-plugins/files/i18n";
 import { WorkspaceFilesPanel } from "../../pi-web-plugins/files/FilesPanel";
+import type { ManagedAgentsMenu } from "../../pi-web-plugins/files/ManagedAgentsMenu";
 import { FilesRuntime } from "../../pi-web-plugins/files/FilesRuntime";
 import { createFilesContent } from "../../pi-web-plugins/files/filesLocalization";
 import { createPluginLocalization } from "../../src/client/src/plugins/localization";
@@ -25,6 +26,7 @@ customElements.define("fixture-files-panel", WorkspaceFilesPanel);
 let status: Extract<ManagedAgentsStatus, { available: true }> = {
   available: true, pending: true, revision: "snapshot", modifiedAt: "2026-10-20T00:00:00.000Z",
   templateModifiedAt: "2026-10-26T01:00:00.000Z", templateRevision: "organization-20261026",
+  promptPending: true, promptRevision: "template-1",
 };
 const files: WorkspaceFilesCapabilityV1 = {
   capabilityVersion: 1, defaultUploadFolder: "", maxInlinePreviewBytes: 512_000,
@@ -42,7 +44,7 @@ const files: WorkspaceFilesCapabilityV1 = {
     status: () => Promise.resolve(status),
     decide: (decision) => {
       document.body.dataset["decision"] = decision.action;
-      status = { ...status, pending: false };
+      status = { ...status, pending: decision.action !== "overwrite", promptPending: false };
       return Promise.resolve(status);
     },
   },
@@ -68,4 +70,9 @@ window.addEventListener("fixture-codex-enable", () => {
   panel.shadowRoot?.append(skin);
 });
 window.addEventListener("fixture-codex-disable", () => { presentation.clear(); skin.remove(); });
+window.addEventListener("fixture-agents-template", () => {
+  status = { ...status, revision: "snapshot-2", pending: true, promptPending: true, promptRevision: "template-2" };
+  void panel.shadowRoot?.querySelector<ManagedAgentsMenu>("pi-web-managed-agents-menu")?.refresh();
+});
+window.addEventListener("fixture-agents-refresh", () => { void panel.shadowRoot?.querySelector<ManagedAgentsMenu>("pi-web-managed-agents-menu")?.refresh(); });
 document.body.dataset["ready"] = "true";

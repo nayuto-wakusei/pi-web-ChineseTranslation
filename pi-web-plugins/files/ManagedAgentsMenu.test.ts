@@ -42,6 +42,82 @@ async function open(menu: ManagedAgentsMenu): Promise<void> {
 }
 
 describe("managed AGENTS review menu", () => {
+  it("automatically shows each template once while retaining mismatch and manual actions", async () => {
+    let current = { ...pending, promptPending: true, promptRevision: "template-1" };
+    const status = vi.fn<ManagedAgentsControl["status"]>(() => Promise.resolve(current));
+    const decide = vi.fn<ManagedAgentsControl["decide"]>((decision) => {
+      current = { ...current, pending: decision.action !== "overwrite", promptPending: false };
+      return Promise.resolve(current);
+    });
+    const { menu } = await mount({ status, decide });
+    await vi.waitFor(() => { expect(decide).toHaveBeenCalledExactlyOnceWith({ action: "acknowledge", revision: "snapshot-1" }); });
+    expect(button(menu, ".agents-trigger").getAttribute("aria-expanded")).toBe("true");
+    button(menu, ".close").click();
+    await menu.refresh();
+    await menu.updateComplete;
+    expect(button(menu, ".agents-trigger").getAttribute("aria-expanded")).toBe("false");
+    expect(menu.shadowRoot?.querySelector(".pending-dot")).not.toBeNull();
+    await open(menu);
+    button(menu, "[data-keep]").click();
+    await vi.waitFor(() => { expect(decide).toHaveBeenCalledWith({ action: "keep", revision: "snapshot-1" }); });
+    await menu.updateComplete;
+    expect(menu.shadowRoot?.querySelector(".pending-dot")).not.toBeNull();
+    current = { ...current, revision: "snapshot-2", promptRevision: "template-2", promptPending: true };
+    await menu.refresh();
+    await menu.updateComplete;
+    await vi.waitFor(() => { expect(decide).toHaveBeenCalledWith({ action: "acknowledge", revision: "snapshot-2" }); });
+    button(menu, "[data-overwrite]").click();
+    await vi.waitFor(() => { expect(menu.shadowRoot?.querySelector(".pending-dot")).toBeNull(); });
+  });
+
+  it("does not repeatedly open a failed acknowledgment and retries on manual review", async () => {
+    const status = vi.fn<ManagedAgentsControl["status"]>().mockResolvedValue({ ...pending, promptPending: true, promptRevision: "template-1" });
+    const decide = vi.fn<ManagedAgentsControl["decide"]>().mockRejectedValue(new Error("Cannot record review"));
+    const { menu } = await mount({ status, decide });
+    await vi.waitFor(() => { expect(menu.shadowRoot?.querySelector("[role=alert]")?.textContent).toContain("Cannot record review"); });
+    button(menu, ".close").click();
+    await menu.refresh();
+    await menu.updateComplete;
+    expect(button(menu, ".agents-trigger").getAttribute("aria-expanded")).toBe("false");
+    expect(decide).toHaveBeenCalledOnce();
+    decide.mockResolvedValue({ ...pending, promptPending: false, promptRevision: "template-1" });
+    await open(menu);
+    await vi.waitFor(() => { expect(decide).toHaveBeenCalledTimes(2); });
+  });
+
+  it("waits until the current review closes before prompting a newer template", async () => {
+    const status = vi.fn<ManagedAgentsControl["status"]>().mockResolvedValue({ ...pending, promptPending: false, promptRevision: "template-1" });
+    const decide = vi.fn<ManagedAgentsControl["decide"]>().mockResolvedValue({ ...pending, revision: "snapshot-2", promptPending: false, promptRevision: "template-2" });
+    const { menu } = await mount({ status, decide });
+    await open(menu);
+    status.mockResolvedValue({ ...pending, revision: "snapshot-2", templateRevision: "org-r3", promptPending: true, promptRevision: "template-2" });
+    await menu.refresh();
+    await menu.updateComplete;
+    expect(menu.shadowRoot?.textContent).not.toContain("org-r3");
+    expect(decide).not.toHaveBeenCalled();
+    button(menu, ".close").click();
+    await menu.refresh();
+    await menu.updateComplete;
+    await vi.waitFor(() => { expect(decide).toHaveBeenCalledExactlyOnceWith({ action: "acknowledge", revision: "snapshot-2" }); });
+    expect(menu.shadowRoot?.textContent).toContain("org-r3");
+  });
+
+  it("ignores an acknowledgment completing after switching workspaces", async () => {
+    let finish!: (value: ManagedAgentsStatus) => void;
+    const decide = vi.fn<ManagedAgentsControl["decide"]>(() => new Promise((resolve) => { finish = resolve; }));
+    const { menu } = await mount({ status: () => Promise.resolve({ ...pending, promptPending: true, promptRevision: "template-1" }), decide });
+    await vi.waitFor(() => { expect(decide).toHaveBeenCalledOnce(); });
+    menu.scopeKey = "another/workspace";
+    menu.control = { status: () => Promise.resolve({ available: false }), decide: vi.fn() };
+    await menu.updateComplete;
+    await menu.updateComplete;
+    finish({ ...pending, promptPending: false, promptRevision: "template-1" });
+    await Promise.resolve();
+    await menu.updateComplete;
+    expect(menu.shadowRoot?.querySelector(".agents-trigger")).toBeNull();
+    expect(menu.shadowRoot?.querySelector("[popover]")).toBeNull();
+  });
+
   it.each(["keep", "overwrite"] as const)("acknowledges only the explicit %s action", async (action) => {
     const { menu, status, decide } = await mount();
     const applied = vi.fn();

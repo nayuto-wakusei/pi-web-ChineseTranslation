@@ -1,5 +1,6 @@
 {
   "files.agents.pending": "AGENTS.md 有修改待确认",
+  "files.agents.explanation": "工作区文件与当前模板不一致。覆盖前会备份原文件；选择不覆盖后，提示标记仍会保留，你可以随时再次打开并决定是否覆盖。",
   "files.agents.close": "关闭",
   "files.agents.title": "工作区 AGENTS.md",
   "files.agents.modified": "文件修改时间",

@@ -18,6 +18,7 @@ export class ManagedAgentsMenu extends LitElement {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private releaseStyles: (() => void) | undefined;
   private shownPanel: HTMLElement | undefined;
+  private lastPromptRevision: string | undefined;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -46,6 +47,7 @@ export class ManagedAgentsMenu extends LitElement {
       this.snapshot = undefined;
       this.error = "";
       this.busy = false;
+      this.lastPromptRevision = undefined;
     }
   }
 
@@ -66,6 +68,11 @@ export class ManagedAgentsMenu extends LitElement {
       panel.style.left = `${String(Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)))}px`;
       panel.style.top = `${String(Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - panel.getBoundingClientRect().height - 8)))}px`;
       panel.querySelector<HTMLButtonElement>("[data-overwrite]")?.focus();
+      const review = this.reviewSnapshot;
+      if (review?.available === true && review.promptPending === true && review.promptRevision !== undefined) {
+        this.lastPromptRevision = review.promptRevision;
+        void this.acknowledgeShown(review);
+      }
     }
   }
 
@@ -81,6 +88,11 @@ export class ManagedAgentsMenu extends LitElement {
         this.snapshot = snapshot;
         if (!snapshot.available) this.close(false);
         if (this.open && (this.reviewSnapshot === undefined || preserveError)) this.reviewSnapshot = snapshot;
+        if (!this.open && snapshot.available && snapshot.pending && snapshot.promptPending === true
+          && snapshot.promptRevision !== undefined && snapshot.promptRevision !== this.lastPromptRevision) {
+          this.reviewSnapshot = snapshot;
+          this.open = true;
+        }
         if (!preserveError) this.error = "";
       }
     } catch (error) {
@@ -117,6 +129,25 @@ export class ManagedAgentsMenu extends LitElement {
     this.open = false;
     this.reviewSnapshot = undefined;
     if (restoreFocus) this.renderRoot.querySelector<HTMLButtonElement>(".agents-trigger")?.focus();
+  }
+
+  private async acknowledgeShown(review: Extract<ManagedAgentsStatus, { available: true }>): Promise<void> {
+    if (this.control === undefined || this.busy) return;
+    const control = this.control;
+    this.stop();
+    const generation = this.generation;
+    this.busy = true;
+    try {
+      const snapshot = await control.decide({ action: "acknowledge", revision: review.revision });
+      if (this.isCurrent(generation)) this.snapshot = snapshot;
+    } catch (error) {
+      if (this.isCurrent(generation)) this.error = errorMessage(error);
+    } finally {
+      if (this.isCurrent(generation)) {
+        this.busy = false;
+        this.schedule();
+      }
+    }
   }
 
   private async decide(action: ManagedAgentsDecision["action"]): Promise<void> {
@@ -160,6 +191,7 @@ export class ManagedAgentsMenu extends LitElement {
           @toggle=${(event: Event) => { if (Reflect.get(event, "newState") === "closed" && event.currentTarget === this.shownPanel) { this.open = false; this.shownPanel = undefined; this.reviewSnapshot = undefined; } }}
           @keydown=${(event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); this.close(); } }}>
           <header><strong>${t("files.agents.title", "Workspace AGENTS.md")}</strong><button type="button" class="ui-button close" aria-label=${t("files.agents.close", "Close")} title=${t("files.agents.close", "Close")} @click=${() => { this.close(); }}>&times;</button></header>
+          ${review?.available === true && review.pending ? html`<p class="explanation">${t("files.agents.explanation", "The workspace file differs from the current template. Overwriting backs up the existing file first. Keeping it leaves the indicator on; you can review it again at any time.")}</p>` : nothing}
           ${review?.available === true ? html`
             <dl><dt>${t("files.agents.modified", "File modified")}</dt><dd>${review.modifiedAt ?? t("files.agents.missing", "Not created")}</dd>
               <dt>${t("files.agents.templateModified", "Template updated")}</dt><dd>${review.templateModifiedAt ?? t("files.agents.notProvided", "Not provided")}</dd>
@@ -176,16 +208,16 @@ export class ManagedAgentsMenu extends LitElement {
     :host { display: inline-flex; flex: 0 0 auto; }
     .agents-trigger { position: relative; width: 32px; height: 32px; padding: 6px; }
     .file-action-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-    .pending { color: var(--pi-accent); outline: 1px solid var(--pi-accent); outline-offset: -2px; animation: agents-pulse 1.8s ease-in-out infinite; }
-    .pending-dot { position: absolute; inset-block-start: 4px; inset-inline-end: 4px; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-    @keyframes agents-pulse { 50% { opacity: .55; } }
-    @media (prefers-reduced-motion: reduce) { .pending { animation: none; } }
+    .pending-dot { position: absolute; inset-block-start: 2px; inset-inline-end: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--pi-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--pi-accent) 20%, transparent); animation: agents-pulse 1s ease-in-out infinite; }
+    @keyframes agents-pulse { 0%, 100% { transform: scale(.75); opacity: .55; } 50% { transform: scale(1.2); opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .pending-dot { animation: none; } }
     .agents-menu { position: fixed; box-sizing: border-box; margin: 0; width: 300px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; padding: 8px; border: 1px solid var(--pi-border); border-radius: 6px; background: var(--pi-surface); color: var(--pi-text); }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-inline-start: 6px; font-size: 13px; }
     .close { width: 28px; height: 28px; font-size: 18px; }
     dl { margin: 8px 6px 12px; font-size: 12px; overflow-wrap: anywhere; }
     dt { color: var(--pi-text-secondary); margin-top: 8px; }
     dd { margin: 2px 0 0; }
+    .explanation { margin: 8px 6px; font-size: 12px; line-height: 1.5; }
     .ui-menu-item { display: block; width: 100%; text-align: start; }
     .error { color: var(--pi-error); font-size: 12px; overflow-wrap: anywhere; margin: 8px 6px; }
   `;

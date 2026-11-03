@@ -8,6 +8,8 @@ import { MachineList } from "./MachineList";
 import { ProjectList } from "./ProjectList";
 import { WorkspaceList } from "./WorkspaceList";
 import { SessionList } from "./SessionList";
+import { localization } from "../localization/browser";
+import catalogs from "../../../../pi-web-plugins/zh-cn/catalogs.json";
 
 vi.mock("../clipboard", () => ({ writeClipboardText: vi.fn().mockResolvedValue(true) }));
 installPopoverFake();
@@ -22,6 +24,24 @@ afterEach(() => {
 
 const id = "opaque / ? identifier";
 const date = "2026-06-09T00:00:00.000Z";
+
+it("uses the shipped Chinese copy label and retains the English fallback", async () => {
+  const release = localization.registerCatalog({
+    id: "zh-cn:core.copyId", namespace: "core.copyId", locale: "zh-CN",
+    load: () => Promise.resolve(catalogs["core.copyId"]),
+  });
+  try {
+    for (const [language, label] of [["zh-CN", "复制会话 ID"], ["en", "Copy session ID"]] as const) {
+      await localization.setPreferences({ language, formatLocale: language });
+      const list = await mount("session");
+      expect(list.shadowRoot?.querySelector("[data-copy-id]")?.textContent).toBe(label);
+      list.remove();
+    }
+  } finally {
+    release();
+    await localization.setPreferences({ language: "en", formatLocale: "en" });
+  }
+});
 
 async function mount(kind: "machine" | "project" | "workspace" | "session") {
   let list: MachineList | ProjectList | WorkspaceList | SessionList;

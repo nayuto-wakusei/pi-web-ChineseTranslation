@@ -8,8 +8,10 @@ afterEach(() => { setApiScope("normal"); vi.unstubAllGlobals(); vi.unstubAllEnvs
 
 it("validates status rather than trusting malformed timestamps or snapshot fields", () => {
   expect(parseManagedAgentsStatus(status)).toEqual(status);
+  const prompt = { ...status, promptPending: true, promptRevision: "template-fingerprint" };
+  expect(parseManagedAgentsStatus(prompt)).toEqual(prompt);
   expect(parseManagedAgentsStatus({ available: false })).toEqual({ available: false });
-  for (const value of [null, {}, { ...status, pending: "true" }, { ...status, revision: "" }, { ...status, modifiedAt: "invalid" }, { ...status, templateModifiedAt: 42 }]) {
+  for (const value of [null, {}, { ...status, pending: "true" }, { ...status, revision: "" }, { ...status, modifiedAt: "invalid" }, { ...status, templateModifiedAt: 42 }, { ...prompt, promptPending: "true" }, { ...prompt, promptRevision: "" }, { ...status, promptPending: true }, { ...status, promptRevision: "template" }]) {
     expect(() => parseManagedAgentsStatus(value)).toThrow("Invalid managed instructions status");
   }
 });
@@ -27,4 +29,6 @@ it("keeps management authority, machine identity and application base on status 
   expect(fetch.mock.calls[0]?.[0]).toBe("https://pi.example.test/nested/api/machines/remote%2Fa/projects/project%20a/workspaces/workspace%2Fa/agents-instructions?embed=management&token=entry");
   expect(fetch.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
   expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST", body: JSON.stringify({ action: "keep", revision: "snapshot" }) });
+  await managedAgentsApi.decide("project a", "workspace/a", "remote/a", { action: "acknowledge", revision: "snapshot" });
+  expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "POST", body: JSON.stringify({ action: "acknowledge", revision: "snapshot" }) });
 });

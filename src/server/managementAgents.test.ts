@@ -28,36 +28,65 @@ function available(status: ManagedAgentsStatus) {
 
 describe("managed AGENTS.md review", () => {
   it.each([
-    { time: "2025-12-31T23:59:59.000Z", pending: false },
-    { time: "2026-01-01T00:00:00.000Z", pending: false },
-    { time: "2026-01-01T00:00:01.000Z", pending: true },
-  ])("only prompts when the template is newer than local AGENTS.md: $time", async ({ time, pending }) => {
-    expect(available(await managedAgentsStatus(root, { ...project, agentsInstructionsUpdatedAt: time })).pending).toBe(pending);
+    "2025-12-31T23:59:59.000Z",
+    "2026-01-01T00:00:00.000Z",
+    "2026-01-01T00:00:01.000Z",
+  ])("indicates a mismatch regardless of template/file timestamp ordering: %s", async (time) => {
+    expect(await managedAgentsStatus(root, { ...project, agentsInstructionsUpdatedAt: time })).toMatchObject({ pending: true, promptPending: true });
   });
 
   it("only reopens an acknowledged review when the template changes, not the local file time", async () => {
     let current = available(await managedAgentsStatus(root, project));
     await decideManagedAgents(root, project, { action: "keep", revision: current.revision });
-    await utimes(join(root, "AGENTS.md"), new Date("2026-02-01"), new Date("2026-02-01"));
+    await writeFile(join(root, "AGENTS.md"), "Another local edit\n");
     current = available(await managedAgentsStatus(root, project));
-    expect(current.pending).toBe(false);
-    expect(available(await managedAgentsStatus(root, { ...project, agentsInstructionsUpdatedAt: "2026-10-26T12:00:01.000Z" })).pending).toBe(true);
+    expect(current).toMatchObject({ pending: true, promptPending: false });
+    for (const changed of [
+      { ...project, agentsInstructionsUpdatedAt: "2026-10-26T12:00:01.000Z" },
+      { ...project, agentsInstructionsRevision: "r2" },
+      { ...project, agentsInstructions: "Changed template\n" },
+    ]) {
+      const next = available(await managedAgentsStatus(root, changed));
+      expect(next).toMatchObject({ pending: true, promptPending: true });
+      expect(next.promptRevision).not.toBe(current.promptRevision);
+    }
   });
 
   it("still allows a deliberate overwrite when the local file is newer than the template", async () => {
     const older = { ...project, agentsInstructionsUpdatedAt: "2025-01-01T00:00:00.000Z" };
     const current = available(await managedAgentsStatus(root, older));
-    expect(current.pending).toBe(false);
+    expect(current.pending).toBe(true);
     await decideManagedAgents(root, older, { action: "overwrite", revision: current.revision });
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toContain("Platform instructions");
   });
-  it("keeps reads non-acknowledging, then persists keep without writing or backing up AGENTS.md", async () => {
+
+  it("retains version-one acknowledgements while keeping mismatch indication independent", async () => {
+    const current = available(await managedAgentsStatus(root, project));
+    await mkdir(join(root, ".pi-web"));
+    await writeFile(join(root, ".pi-web", "agents-instructions-state.json"), JSON.stringify({ version: 1, templateFingerprint: current.promptRevision }));
+    expect(await managedAgentsStatus(root, project)).toMatchObject({ pending: true, promptPending: false });
+  });
+
+  it("does not prompt while matching and prompts on the first later mismatch", async () => {
+    const template = { id: project.id, name: project.name, agentsInstructions: "Matching instructions" };
+    await writeFile(join(root, "AGENTS.md"), template.agentsInstructions);
+    expect(await managedAgentsStatus(root, template)).toMatchObject({ pending: false, promptPending: false });
+    await writeFile(join(root, "AGENTS.md"), "Local modification");
+    const mismatch = available(await managedAgentsStatus(root, template));
+    expect(mismatch).toMatchObject({ pending: true, promptPending: true });
+    await decideManagedAgents(root, template, { action: "acknowledge", revision: mismatch.revision });
+    await writeFile(join(root, "AGENTS.md"), template.agentsInstructions);
+    expect(await managedAgentsStatus(root, template)).toMatchObject({ pending: false, promptPending: false });
+    await writeFile(join(root, "AGENTS.md"), "Another modification");
+    expect(await managedAgentsStatus(root, template)).toMatchObject({ pending: true, promptPending: false });
+  });
+  it.each(["keep", "acknowledge"] as const)("keeps reads non-acknowledging, then persists %s without changing AGENTS.md", async (action) => {
     const before = await stat(join(root, "AGENTS.md"));
     const first = available(await managedAgentsStatus(root, project));
-    expect(first).toMatchObject({ pending: true, templateModifiedAt: project.agentsInstructionsUpdatedAt, modifiedAt: before.mtime.toISOString() });
-    expect(available(await managedAgentsStatus(root, project)).pending).toBe(true);
-    expect(await decideManagedAgents(root, project, { action: "keep", revision: first.revision })).toMatchObject({ pending: false });
-    expect(available(await managedAgentsStatus(root, project)).pending).toBe(false);
+    expect(first).toMatchObject({ pending: true, promptPending: true, templateModifiedAt: project.agentsInstructionsUpdatedAt, modifiedAt: before.mtime.toISOString() });
+    expect(available(await managedAgentsStatus(root, project)).promptPending).toBe(true);
+    expect(await decideManagedAgents(root, project, { action, revision: first.revision })).toMatchObject({ pending: true, promptPending: false });
+    expect(await managedAgentsStatus(root, project)).toMatchObject({ pending: true, promptPending: false });
     expect((await stat(join(root, "AGENTS.md"))).mtimeMs).toBe(before.mtimeMs);
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("# Local instructions\n");
     await expect(stat(join(root, ".pi-web", "agents-backups"))).rejects.toMatchObject({ code: "ENOENT" });
@@ -68,7 +97,7 @@ describe("managed AGENTS.md review", () => {
     const backups = join(root, ".pi-web", "agents-backups");
     await mkdir(backups, { recursive: true });
     await writeFile(join(backups, "AGENTS.20260101T000000Z.previous.md"), "historical");
-    expect(await decideManagedAgents(root, project, { action: "overwrite", revision: current.revision })).toMatchObject({ pending: false });
+    expect(await decideManagedAgents(root, project, { action: "overwrite", revision: current.revision })).toMatchObject({ pending: false, promptPending: false });
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe('<!-- pi-web-managed-agents:{"source":"management-embed","revision":"r1"} -->\n# Platform instructions\n');
     const names = await readdir(backups);
     expect(names).toHaveLength(2);
@@ -109,17 +138,17 @@ describe("managed AGENTS.md review", () => {
     expect((await stat(join(root, "AGENTS.md"))).mode & 0o7777).toBe(0o600);
   });
 
-  it("rejects a stale file snapshot without backups or acknowledgement", async () => {
+  it.each(["overwrite", "keep", "acknowledge"] as const)("rejects a stale file snapshot for %s without backups or acknowledgement", async (action) => {
     const initial = available(await managedAgentsStatus(root, project));
     await writeFile(join(root, "AGENTS.md"), "Concurrent edit\n");
-    await expect(decideManagedAgents(root, project, { action: "overwrite", revision: initial.revision })).rejects.toBeInstanceOf(ManagedAgentsConflictError);
+    await expect(decideManagedAgents(root, project, { action, revision: initial.revision })).rejects.toBeInstanceOf(ManagedAgentsConflictError);
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("Concurrent edit\n");
     await expect(stat(join(root, ".pi-web"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rejects an outdated template snapshot", async () => {
+  it.each(["keep", "acknowledge"] as const)("rejects an outdated template snapshot for %s", async (action) => {
     const initial = available(await managedAgentsStatus(root, project));
-    await expect(decideManagedAgents(root, { ...project, agentsInstructionsRevision: "r2" }, { action: "keep", revision: initial.revision })).rejects.toBeInstanceOf(ManagedAgentsConflictError);
+    await expect(decideManagedAgents(root, { ...project, agentsInstructionsRevision: "r2" }, { action, revision: initial.revision })).rejects.toBeInstanceOf(ManagedAgentsConflictError);
   });
 
   it("serializes conflicting overwrites and rejects the stale second mutation", async () => {
@@ -140,12 +169,12 @@ describe("managed AGENTS.md review", () => {
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toContain("Platform instructions");
   });
 
-  it("does not notify without a template time and still permits manual decisions", async () => {
+  it("indicates a mismatch without a template time and permits later manual overwrite after keeping", async () => {
     const legacy = { id: project.id, name: project.name, agentsInstructions: project.agentsInstructions };
     const initial = available(await managedAgentsStatus(root, legacy));
-    expect(initial).toMatchObject({ templateModifiedAt: null, pending: false });
-    expect(await decideManagedAgents(root, legacy, { action: "keep", revision: initial.revision })).toMatchObject({ pending: false });
-    expect(await decideManagedAgents(root, legacy, { action: "overwrite", revision: initial.revision })).toMatchObject({ pending: false });
+    expect(initial).toMatchObject({ templateModifiedAt: null, pending: true, promptPending: true });
+    expect(await decideManagedAgents(root, legacy, { action: "keep", revision: initial.revision })).toMatchObject({ pending: true, promptPending: false });
+    expect(await decideManagedAgents(root, legacy, { action: "overwrite", revision: initial.revision })).toMatchObject({ pending: false, promptPending: false });
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(project.agentsInstructions);
   });
 
