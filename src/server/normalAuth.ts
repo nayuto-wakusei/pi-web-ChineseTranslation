@@ -290,6 +290,9 @@ function allowsManagementRequest(request: FastifyRequest): boolean {
     return request.method === "GET" || request.method === "HEAD";
   }
   const path = pathname.startsWith("/api/machines/local/") ? pathname.slice("/api/machines/local".length) : pathname.slice("/api".length);
+  if (/^\/navigation\/projects\/[^/]+\/workspaces\/[^/]+\/session-pins$/u.test(path)) {
+    return request.method === "GET" || request.method === "HEAD" || request.method === "PUT";
+  }
   // Only local APIs that preserve management context may bypass normal auth.
   return /^\/(?:projects|files|auth|sessions|activity|status|events|notices|plugins|paired-plugin-backends|terminal-command-runs)(?:\/|$)/u.test(path)
     || /^\/sessiond\/(?:health|runtime)$/u.test(path);

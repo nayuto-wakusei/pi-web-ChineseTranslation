@@ -5,6 +5,8 @@ import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
+import type { PiWebConfigResponse } from "../shared/apiTypes.js";
+import { NORMAL_AUTH_COOKIE, NormalModeAuthService, registerNormalModeAuthGate } from "./normalAuth.js";
 import { registerNavigationPreferenceRoutes, registerSessionPinRoutes } from "./navigationPreferenceRoutes.js";
 import { projectFromManagedEmbedContext, type ManagementEmbedContext, type ManagementEmbedRuntime } from "./managementEmbed.js";
 import { registerSessionProxyRoutes } from "./sessiond/sessionProxyRoutes.js";
@@ -28,6 +30,17 @@ describe("embedded navigation pins across gateway and daemon", () => {
         ? Promise.resolve({ ...context, user: { ...context.user, id: token } })
         : Promise.reject(new Error("Invalid entry token")),
     };
+    const config: PiWebConfigResponse = {
+      path: join(directory, "config.json"), exists: true, config: {}, effectiveConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, sessionMessages: false, subsessions: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
+    };
+    const auth = new NormalModeAuthService({
+      read: () => config,
+      write: (values) => Object.assign(config, { config: values, effectiveConfig: values }),
+    });
+    const login = await auth.setup("ordinary-password");
+    if (login.status !== "created") throw new Error("Expected new ordinary login");
+    registerNormalModeAuthGate(gateway, auth, runtime);
     const legacy = join(directory, "navigation-preferences.json");
     const file = sessionPinStorePath({ PI_WEB_DATA_DIR: directory });
     const pins = new SessionPinStore(file, legacy);
@@ -61,7 +74,9 @@ describe("embedded navigation pins across gateway and daemon", () => {
       expect(put.json()).toEqual({ ids: ["managed-session"], revision: 1 });
       expect((await gateway.inject({ method: "GET", url: `/api/machines/local${path}${query}` })).json()).toEqual(put.json());
       expect((await gateway.inject({ method: "GET", url: `/api${path}?embed=management&token=other` })).json()).toEqual({ ids: [], revision: 0 });
-      expect((await gateway.inject({ method: "GET", url: `/api${path}` })).json()).toEqual({ ids: [], revision: 0 });
+      expect((await gateway.inject({ method: "GET", url: `/api${path}`, headers: { cookie: `${NORMAL_AUTH_COOKIE}=${login.sessionId}` } })).json()).toEqual({ ids: [], revision: 0 });
+      expect((await gateway.inject({ method: "GET", url: `/api${path}` })).statusCode).toBe(401);
+      expect((await gateway.inject({ method: "GET", url: `/api${path}?embed=management&token=invalid` })).statusCode).toBe(401);
       expect((await gateway.inject({ method: "PUT", url: `/api${path}${query}`, payload: { ids: [], revision: 0 } })).statusCode).toBe(409);
       expect((await gateway.inject({ method: "GET", url: `/api${path.replace("/project/", "/forbidden/")}${query}` })).statusCode).toBe(403);
       expect((await gateway.inject({ method: "GET", url: `/api/navigation/projects${query}` })).statusCode).toBe(403);

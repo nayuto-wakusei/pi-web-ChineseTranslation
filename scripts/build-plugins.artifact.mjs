@@ -42,6 +42,25 @@ it("scans static imports, re-exports and dynamic imports without mistaking comme
 });
 
 describe("plugin delivery artifacts", () => {
+  it("ships Custom UI Codex with a browser-resolvable runtime import graph", async () => {
+    const root = join(repoRoot, "dist", "pi-web-plugins", "custom-ui-codex");
+    const metadata = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    const pending = [join(root, metadata.piWeb.plugins[0].module)];
+    const visited = new Set();
+    while (pending.length > 0) {
+      const file = pending.pop();
+      if (visited.has(file)) continue;
+      visited.add(file);
+      for (const specifier of moduleSpecifiers(await readFile(file, "utf8"))) {
+        expect(specifier, `${relative(root, file)} contains an unresolved browser import`).toMatch(/^\.\.?\//u);
+        const dependency = resolve(dirname(file), specifier);
+        expect(dependency.startsWith(`${root}${sep}`)).toBe(true);
+        expect((await stat(dependency)).isFile()).toBe(true);
+        pending.push(dependency);
+      }
+    }
+  });
+
   it("ships package-complete importable bundled server plugins", { timeout: 60_000 }, async () => {
     const fixtureRoot = repoRoot;
     const readyPath = join(fixtureRoot, "dist", ".plugins-ready");

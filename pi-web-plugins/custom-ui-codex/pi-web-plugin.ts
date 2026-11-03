@@ -1,5 +1,5 @@
 import type { PiWebPluginV5, PluginCapability, UiPresentationCapabilityV1, UiPresentationRenderContextV1 } from "@chainingintention/pi-web-cn/plugin-api";
-import { renderNewFileIcon, renderNewFolderIcon, renderUploadIcon, renderDownloadIcon, renderRenameIcon, renderDeleteIcon, renderRefreshIcon } from "./fileIcons";
+import { createFileActionIcons } from "./fileIcons.js";
 
 const presentationCapability: PluginCapability<UiPresentationCapabilityV1> = {
   pluginId: "pi-web", id: "ui-presentation", version: 1,
@@ -15,6 +15,7 @@ export default {
   name: "Custom UI Codex",
   requires: [presentationCapability],
   activate: ({ html, svg }) => {
+    const fileActionIcons = createFileActionIcons(svg);
     const slot = (name: string) => html`<slot name=${name}></slot>`;
     // Lucide icons, ISC/MIT. Attribution is bundled in LICENSE-icons.
     const icon = (id: string) => svg`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${
@@ -34,8 +35,7 @@ export default {
         ],
         uiPresentations: [
           { id: "files-toolbar", region: "files-toolbar", render: (context) => html`<span class="codex-files-toolbar ui-toolbar-group">${(context.actions ?? []).map((action) => {
-            const icons = new Map([["new-file", renderNewFileIcon], ["new-folder", renderNewFolderIcon], ["upload", renderUploadIcon], ["download", renderDownloadIcon], ["rename", renderRenameIcon], ["delete", renderDeleteIcon], ["refresh", renderRefreshIcon]]);
-            const renderIcon = icons.get(action.id);
+            const renderIcon = fileActionIcons.get(action.id);
             return html`<button type="button" class="ui-button" title=${action.label} aria-label=${action.label} ?disabled=${action.disabled === true} @click=${action.run}>${renderIcon === undefined ? action.label : renderIcon()}</button>`;
           })}</span>` },
           { id: "navigation", region: "navigation", navigationLayout: "tree", render: (context) => html`

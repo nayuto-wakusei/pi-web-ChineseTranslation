@@ -41,6 +41,28 @@ afterEach(async () => {
 });
 
 describe("management auth route boundary", () => {
+  it("allows only local navigation session-pin reads and writes", async () => {
+    await app.close();
+    await initializeApp(undefined, {
+      enabled: true, projectRoot: process.cwd(),
+      authenticate: () => Promise.resolve({ user: { id: "user", rootUserId: "root", roles: [], permissions: [] }, projects: [] }),
+    });
+    const pins = "/navigation/projects/p/workspaces/w/session-pins";
+    const paths = [
+      `/api${pins}`, `/api/machines/local${pins}`, `/api/machines/remote${pins}`,
+      "/api/navigation/projects", "/api/navigation/projects/p/workspaces",
+    ];
+    const methods = ["GET", "HEAD", "PUT", "POST", "DELETE"] as const;
+    for (const url of paths) app.route({ method: [...methods], url, handler: () => ({ ok: true }) });
+    for (const url of paths) {
+      for (const method of methods) {
+        const allowed = (url === `/api${pins}` || url === `/api/machines/local${pins}`)
+          && (method === "GET" || method === "HEAD" || method === "PUT");
+        expect((await app.inject({ method, url: `${url}?embed=management&token=launch-token` })).statusCode, `${method} ${url}`).toBe(allowed ? 200 : 403);
+      }
+    }
+  });
+
   it("never uses management credentials or a concurrent normal login to authorize global APIs", async () => {
     await app.close();
     await initializeApp(undefined, {

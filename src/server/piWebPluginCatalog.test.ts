@@ -710,6 +710,56 @@ describe("PiWebPluginCatalog", () => {
     expect(snapshot.diagnostics[0]?.message).toContain("Choose a different id");
   });
 
+  it("deduplicates Pi package aliases without hiding distinct installations with the same plugin id", async () => {
+    const packageRoot = join(tempDir, "relays");
+    const aliasRoot = join(tempDir, "relays-alias");
+    const otherRoot = join(tempDir, "other-relays");
+    for (const root of [packageRoot, otherRoot]) {
+      await writePlugin(root, {
+        packageJson: { piWeb: { plugins: [{ id: "relays", browserRoot: ".", module: "browser.js", serverModule: "server.js" }] } },
+        files: { "browser.js": "export default {};", "server.js": "export default {};" },
+      });
+    }
+    await symlink(packageRoot, aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const catalog = new PiWebPluginCatalog({
+      roots: [],
+      packageProvider: {
+        listPackages: () => [
+          { source: "project-alias", scope: "project", installedPath: aliasRoot },
+          { source: "user-copy", scope: "user", installedPath: packageRoot },
+          { source: "other-copy", scope: "user", installedPath: otherRoot },
+        ],
+        getInstalledPath: () => undefined,
+      },
+      warningSink: () => undefined,
+    });
+
+    const snapshot = await catalog.snapshot();
+    expect(snapshot.plugins).toMatchObject([{ id: "relays", source: "project-alias", scope: "project" }]);
+    expect(snapshot.diagnostics).toMatchObject([{ code: "duplicate-id", source: "other-copy", pluginId: "relays" }]);
+    await expect(catalog.browserPlugin("relays")).resolves.toMatchObject({ source: "project-alias" });
+    const userSnapshot = await catalog.snapshot({ scope: "user" });
+    expect(userSnapshot.plugins).toMatchObject([{ id: "relays", source: "user-copy", scope: "user" }]);
+    expect(userSnapshot.diagnostics).toMatchObject([{ code: "duplicate-id", source: "other-copy", pluginId: "relays" }]);
+
+    const localRoot = join(tempDir, "local-plugins");
+    await mkdir(localRoot);
+    await symlink(packageRoot, join(localRoot, "relays"), process.platform === "win32" ? "junction" : "dir");
+    const localCatalog = new PiWebPluginCatalog({
+      roots: [{ path: localRoot, source: "local", scope: "local" }],
+      packageProvider: {
+        listPackages: () => [{ source: "user-copy", scope: "user", installedPath: packageRoot }],
+        getInstalledPath: () => undefined,
+      },
+      warningSink: () => undefined,
+    });
+    await expect(localCatalog.snapshot()).resolves.toMatchObject({
+      plugins: [{ id: "relays", source: "local", scope: "local" }],
+      diagnostics: [],
+    });
+    await expect(localCatalog.browserPlugin("relays")).resolves.toMatchObject({ source: "local" });
+  });
+
   it("uses one duplicate-id winner across browser and server capabilities", async () => {
     const firstRoot = join(tempDir, "first");
     const secondRoot = join(tempDir, "second");

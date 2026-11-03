@@ -244,8 +244,9 @@ export class PiWebPluginCatalog {
     for (const plugin of await this.discoverLocalPlugins(report, scope)) addUnique(records, plugin, report);
     const packageProvider = scope === "bundled" ? undefined : await this.currentPackageProvider();
     if (packageProvider !== undefined) {
-      for (const plugin of await this.discoverPiPackagePlugins(packageProvider, report)) {
-        if (scope === undefined || plugin.scope === scope) addUnique(records, plugin, report);
+      const localPackageRoots = new Set([...records.values()].map((plugin) => plugin.packageRoot));
+      for (const plugin of await this.discoverPiPackagePlugins(packageProvider, report, scope, localPackageRoots)) {
+        addUnique(records, plugin, report);
       }
     }
     return [...records.values()].sort((left, right) => left.id.localeCompare(right.id));
@@ -273,13 +274,24 @@ export class PiWebPluginCatalog {
     return plugins;
   }
 
-  private async discoverPiPackagePlugins(packageProvider: PiPackageProvider, report: ReportDiagnostic): Promise<PiWebPluginPackageEntry[]> {
+  private async discoverPiPackagePlugins(
+    packageProvider: PiPackageProvider,
+    report: ReportDiagnostic,
+    scope?: PiWebPluginScope,
+    discoveredRoots = new Set<string>(),
+  ): Promise<PiWebPluginPackageEntry[]> {
     const plugins: PiWebPluginPackageEntry[] = [];
     for (const configuredPackage of packageProvider.listPackages()) {
+      if (scope !== undefined && configuredPackage.scope !== scope) continue;
       const root = configuredPackage.installedPath ?? packageProvider.getInstalledPath(configuredPackage.source, configuredPackage.scope);
       if (root === undefined) continue;
       try {
-        plugins.push(...await discoverPackageRoot(root, configuredPackage, this.directoryEntryNamesProvider));
+        // Aliased sources can resolve to one installation; discover it once without hiding real ID conflicts.
+        const entries = await discoverPackageRoot(root, configuredPackage, this.directoryEntryNamesProvider);
+        const canonicalRoot = entries[0]?.packageRoot;
+        if (canonicalRoot === undefined || discoveredRoots.has(canonicalRoot)) continue;
+        plugins.push(...entries);
+        discoveredRoots.add(canonicalRoot);
       } catch (error) {
         report(configuredPackage.source, error);
       }

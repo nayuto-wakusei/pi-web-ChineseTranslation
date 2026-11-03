@@ -145,7 +145,7 @@
 <li><strong>Pi 扩展</strong>定制代理的工具、命令、钩子、模型提供器及会话行为。</li>
 <li><strong>PI WEB 插件</strong>定制 Web 应用及工作区集成。</li>
 </ul>
-<p>一个包可包含上述三种定制。安装包与启用 PI WEB 插件是独立操作；禁用插件不会移除包里的 Pi 扩展、技能或提示词。</p>
+<p>一个包可包含上述三种定制。安装包与启用 PI WEB 插件是独立操作；禁用插件不会移除包里的 Pi 扩展、技能或提示词。同一物理包通过多个来源别名配置时只发现一次并保留首个来源；不同安装即使共享插件 ID 仍按冲突处理。</p>
 <p>代理行为放在 Pi 扩展中，Web UI 放在 PI WEB 插件中。需要两者协作时一起发布，通过已托管会话的连接通信。</p>
 <p><a id="how-plugins-work"></a><span id="author-contract"></span></p>
 <h2>插件如何运行</h2>
@@ -304,7 +304,7 @@
 <p>代理可在任意目录开发包，再链接到本地插件目录：</p>
 <div class="code-card"><div class="copy-row"><strong>示例</strong><button class="copy-button" data-copy="#plugin-example-3">复制</button></div><pre id="plugin-example-3"><code class="language-sh">mkdir -p ~/.pi-web/plugins
 ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
-<p>设置 <code>PI_WEB_DATA_DIR</code> 时改用 <code>$PI_WEB_DATA_DIR/plugins</code>。无需重建 PI WEB，但包必须包含编译后的 JavaScript；宿主不编译任意已安装插件源码。</p>
+<p>设置 <code>PI_WEB_DATA_DIR</code> 时改用 <code>$PI_WEB_DATA_DIR/plugins</code>。无需重建 PI WEB，但包必须包含编译后的 JavaScript；宿主不编译任意已安装插件源码。未打包的浏览器模块须使用可解析的相对导入并带 <code>.js</code> 扩展名，渲染使用宿主提供的 <code>html</code>/<code>svg</code>，不要依赖未解析的裸运行时导入（如 <code>lit</code>）；已打包的导入同样可用。</p>
 <p><a id="remote-machines"></a><span id="remote-machine-plugins"></span></p>
 <h2>远端机器</h2>
 <p>安装与设置针对设置中选中的机器。远端服务端代码运行在远端，浏览器界面经网关显示。文件、终端、对等帮助方法保留机器作用域。机器专属插件使用该机器自身安装；便携的纯浏览器插件可复用网关副本。主题属于整个应用，远端主题贡献忽略。</p>

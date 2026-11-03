@@ -42,7 +42,7 @@
 - **Pi 扩展**定制代理的工具、命令、钩子、模型提供器及会话行为。
 - **PI WEB 插件**定制 Web 应用及工作区集成。
 
-一个包可包含上述三种定制。安装包与启用 PI WEB 插件是独立操作；禁用插件不会移除包里的 Pi 扩展、技能或提示词。
+一个包可包含上述三种定制。安装包与启用 PI WEB 插件是独立操作；禁用插件不会移除包里的 Pi 扩展、技能或提示词。同一物理包通过多个来源别名配置时只发现一次并保留首个来源；不同安装即使共享插件 ID 仍按冲突处理。
 
 代理行为放在 Pi 扩展中，Web UI 放在 PI WEB 插件中。需要两者协作时一起发布，通过已托管会话的连接通信。
 
@@ -279,7 +279,7 @@ mkdir -p ~/.pi-web/plugins
 ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin
 ```
 
-设置 `PI_WEB_DATA_DIR` 时改用 `$PI_WEB_DATA_DIR/plugins`。无需重建 PI WEB，但包必须包含编译后的 JavaScript；宿主不编译任意已安装插件源码。
+设置 `PI_WEB_DATA_DIR` 时改用 `$PI_WEB_DATA_DIR/plugins`。无需重建 PI WEB，但包必须包含编译后的 JavaScript；宿主不编译任意已安装插件源码。未打包的浏览器模块须使用可解析的相对导入并带 `.js` 扩展名，渲染使用宿主提供的 `html`/`svg`，不要依赖未解析的裸运行时导入（如 `lit`）；已打包的导入同样可用。
 
 <a id="remote-machines"></a>
 ## 远端机器

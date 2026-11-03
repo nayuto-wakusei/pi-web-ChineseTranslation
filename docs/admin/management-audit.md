@@ -35,7 +35,7 @@
 
 管理嵌入与普通模式的工作区列表共用 [WorkspaceProviderResolution](../../src/shared/apiTypes.ts) 响应结构：`status`（`provider`、`folder` 或 `degraded`）、`projectId`、可选 `ownerPluginId`、`workspaces` 和 `diagnostics`，每个工作区带有效配置。网关仍先验证管理身份与授权项目，再携带管理上下文解析工作区；共用响应结构不扩大授权范围。浏览器保持同一结构校验，提供者降级时保留状态与诊断，不将响应简化为裸工作区数组或静默忽略解析失败。
 
-管理会话的置顶与导航偏好保存在 daemon 的 `navigation-session-pins.json`，按已验证上下文的 root 用户与用户 ID 隔离，并校验项目/工作区归属；与普通置顶同库但互不可见。普通插件生命周期、catalog 与清理不返回管理置顶，管理变更只发往匹配的管理事件作用域；项目/工作区排序在管理模式下不可用，旧 `session-pins.json` 仅供备份、不参与运行时。
+管理会话的置顶与导航偏好保存在 daemon 的 `navigation-session-pins.json`，按已验证上下文的 root 用户与用户 ID 隔离，并校验项目/工作区归属；与普通置顶同库但互不可见。置顶的 `GET`/`HEAD`/`PUT` 经 `/api` 与 `/api/machines/local` 两个本机别名均可用，前提是管理身份及项目/工作区校验通过；项目/工作区排序、远端机器与全局插件清单访问仍被拒绝。普通插件生命周期、catalog 与清理不返回管理置顶，管理变更只发往匹配的管理事件作用域；旧 `session-pins.json` 仅供备份、不参与运行时。
 
 管理项目初始化只在 `AGENTS.md` 缺失时创建签名指令，不替换已有文件。当前工作区的指令确认由网关持有，复核管理身份、项目及工作区授权后，才保存“不覆盖”决定或执行备份与覆盖；确认状态属于托管数据，不是核心配置。浏览器只关闭菜单不会确认版本，过期决定返回 `409`，不能静默覆盖刚修改的文件。完整交互及公共能力见[管理工作区指令](../plugins.md#managed-agents-review)。启用此确认流程需同时更新 Web/API 与 daemon 并安排重启，避免旧 daemon 继续执行自动覆盖；保存文件不承诺运行中的模型即时重新加载已缓存指令。
 
