@@ -19,6 +19,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const metadata = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
 const root = await mkdtemp(join(tmpdir(), "pi-web-bun-install-"));
 const children = [];
+let webUrl;
+let cookie;
 const marker = "pi-web-bun-pty-✓";
 const webRuntime = process.env.PI_WEB_SMOKE_WEB_RUNTIME ?? "bun";
 const daemonRuntime = process.env.PI_WEB_SMOKE_SESSIOND_RUNTIME ?? "bun";
@@ -156,13 +158,22 @@ try {
   assert.equal((await json(`${daemonUrl}/runtime`)).runtime.name, daemonRuntime);
   assert.deepEqual(await json(`${daemonUrl}/terminal-status`), { state: "active", health: "healthy" });
   const web = start(join(env.BUN_INSTALL_BIN, "pi-web-server"), packageRoot, webRuntime);
-  const webUrl = `http://127.0.0.1:${env.PI_WEB_PORT}`;
+  webUrl = `http://127.0.0.1:${env.PI_WEB_PORT}`;
+  await ready(`${webUrl}/api/normal-auth/status`, web);
+  const setup = await fetch(`${webUrl}/api/normal-auth/setup`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password: "isolated-bun-smoke-password" }),
+    signal: AbortSignal.timeout(5_000),
+  });
+  assert.ok(setup.ok, `Web auth setup failed: HTTP ${setup.status}`);
+  cookie = setup.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie, "Web auth setup did not establish a session");
   await ready(`${webUrl}/api/pi-web/version`, web);
   const version = await json(`${webUrl}/api/pi-web/version`);
   assert.equal(version.components.web.runtime.name, webRuntime);
   assert.equal(version.components.sessiond.runtime.name, daemonRuntime);
   assert.equal((await fetch(`${webUrl}/`)).status, 200);
-  assert.equal((await fetch(`${webUrl}/api/projects`)).status, 200);
+  assert.equal((await fixtureFetch(`${webUrl}/api/projects`)).status, 200);
   // Exercise actual session construction through the daemon, without a model
   // request or credentials. This also runs the installed resource loader.
   const session = await json(`${daemonUrl}/sessions`, { cwd: join(root, "workspace") });
@@ -269,7 +280,13 @@ async function json(url, body) {
   assert.ok(response.ok, `${url}: ${response.status} ${JSON.stringify(value)}`);
   return value;
 }
+function authenticationHeaders(url) {
+  // The gateway session must never be sent to direct daemon probes.
+  return cookie && webUrl && (url.startsWith(`${webUrl}/`) || url.startsWith(`${webUrl.replace("http:", "ws:")}/`))
+    ? { cookie } : {};
+}
 function fixtureFetch(url, init = {}) {
+  init = { ...init, headers: { ...authenticationHeaders(url), ...init.headers } };
   if (!unixDaemon || !url.startsWith("http://sessiond.local")) return fetch(url, init);
   return new Promise((resolve, reject) => {
     const req = request({ socketPath: env.PI_WEB_SESSIOND_SOCKET, path: new URL(url).pathname,
@@ -292,7 +309,7 @@ async function unusedPort() {
   return port;
 }
 async function terminalRoundTrip(url, revision, terminalId) {
-  const socket = new WebSocket(url);
+  const socket = new WebSocket(url, { headers: authenticationHeaders(url) });
   let output = "";
   const completed = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Native PTY channel timed out: ${JSON.stringify(output)}`)), 10_000);
@@ -344,7 +361,7 @@ async function snapshotDescendants(parent) {
   return descendants;
 }
 async function oversizedFrame(url, revision, terminalId, phase, limit) {
-  const socket = new WebSocket(url);
+  const socket = new WebSocket(url, { headers: authenticationHeaders(url) });
   let timeout;
   let readyReceived = false;
   try {
