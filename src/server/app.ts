@@ -60,6 +60,7 @@ import { registerPluginBackendResourceProxyRoutes } from "./plugins/pluginBacken
 import { proxyMachinePluginAsset, registerMachinePluginProxyRoutes } from "./machines/machinePluginProxyRoutes.js";
 import { NormalModeAuthService, registerNormalAuthRoutes, registerNormalModeAuthGate } from "./normalAuth.js";
 import { requestLoggerOptions } from "./requestLogging.js";
+import { registerManagementEntryRoutes } from "./managementEntryRoutes.js";
 import {
   assertManagedCwd,
   createManagementEmbedRuntime,
@@ -312,6 +313,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const normalAuth = new NormalModeAuthService(configService, undefined, undefined, t);
   const normalAuthLoginAttempts = registerNormalAuthRoutes(app, normalAuth);
   registerNormalModeAuthGate(app, normalAuth, managementEmbed, normalAuthLoginAttempts);
+  registerManagementEntryRoutes(app, managementEmbed, t);
 
   // Static gateway themes follow desired configuration, not sessiond's immutable
   // runtime profile. This endpoint must remain available before runtime startup.

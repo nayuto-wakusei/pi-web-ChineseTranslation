@@ -42,7 +42,7 @@ export function redactRequestUrl(url: string): string {
   const fragmentStart = withoutWorkbenchHandle.indexOf("#", queryStart);
   const queryEnd = fragmentStart === -1 ? withoutWorkbenchHandle.length : fragmentStart;
   const searchParams = new URLSearchParams(withoutWorkbenchHandle.slice(queryStart + 1, queryEnd));
-  const tokenKeys = [...new Set(searchParams.keys())].filter((key) => key.toLowerCase() === "token");
+  const tokenKeys = [...new Set(searchParams.keys())].filter((key) => ["token", "ticket"].includes(key.toLowerCase()));
   if (tokenKeys.length === 0) return withoutWorkbenchHandle;
 
   for (const key of tokenKeys) searchParams.set(key, REDACTED);

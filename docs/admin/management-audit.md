@@ -19,9 +19,10 @@
 ## 请求链路与身份
 
 ```text
-平台签名入口 -> Web 网关验证/约束 -> daemon 管理上下文
-                      -> Workbench 私有 Agent Session
-                         -> 固定资源、能力、知识和 Skill 授权
+平台后端 POST 换票 -> 浏览器访问短入口（303 换取管理 Cookie）
+    -> Web 网关验证/约束 -> daemon 管理上下文
+       -> Workbench 私有 Agent Session
+          -> 固定资源、能力、知识和 Skill 授权
 ```
 
 网关验证入口身份后把管理上下文传给 daemon，不能只在浏览器隐藏按钮。会话、HTTP 修改、WebSocket、独立会话和子会话都必须保留该上下文。工作区也必须在授权项目范围内。
@@ -39,6 +40,43 @@
 Workbench 适配器在服务端保存访问状态及票据，以不透明 handle 联系 daemon；相同 entry token 的并发 bootstrap 复用同一 Agent Session。平台入口过期或资源授权失效时，应按提示回工作台重新进入，而不是复制旧票据到普通页面。
 
 entry token 交换为私有 Agent Session 后，access/capability tickets 必须留在服务端，只加载已授权的固定资源与 Skill 版本，并仅暴露受控能力工具。Workbench 集成与管理审计构造跨越网关和 daemon，两端使用相同有效 endpoint 与限额；这些配置或转发协议变化时重启两端。
+
+<a id="management-entry-tickets"></a>
+### 短入口换票
+
+平台后端向部署基础路径下的 `api/management-entry-tickets` 发送 `POST`，`Content-Type: application/json`，正文 `{"token":"<原签名入口 token>"}`。网关严格验签，不接受浏览器 Cookie 作为签发新入口的授权；成功返回 `201` 与 `{entryPath, expiresAt}`，不向平台后端设置浏览器 Cookie。
+
+`entryPath` 是应用相对路径 `management-entry?ticket=...`。平台须用带尾斜线的外部应用 base URL（例如 `https://host/pi-web/`）解析一次，不能相对 POST 地址解析，也不能丢弃部署前缀，然后让 iframe 导航到该地址。`GET` 兑换后写入既有管理 HttpOnly Cookie 并 `303` 跳 `./?embed=management`；`HEAD` 不兑换。
+
+票据随机生成、一次性，有效期最多 60 秒且不超过签名过期时间。重放或过期返回 `401`，须回平台重新签发；上下文准备失败返回 `503`，该票据已消费，同样需要新票据。旧 `?embed=management&token=...` 链接继续兼容，但长 URL 仍可能被 nginx 的 `414` 请求行限制阻断；已有旧链接只能由平台主动改用换票，单独升级 PI WEB 不能消除。
+
+这两个路径是网关登录入口，不是机器资源 API：不经联邦代理，也不提供 `/api/machines/local` 别名。票据只保存在 Web 进程内存，不写入配置或托管文件；最多 256 个待用票据、已序列化上下文合计 8 MiB，容量满返回 `503`，过期项在后续访问时清理，进程重启即失效。多实例部署必须把签发、兑换及后续管理请求粘到同一实例，现有 Cookie 会话同样在内存中。
+
+传输限额按层独立：`POST` 请求体 1 MiB；编码后的管理上下文 1 MiB，超限返回 `413`；daemon 内部 HTTP 头限额为 1 MiB + 64 KiB，用于承载长指令；这些限额不放大对外 nginx/gateway 的请求行限制。完整特权、受限身份、签名、项目归属、审计与模型隔离规则不变。两端一起升级并重启，此发布不等于平台接入或线上部署完成。
+
+换票避免把签名正文放进 URL，但票据仍是短期凭据：应用日志已对 `ticket`/`token` 脱敏，反向代理日志也应隐藏查询串；HTTPS 与原有跨站 Cookie 策略仍然必需，浏览器禁用第三方 Cookie 不能靠短票据解决。换票响应使用 `no-store`，兑换响应附加 `no-referrer`。`414` 属于请求行限制，与请求体上限不同，不要用提高 `client_max_body_size` 处理。
+
+平台后端换票，再把短地址交给平台自己的前端；签名 token 不进入浏览器：
+
+```js
+// 平台后端：持有签名 token 与 PI WEB 地址，换票后经平台已认证 API 返回 entryUrl
+const externalBase = new URL("https://pi-web.example/pi-web/");   // 外部应用 base URL，保留尾斜线
+const minted = await fetch(new URL("api/management-entry-tickets", externalBase), {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token: signedEntryToken }),
+});
+if (minted.status !== 201) throw new Error(`entry exchange failed: ${minted.status}`);
+const { entryPath, expiresAt } = await minted.json();
+const entryUrl = new URL(entryPath, externalBase).href;           // 只解析一次，保留部署前缀
+return { entryUrl, expiresAt };                                   // 由平台接口返回给前端
+```
+
+```js
+// 平台前端：只接收 entryUrl，不接触签名 token
+const { entryUrl } = await fetch("/platform/api/management-entry").then((response) => response.json());
+iframe.src = entryUrl;
+```
 
 模型认证和默认偏好独立于普通模式。即使完整特权开启，管理会话也仍是管理身份，不能由普通会话或普通宿主插件连接读取。
 
@@ -109,7 +147,7 @@ Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下
 ## 集成验收清单
 
 1. 对齐 Web/daemon 的管理、Workbench/MCP、审计配置并重启需要的进程。
-2. 用测试身份从平台进入，核对用户、项目及工作区；同 token 并发请求不应创建多份 Agent Session。
+2. 用测试身份从平台进入，核对用户、项目及工作区；同 token 并发请求不应创建多份 Agent Session。确认换票重放返回 `401`、`HEAD` 不兑换，且部署前缀在 `entryPath` 解析后仍保留。
 3. 在受限 Linux 环境验证工作区外写入拒绝、默认网络隔离、显式 deny 和授权资源版本。
 4. 分别验证仅 bash、仅 network、双授权，特别确认完整特权不能靠 token tools.deny 继续限制。
 5. 生成测试子会话，验证管理上下文与模型存储隔离；普通入口不能读取它。

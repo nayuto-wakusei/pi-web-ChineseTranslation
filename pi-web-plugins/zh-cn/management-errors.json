@@ -1,4 +1,10 @@
 {
+  "managementEntry.unavailable": "管理入口暂不可用",
+  "managementEntry.tokenRequired": "需要已签名的管理入口令牌",
+  "managementEntry.invalidToken": "管理入口令牌无效或已过期",
+  "managementEntry.busy": "管理入口繁忙或已过期，请重新获取入口",
+  "managementEntry.invalidTicket": "管理入口已过期或已使用，请返回平台重新进入",
+  "managementEntry.tooLarge": "管理入口上下文过大",
   "management.defaultProjectName": "{userId}的项目",
   "managementError.workbench.snapshotMismatch": "工作台资源快照与 Agent Session 不匹配",
   "managementError.workbench.invalidJson": "工作台为 {path} 返回了无效的 JSON",

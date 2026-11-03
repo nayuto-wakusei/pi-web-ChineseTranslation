@@ -130,11 +130,15 @@ export async function managementContextForRequest(request: ManagementEmbedReques
     throw error;
   }
   await runtime.prepareContext?.(context);
+  establishManagementSession(request, reply, runtime, context);
+  return context;
+}
+
+export function establishManagementSession(request: ManagementEmbedRequestSource, reply: ManagementEmbedReplyTarget | undefined, runtime: ManagementEmbedRuntime, context: ManagementEmbedContext): void {
   if (reply !== undefined && runtime.createSession !== undefined) {
     const session = runtime.createSession(context);
     writeSessionCookie(reply, runtime.sessionCookieName ?? MANAGEMENT_SESSION_COOKIE, session, isSecureRequest(request));
   }
-  return context;
 }
 
 async function prepareManagementContext(runtime: ManagementEmbedRuntime, context: ManagementEmbedContext): Promise<ManagementEmbedContext> {

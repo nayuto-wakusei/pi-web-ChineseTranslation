@@ -161,7 +161,8 @@ describe("homepage screenshot themes", () => {
 
   function openPage({ reducedMotion = false, runScript = true, pageTheme = "dark", systemLight = false } = {}) {
     vi.useFakeTimers();
-    window = new Window({ url: "https://pi-web.dev/" });
+    // Exercise the checked-out script, without waiting on live site assets.
+    window = new Window({ url: "https://pi-web.dev/", settings: { disableJavaScriptFileLoading: true, disableCSSFileLoading: true } });
     window.document.write(readFileSync(new URL("../docs/index.html", import.meta.url), "utf8"));
     // Only clock and browser preference/visibility boundaries are controlled.
     window.setTimeout = setTimeout;

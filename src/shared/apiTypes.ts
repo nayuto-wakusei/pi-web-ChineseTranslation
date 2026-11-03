@@ -1593,6 +1593,11 @@ export interface PiWebNormalAuthConfig {
   passwordHash?: string;
 }
 
+export interface ManagementEntryTicketResponse {
+  entryPath: string;
+  expiresAt: string;
+}
+
 export interface PiWebManagementEmbedConfig {
   enabled?: boolean;
   projectRoot?: string;

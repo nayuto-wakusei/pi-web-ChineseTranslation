@@ -1,5 +1,31 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.0
+
+### Patch Changes
+
+- 84a3287: Add actions to copy session, workspace, project, and machine IDs from their menus without displaying the IDs.
+- 0ec82b5: Add plugin renderers for transcript tools and displayed custom messages, with tool resolver chaining for delegation, replacement, and wrapping. Custom messages use the first matching renderer. Keep the existing view as fallback and provide a default-view control.
+- a9f9ef0: Restore the upstream file upload and download interface while retaining Chinese translations. Keep the extended icon toolbar in the optional Custom UI Codex plugin and restore the default controls when it is disabled or fails.
+- 5b0f00b: Show a static “Needs input” indicator when a session needs the user's attention to a request, including plain-text questions, structured forms, and extension dialogs. Clear agent-requested intervention when any new run starts, and retain it across restarts.
+- d982b52: Automatically restore missing macOS terminal helper execute permissions during terminal checks and creation, preventing failures after reinstalling or updating.
+- 2f3f7fa: Add locally bundled Material file-type shapes to Files and Git in a single muted tone that follows the active colour theme. Select file icon themes independently of colour themes in Settings, and let plugins contribute additional icon sets. Git preserves status labels and uses filename colours to distinguish changes without tinting the icons.
+- ad06af3: Move automatic session naming into a removable bundled Pi package, usable in both PI WEB and the TUI. Remove the package to use another naming extension. Migrate naming tuning into package-owned configuration and remove the old writable core key. Core configuration APIs reject the retired setting. Migration failures log errors, retain source data, and allow startup to continue. Update the web UI when extensions rename sessions.
+- 6e82a8d: Keep plain-text code blocks and files in raw view without unnecessary Highlighted/Raw controls.
+- bc290f2: Open the restored session's chat instead of the previously selected chat when restoring from the session list. Keep the list open if restoration fails or becomes stale.
+- Add short-lived, single-use management entry tickets so platforms can send long signed instructions by POST instead of embedding them in URLs. Preserve existing signed-link entry and support large management contexts on the gateway-to-daemon connection. Platform integrations must adopt the ticket endpoint, and both Web and daemon must be updated and restarted.
+- Integrate upstream language and regional settings, layered configuration with explicit resets, quiet mode, manual unread state, richer file previews, and maintenance terminals while preserving the default Chinese language pack, project-scoped authentication, management isolation, and optional Codex-style UI.
+
+  Add Bun-aware launchers and Ubuntu/mise Docker tooling. Reconcile bundled package paths after upgrades and retain the Chinese package identity. Remove the retired Captain's Log package and session-bridge example. Align and restart both Web and sessiond when deploying this update; merging or installing alone does not restart services.
+
+  Before upgrading, replace arbitrary or empty boolean environment values with `true`/`false` or `1`/`0`, or unset them. In particular, `false` and `0` no longer enable offline/version-check suppression flags. Environment-enforced settings are read-only, unknown fields in core path/upload/attachment namespaces are rejected, and finite extension-dialog timeouts cannot exceed 2147483647 milliseconds. Keep deployment defaults separate from writable configuration and apply matching environment settings to both services.
+- Adopt upstream static theme discovery and default palette while keeping Chinese localization and optional Custom UI Codex presentation independent. Preserve management session isolation for upstream messaging and intervention tools, and support the matching Pi 1.4.0 MCP OAuth credential layout.
+
+  Pin the new Pi SDK compatibility baseline to the verified 1.4.0 release rather than accepting unverified patch versions through the private MCP adapter.
+- Improve current-workspace session body search with exact-first ranking, multiple keywords and conservative spelling tolerance. Cancel superseded browser requests and provide a larger search button and dialog in Custom UI Codex, while keeping upstream presentation available when the plugin is disabled.
+
+  Scroll to the selected search result after its message history is loaded without resuming live-follow or exposing hidden thinking and tool content.
+
 ## 2.202610.5
 
 ### Patch Changes

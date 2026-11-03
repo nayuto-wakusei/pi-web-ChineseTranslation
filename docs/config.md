@@ -109,6 +109,8 @@ Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 �
 
 PI WEB 不需要专门的 URL 前缀配置。同一发布产物可用于 `/`、`/ai/`、`/test/ai/`。代理必须先把不带尾斜线的前缀重定向到带斜线地址，再剥离前缀转发同一认证范围的 HTTP 与 WebSocket。页面相对资源和 PWA 路径依赖这一契约，详见[反向代理安装指南](https://pi-web.dev/install#reverse-proxy-prefix)。
 
+管理换票入口遵循同一前缀：`entryPath` 由平台用带尾斜线的外部应用 base URL 解析一次，不能相对 POST 地址解析。旧 `?embed=management&token=` 长链接仍可能触发 nginx `414`；这是请求行限制，与 `client_max_body_size` 无关，推荐平台改接换票，单独升级不会自动改写旧链接（管理员可临时调高反向代理请求行限制缓解）。见[短入口换票](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/admin/management-audit.md#management-entry-tickets)。
+
 <a id="precedence"></a>
 <a id="precedence-and-reloads"></a>
 ## Precedence and reloads
@@ -408,6 +410,8 @@ ES 错误记日志，不停止管理会话。有界内存队列重试，并在�
 `workbenchIntegration` 是管理嵌入的受控适配器，不限制普通会话。`baseUrl` 为服务器可访问的 Workbench 后端 origin，`mcpUrl` 为 MCP Streamable HTTP endpoint，两者必需。环境覆盖：`PI_WEB_WORKBENCH_URL`、`PI_WEB_MCP_URL`、`PI_WEB_WORKBENCH_TIMEOUT_MS`、`PI_WEB_MCP_TIMEOUT_MS`、`PI_WEB_SKILL_BUNDLE_MAX_BYTES`、`PI_WEB_SKILL_FILE_MAX_BYTES`、`PI_WEB_SKILL_FILE_COUNT_MAX`。
 
 默认 request/capability 超时 10000/30000ms、Skill bundle/file 上限 10485760/2097152 字节、文件数 200。适配器把一次性管理 token 换成私有 Agent Session，仅加载授权固定资源快照；并发同 entry token 复用该 Agent Session。
+
+平台的浏览器入口同样先换票：应用相对 `POST api/management-entry-tickets`（JSON 正文 `{"token":"..."}`）返回 `201` 与 `{entryPath, expiresAt}`，不设置浏览器 Cookie；`GET management-entry?ticket=...` 兑换后写管理 HttpOnly Cookie 并 `303` 到 `./?embed=management`。票据一次性、最多 60 秒，最多 256 个待用票据且序列化上下文合计 8 MiB；`POST` 正文 1 MiB、编码上下文 1 MiB（`413`），daemon 内部 HTTP 头限额 1 MiB + 64 KiB，均不提高对外反向代理的请求行限制。换票响应使用 `no-store`，兑换响应附加 `no-referrer`。细节见[短入口换票](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/admin/management-audit.md#management-entry-tickets)。
 
 受控工具为 `icnoc_search_capabilities`、`icnoc_call_capability`、`workbench_search_knowledge`、`workbench_retrieve_knowledge`、`workbench_retrieve_bookstack`、管理文件工具与 Bubblewrap 隔离的 `python`。知识访问经后端短期一次性 token，PI WEB 不配置 RAGFlow/BookStack 服务凭据，工具不接受 tenant/dataset ID。来源链接不是连接配置。全局开关允许时再提供 spawn/跟踪子会话/ask_user，子会话继承管理上下文及显式拒绝。
 

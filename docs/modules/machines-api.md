@@ -67,6 +67,8 @@
 
 仅受支持路由列入联邦白名单；并非任意 `/api/...` 都能透传。消息、终端和插件 channel 使用不同 WebSocket 路由，必须同时保持机器和认证作用域。字段及响应以 [apiTypes.ts](../../src/shared/apiTypes.ts) 和具体路由为准，本页不是无版本约束的 REST API 承诺。
 
+管理嵌入的 `api/management-entry-tickets` 与 `management-entry` 是网关登录入口，不是机器资源 API：不进入联邦白名单，也不提供 `/api/machines/local` 别名。待用票据只存在于 Web 进程内存，多实例须保证签发、兑换与后续管理请求落到同一实例。
+
 Web 与 daemon 使用相同的 WebSocket 错误处理：接收器因协议错误已发起关闭握手时，保留其关闭帧（例如载荷超限的 `1009`），不以立即断开覆盖为 `1006`；其他错误仍终止连接。此处理不放宽插件 channel 的握手帧或数据帧限额。
 
 本机能力同时保留传统 `/api/...` 与 `/api/machines/local/...` 别名；远端走 `/api/machines/:machineId/...` 代理。新增机器 HTTP/WS 端点必须同步 `src/shared/federatedRoutes.ts`、本机路由注册、客户端和联邦路由契约测试。
@@ -102,6 +104,7 @@ Web 与 daemon 使用相同的 WebSocket 错误处理：接收器因协议错误
 | 切机器后出现旧内容 | 记录机器及资源 ID，检查客户端异步目标/缓存归属 |
 | 远端 Git/插件不可用 | 两端版本、后端实际激活状态、重启是否完成 |
 | 子路径首页可用但资源失败 | 尾斜线、路径剥离、根路径硬编码 |
+| 管理入口返回 414 | 反向代理请求行限制；平台改用换票，与 `client_max_body_size` 无关 |
 
 验收时用两台测试机器分别建立同名项目，切换并核对 cwd、文件及设置归属；测试 HTTP 与 WebSocket 两条链路。单机 mock 测试不能证明真实网关、防火墙和反向代理已配置正确。
 

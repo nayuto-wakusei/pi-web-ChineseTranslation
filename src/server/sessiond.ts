@@ -57,6 +57,7 @@ import { runSessionDaemonStartup } from "./sessiond/sessionDaemonStartup.js";
 import { runSessionDaemonShutdown } from "./sessiond/sessionDaemonShutdown.js";
 import { applyAgentHttpIdleTimeout } from "./sessiond/agentHttpDispatcher.js";
 import { requestLoggerOptions } from "./requestLogging.js";
+import { SESSIOND_MAX_HEADER_SIZE } from "./managementTransportLimits.js";
 import { WorkbenchAccessStateStore } from "./workbench/accessStateStore.js";
 import { registerWorkbenchAccessStateRoutes } from "./workbench/accessStateRoutes.js";
 import { WorkbenchClient } from "./workbench/workbenchClient.js";
@@ -129,7 +130,7 @@ const activeAgentProfile = createActiveAgentProfileDescriptor({
   sessionDirEnvKeys: agentSessionDirEnvKeys(config.agent.command),
 });
 Object.freeze(daemonEnvironment);
-const app = Fastify({ logger: requestLoggerOptions(), bodyLimit: maxUploadBytes(daemonEnvironment, config) });
+const app = Fastify({ logger: requestLoggerOptions(), http: { maxHeaderSize: SESSIOND_MAX_HEADER_SIZE }, bodyLimit: maxUploadBytes(daemonEnvironment, config) });
 if (deprecatedAgentInputs.length > 0) {
   app.log.warn({ deprecatedAgentInputs }, "deprecated agent configuration inputs detected; support will be removed in a future release");
 }
