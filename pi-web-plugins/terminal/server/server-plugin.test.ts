@@ -22,6 +22,8 @@ import {
 } from "./server-plugin.js";
 import { createDefaultPtyProvider } from "./ptyComposition.js";
 import { TerminalService } from "./terminalService.js";
+import { createTranslator } from "../../../src/shared/i18n.js";
+import messages from "../../zh-cn/main.json";
 
 const services: TerminalService[] = [];
 
@@ -408,6 +410,7 @@ function activationContext(
   return Object.freeze({
     apiVersion: 5,
     pluginId,
+    translate: createTranslator("zh-CN", messages),
     packageRoot: process.cwd(),
     dataDirectory: "/data/plugin-data/pi-web.terminal",
     logger: Object.freeze({

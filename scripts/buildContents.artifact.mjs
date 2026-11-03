@@ -59,6 +59,10 @@ describe("public API delivery artifacts", () => {
   });
 
   it("matches the committed browser and server plugin API declaration baseline", async () => {
+    const files = await readdir(join(repoRoot, "dist"), { recursive: true });
+    expect(files.filter((file) => file.endsWith(".d.ts")).sort()).toEqual(
+      publicApiDeclarationPaths.map((file) => join(...file.split("/"))).sort(),
+    );
     for (const declarationPath of publicApiDeclarationPaths) {
       const [actual, baseline] = await Promise.all([
         readFile(join(repoRoot, "dist", declarationPath), "utf8"),

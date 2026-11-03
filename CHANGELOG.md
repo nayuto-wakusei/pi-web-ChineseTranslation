@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.1
+
+### Patch Changes
+
+- Keep the final message clear of navigation buttons in standalone chat views, and keep host-internal translation declarations out of the plugin API package.
+
 ## 2.202611.0
 
 ### Patch Changes

@@ -6,7 +6,8 @@ import sharedConfig from "./vitest.config.js";
 export default defineConfig({
   ...sharedConfig,
   test: {
-    ...sharedConfig.test,
+    css: sharedConfig.test?.css ?? {},
+    setupFiles: ["src/testSupport/localization.testSupport.ts"],
     include: [
       // Native module resolution, symlinks, child startup, and build publication.
       "src/piRuntime.test.ts",

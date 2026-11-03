@@ -11,7 +11,10 @@ afterEach(async () => {
 });
 
 function setup(fetch) {
-  const window = new Window({ url: "https://pi-web.dev/dev/community-plugins" });
+  const window = new Window({
+    url: "https://pi-web.dev/dev/community-plugins",
+    settings: { disableJavaScriptFileLoading: true, disableCSSFileLoading: true },
+  });
   windows.push(window);
   window.document.write(html);
   window.fetch = fetch;

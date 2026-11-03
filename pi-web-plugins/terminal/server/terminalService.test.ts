@@ -373,7 +373,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
         service.write(scope(), run.terminalId, `printf '${frame}%s${frame}\\n' "$PI_WEB_TERMINAL"\nexit\n`);
 
         const output = await exit;
-        expect(output).toContain("[已继续进入交互式终端]");
+        expect(output).toContain("[continued in interactive shell]");
         expect(output).toContain(`${frame}1${frame}`);
       } finally {
         service.dispose();

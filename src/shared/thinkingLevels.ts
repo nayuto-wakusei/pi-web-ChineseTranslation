@@ -1,6 +1,7 @@
 import type { ThinkingLevel as PiThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createTranslator } from "./i18n.js";
 import type { Translator } from "./pluginApiTypes.js";
+
+const fallbackTranslator: Translator = (_key, fallback) => fallback;
 
 // Pi owns the set of thinking levels. The checked tuple below keeps our public
 // type self-contained, without making plugin consumers resolve a transitive SDK
@@ -25,7 +26,7 @@ export function thinkingLevelLabel(level: string | undefined): string {
   return level === undefined || level === "" ? "off" : level;
 }
 
-export function thinkingLevelDisplayLabel(level: string | undefined, t: Translator = createTranslator("en", {})): string {
+export function thinkingLevelDisplayLabel(level: string | undefined, t: Translator = fallbackTranslator): string {
   const normalized = thinkingLevelLabel(level);
   const labels: Partial<Record<ThinkingLevel, string>> = {
     off: t("thinking.label.off", "Off"),
@@ -39,7 +40,7 @@ export function thinkingLevelDisplayLabel(level: string | undefined, t: Translat
   return isKnownThinkingLevel(normalized) ? labels[normalized] ?? normalized : normalized;
 }
 
-export function thinkingLevelDescription(level: string, t: Translator = createTranslator("en", {})): string | undefined {
+export function thinkingLevelDescription(level: string, t: Translator = fallbackTranslator): string | undefined {
   switch (level) {
     case "off": return t("thinking.description.off", "No reasoning");
     case "minimal": return t("thinking.description.minimal", "Minimal reasoning (about 1k tokens)");

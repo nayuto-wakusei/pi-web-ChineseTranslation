@@ -66,6 +66,7 @@ export const chatStyles = css`
 
 .chat { isolation: isolate; --pi-chat-sticky-top: 0px; flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overflow-anchor: none; padding: 0; box-sizing: border-box; }
   .chat-wrap > .chat-jumps { position: absolute; right: 0; bottom: 0; }
+  .chat-wrap:has(> .chat-jumps) > .chat { padding-bottom: var(--pi-chat-jump-size); }
   .chat-wrap.plain .msg-header, .chat-wrap.plain .event-group > summary { position: static; top: auto; }
   .chat-wrap.plain *, .chat-wrap.plain *::before, .chat-wrap.plain *::after { transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important; filter: none !important; backdrop-filter: none !important; transform: none !important; border-radius: 0 !important; }
   .chat-wrap.plain .chat-image { --pi-image-radius: 0; }

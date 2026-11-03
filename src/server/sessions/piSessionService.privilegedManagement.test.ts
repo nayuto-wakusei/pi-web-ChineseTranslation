@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,7 +37,7 @@ describe("privileged management session permissions", () => {
         if (tool === undefined) throw new Error("Expected managed Relay dispatch tool");
         await tool.execute("relay-dispatch", { packet: ".pi-web/relays/managed", leg: "1" }, new AbortController().signal);
         expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
-          spawningSessionId: session.id, managementContext: h.context, cwd: h.cwd,
+          spawningSessionId: session.id, managementContext: h.context, cwd: await realpath(h.cwd),
           name: "Leg 1 – Relay managed",
         }));
         await h.service.runCommand({ id: session.id, cwd: h.cwd }, "/reload", h.context);

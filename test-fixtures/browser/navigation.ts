@@ -5,9 +5,19 @@ import { WorkspaceList } from "../../src/client/src/components/WorkspaceList";
 import { SessionList } from "../../src/client/src/components/SessionList";
 import { trustApi, type SessionInfo } from "../../src/client/src/api";
 import type { MachineStatusSnapshot } from "../../src/shared/machineStatus";
+import { initializeClientLocalization } from "../../src/client/src/localizationBootstrap";
+import { localization } from "../../src/client/src/localization/browser";
+import chinesePlugin from "../../pi-web-plugins/zh-cn/pi-web-plugin";
+
+const parameters = new URLSearchParams(location.search);
+const folderTrust = parameters.has("folder-trust");
+if (folderTrust || parameters.has("menu-alignment") || parameters.has("menus")) {
+  await initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }]));
+  await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
+}
 
 // Real components and deterministic local data; no app runtime or session daemon.
-trustApi.workspaceTrust = () => Promise.resolve({ path: "/repo", decision: false, trusted: false });
+if (!folderTrust) trustApi.workspaceTrust = () => Promise.resolve({ path: "/repo", decision: false, trusted: false });
 const style = document.createElement("style");
 style.textContent = `
   :root { --pi-bg: #161616; --pi-surface: #252525; --pi-surface-hover: #303030; --pi-text: #eee; --pi-text-bright: #fff; --pi-border: #555; --pi-border-muted: #444; --pi-muted: #aaa; --pi-success: #8cbd9b; --pi-warning: #d1b571; --pi-accent: #aaf; --pi-selection-bg: #303044; }
@@ -33,6 +43,11 @@ projects.projects = [
 const selectedProject = projects.projects[0];
 if (selectedProject === undefined) throw new Error("Missing project fixture");
 projects.selected = selectedProject;
+if (folderTrust) {
+  const project = { id: "folder", name: "普通文件夹项目", path: "/fixture/plain", createdAt: "2026-10-26T00:00:00Z" };
+  projects.projects = [project];
+  projects.selected = project;
+}
 projects.statusSnapshot = snapshot;
 projects.onSelect = (project) => { projects.selected = project; result.textContent = `projects:${project.id}`; };
 projects.onMove = () => undefined;
@@ -61,6 +76,11 @@ const sessions = new SessionList();
 const parent = session("s1", longName);
 sessions.sessions = [parent, session("s2", "Second session"), session("agent", "Agent child", { parentSessionPath: parent.path, agentSubsession: true })];
 sessions.selected = parent;
+if (parameters.has("menu-alignment")) {
+  sessions.sessions = [parent];
+  sessions.pinnedSessionIds = [parent.id];
+  sessions.onMovePin = () => undefined;
+}
 sessions.sessionFlags = { s1: { "core:working": true } };
 sessions.unreadSessionIds = new Set([parent.id]);
 sessions.onSelect = (session) => { sessions.selected = session; result.textContent = `sessions:${session.id}`; };
@@ -76,6 +96,7 @@ if (selectedMachine === undefined) throw new Error("Missing machine fixture");
 machines.selected = selectedMachine;
 machines.onSelect = (machine) => { machines.selected = machine; result.textContent = `machines:${machine.id}`; };
 main.append(machines, projects, workspaces, sessions);
+if (folderTrust) workspaces.remove();
 document.body.append(main, result);
 await Promise.all([machines.updateComplete, projects.updateComplete, workspaces.updateComplete, sessions.updateComplete]);
 
@@ -103,3 +124,4 @@ window.navigationFixture = {
   },
 };
 document.body.dataset["ready"] = "true";
+if (parameters.has("menus")) await import("./navigationMenus");

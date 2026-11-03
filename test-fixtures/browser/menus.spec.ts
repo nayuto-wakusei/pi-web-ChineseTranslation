@@ -36,7 +36,7 @@ async function expectInsideViewport(element: Locator): Promise<void> {
 }
 
 test("nested pickers share row geometry and dismiss only the top menu", async ({ page }, testInfo) => {
-  await page.goto("/navigation.html");
+  await page.goto("/navigation.html?menus");
   await page.getByRole("button", { name: "Picker fixture", exact: true }).click();
   const command = page.locator("command-picker");
   const option = command.locator(".ui-selection-option");
@@ -65,7 +65,7 @@ test("nested pickers share row geometry and dismiss only the top menu", async ({
 });
 
 test("navigation and authentication choices use the shared selection surface", async ({ page }, testInfo) => {
-  await page.goto("/navigation.html");
+  await page.goto("/navigation.html?menus");
   await page.getByRole("button", { name: "Navigation fixture", exact: true }).click();
   const navigation = page.locator("navigation-dialog");
   for (const row of await navigation.locator(".destination").all()) {
