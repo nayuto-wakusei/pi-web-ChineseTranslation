@@ -102,6 +102,7 @@ export const PI_WEB_CAPABILITIES = {
   pluginLifecycle: "plugins.lifecycle",
   sessionCleanupPinnedExclusions: "sessions.cleanup.pinnedExclusions",
   sessionPinsDaemonOwned: "sessions.pins.daemonOwned",
+  sessionPinsManagementScoped: "sessions.pins.managementScoped",
 } as const;
 
 export type PiWebCapability = typeof PI_WEB_CAPABILITIES[keyof typeof PI_WEB_CAPABILITIES];
@@ -1651,14 +1652,6 @@ export interface SessionContentSearchResponse {
   results: SessionContentSearchResult[];
   matchCount: number;
   truncated: boolean;
-}
-
-export interface SessionPinnedIdsResponse {
-  sessionIds: string[];
-}
-
-export interface SessionPinResponse {
-  pinned: boolean;
 }
 
 export interface WorkspaceActivity {

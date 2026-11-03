@@ -4,7 +4,7 @@ import { initialAppState, type AppState } from "../appState";
 import { SessionController } from "./sessionController";
 import { FakeSocket, deferred, status, workspace } from "./sessionController.testSupport";
 
-describe("SessionController session search and pins", () => {
+describe("SessionController session search", () => {
   it("debounces search, ignores stale results, and restores the full list when cleared", async () => {
     vi.useFakeTimers();
     try {
@@ -80,27 +80,6 @@ describe("SessionController session search and pins", () => {
     expect(state.messages.map((message) => message.transcriptIndex)).toEqual(Array.from({ length: 10 }, (_, index) => index));
     expect(state.messages.find((message) => message.transcriptIndex === 1)?.parts).toEqual([{ type: "text", text: "message 1" }]);
     expect(state.sessionSearchTarget).toEqual({ sessionId: "session-1", messageIndex: 1, query: "message", requestId: 1 });
-    controller.dispose();
-  });
-
-  it("loads pins from the server and rolls back a failed optimistic toggle", async () => {
-    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace };
-    const session = { ...workspaceSession("session-1"), persisted: true };
-    const pin = vi.fn().mockResolvedValue({ pinned: true });
-    const unpin = vi.fn().mockRejectedValue(new Error("pin unavailable"));
-    const api = { ...defaultApi, pinned: vi.fn().mockResolvedValue({ sessionIds: ["session-1"] }), pin, unpin };
-    const controller = new SessionController(() => state, (patch) => { state = { ...state, ...patch }; }, () => undefined, undefined, { api, socket: new FakeSocket() });
-
-    await controller.refreshPinnedSessions("/repo");
-    expect(state.pinnedSessionIds).toEqual(["session-1"]);
-
-    controller.togglePinned(session);
-    expect(state.pinnedSessionIds).toEqual([]);
-    await Promise.resolve();
-    expect(unpin).toHaveBeenCalledWith(session, "local");
-    expect(state.pinnedSessionIds).toEqual(["session-1"]);
-    expect(Object.values(state.browserErrors).map((error) => error.message).join("\n")).toContain("pin unavailable");
-    expect(pin).not.toHaveBeenCalled();
     controller.dispose();
   });
 

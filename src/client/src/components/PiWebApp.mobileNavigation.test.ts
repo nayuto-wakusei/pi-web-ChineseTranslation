@@ -26,7 +26,6 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
   unexpectedRequest.mockClear();
   vi.stubGlobal("fetch", themeStylesheetFetch(unexpectedRequest));
-  vi.spyOn(api, "pinned").mockResolvedValue({ sessionIds: [] });
   vi.spyOn(themeCatalogApi, "loadThemeBootstrap").mockResolvedValue({ catalog: { themes: [], themePairs: [] }, stylesheets: [] });
   vi.spyOn(themeCatalogApi, "loadThemeCatalog").mockResolvedValue({ themes: [], themePairs: [] });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => window.setTimeout(() => { callback(0); }, 16));

@@ -99,7 +99,7 @@ import { canDeleteWorkspace, isWorkspaceDeletionPending, isWorkspaceDeletionRunP
 import "./MachineList";
 import "./ProjectList";
 import "./WorkspaceList";
-import { pinnedSessionRootIds, sessionNavigationCandidates, unreadSessionCount } from "./SessionList";
+import { orderedPinnedSessionRootIds, pinnedSessionRootIds, sessionNavigationCandidates, unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./SessionSearchDialog";
 import "./SessionTreeNavigator";
@@ -898,6 +898,7 @@ export class PiWebApp extends LitElement {
     this.workspaceNavigationGeneration += 1;
     this.normalAuthInitSeq += 1;
     this.authenticatedAppRunning = false;
+    this.navigationOrder.reset();
     cancelInitialTheme();
     this.themeRequest?.abort();
     this.stylesheetRuntime.disconnect(() => {
@@ -2044,7 +2045,6 @@ export class PiWebApp extends LitElement {
     }
     this.sessions.updatePolling();
     if (next.selectedWorkspace === undefined) return;
-    void this.sessions.refreshPinnedSessions(next.selectedWorkspace.path, selectedMachineId(this.state));
     void this.refreshWorkspaceDeletionRuns();
     this.refreshSelectedWorkspaceTool(this.state.workspaceTool);
   }
@@ -2496,7 +2496,7 @@ export class PiWebApp extends LitElement {
     markSessionUnread: (session: SessionInfo) => { void this.markSessionUnread(session); },
     markSessionsRead: (sessions: SessionInfo[]) => { this.markSessionsRead(sessions); },
     searchSessions: () => { this.openSessionSearchDialog(); },
-    toggleSessionPin: (session: SessionInfo) => { this.sessions.togglePinned(session); },
+    toggleSessionPin: (session: SessionInfo) => { this.toggleSessionPin(session); },
     archiveSession: (session: SessionInfo) => this.sessions.archiveSession(session),
     archiveSessionWithDescendants: (session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session),
     archiveSessions: (sessions: SessionInfo[]) => this.sessions.archiveSessions(sessions),
@@ -2519,12 +2519,11 @@ export class PiWebApp extends LitElement {
   };
 
   private navigationOrderScopes(): NavigationOrderScope[] {
-    if (this.apiScope !== "normal") return [];
     const machineId = selectedMachineId(this.state);
-    const scopes: NavigationOrderScope[] = [{ kind: "projects", machineId }];
+    const scopes: NavigationOrderScope[] = this.apiScope === "normal" ? [{ kind: "projects", machineId }] : [];
     const project = this.state.selectedProject;
     const workspace = this.state.selectedWorkspace;
-    if (project !== undefined) scopes.push({ kind: "workspaces", machineId, projectId: project.id });
+    if (project !== undefined && this.apiScope === "normal") scopes.push({ kind: "workspaces", machineId, projectId: project.id });
     if (workspace !== undefined) scopes.push({ kind: "sessionPins", machineId, projectId: workspace.projectId, workspaceId: workspace.id });
     return scopes;
   }
@@ -2546,16 +2545,30 @@ export class PiWebApp extends LitElement {
     }).catch(() => undefined);
   }
 
+  private toggleSessionPin(session: SessionInfo): void {
+    const workspace = this.state.selectedWorkspace;
+    if (session.persisted === false || session.cwd !== workspace?.path) return;
+    const scope: NavigationOrderScope = { kind: "sessionPins", machineId: selectedMachineId(this.state), projectId: workspace.projectId, workspaceId: workspace.id };
+    void this.navigationOrder.mutate(scope, (ids) => ids.includes(session.id) ? ids.filter((id) => id !== session.id) : [...ids, session.id]).catch(() => undefined);
+  }
+
   private moveSessionPin(session: SessionInfo, direction: -1 | 1): void {
     const workspace = this.state.selectedWorkspace;
-    if (this.apiScope !== "normal" || session.cwd !== workspace?.path) return;
+    if (session.cwd !== workspace?.path) return;
     const scope: NavigationOrderScope = { kind: "sessionPins", machineId: selectedMachineId(this.state), projectId: workspace.projectId, workspaceId: workspace.id };
-    const rootIds = pinnedSessionRootIds(this.state.sessions, this.state.pinnedSessionIds);
+    const sessions = this.state.sessions;
     void this.navigationOrder.mutate(scope, (ids) => {
-      const displayed = orderItems(rootIds.map((id) => ({ id })), ids).map((item) => item.id);
+      const displayed = orderedPinnedSessionRootIds(sessions, ids);
       const index = displayed.indexOf(session.id);
       const neighbor = index < 0 ? undefined : displayed[index + direction];
-      return neighbor === undefined ? ids : moveOrderedId(ids, displayed, session.id, neighbor, direction < 0 ? "before" : "after");
+      if (neighbor === undefined) return ids;
+      const orderedRoots = moveOrderedId(displayed, displayed, session.id, neighbor, direction < 0 ? "before" : "after");
+      const rank = (id: string) => {
+        const root = pinnedSessionRootIds(sessions, [id])[0];
+        const position = root === undefined ? -1 : orderedRoots.indexOf(root);
+        return position < 0 ? orderedRoots.length : position;
+      };
+      return [...ids].sort((left, right) => rank(left) - rank(right));
     }).catch(() => undefined);
   }
 
@@ -2612,8 +2625,8 @@ export class PiWebApp extends LitElement {
         .selectedWorkspace=${this.state.selectedWorkspace}
         .deletingWorkspaceIds=${this.deletingWorkspaceIds}
         .sessions=${this.state.sessions}
-        .pinnedSessionIds=${this.state.pinnedSessionIds}
-        .pinnedRootIds=${guard([this.navigationOrderVersion, selectedMachineId(this.state), this.state.selectedProject?.id, this.state.selectedWorkspace?.id], () => sessionScope === undefined ? [] : [...this.navigationOrder.ids(sessionScope)])}
+        .pinnedSessionIds=${guard([this.navigationOrderVersion, selectedMachineId(this.state), this.state.selectedProject?.id, this.state.selectedWorkspace?.id], () => sessionScope === undefined ? [] : [...this.navigationOrder.ids(sessionScope)])}
+        .pinnedRootIds=${guard([this.state.sessions, this.navigationOrderVersion, selectedMachineId(this.state), this.state.selectedProject?.id, this.state.selectedWorkspace?.id], () => sessionScope === undefined ? [] : orderedPinnedSessionRootIds(this.state.sessions, this.navigationOrder.ids(sessionScope)))}
         .projectSelectionLoading=${this.pendingProjectNavigation?.seq === this.navigationSelectionSeq && this.state.isLoadingWorkspaces}
         .sessionsLoading=${this.pendingProjectNavigation?.seq === this.navigationSelectionSeq && this.state.selectedWorkspace !== undefined && this.state.sessions.length === 0}
         .sessionStatuses=${this.state.sessionStatuses}
@@ -2650,7 +2663,7 @@ export class PiWebApp extends LitElement {
         .onCloseProject=${this.navigationActions.closeProject}
         .onMoveProject=${this.apiScope === "normal" ? this.navigationActions.moveProject : undefined}
         .onMoveWorkspace=${this.apiScope === "normal" ? this.navigationActions.moveWorkspace : undefined}
-        .onMoveSessionPin=${this.apiScope === "normal" ? this.navigationActions.moveSessionPin : undefined}
+        .onMoveSessionPin=${this.navigationActions.moveSessionPin}
         .onSelectWorkspace=${this.navigationActions.selectWorkspace}
         .onDeleteWorkspace=${this.navigationActions.deleteWorkspace}
         .onArchivedCollapsed=${this.navigationActions.archivedCollapsed}

@@ -12,7 +12,7 @@ import { UserFacingError, createTranslator, userFacingErrorMessage } from "../..
 import { realpathSync, statSync } from "node:fs";
 import { clientSessionFirstMessagePreview } from "./clientSessionPreview.js";
 import { readFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { SessionQueueMessageMutation } from "../../shared/apiTypes.js";
@@ -55,7 +55,7 @@ import {
   type ToolDefinition,
   type ToolsOptions,
 } from "../../piSdk.js";
-import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionModelCatalogEntry, ClientSessionStatus, ClientSessionTreeForkRequest, ClientSessionTreeForkResult, ClientSessionTreeNavigateRequest, ClientSessionTreeNavigateResult, ClientThinkingLevel, SessionPinResponse, SessionPinnedIdsResponse, SessionStreamSnapshot, SessionTranscriptSnapshot } from "../types.js";
+import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionCleanupExecuteResponse, ClientSessionCleanupPreviewResponse, ClientSessionContentSearchResponse, ClientSessionModel, ClientSessionModelCatalogEntry, ClientSessionStatus, ClientSessionTreeForkRequest, ClientSessionTreeForkResult, ClientSessionTreeNavigateRequest, ClientSessionTreeNavigateResult, ClientThinkingLevel, SessionStreamSnapshot, SessionTranscriptSnapshot } from "../types.js";
 import { projectBrowserMessage } from "../browserMessageProjection.js";
 import { projectTranscriptMarkdown } from "./transcriptMarkdown.js";
 import { messageHistoryTargetId } from "./messageHistoryTarget.js";
@@ -91,7 +91,6 @@ import { PiSessionEventConnections } from "./piSessionEventConnections.js";
 import { resolveWebProjectTrusted } from "./projectTrust.js";
 import type { SessionRouteRef } from "./sessionService.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
-import { SessionPinStore, type SessionPinScope } from "./sessionPinStore.js";
 import { SessionActivityCoordinator } from "./sessionActivityCoordinator.js";
 import { compileSessionContentQuery, searchSessionContent, type SessionContentSearchView } from "./sessionContentSearch.js";
 
@@ -1302,7 +1301,6 @@ export interface PiSessionServiceDependencies {
   translator?: Translator;
   sessionEvents?: PiSessionEventConnections;
   archiveStore?: SessionArchiveRepository;
-  pinStore?: SessionPinStore;
   agentDir?: string;
   /**
    * PI WEB data directory used for mode×project preference overrides
@@ -1464,7 +1462,6 @@ export class PiSessionService {
    */
   private readonly subsessionNotifyArmed = new Map<string, boolean>();
   private readonly archiveStore: SessionArchiveRepository;
-  private readonly pinStore: SessionPinStore;
   private readonly agentDir: string;
   private readonly dataDir: string;
   private readonly projectPathForCwd: ((cwd: string) => Promise<string | undefined>) | undefined;
@@ -1520,7 +1517,6 @@ export class PiSessionService {
     this.managementAllowPrivileged = deps.managementAllowPrivileged === true;
     this.archiveStore = deps.archiveStore ?? new SessionArchiveStore();
     this.sessionPins = deps.sessionPins;
-    this.pinStore = deps.pinStore ?? new SessionPinStore(join(deps.dataDir ?? piWebDataDir(), "session-pins.json"));
     this.agentDir = deps.agentDir ?? getAgentDir();
     this.dataDir = deps.dataDir ?? piWebDataDir();
     this.projectPathForCwd = deps.projectPathForCwd;
@@ -1774,23 +1770,6 @@ export class PiSessionService {
     }
     const results = [...grouped.values()];
     return { results, matchCount, truncated: matchCount > maxMatches };
-  }
-
-  async listPinned(cwd: string, managementContext?: ManagementEmbedContext): Promise<SessionPinnedIdsResponse> {
-    const listing = await this.listWorkspaceSessions(cwd, managementContext);
-    const scope = sessionPinScope(cwd, managementContext);
-    const sessionIds = await this.pinStore.prune(scope, new Set(listing.sessions.map((session) => session.id)));
-    return { sessionIds };
-  }
-
-  async setPinned(ref: SessionRouteRef, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse> {
-    if (ref.cwd === "") throw new Error(this.t("session.pinWorkspaceRequired", "A workspace is required to pin a session"));
-    const sessions = await this.list(ref.cwd, managementContext);
-    const session = sessions.find((candidate) => candidate.id === ref.id);
-    if (session === undefined) throw new Error(this.t("session.notFound", "Session not found"));
-    if (session.archived !== true && session.persisted === false) throw new Error(this.t("session.pinPersistedOnly", "Only persisted sessions can be pinned"));
-    await this.pinStore.set(sessionPinScope(ref.cwd, managementContext), session.id, pinned);
-    return { pinned };
   }
 
   private async listWorkspaceSessions(cwd: string, managementContext?: ManagementEmbedContext): Promise<WorkspaceSessionListing> {
@@ -6387,12 +6366,6 @@ function sessionFileExists(sessionFile: string | undefined): sessionFile is stri
   } catch {
     return false;
   }
-}
-
-function sessionPinScope(cwd: string, managementContext: ManagementEmbedContext | undefined): SessionPinScope {
-  return managementContext === undefined
-    ? { mode: "normal", cwd }
-    : { mode: "management", rootUserId: managementContext.user.rootUserId, userId: managementContext.user.id, cwd };
 }
 
 async function readArchivedSessionText(path: string): Promise<string> {

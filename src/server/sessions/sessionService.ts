@@ -34,8 +34,6 @@ import type {
   ClientSessionTreeForkResult,
   ClientSessionTreeNavigateRequest,
   ClientSessionTreeNavigateResult,
-  SessionPinResponse,
-  SessionPinnedIdsResponse,
   ClientThinkingLevel,
   SessionStreamSnapshot,
   SessionTranscriptSnapshot,
@@ -58,8 +56,6 @@ export interface SessionRouteService {
   list(cwd: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]>;
   search(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSession[]>;
   searchContent(cwd: string, query: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionContentSearchResponse>;
-  listPinned(cwd: string, managementContext?: ManagementEmbedContext): Promise<SessionPinnedIdsResponse>;
-  setPinned(ref: SessionRouteLookup, pinned: boolean, managementContext?: ManagementEmbedContext): Promise<SessionPinResponse>;
   start(cwd: string, options?: { startupToken?: string; managementContext?: ManagementEmbedContext }): Promise<ClientSession>;
   messages(ref: SessionRouteLookup, page?: { before?: number; limit?: number }, managementContext?: ManagementEmbedContext): Promise<ClientMessagePage>;
   media(ref: SessionRouteLookup, mediaId: string, managementContext?: ManagementEmbedContext): Promise<SessionMedia | undefined>;

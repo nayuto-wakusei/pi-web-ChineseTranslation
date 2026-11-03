@@ -29,8 +29,6 @@ export type {
   SessionTreeForkRequest as ClientSessionTreeForkRequest,
   SessionTreeForkResult as ClientSessionTreeForkResult,
   SessionActivity as ClientSessionActivity,
-  SessionPinResponse,
-  SessionPinnedIdsResponse,
   SessionUiEvent,
   GlobalSessionEvent,
 } from "../shared/apiTypes.js";

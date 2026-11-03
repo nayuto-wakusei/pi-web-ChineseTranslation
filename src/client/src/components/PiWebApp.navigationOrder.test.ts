@@ -26,7 +26,7 @@ afterEach(() => {
   expect(unexpectedRequest).not.toHaveBeenCalled();
 });
 
-it("renders scoped orders and saves menu moves without changing server-owned pin membership", async () => {
+it("renders scoped orders and saves menu moves with shared server-owned pin membership", async () => {
   unexpectedRequest.mockClear();
   vi.stubGlobal("fetch", themeStylesheetFetch(unexpectedRequest));
   vi.stubGlobal("requestAnimationFrame", () => 1);
@@ -39,9 +39,9 @@ it("renders scoped orders and saves menu moves without changing server-owned pin
   const root = session("root");
   const child = { ...session("child"), parentSessionPath: root.path };
   const sessions = [root, session("other"), session("unpinned"), child];
-  Reflect.set(app, "state", { ...initialAppState(), projects, selectedProject: projects[0], workspaces: [workspace], selectedWorkspace: workspace, sessions, pinnedSessionIds: ["root", "other"], mainView: "navigation" });
+  Reflect.set(app, "state", { ...initialAppState(), projects, selectedProject: projects[0], workspaces: [workspace], selectedWorkspace: workspace, sessions, mainView: "navigation" });
   const save = vi.fn<NavigationOrderPort["save"]>((_scope, ids, revision) => Promise.resolve({ ids: [...ids], revision: revision + 1 }));
-  const load = vi.fn<NavigationOrderPort["load"]>((scope) => Promise.resolve({ ids: scope.kind === "projects" ? ["b", "a"] : [], revision: 0 }));
+  const load = vi.fn<NavigationOrderPort["load"]>((scope) => Promise.resolve({ ids: scope.kind === "projects" ? ["b", "a"] : ["root", "other"], revision: 0 }));
   const controller = new NavigationOrderController({ load, save }, { onChange: () => { Reflect.set(app, "navigationOrderVersion", Number(Reflect.get(app, "navigationOrderVersion")) + 1); } });
   Reflect.set(app, "navigationOrder", controller);
   const projectScope: NavigationOrderScope = { kind: "projects", machineId: "local" };
@@ -72,7 +72,7 @@ it("renders scoped orders and saves menu moves without changing server-owned pin
   await app.updateComplete;
   await panel.updateComplete;
   expect(panel.pinnedRootIds).toEqual(["other", "root"]);
-  expect(panel.pinnedSessionIds).toEqual(["root", "other"]);
+  expect(panel.pinnedSessionIds).toEqual(["other", "root"]);
   expect(panel.sessions).toBe(sessions);
   expect(save).toHaveBeenLastCalledWith(pinScope, ["other", "root"], 0);
 

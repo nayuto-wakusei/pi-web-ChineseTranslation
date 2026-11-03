@@ -17,7 +17,7 @@ function setup(overrides: Partial<typeof defaultApi> = {}) {
   };
   const snapshot = vi.fn<typeof defaultApi.transcriptSnapshot>(() => transcriptSnapshotFixture(emptyPage, status(oldSession.id)));
   const sessions = vi.fn<typeof defaultApi.sessions>(() => Promise.resolve([oldSession]));
-  const api = { ...defaultApi, transcriptSnapshot: snapshot, sessions, pinned: () => Promise.resolve({ sessionIds: [] }), thinkingLevels: () => Promise.resolve({ levels: [] }), ...overrides };
+  const api = { ...defaultApi, transcriptSnapshot: snapshot, sessions, thinkingLevels: () => Promise.resolve({ levels: [] }), ...overrides };
   const setState = (patch: Partial<AppState>) => { state = { ...state, ...patch }; };
   const socket = new FakeSocket();
   const controller = new SessionController(() => state, setState, () => undefined, undefined, { api, socket });

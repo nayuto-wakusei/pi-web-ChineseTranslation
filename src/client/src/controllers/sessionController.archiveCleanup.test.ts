@@ -14,7 +14,6 @@ beforeEach(() => {
   vi.stubGlobal("fetch", unexpectedFetch);
   vi.spyOn(defaultApi, "streamSnapshot").mockResolvedValue({ seq: 0, partial: null });
   vi.spyOn(defaultApi, "thinkingLevels").mockResolvedValue({ levels: [] });
-  vi.spyOn(defaultApi, "pinned").mockResolvedValue({ sessionIds: [] });
   vi.spyOn(defaultApi, "messages").mockResolvedValue(emptyPage);
 });
 

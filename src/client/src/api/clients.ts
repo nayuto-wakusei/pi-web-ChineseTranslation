@@ -51,8 +51,6 @@ import {
   parseSessionContentSearchResponse,
   parseSessionInfo,
   parseSessionNotificationInboxSnapshot,
-  parseSessionPinResponse,
-  parseSessionPinnedIdsResponse,
   parseSessionStatus,
   parseSessionStreamSnapshot,
   parseSessionTranscriptSnapshot,
@@ -295,9 +293,6 @@ export const sessionsApi = {
   sessions: (cwd: string, machineId = "local", options?: { signal?: AbortSignal | undefined }) => request(`${machinePrefix(machineId)}/sessions?cwd=${encodeURIComponent(cwd)}`, arrayOf(parseSessionInfo), options?.signal === undefined ? undefined : { signal: options.signal }),
   search: (cwd: string, query: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/search?${new URLSearchParams({ cwd, q: query }).toString()}`, arrayOf(parseSessionInfo)),
   searchContent: (cwd: string, query: string, machineId = "local", options?: { signal?: AbortSignal | undefined }) => request(`${machinePrefix(machineId)}/sessions/search-content?${new URLSearchParams({ cwd, q: query }).toString()}`, parseSessionContentSearchResponse, options?.signal === undefined ? undefined : { signal: options.signal }),
-  pinned: (cwd: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/pins?cwd=${encodeURIComponent(cwd)}`, parseSessionPinnedIdsResponse),
-  pin: (session: SessionRef, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin`, parseSessionPinResponse, { method: "PUT", body: sessionBody(session) }),
-  unpin: (session: SessionRef, machineId = "local") => request(`${sessionBasePath(session, machineId)}/pin${sessionQuery(session)}`, parseSessionPinResponse, { method: "DELETE" }),
   unreadCatalog: (machineId = "local") => request(`${machinePrefix(machineId)}/sessions/unread`, parseSessionUnreadCatalogSnapshot, { cache: "no-store" }),
   markUnread: (session: SessionRef, machineId = "local") => request(sessionPath(session, "unread", machineId), parseSessionUnreadCatalogSnapshot, { method: "POST", body: JSON.stringify({ cwd: session.cwd }) }),
   acknowledgeUnread: (session: SessionRef, catalogId: string, throughCompletionOrder: number, machineId = "local") => {

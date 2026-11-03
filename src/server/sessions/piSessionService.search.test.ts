@@ -2,13 +2,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ManagementEmbedContext } from "../managementEmbed.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { PiSessionService, type PiSessionListEntry, type PiSessionManager, type PiSessionManagerGateway } from "./piSessionService.js";
 import type { ArchivedSessionRecord } from "./sessionArchiveStore.js";
 import { createTestModelRuntime } from "./modelRuntime.testSupport.js";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { SessionPinStore } from "./sessionPinStore.js";
 
 let tempDir: string;
 let modelRuntime: ModelRuntime;
@@ -25,7 +23,7 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
-describe("PiSessionService session search and pins", () => {
+describe("PiSessionService session search", () => {
   it("bounds list previews while preserving full transcript search", async () => {
     const cwd = join(tempDir, "workspace");
     const firstMessage = `${"x".repeat(2_000)} search beyond preview`;
@@ -68,7 +66,7 @@ describe("PiSessionService session search and pins", () => {
     const cwd = join(tempDir, "workspace");
     const active = sessionEntry("active-id", cwd);
     const other = sessionEntry("other-id", join(tempDir, "other"));
-    const service = createService([active, other], [], undefined, new Map([
+    const service = createService([active, other], [], new Map([
       [active.path, [
         { type: "message", message: { role: "user", content: "Needle twice needle" } },
         { type: "message", message: { role: "assistant", content: [{ type: "text", text: "answer needle" }] } },
@@ -94,7 +92,7 @@ describe("PiSessionService session search and pins", () => {
     const cwd = join(tempDir, "workspace");
     const recent = sessionEntry("recent", cwd, { modified: new Date("2026-06-10T00:00:00.000Z") });
     const older = sessionEntry("older", cwd);
-    const service = createService([recent, older], [], undefined, new Map([
+    const service = createService([recent, older], [], new Map([
       [recent.path, Array.from({ length: 210 }, () => ({ type: "message", message: { role: "user", content: "servr" } }))],
       [older.path, [{ type: "message", message: { role: "user", content: "server" } }]],
     ]));
@@ -105,29 +103,9 @@ describe("PiSessionService session search and pins", () => {
     expect(response.results.flatMap(({ matches }) => matches)).toHaveLength(200);
     expect(response.results[1]?.matches.at(-1)?.messageIndex).toBe(11);
   });
-
-  it("persists normal pins across service instances while isolating management users and workspaces", async () => {
-    const cwd = join(tempDir, "workspace");
-    const otherCwd = join(tempDir, "other");
-    const entries = [sessionEntry("session-1", cwd), sessionEntry("other-session", otherCwd)];
-    const pinFile = join(tempDir, "session-pins.json");
-    const service = createService(entries, [], pinFile);
-    await service.setPinned({ id: "session-1", cwd }, true);
-    await expect(service.listPinned(cwd)).resolves.toEqual({ sessionIds: ["session-1"] });
-
-    const restarted = createService(entries, [], pinFile);
-    await expect(restarted.listPinned(cwd)).resolves.toEqual({ sessionIds: ["session-1"] });
-    await expect(restarted.listPinned(otherCwd)).resolves.toEqual({ sessionIds: [] });
-
-    const userA = managementContext("user-a");
-    const userB = managementContext("user-b");
-    await restarted.setPinned({ id: "session-1", cwd }, true, userA);
-    await expect(restarted.listPinned(cwd, userA)).resolves.toEqual({ sessionIds: ["session-1"] });
-    await expect(restarted.listPinned(cwd, userB)).resolves.toEqual({ sessionIds: [] });
-  });
 });
 
-function createService(entries: PiSessionListEntry[], archivedRecords: readonly ArchivedSessionRecord[], pinFile = join(tempDir, "session-pins.json"), histories = new Map<string, unknown[]>()): PiSessionService {
+function createService(entries: PiSessionListEntry[], archivedRecords: readonly ArchivedSessionRecord[], histories = new Map<string, unknown[]>()): PiSessionService {
   const archiveStore = {
     list: () => Promise.resolve([...archivedRecords]),
     get: () => Promise.resolve(undefined),
@@ -139,7 +117,6 @@ function createService(entries: PiSessionListEntry[], archivedRecords: readonly 
     agentDir: tempDir,
     sessionManager: new ListOnlySessionManager(entries, histories),
     archiveStore,
-    pinStore: new SessionPinStore(pinFile),
     modelRuntime,
     heartbeatIntervalMs: 60_000,
   });
@@ -191,8 +168,4 @@ function sessionEntry(id: string, cwd: string, overrides: Partial<PiSessionListE
     allMessagesText: id,
     ...overrides,
   };
-}
-
-function managementContext(userId: string): ManagementEmbedContext {
-  return { user: { id: userId, rootUserId: "root", roles: [], permissions: [] }, projects: [] };
 }

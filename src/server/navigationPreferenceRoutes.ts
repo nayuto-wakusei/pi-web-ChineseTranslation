@@ -2,7 +2,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { NAVIGATION_PREFERENCE_ROUTES } from "../shared/navigationPreferences.js";
 import type { SessionPinStore } from "./storage/sessionPinStore.js";
 import { InvalidNavigationPreferenceError, NavigationPreferenceConflictError, parseNavigationPreference, type NavigationPreferenceScope, type NavigationPreferenceStore } from "./storage/navigationPreferenceStore.js";
-import { managementContextForRequest, type ManagementEmbedRuntime } from "./managementEmbed.js";
+import { assertManagedCwd, managementContextForRequest, type ManagementEmbedRuntime } from "./managementEmbed.js";
+import { managementContextFromSessiondHeaders, resolveSessiondProject, type SessiondProjectReader } from "./sessiond/managementProjectResolver.js";
+import type { WorkspaceCatalogResolver } from "./sessiond/workspaceCatalogRoutes.js";
 import { createTranslator, userFacingErrorMessage, type Translator } from "../shared/i18n.js";
 
 export interface NavigationPreferenceRouteOptions {
@@ -37,17 +39,41 @@ export function registerSessionPinRoutes(
   app: FastifyInstance,
   pins: Pick<SessionPinStore, "get" | "put">,
   prefix = "",
+  dependencies?: { projects: SessiondProjectReader; workspaces: Pick<WorkspaceCatalogResolver, "resolve">; managementProjectRoot?: string | undefined; translator?: Translator },
 ): void {
-  registerPreferenceRoutes(app, {
-    get: (scope) => {
-      if (scope.kind !== "session-pins") throw new Error("Expected session pin scope");
-      return pins.get(scope);
+  const t = dependencies?.translator ?? createTranslator("en", {});
+  app.route<{ Params: { projectId: string; workspaceId: string }; Body: unknown }>({
+    method: ["GET", "PUT"], url: `${prefix}${NAVIGATION_PREFERENCE_ROUTES[2]}`,
+    handler: async (request, reply) => {
+      let managementContext;
+      try { managementContext = managementContextFromSessiondHeaders(request.headers); } catch {
+        return reply.code(401).send({ error: t("managementError.invalid.management.embed.context", "Invalid management embed context") });
+      }
+      const scope = { ...request.params, ...(managementContext === undefined ? {} : { managementContext }) };
+      if (managementContext !== undefined) {
+        if (dependencies?.managementProjectRoot === undefined) return reply.code(403).send({ error: t("managementError.management.embed.mode.is.not.configured", "Management embed mode is not configured") });
+        try {
+          const project = await resolveSessiondProject(request.headers, scope.projectId, dependencies);
+          const resolution = await dependencies.workspaces.resolve(project);
+          const workspace = resolution.workspaces.find((candidate) => candidate.id === scope.workspaceId);
+          if (workspace === undefined) return await reply.code(404).send({ error: t("server.files.workspaceNotFound", "Workspace not found") });
+          await assertManagedCwd(dependencies.managementProjectRoot, managementContext, workspace.path, { create: false });
+        } catch {
+          return reply.code(403).send({ error: t("managementError.managed.workspace.does.not.match.an.authorized.project", "Managed workspace does not match an authorized project") });
+        }
+      }
+      if (request.method === "GET") return pins.get(scope);
+      let preference;
+      try { preference = parseNavigationPreference(request.body); } catch (error) {
+        if (error instanceof InvalidNavigationPreferenceError) return reply.code(400).send({ error: userFacingErrorMessage(error, t) });
+        throw error;
+      }
+      try { return await pins.put(scope, preference); } catch (error) {
+        if (error instanceof NavigationPreferenceConflictError) return reply.code(409).send({ error: userFacingErrorMessage(error, t), ...error.current });
+        throw error;
+      }
     },
-    put: (scope, value) => {
-      if (scope.kind !== "session-pins") throw new Error("Expected session pin scope");
-      return pins.put(scope, value);
-    },
-  }, prefix, [2]);
+  });
 }
 
 function registerPreferenceRoutes(

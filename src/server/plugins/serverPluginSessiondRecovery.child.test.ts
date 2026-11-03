@@ -97,6 +97,12 @@ describe("sessiond persisted server plugin recovery", () => {
       mkdir(join(dataDir, "plugins"), { recursive: true }),
     ]);
     await writeFile(configPath, "{}\n", "utf8");
+    // Upgrades from 2.202610.4 retain this file; it must not block daemon readiness.
+    const legacyPins = JSON.stringify({ version: 1, scopes: {
+      [JSON.stringify(["normal", projectPath])]: ["old-normal-pin"],
+      [JSON.stringify(["management", "root", "user", projectPath])]: ["old-managed-pin"],
+    } });
+    await writeFile(join(dataDir, "session-pins.json"), legacyPins, "utf8");
     await writeFile(join(dataDir, "projects.json"), `${JSON.stringify({
       projects: [{
         id: projectId,
@@ -229,6 +235,9 @@ describe("sessiond persisted server plugin recovery", () => {
     const child = spawnFixtureDaemon(root);
 
     const startupOutput = await waitForOutput(child, "Server listening at", 20_000);
+    expect(await readFile(join(dataDir, "session-pins.json"), "utf8")).toBe(legacyPins);
+    expect(JSON.parse(await readFile(join(dataDir, "navigation-session-pins.json"), "utf8")))
+      .toEqual({ version: 1, entries: [] });
     expect(startupOutput).toContain("WORKSPACE_CONSUMER_STARTED");
     expect((await readFile(eventsPath, "utf8")).trim().split("\n")).toEqual([
       "provider:start",

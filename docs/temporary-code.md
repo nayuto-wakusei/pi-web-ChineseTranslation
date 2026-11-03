@@ -59,7 +59,7 @@ Release baselines below were checked against containing Git tags and GitHub stab
 
 ### session-pin-storage-migration
 
-- **Why:** import pins from web-owned navigation preferences into daemon-owned `session-pins.json`. The destination's existence prevents re-import, including after users deliberately clear all pins.
+- **Why:** import normal pins from web-owned `navigation-preferences.json` into daemon-owned `navigation-session-pins.json`. The destination's existence prevents re-import, including after users deliberately clear all pins.
 - **Implementation:** [sessionPinStore.ts](../src/server/storage/sessionPinStore.ts) (`initialize` and `legacyFilePath`) and [navigationPreferenceStore.ts](../src/server/storage/navigationPreferenceStore.ts) (`sessionPinSnapshot`). Keep the live pin store; only its legacy import is temporary.
 - **Tests:** [sessionPinStore.test.ts](../src/server/storage/sessionPinStore.test.ts), [navigationPreferenceStore.test.ts](../src/server/storage/navigationPreferenceStore.test.ts).
 - **First shipped:** [v1.202610.9](https://github.com/jmfederico/pi-web/releases/tag/v1.202610.9), 2026-10-30; introduced by `ec645526`.

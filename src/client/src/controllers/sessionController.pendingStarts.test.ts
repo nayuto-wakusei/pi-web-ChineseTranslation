@@ -162,7 +162,6 @@ describe("SessionController pending starts", () => {
     const api = {
       startSession: () => startRequest.promise,
       sessions: () => Promise.resolve([oldSession]),
-      pinned: () => Promise.resolve({ sessionIds: [] }),
       messages: () => Promise.resolve(emptyPage),
       status: (session) => Promise.resolve(status(sessionLookupId(session))),
     } satisfies Partial<typeof defaultApi>;

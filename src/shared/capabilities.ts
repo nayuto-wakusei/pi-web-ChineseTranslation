@@ -28,6 +28,7 @@ export const WEB_RUNTIME_CAPABILITIES = [
   PI_WEB_CAPABILITIES.pluginLifecycle,
   PI_WEB_CAPABILITIES.sessionCleanupPinnedExclusions,
   PI_WEB_CAPABILITIES.sessionPinsDaemonOwned,
+  PI_WEB_CAPABILITIES.sessionPinsManagementScoped,
 ] as const satisfies readonly PiWebCapability[];
 
 export const SESSIOND_RUNTIME_CAPABILITIES = [
@@ -44,6 +45,7 @@ export const SESSIOND_RUNTIME_CAPABILITIES = [
   PI_WEB_CAPABILITIES.promptAttachments,
   PI_WEB_CAPABILITIES.sessionCleanupPinnedExclusions,
   PI_WEB_CAPABILITIES.sessionPinsDaemonOwned,
+  PI_WEB_CAPABILITIES.sessionPinsManagementScoped,
 ] as const satisfies readonly PiWebCapability[];
 
 // Populated entries map each capability to the components that must both
@@ -67,6 +69,7 @@ const EFFECTIVE_CAPABILITY_REQUIREMENTS = {
   [PI_WEB_CAPABILITIES.pluginLifecycle]: ["web"],
   [PI_WEB_CAPABILITIES.sessionCleanupPinnedExclusions]: ["web", "sessiond"],
   [PI_WEB_CAPABILITIES.sessionPinsDaemonOwned]: ["web", "sessiond"],
+  [PI_WEB_CAPABILITIES.sessionPinsManagementScoped]: ["web", "sessiond"],
 } as const satisfies Record<PiWebCapability, readonly PiWebServiceComponent[]>;
 
 export function isPiWebCapability(value: unknown): value is PiWebCapability {

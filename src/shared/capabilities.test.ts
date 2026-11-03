@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { effectivePiWebCapabilities, isPiWebCapability, PI_WEB_CAPABILITIES, SESSIOND_RUNTIME_CAPABILITIES, WEB_RUNTIME_CAPABILITIES, parseKnownPiWebCapabilities } from "./capabilities";
 
 describe("PI WEB capabilities", () => {
+  it("requires both runtimes to isolate management navigation pins", () => {
+    const capability = PI_WEB_CAPABILITIES.sessionPinsManagementScoped;
+    expect(WEB_RUNTIME_CAPABILITIES).toContain(capability);
+    expect(SESSIOND_RUNTIME_CAPABILITIES).toContain(capability);
+    const supported = { available: true, capabilities: [capability] };
+    expect(effectivePiWebCapabilities({ web: supported, sessiond: supported })).toEqual([capability]);
+    expect(effectivePiWebCapabilities({ web: supported, sessiond: { available: true, capabilities: [PI_WEB_CAPABILITIES.sessionPinsDaemonOwned] } })).toEqual([]);
+    expect(effectivePiWebCapabilities({ web: { available: true, capabilities: [] }, sessiond: supported })).toEqual([]);
+  });
+
   it("advertises web-only capabilities without requiring session daemon support", () => {
     expect(WEB_RUNTIME_CAPABILITIES).toContain(PI_WEB_CAPABILITIES.piPackagesManage);
     expect(WEB_RUNTIME_CAPABILITIES).toContain(PI_WEB_CAPABILITIES.selectedMachineSettings);

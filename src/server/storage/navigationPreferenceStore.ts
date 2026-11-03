@@ -8,7 +8,7 @@ import { UserFacingError } from "../../shared/i18n.js";
 export type NavigationPreferenceScope =
   | { kind: "projects" }
   | { kind: "workspaces"; projectId: string }
-  | { kind: "session-pins"; projectId: string; workspaceId: string };
+  | { kind: "session-pins"; projectId: string; workspaceId: string; management?: { rootUserId: string; userId: string } };
 
 export interface PreferenceEntry extends NavigationPreference {
   scope: NavigationPreferenceScope;
@@ -59,7 +59,12 @@ function parseScope(value: unknown): NavigationPreferenceScope {
       if (value["kind"] === "workspaces") return { kind: "workspaces", projectId };
       const workspaceId = value["workspaceId"];
       if (value["kind"] === "session-pins" && typeof workspaceId === "string" && workspaceId !== "") {
-        return { kind: "session-pins", projectId, workspaceId };
+        const management = value["management"];
+        if (management === undefined) return { kind: "session-pins", projectId, workspaceId };
+        if (isRecord(management) && typeof management["rootUserId"] === "string" && management["rootUserId"] !== ""
+          && typeof management["userId"] === "string" && management["userId"] !== "") {
+          return { kind: "session-pins", projectId, workspaceId, management: { rootUserId: management["rootUserId"], userId: management["userId"] } };
+        }
       }
     }
   }
@@ -70,7 +75,7 @@ function scopeKey(scope: NavigationPreferenceScope): string {
   // Tuple encoding avoids collisions for opaque IDs containing separators.
   return JSON.stringify(scope.kind === "projects" ? [scope.kind]
     : scope.kind === "workspaces" ? [scope.kind, scope.projectId]
-      : [scope.kind, scope.projectId, scope.workspaceId]);
+      : [scope.kind, scope.projectId, scope.workspaceId, ...(scope.management === undefined ? [] : [scope.management.rootUserId, scope.management.userId])]);
 }
 
 /** Web/API-owned managed state. IDs are opaque: do not query sessiond or prune offline/stale entries. */
@@ -88,14 +93,14 @@ export class NavigationPreferenceStore {
   /** One-time migration input. Does not mutate or prune legacy state. */
   async sessionPinSnapshot(): Promise<PreferenceEntry[]> {
     await this.writes;
-    return (await this.read()).entries.filter((entry) => entry.scope.kind === "session-pins");
+    return (await this.read()).entries.filter((entry) => entry.scope.kind === "session-pins" && entry.scope.management === undefined);
   }
 
   /** Union across all scopes, including offline/stale workspaces, for cleanup protection. */
   async pinnedSessionIds(): Promise<string[]> {
     await this.writes;
     const data = await this.read();
-    return [...new Set(data.entries.filter((entry) => entry.scope.kind === "session-pins").flatMap((entry) => entry.ids))].sort();
+    return [...new Set(data.entries.filter((entry) => entry.scope.kind === "session-pins" && entry.scope.management === undefined).flatMap((entry) => entry.ids))].sort();
   }
 
   async put(scope: NavigationPreferenceScope, value: NavigationPreferenceWrite): Promise<NavigationPreference> {

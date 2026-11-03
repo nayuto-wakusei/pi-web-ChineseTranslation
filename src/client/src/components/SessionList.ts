@@ -1245,6 +1245,18 @@ export function pinnedSessionRootIds(sessions: readonly SessionInfo[], pinnedSes
   return pinnedSessionRows(rows, [...pinnedRootMembers(rows, pinnedSessionIds)]).pinnedRootIds;
 }
 
+export function orderedPinnedSessionRootIds(sessions: readonly SessionInfo[], pins: readonly string[]): string[] {
+  const rows = sessionRowsForCurrentTree([...sessions], pins);
+  const roots = new Map<string, string>();
+  let root: string | undefined;
+  for (const row of rows) {
+    if (row.depth === 0) root = row.session.id;
+    if (root !== undefined) roots.set(row.session.id, root);
+  }
+  const order = pins.flatMap((id) => roots.get(id) ?? []);
+  return pinnedSessionRows(rows, order).pinnedRootIds;
+}
+
 function pinnedRootMembers(rows: readonly SessionRow[], pins: readonly string[]): ReadonlySet<string> {
   const members = new Set(pins);
   const roots = new Set<string>();

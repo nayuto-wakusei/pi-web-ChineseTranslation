@@ -68,15 +68,6 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     }
   });
 
-  app.get<{ Querystring: SessionQuery }>(`${prefix}/sessions/pins`, async (request, reply) => {
-    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
-    try {
-      return await sessions.listPinned(normalizeRequestCwd(request.query.cwd), managementContextFromHeaders(request.headers));
-    } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error, t) });
-    }
-  });
-
   app.post<{ Body: { cwd?: unknown; startupToken?: unknown } | undefined }>(`${prefix}/sessions`, async (request, reply) => {
     try {
       const body = requireRecord(request.body);
@@ -175,23 +166,6 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   app.post<{ Body: SessionBulkMutationRequest | undefined }>(`${prefix}/sessions/bulk/delete-archived`, async (request, reply) => {
     try {
       return await sessions.deleteArchivedMany(bulkMutationRefsFromBody(request.body), managementContextFromHeaders(request.headers));
-    } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
-    }
-  });
-
-  app.put<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/pin`, async (request, reply) => {
-    try {
-      const body = requireRecord(request.body);
-      return await sessions.setPinned(sessionLookupFromRequiredCwd(request.params.sessionId, body), true, managementContextFromHeaders(request.headers));
-    } catch (error) {
-      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
-    }
-  });
-
-  app.delete<{ Params: { sessionId: string }; Querystring: SessionQuery }>(`${prefix}/sessions/:sessionId/pin`, async (request, reply) => {
-    try {
-      return await sessions.setPinned(sessionLookupFromRequiredCwd(request.params.sessionId, request.query), false, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }

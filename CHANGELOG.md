@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.2
+
+### Patch Changes
+
+- Fix session daemon startup by retiring the old cwd-scoped pin implementation and using one navigation pin store. Support navigation pins in both restricted and fully privileged management embeds, isolated by management user and workspace. Existing pin data is left untouched for manual migration; restart both the web/API and session daemon after upgrading.
+
 ## 2.202611.1
 
 ### Patch Changes

@@ -42,6 +42,12 @@ export class NavigationOrderController {
 
   constructor(private readonly port: NavigationOrderPort, private readonly options: NavigationOrderControllerOptions = {}) {}
 
+  reset(): void {
+    const scopes = [...this.states.values()].map((state) => state.scope);
+    this.states.clear();
+    for (const scope of scopes) this.options.onChange?.(scope);
+  }
+
   ids(scope: NavigationOrderScope): readonly string[] {
     return [...(this.state(scope).snapshot?.ids ?? [])];
   }
@@ -78,12 +84,14 @@ export class NavigationOrderController {
     scope = { ...scope };
     return this.enqueue(scope, async (state) => {
       state.snapshot ??= await this.port.load(scope);
+      if (this.states.get(scopeKey(scope)) !== state) return;
       const previous = state.snapshot;
       const ids = [...mutation([...previous.ids])];
       if (ids.length === previous.ids.length && ids.every((id, index) => id === previous.ids[index])) return;
       try {
         state.snapshot = await this.port.save(scope, ids, previous.revision);
       } catch (error) {
+        if (this.states.get(scopeKey(scope)) !== state) return;
         // The write may have succeeded despite a transport failure. Never retry with
         // a stale revision or silently overwrite another browser's update.
         state.snapshot = undefined;
@@ -114,14 +122,15 @@ export class NavigationOrderController {
     state.pending++;
     this.options.onChange?.(scope);
     const result = state.tail.then(async () => {
+      if (this.states.get(scopeKey(scope)) !== state) return;
       try {
         await operation(state);
       } catch (error) {
-        this.options.onError?.(scope, error);
+        if (this.states.get(scopeKey(scope)) === state) this.options.onError?.(scope, error);
         throw error;
       } finally {
         state.pending--;
-        this.options.onChange?.(scope);
+        if (this.states.get(scopeKey(scope)) === state) this.options.onChange?.(scope);
       }
     });
     state.tail = result.catch(() => undefined);

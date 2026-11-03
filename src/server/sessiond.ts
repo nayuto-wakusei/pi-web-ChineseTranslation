@@ -66,7 +66,7 @@ import { WorkbenchSkillSynchronizer } from "./workbench/skillSync.js";
 import { NormalToolAuditStore, normalToolAuditDatabasePath } from "./audit/normalToolAuditStore.js";
 import { ManagementAuditStore } from "./audit/managementAuditStore.js";
 import { managementProjectIdForCwd, projectsFromManagedEmbedContext } from "./managementEmbed.js";
-import { managementContextFromEventScope, NORMAL_SESSION_EVENT_SCOPE } from "./realtime/sessionEventScope.js";
+import { eventScopeFromManagementContext, managementContextFromEventScope, NORMAL_SESSION_EVENT_SCOPE } from "./realtime/sessionEventScope.js";
 import { PiWebPluginCatalog } from "./piWebPluginCatalog.js";
 import { PiPackageDismissalStore, piPackageDismissalStorePath } from "./storage/piPackageDismissalStore.js";
 import { reconcileAutoInstallablePiPackages } from "./sessiond/autoInstallPiPackages.js";
@@ -190,7 +190,7 @@ await runSessionDaemonStartup({
     const pins = new SessionPinStore(
       sessionPinStorePath(daemonEnvironment),
       navigationPreferenceStorePath(daemonEnvironment),
-      (scope, revision) => { eventHub.publishRealtime({ type: "session-pins.changed", ...scope, revision }, NORMAL_SESSION_EVENT_SCOPE); },
+      (scope, revision) => { eventHub.publishRealtime({ type: "session-pins.changed", projectId: scope.projectId, workspaceId: scope.workspaceId, revision }, eventScopeFromManagementContext(scope.managementContext)); },
     );
     await pins.pinnedSessionIds();
     const serverNotices = new ServerNoticeService(new ServerNoticeStore(), eventHub);
@@ -520,7 +520,6 @@ await runSessionDaemonStartup({
   registerRoutes({ pins, eventHub, machineStatus, statusAttribution, workspaceChanges, projectLifecycle, workspaceActivity, projectAuth, managementAuth, sessions, managementTerminals, serverNotices, accessStates, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, serverPlugins }) {
     registerProjectMutationRoutes(app, projectLifecycle, translator);
     registerPluginCatalogRoutes(app, { projects, workspaces: workspaceProviders, sessions, pins });
-    registerSessionPinRoutes(app, pins);
     registerPluginSessionLifecycleRoutes(app, { projects, workspaces: workspaceProviders, sessions, pins, onMutation: ({ projectId }) => { workspaceChanges.notify(projectId); } });
     registerWorkspaceActivityRoutes(app, workspaceActivity);
     registerMachineStatusRoutes(app, machineStatus);
@@ -533,6 +532,7 @@ await runSessionDaemonStartup({
     const managementProjectRoot = config.managementEmbed?.enabled === true
       ? configuredManagementProjectRoot
       : undefined;
+    registerSessionPinRoutes(app, pins, "", { projects, workspaces: workspaceProviders, managementProjectRoot, translator });
     registerWorkspaceCatalogRoutes(app, { projects, workspaces: workspaceProviders, providerRuntime: workspaceProviderRuntime, managementProjectRoot, translator });
     registerPluginBackendResourceRoutes(app, { projects, backends: pluginBackends, managementProjectRoot });
     registerTerminalStatusRoutes(app, serverPlugins);

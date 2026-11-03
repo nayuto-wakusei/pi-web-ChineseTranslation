@@ -346,39 +346,6 @@ export class SessionController {
     }
   }
 
-  async refreshPinnedSessions(cwd: string, machineId = selectedMachineId(this.getState())): Promise<void> {
-    try {
-      const result = await this.api.pinned(cwd, machineId);
-      if (selectedMachineId(this.getState()) !== machineId || this.getState().selectedWorkspace?.path !== cwd) return;
-      this.setState({ pinnedSessionIds: result.sessionIds });
-    } catch {
-      if (selectedMachineId(this.getState()) === machineId && this.getState().selectedWorkspace?.path === cwd) this.setState({ pinnedSessionIds: [] });
-    }
-  }
-
-  togglePinned(session: SessionInfo): void {
-    if (session.persisted === false) return;
-    const state = this.getState();
-    const wasPinned = state.pinnedSessionIds.includes(session.id);
-    const nextPinned = wasPinned ? state.pinnedSessionIds.filter((id) => id !== session.id) : [...state.pinnedSessionIds, session.id];
-    const machineId = selectedMachineId(state);
-    this.setState({ pinnedSessionIds: nextPinned });
-    void (async () => {
-      try {
-        const result = wasPinned ? await this.api.unpin(session, machineId) : await this.api.pin(session, machineId);
-        const current = this.getState();
-        if (selectedMachineId(current) !== machineId || current.selectedWorkspace?.path !== session.cwd) return;
-        const pinned = result.pinned;
-        this.setState({ pinnedSessionIds: pinned ? [...new Set([...this.getState().pinnedSessionIds, session.id])] : this.getState().pinnedSessionIds.filter((id) => id !== session.id) });
-      } catch (error) {
-        const current = this.getState();
-        if (selectedMachineId(current) !== machineId || current.selectedWorkspace?.path !== session.cwd) return;
-        this.setState({ pinnedSessionIds: wasPinned ? [...new Set([...current.pinnedSessionIds, session.id])] : current.pinnedSessionIds.filter((id) => id !== session.id) });
-        this.reportSessionError(session, machineId, error);
-      }
-    })();
-  }
-
   searchSessions(query: string): void {
     const state = this.getState();
     const workspace = state.selectedWorkspace;
@@ -1123,7 +1090,6 @@ export class SessionController {
           if (next !== undefined) await this.selectSessionAfterNavigation(next, expected);
           else await this.clearSessionAfterNavigation(expected);
         }
-        await this.refreshPinnedSessions(candidates[0]?.cwd ?? "", machineId);
       }
       this.applyBulkSessionFailures("delete", failures, machineId, originWorkspace, fallbackSession, errorOwner);
     } catch (error) {
@@ -1219,7 +1185,6 @@ export class SessionController {
         const sessions = this.mergePendingStartSessions(workspace.path, listedSessions, machineId);
         const selectedSession = this.getState().selectedSession;
         this.setState({ sessions });
-        void this.refreshPinnedSessions(workspace.path, machineId);
         const expected = this.navigationSelection();
         if (selectedSession === undefined) return;
         const refreshedSelected = sessions.find((session) => session.id === selectedSession.id);

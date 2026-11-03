@@ -4,14 +4,16 @@ import { dirname, join } from "node:path";
 import { piWebDataDir } from "../../config.js";
 import type { NavigationPreference, NavigationPreferenceWrite } from "../../shared/navigationPreferences.js";
 import { NavigationPreferenceStore, navigationPreferenceStorePath, type NavigationPreferenceScope } from "./navigationPreferenceStore.js";
+import type { ManagementEmbedContext } from "../managementEmbed.js";
 
 export interface SessionPinScope {
   projectId: string;
   workspaceId: string;
+  managementContext?: ManagementEmbedContext;
 }
 
 export function sessionPinStorePath(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
-  return join(piWebDataDir(env, cwd), "session-pins.json");
+  return join(piWebDataDir(env, cwd), "navigation-session-pins.json");
 }
 
 /** Single daemon-owned writer. File existence is the durable migration-complete marker,
@@ -38,7 +40,7 @@ export class SessionPinStore {
     return this.exclusive(async () => {
       const selected = pinScope(scope);
       const result = await this.store.put(selected, value);
-      this.onChange?.({ projectId: selected.projectId, workspaceId: selected.workspaceId }, result.revision);
+      this.onChange?.(scope, result.revision);
       return result;
     });
   }
@@ -55,7 +57,7 @@ export class SessionPinStore {
         ids: pinned ? [...current.ids, sessionId] : current.ids.filter((id) => id !== sessionId),
         revision: current.revision,
       });
-      this.onChange?.({ projectId: selected.projectId, workspaceId: selected.workspaceId }, result.revision);
+      this.onChange?.(scope, result.revision);
       return result;
     });
   }
@@ -101,5 +103,11 @@ function pinScope(scope: SessionPinScope): NavigationPreferenceScope & { kind: "
   if (typeof scope.projectId !== "string" || scope.projectId === "" || typeof scope.workspaceId !== "string" || scope.workspaceId === "") {
     throw new Error("Session pin scope requires projectId and workspaceId");
   }
-  return { kind: "session-pins", projectId: scope.projectId, workspaceId: scope.workspaceId };
+  const user = scope.managementContext?.user;
+  if (user !== undefined && (typeof user.rootUserId !== "string" || user.rootUserId === "" || typeof user.id !== "string" || user.id === "")) {
+    throw new Error("Management session pins require rootUserId and userId");
+  }
+  return { kind: "session-pins", projectId: scope.projectId, workspaceId: scope.workspaceId,
+    ...(user === undefined ? {} : { management: { rootUserId: user.rootUserId, userId: user.id } }),
+  };
 }

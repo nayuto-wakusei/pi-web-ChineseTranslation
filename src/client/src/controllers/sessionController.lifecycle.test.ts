@@ -216,7 +216,7 @@ describe("SessionController automatic navigation candidates", () => {
     const navigate = vi.fn<NonNullable<SessionControllerDependencies["navigateToSession"]>>(() => Promise.resolve(true));
     const fixture = createSessionControllerTestFixture({
       initialState: { ...initialAppState(), selectedWorkspace: workspace, sessions: [parent, hidden, visible], selectedSession: parent },
-      api: { sessions: () => Promise.resolve([hidden, visible]), pinned: () => Promise.resolve({ sessionIds: [] }) },
+      api: { sessions: () => Promise.resolve([hidden, visible]) },
       dependencies: { automaticSessionCandidates: candidates, navigateToSession: navigate },
     });
     await fixture.controller.refreshCurrentWorkspaceSessions();

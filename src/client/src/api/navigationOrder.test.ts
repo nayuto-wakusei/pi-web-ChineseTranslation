@@ -1,11 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HttpRequestError } from "./http";
+import { HttpRequestError, setApiScope } from "./http";
 import { navigationOrderPort, navigationOrderPath, parseNavigationOrderSnapshot } from "./navigationOrder";
 
 const scope = { kind: "sessionPins" as const, machineId: "remote/a", projectId: "p /", workspaceId: "w?#" };
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { setApiScope("normal"); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("navigation order API", () => {
+  it("uses authenticated management transport without sending user identity in the pin payload", async () => {
+    vi.stubGlobal("document", { baseURI: "https://example.test/nested/" });
+    vi.stubGlobal("location", { href: "https://example.test/nested/?embed=management", search: "?embed=management" });
+    vi.stubEnv("BASE_URL", "/nested/");
+    setApiScope("management");
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ids: ["managed"], revision: 2 })));
+    vi.stubGlobal("fetch", fetch);
+    await navigationOrderPort.save(scope, ["managed"], 1);
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/session-pins?embed=management"), expect.objectContaining({
+      method: "PUT", body: JSON.stringify({ ids: ["managed"], revision: 1 }),
+    }));
+  });
   it("encodes scope IDs into remote-compatible application references", () => {
     expect(navigationOrderPath({ kind: "projects", machineId: "local" })).toBe("api/machines/local/navigation/projects");
     expect(navigationOrderPath({ kind: "workspaces", machineId: "remote/a", projectId: "p /" }))

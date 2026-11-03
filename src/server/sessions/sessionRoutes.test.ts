@@ -64,6 +64,15 @@ afterEach(async () => {
 });
 
 describe("session routes", () => {
+  it("does not expose the retired cwd-scoped pin endpoints", async () => {
+    const responses = await Promise.all([
+      app.inject({ method: "GET", url: "/sessions/pins?cwd=/repo" }),
+      app.inject({ method: "PUT", url: "/sessions/session-1/pin", payload: { cwd: "/repo" } }),
+      app.inject({ method: "DELETE", url: "/sessions/session-1/pin?cwd=/repo" }),
+    ]);
+    expect(responses.map((response) => response.statusCode)).toEqual([404, 404, 404]);
+  });
+
   it("serves model catalog reads and forwards normal enabled-scope edits", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -1209,14 +1218,6 @@ class CapturingRouteSessionService implements SessionRouteService {
 
   searchContent() {
     return Promise.resolve({ results: [], matchCount: 0, truncated: false });
-  }
-
-  listPinned() {
-    return Promise.resolve({ sessionIds: [] });
-  }
-
-  setPinned(lookup: SessionRouteLookup, pinned: boolean) {
-    return Promise.resolve({ sessionId: typeof lookup === "string" ? lookup : lookup.id, pinned });
   }
 
   submitAsk(lookup: SessionRouteLookup, askId: string, submission: AskUserSubmission, managementContext?: ManagementEmbedContext): Promise<SessionStatus> {

@@ -149,7 +149,7 @@ describe("machine-scoped session proxy routes", () => {
     expect(daemon.requests).toEqual([{ method: "POST", path: "/sessions/session-1/queue/clear", body: { cwd: "/repo" } }]);
   });
 
-  it("validates management cwd context for session search and pin routes", async () => {
+  it("validates management cwd context for session search", async () => {
     const cwd = process.cwd();
     const managementContext = {
       user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
@@ -169,19 +169,10 @@ describe("machine-scoped session proxy routes", () => {
 
     const queryCwd = encodeURIComponent(cwd);
     const searchResponse = await app.inject({ method: "GET", url: `/api/machines/local/sessions/search?cwd=${queryCwd}&q=needle&embed=management&token=launch-token` });
-    const pinsResponse = await app.inject({ method: "GET", url: `/api/machines/local/sessions/pins?cwd=${queryCwd}&embed=management&token=launch-token` });
-    const pinResponse = await app.inject({ method: "PUT", url: "/api/machines/local/sessions/session-1/pin?embed=management&token=launch-token", payload: { cwd } });
-    const unpinResponse = await app.inject({ method: "DELETE", url: `/api/machines/local/sessions/session-1/pin?cwd=${queryCwd}&embed=management&token=launch-token` });
 
     expect(searchResponse.statusCode).toBe(200);
-    expect(pinsResponse.statusCode).toBe(200);
-    expect(pinResponse.statusCode).toBe(200);
-    expect(unpinResponse.statusCode).toBe(200);
     expect(daemon.requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
       { method: "GET", path: `/sessions/search?cwd=${queryCwd}&q=needle&embed=management&token=launch-token`, body: undefined },
-      { method: "GET", path: `/sessions/pins?cwd=${queryCwd}&embed=management&token=launch-token`, body: undefined },
-      { method: "PUT", path: "/sessions/session-1/pin?embed=management&token=launch-token", body: { cwd } },
-      { method: "DELETE", path: `/sessions/session-1/pin?cwd=${queryCwd}&embed=management&token=launch-token`, body: undefined },
     ]);
     expect(decodeManagementContext(daemon.requestHeaders[0]?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(managementContext);
   });
@@ -648,6 +639,37 @@ describe("cleanup capability guard", () => {
 });
 
 describe("daemon-owned session pin proxy", () => {
+  it.each(["/api", "/api/machines/local"])("forwards verified embedded identities and rejects unauthorized projects through %s", async (prefix) => {
+    await app.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    const cwd = process.cwd();
+    const context: ManagementEmbedContext = {
+      user: { id: "user", rootUserId: "root", roles: [], permissions: [] },
+      projects: [{ id: "allowed", name: "Managed", root: cwd }],
+    };
+    registerSessionProxyRoutes(app, daemon, prefix, {
+      enabled: true, projectRoot: cwd,
+      authenticate: (token) => token === "valid" ? Promise.resolve(context) : Promise.reject(new Error("Invalid token")),
+    });
+    const path = "/navigation/projects/allowed/workspaces/w/session-pins";
+    for (const method of ["GET", "PUT"] as const) {
+      daemon.respondWith({ statusCode: 200, headers: {}, body: JSON.stringify({ component: "sessiond", label: "Session daemon", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionPinsDaemonOwned, PI_WEB_CAPABILITIES.sessionPinsManagementScoped] }) });
+      const response = await app.inject({ method, url: `${prefix}${path}?embed=management&token=valid`,
+        headers: { [MANAGEMENT_EMBED_CONTEXT_HEADER]: "forged" }, ...(method === "PUT" ? { payload: { ids: ["private"], revision: 0 } } : {}) });
+      expect(response.statusCode).toBe(200);
+      expect(decodeManagementContext(daemon.requestHeaders.at(-1)?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(context);
+    }
+    const count = daemon.requests.length;
+    expect((await app.inject({ method: "PUT", url: `${prefix}${path.replace("/allowed/", "/forbidden/")}?embed=management&token=valid`, payload: { ids: [] } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: `${prefix}${path}?embed=management&token=invalid` })).statusCode).toBe(401);
+    expect(daemon.requests).toHaveLength(count);
+    daemon.respondWith({ statusCode: 200, headers: {}, body: JSON.stringify({ component: "sessiond", label: "Session daemon", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionPinsDaemonOwned] }) });
+    expect((await app.inject({ method: "PUT", url: `${prefix}${path}?embed=management&token=valid`, payload: { ids: ["must-not-reach-old-daemon"] } })).statusCode).toBe(503);
+    expect(daemon.requests).toHaveLength(count + 1);
+    expect(daemon.requests.at(-1)?.path).toBe("/runtime");
+  });
+
   it.each(["GET", "PUT"] as const)("fails closed for %s when only legacy cleanup support exists", async (method) => {
     daemon.respondWith({ statusCode: 200, headers: {}, body: JSON.stringify({ component: "sessiond", label: "Session daemon", available: true, capabilities: [PI_WEB_CAPABILITIES.sessionCleanupPinnedExclusions] }) });
     const response = await app.inject({ method, url: "/api/navigation/projects/p/workspaces/w/session-pins", ...(method === "PUT" ? { payload: { ids: ["one"] } } : {}) });

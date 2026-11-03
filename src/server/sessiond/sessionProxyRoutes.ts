@@ -5,7 +5,7 @@ import { normalizeRequestCwd } from "../workingDirectory.js";
 import { SessionDaemonClient, type SessionDaemonRequestOptions, type SessionDaemonStreamResponse } from "../../sessiond/sessionDaemonClient.js";
 import { sessionDaemonProxyFailure } from "../../sessiond/sessionDaemonErrors.js";
 import { requestCancellation, withRequestCancellation } from "../requestCancellation.js";
-import { assertManagedCwd, managementContextForRequest, managementHeaders, managementProjectRoot, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
+import { assertManagedCwd, managementContextForRequest, managementHeaders, managementProjectRoot, projectFromManagedEmbedContext, type ManagementEmbedContext, type ManagementEmbedRuntime } from "../managementEmbed.js";
 import { REALTIME_SOCKET_HIGH_WATER_MARK } from "../realtime/sessionEventHub.js";
 import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../shared/capabilities.js";
 import { parsePiWebRuntimeComponent } from "../../shared/piWebStatusParsing.js";
@@ -56,11 +56,12 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
     }
   };
 
-  const requireDaemonPins = async (reply: FastifyReply): Promise<boolean> => {
+  const requireDaemonPins = async (reply: FastifyReply, management = false): Promise<boolean> => {
     try {
       const response = await daemon.request("GET", "/runtime");
       const runtime = response.statusCode === 200 ? parsePiWebRuntimeComponent(parseJson(response.body)) : undefined;
-      if (runtime?.component === "sessiond" && runtime.available && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionPinsDaemonOwned)) return true;
+      if (runtime?.component === "sessiond" && runtime.available && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionPinsDaemonOwned)
+        && (!management || supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionPinsManagementScoped))) return true;
     } catch {
       // Fail closed: never fall back to legacy web-owned pin state.
     }
@@ -70,10 +71,21 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
 
   const pinPath = `${prefix}/navigation/projects/:projectId/workspaces/:workspaceId/session-pins`;
   for (const method of ["GET", "PUT"] as const) {
-    app.route({ method, url: pinPath, handler: async (request, reply) => {
-      if (await managementContextForRequest(request, managementEmbed, reply) !== undefined) return reply.code(403).send({ error: "Navigation pins are unavailable in management mode" });
-      if (!await requireDaemonPins(reply)) return;
-      return proxy(request, reply);
+    app.route<{ Params: { projectId: string; workspaceId: string } }>({ method, url: pinPath, handler: async (request, reply) => {
+      let context;
+      try { context = await managementContextForRequest(request, managementEmbed, reply); } catch {
+        return reply.code(401).send({ error: t("managementError.invalid.management.embed.context", "Invalid management embed context") });
+      }
+      if (context !== undefined) {
+        try { await projectFromManagedEmbedContext(managementProjectRoot(managementEmbed), context, request.params.projectId, { create: false }); } catch {
+          return reply.code(403).send({ error: t("managementError.project.is.not.authorized.for.this.management.session", "Project is not authorized for this management session") });
+        }
+      }
+      if (!await requireDaemonPins(reply, context !== undefined)) return;
+      try {
+        return await withRequestCancellation(request, reply, async (signal) => sendDaemonBody(reply,
+          await daemon.request(request.method, stripPrefix(request.url, prefix), request.body, managementHeaders(context, managementEmbed), signal)));
+      } catch (error) { requestFailed(reply, error, t); return undefined; }
     } });
   }
 

@@ -34,7 +34,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", themeStylesheetFetch(unexpectedRequest));
   vi.stubGlobal("requestAnimationFrame", () => 1);
   vi.stubGlobal("cancelAnimationFrame", () => undefined);
-  loadOrder.mockReset().mockResolvedValue({ ids: [], revision: 0 });
+  loadOrder.mockReset().mockResolvedValue({ ids: ["child", "root-b"], revision: 0 });
   saveOrder.mockReset().mockImplementation((_scope, ids, revision) => Promise.resolve({ ids: [...ids], revision: revision + 1 }));
   vi.spyOn(navigationOrderPort, "load").mockImplementation(loadOrder);
   vi.spyOn(navigationOrderPort, "save").mockImplementation(saveOrder);
@@ -54,21 +54,42 @@ it("orders pinned roots without replacing the canonical child pin membership", a
   const panel = navigationPanel(app);
   panel.onMoveSessionPin?.(session("root-b"), -1);
   await vi.waitFor(() => { expect(saveOrder).toHaveBeenCalledOnce(); });
-  expect(saveOrder).toHaveBeenCalledWith({ kind: "sessionPins", machineId: "remote-a", projectId: "p", workspaceId: "w" }, ["root-b", "root-a"], 0);
-  expect(appPinnedIds(app)).toEqual(["child", "root-b"]);
+  expect(saveOrder).toHaveBeenCalledWith({ kind: "sessionPins", machineId: "remote-a", projectId: "p", workspaceId: "w" }, ["root-b", "child"], 0);
+  await app.updateComplete;
+  expect(panel.pinnedSessionIds).toEqual(["root-b", "child"]);
+  expect(panel.pinnedRootIds).toEqual(["root-b", "root-a"]);
+  panel.onMoveSessionPin?.(session("root-b"), 1);
+  await vi.waitFor(() => { expect(saveOrder).toHaveBeenCalledTimes(2); });
+  expect(saveOrder).toHaveBeenLastCalledWith({ kind: "sessionPins", machineId: "remote-a", projectId: "p", workspaceId: "w" }, ["child", "root-b"], 1);
 });
 
-it("keeps management navigation off the ordinary preference API while retaining old pins", async () => {
+it("loads management pins without enabling ordinary project or workspace ordering", async () => {
   window.history.replaceState(null, "", "/?embed=management&token=test-entry");
   const app = await mount();
   Reflect.set(app, "authenticatedAppRunning", true);
   call(app, "syncNavigationOrder");
   const panel = navigationPanel(app);
-  expect(panel.onMoveSessionPin).toBeUndefined();
+  expect(panel.onMoveSessionPin).toBeDefined();
   expect(panel.onMoveProject).toBeUndefined();
-  expect(loadOrder).not.toHaveBeenCalled();
+  expect(panel.onMoveWorkspace).toBeUndefined();
+  expect(loadOrder).toHaveBeenCalledExactlyOnceWith({ kind: "sessionPins", machineId: "remote-a", projectId: "p", workspaceId: "w" });
   expect(saveOrder).not.toHaveBeenCalled();
   expect(panel.pinnedSessionIds).toEqual(["child", "root-b"]);
+});
+
+it.each(["normal", "management"])("toggles %s pins using the acknowledged navigation revision and recovers failed writes", async (mode) => {
+  if (mode === "management") window.history.replaceState(null, "", "/?embed=management");
+  const app = await mount();
+  const panel = navigationPanel(app);
+  void panel.onToggleSessionPin?.(child);
+  await vi.waitFor(() => { expect(saveOrder).toHaveBeenCalledOnce(); });
+  expect(saveOrder).toHaveBeenLastCalledWith({ kind: "sessionPins", machineId: "remote-a", projectId: "p", workspaceId: "w" }, ["root-b"], 0);
+  await vi.waitFor(() => { expect(panel.pinnedSessionIds).toEqual(["root-b"]); });
+  saveOrder.mockRejectedValueOnce(new Error("pin unavailable"));
+  loadOrder.mockResolvedValue({ ids: ["root-b", "external"], revision: 2 });
+  void panel.onToggleSessionPin?.(child);
+  await vi.waitFor(() => { expect(loadOrder).toHaveBeenCalledTimes(2); });
+  await vi.waitFor(() => { expect(panel.pinnedSessionIds).toEqual(["root-b", "external"]); });
 });
 
 
@@ -103,20 +124,14 @@ async function mount(): Promise<NavigationMergeApp> {
   Reflect.set(app, "state", { ...initialAppState(),
     selectedMachine: { id: "remote-a", name: "Remote", kind: "remote", createdAt: "now", updatedAt: "now" },
     projects: [project], selectedProject: project, workspaces: [workspace], selectedWorkspace: workspace,
-    sessions: [...roots, child], pinnedSessionIds: ["child", "root-b"],
+    sessions: [...roots, child],
   } satisfies AppState);
   const order: unknown = Reflect.get(app, "navigationOrder");
   if (!(order instanceof NavigationOrderController)) throw new Error("Missing navigation controller");
-  if (Reflect.get(app, "apiScope") === "normal") await order.ensure({ kind: "sessionPins", machineId: "remote-a", projectId: "p", workspaceId: "w" });
+  await order.ensure({ kind: "sessionPins", machineId: "remote-a", projectId: "p", workspaceId: "w" });
   document.body.append(app);
   await app.updateComplete;
   return app;
-}
-
-function appPinnedIds(app: PiWebApp): unknown {
-  const state: unknown = Reflect.get(app, "state");
-  if (typeof state !== "object" || state === null) throw new Error("Missing app state");
-  return Reflect.get(state, "pinnedSessionIds");
 }
 
 function navigationPanel(app: PiWebApp): AppNavigationPanel {

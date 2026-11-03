@@ -140,7 +140,7 @@ describe("section resize boundaries", () => {
 });
 
 describe("navigation order controls", () => {
-  it("keeps ordering disabled in management while preserving canonical session pins", async () => {
+  it("keeps project and workspace ordering disabled in management while enabling session pins", async () => {
     const panel = await mountPanel({}, machine("local"));
     panel.managementMode = true;
     panel.sessions = [session("root")];
@@ -157,7 +157,7 @@ describe("navigation order controls", () => {
     await Promise.all([projects.updateComplete, workspaces.updateComplete, sessions.updateComplete]);
     expect(projects.onMove).toBeUndefined();
     expect(workspaces.onMove).toBeUndefined();
-    expect(sessions.onMovePin).toBeUndefined();
+    expect(sessions.onMovePin).toBeDefined();
     expect(sessions.pinnedSessionIds).toEqual(["root"]);
     control(sessions, ".action-menu-toggle").click();
     await sessions.updateComplete;

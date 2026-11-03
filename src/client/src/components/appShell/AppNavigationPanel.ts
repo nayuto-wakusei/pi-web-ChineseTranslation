@@ -494,7 +494,7 @@ export class AppNavigationPanel extends LitElement {
         .pinnedSessionIds=${this.pinnedSessionIds}
         .loading=${this.sessionsLoading}
         .pinnedRootIds=${this.pinnedRootIds}
-        .onMovePin=${this.managementMode || this.onMoveSessionPin === undefined ? undefined : this.childCallbacks.moveSessionPin}
+        .onMovePin=${this.onMoveSessionPin === undefined ? undefined : this.childCallbacks.moveSessionPin}
         .statuses=${this.sessionStatuses}
         .activities=${this.sessionActivities}
         .sessionFlags=${this.selectedMachineStatusSnapshot()?.sessions}

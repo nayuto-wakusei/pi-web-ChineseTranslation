@@ -11,6 +11,21 @@ const projects: NavigationOrderScope = { kind: "projects", machineId: "local" };
 const remote: NavigationOrderScope = { kind: "projects", machineId: "remote" };
 
 describe("NavigationOrderController", () => {
+  it("discards an old authentication generation's loaded and queued mutations after reset", async () => {
+    const old = deferred<NavigationOrderSnapshot>();
+    const load = vi.fn<NavigationOrderPort["load"]>().mockReturnValueOnce(old.promise).mockResolvedValue({ ids: ["new-user"], revision: 2 });
+    const save = vi.fn<NavigationOrderPort["save"]>();
+    const controller = new NavigationOrderController({ load, save });
+    const pending = controller.mutate(projects, () => ["old-user-change"]);
+    const queued = controller.mutate(projects, () => ["queued-old-change"]);
+    await Promise.resolve();
+    controller.reset();
+    await controller.ensure(projects);
+    old.resolve({ ids: ["old-user"], revision: 1 });
+    await Promise.all([pending, queued]);
+    expect(controller.ids(projects)).toEqual(["new-user"]);
+    expect(save).not.toHaveBeenCalled();
+  });
   it("coalesces loads and keeps late results in their own scope", async () => {
     const first = deferred<NavigationOrderSnapshot>();
     const second = deferred<NavigationOrderSnapshot>();

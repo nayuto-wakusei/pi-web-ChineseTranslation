@@ -117,7 +117,6 @@ function createApp(): PiWebApp {
   vi.spyOn(api, "workspaceResolution").mockResolvedValue({ projectId: project.id, status: "folder", diagnostics: [], workspaces: [workspace] });
   vi.spyOn(api, "sessions").mockResolvedValue([]);
   vi.spyOn(SessionController.prototype, "updatePolling").mockImplementation(() => undefined);
-  vi.spyOn(SessionController.prototype, "refreshPinnedSessions").mockResolvedValue();
   vi.spyOn(api, "health").mockResolvedValue({ machineId: "local", ok: true, checkedAt: "now" });
   vi.spyOn(api, "runtime").mockResolvedValue({ machineId: "local", ok: true, checkedAt: "now" });
   const app = new PiWebApp();

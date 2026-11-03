@@ -19,7 +19,6 @@ export interface AppState {
   projects: Project[];
   workspaces: Workspace[];
   sessions: SessionInfo[];
-  pinnedSessionIds: string[];
   sessionSearchQuery: string;
   sessionSearchResults: SessionContentSearchResponse | undefined;
   isSearchingSessions: boolean;
@@ -128,7 +127,6 @@ export type AuthDialogState =
 
 export type WorkspaceScopedStateReset = Pick<AppState,
   | "sessions"
-  | "pinnedSessionIds"
   | "sessionSearchQuery"
   | "sessionSearchResults"
   | "isSearchingSessions"
@@ -144,7 +142,6 @@ export type WorkspaceScopedStateReset = Pick<AppState,
 export function resetWorkspaceScopedState(): WorkspaceScopedStateReset {
   return {
     sessions: [],
-    pinnedSessionIds: [],
     sessionSearchQuery: "",
     sessionSearchResults: undefined,
     isSearchingSessions: false,
@@ -169,7 +166,6 @@ export function initialAppState(): AppState {
     projects: [],
     workspaces: [],
     sessions: [],
-    pinnedSessionIds: [],
     sessionSearchQuery: "",
     sessionSearchResults: undefined,
     isSearchingSessions: false,
