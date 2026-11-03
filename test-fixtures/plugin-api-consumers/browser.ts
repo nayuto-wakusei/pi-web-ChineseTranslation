@@ -5,6 +5,8 @@ import type {
   DisplayedMessageActionContext,
   MessageActionContext,
   PluginNavigate,
+  PluginContributions,
+  PluginContributionsV5,
   PluginNavigationDestination,
   PluginNavigationPatchDestination,
   PluginNavigationOptions,
