@@ -22,6 +22,7 @@ for (const width of [1280, 360]) {
     await expect(page.locator("dialog.upload-dialog")).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("files-upload-review.png") });
     await page.keyboard.press("Escape");
+    await expect(page.locator("dialog.upload-dialog")).not.toBeVisible();
     await page.evaluate(() => window.dispatchEvent(new Event("fixture-codex-disable")));
     await expect(upload).toBeVisible();
     await expect(page.getByRole("button", { name: "新建文件", exact: true })).toHaveCount(0);
