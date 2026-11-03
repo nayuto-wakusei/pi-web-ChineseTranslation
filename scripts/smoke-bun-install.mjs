@@ -176,9 +176,9 @@ try {
   assert.equal((await fixtureFetch(`${webUrl}/api/projects`)).status, 200);
   // Exercise actual session construction through the daemon, without a model
   // request or credentials. This also runs the installed resource loader.
+  const project = await json(`${daemonUrl}/projects`, { path: join(root, "workspace"), name: "Bun smoke" });
   const session = await json(`${daemonUrl}/sessions`, { cwd: join(root, "workspace") });
   assert.ok(session.sessionId ?? session.id, JSON.stringify(session));
-  const project = await json(`${daemonUrl}/projects`, { path: join(root, "workspace"), name: "Bun smoke" });
   const catalog = await json(`${webUrl}/api/projects/${encodeURIComponent(project.id)}/workspaces`);
   const workspace = catalog.workspaces[0];
   assert.ok(workspace);
