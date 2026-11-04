@@ -7,6 +7,7 @@ import { PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS, PAIRED_PLUGIN_BACKEND_RESOUR
 import { activityApi, configApi, filesApi, machineStatusApi, noticesApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, sessionsApi, terminalsApi, trustApi, workspacesApi } from "./clients";
 import { globalSessionEvents, realtimeEvents, sessionEvents } from "./sockets";
 import { workspaceFileDownloadUrl, workspaceImagePreviewUrl } from "./urls";
+import { speechApi } from "./speech";
 import { PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS, WORKSPACE_FILE_FEDERATION_TIMEOUT_MS, WORKSPACE_FILE_JSON_RESPONSE_BODY_MAX_BYTES, WORKSPACE_REMOVAL_FEDERATION_TIMEOUT_MS } from "../../../shared/federatedRoutes";
 import { PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATH } from "../../../shared/pluginBackendProtocol";
 import { requestPairedPluginBackend } from "./pluginBackends";
@@ -311,6 +312,7 @@ describe("federated route contract", () => {
       ignoreParseFailure(terminalsApi.getCommandRun("run 1", machineId)),
       ignoreParseFailure(terminalsApi.cancelCommandRun("run 1", machineId)),
       ignoreParseFailure(sessionsApi.startInteractiveApiKeyLogin("amazon-bedrock", { machineId })),
+      ignoreParseFailure(speechApi.transcribe({ cwd: session.cwd, audio: { mimeType: "audio/webm", data: "AAAA" } }, machineId)),
     ]);
 
     const observedRoutes = uniqueHttpRoutes([

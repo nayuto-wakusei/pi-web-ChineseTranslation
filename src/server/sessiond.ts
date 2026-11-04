@@ -30,6 +30,8 @@ import { registerMcpAuthRoutes } from "./sessions/mcpAuthRoutes.js";
 import { PiSessionService } from "./sessions/piSessionService.js";
 import { createPiSessionManagerGateway } from "./sessions/piSessionManagerGateway.js";
 import { registerSessionRoutes } from "./sessions/sessionRoutes.js";
+import { registerSpeechRoutes } from "./speech/speechRoutes.js";
+import { SpeechTranscriptionService } from "./speech/transcriptionService.js";
 import { ProjectScopedSpawnTargetResolver } from "./sessions/spawnTargetResolver.js";
 import { ProjectService } from "./projects/projectService.js";
 import { ProjectLifecycleService } from "./projects/projectLifecycleService.js";
@@ -47,6 +49,7 @@ import { registerManagementTerminalRoutes } from "./terminals/managementTerminal
 import { REQUIRED_TERMINAL_SERVICE_CAPABILITY, unavailableRequiredTerminalService } from "./terminals/requiredTerminalService.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
+import { PI_WEB_CAPABILITIES } from "../shared/apiTypes.js";
 import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV, agentSessionDirEnvKeys, agentSessionDirEnvOverride, effectivePiWebConfig, maxUploadBytes, offlineModeEnabled, piWebDataDir, sessionArchiveDirectory } from "../config.js";
 import { createActiveAgentProfileDescriptor, publicActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
 import { scrubNonAgentVisibleEnvKeys } from "./sessiond/agentProcessEnvironment.js";
@@ -111,6 +114,9 @@ const configuredManagementProjectRoot = config.managementEmbed === undefined
 const translator = loadNodeTranslator("server", config);
 // Request-time defaults must observe Settings edits without restarting sessiond.
 const configService = createFilePiWebConfigService({ env: daemonEnvironment });
+// Composer dictation is configured at startup: the capability it advertises is
+// part of the runtime report, so changing the endpoint requires a daemon restart.
+const speechTranscription = new SpeechTranscriptionService({ config: config.speech, env: daemonEnvironment });
 // The embedded Pi SDK and every child process use the same resolved profile.
 daemonEnvironment[PI_CODING_AGENT_DIR_ENV] = config.agent.dir;
 process.env[PI_CODING_AGENT_DIR_ENV] = config.agent.dir;
@@ -482,7 +488,9 @@ await runSessionDaemonStartup({
     registerCleanup(() => pluginBackends.closeAll());
     registerCleanup(() => workspaceRemovals.closeAll());
     const runtimeComponent = Object.freeze({
-      ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES, deprecatedAgentInputs),
+      ...getPiWebRuntimeComponent("sessiond", speechTranscription.configured
+        ? SESSIOND_RUNTIME_CAPABILITIES
+        : SESSIOND_RUNTIME_CAPABILITIES.filter((capability) => capability !== PI_WEB_CAPABILITIES.promptSpeechRecognition), deprecatedAgentInputs),
       activeAgentProfile: publicActiveAgentProfileDescriptor(activeAgentProfile),
     });
     projectLifecycle.scheduleCleanup();
@@ -527,6 +535,7 @@ await runSessionDaemonStartup({
     registerAuthRoutes(app, { normal: projectAuth, management: managementAuth });
     registerMcpAuthRoutes(app, sessions);
     registerSessionRoutes(app, sessions, eventHub);
+    registerSpeechRoutes(app, { speech: speechTranscription }, "", translator);
     registerManagementTerminalRoutes(app, managementTerminals);
     registerWorkbenchAccessStateRoutes(app, accessStates);
     const managementProjectRoot = config.managementEmbed?.enabled === true

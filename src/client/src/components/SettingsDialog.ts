@@ -23,6 +23,7 @@ import type { QualifiedFileIconThemeContribution, QualifiedThemeContribution } f
 import "./settings/SettingsFileIconThemePanel";
 import { configureThemePolicy, DEFAULT_THEME_PREFERENCE, effectiveThemePreference, type ThemePreference } from "../theme";
 import "./settings/SettingsSessiondPanel";
+import "./settings/SettingsSpeechPanel";
 import "./settings/SettingsPackagesPanel";
 import "./settings/SettingsPluginsPanel";
 import "./settings/SettingsShortcutsPanel";
@@ -85,6 +86,9 @@ export class SettingsDialog extends LitElement {
   @state() private configResponse: PiWebConfigResponse | undefined;
   @state() private accessConfigResponse: PiWebConfigResponse | undefined;
   @state() private sessiondConfigResponse: PiWebConfigResponse | undefined;
+  @state() private speechErrorPresentation: DisplayText = "";
+  private get speechError(): string { return displayText(this.speechErrorPresentation); }
+  private set speechError(value: DisplayText) { this.speechErrorPresentation = value; }
   @state() private pluginsResponse: PiWebPluginsResponse | undefined;
   @state() private selectedPluginConfigResponse: PiWebConfigResponse | undefined;
   @state() private selectedPluginsResponse: PiWebPluginsResponse | undefined;
@@ -230,6 +234,7 @@ export class SettingsDialog extends LitElement {
             <nav slot="navigation" class="settings-nav" aria-label=${settingsDialogMessages.t("sections")}>
               ${this.renderNavButton("general", settingsDialogMessages.t("general"), settingsDialogMessages.t("generalDetail"))}
               ${this.renderNavButton("sessiond", settingsDialogMessages.t("sessiond"), settingsDialogMessages.t("selectedMachine"))}
+              ${this.renderNavButton("speech", settingsDialogMessages.t("speech"), settingsDialogMessages.t("selectedMachine"))}
               ${this.renderNavButton("packages", settingsDialogMessages.t("packages"), settingsDialogMessages.t("selectedMachine"))}
               ${this.renderNavButton("plugins", settingsDialogMessages.t("plugins"), settingsDialogMessages.t("selectedMachine"))}
               ${this.renderNavButton("mcp", settingsDialogMessages.t("mcp"), settingsDialogMessages.t("selectedSession"))}
@@ -345,6 +350,22 @@ export class SettingsDialog extends LitElement {
           .onSave=${(config: PiWebConfigValues, unset?: string[]) => this.saveSessiondConfig(config, unset, target)}
           .onReset=${(paths: string[]) => this.saveSessiondConfig({}, paths, target)}
         ></settings-sessiond-panel>
+      `;
+    }
+    if (this.section === "speech") {
+      const target = this.settingsTarget();
+      return html`
+        <settings-speech-panel
+          .configResponse=${this.sessiondConfigResponse}
+          .targetId=${target.id}
+          .loading=${this.sessiondLoading}
+          .saving=${this.saving}
+          .error=${this.speechError}
+          .savedMessage=${this.savedSection === "speech" ? this.savedMessage : ""}
+          .onReload=${() => this.reloadSessiondState()}
+          .onSave=${(config: PiWebConfigValues, unset?: string[]) => this.saveSpeechConfig(config, unset, target)}
+          .onReset=${(paths: string[]) => this.saveSpeechConfig({}, paths, target)}
+        ></settings-speech-panel>
       `;
     }
     if (this.section === "shortcuts") {
@@ -766,8 +787,7 @@ export class SettingsDialog extends LitElement {
     }
   }
 
-  private async saveSessiondConfig(config: PiWebConfigValues, unset: string[] = [], target = this.settingsTarget()): Promise<void> {
-    if (this.saving) return;
+  private async saveSessiondConfig(config: PiWebConfigValues, unset: string[] = [], target = this.settingsTarget()): Promise<void> {    if (this.saving) return;
     if (!this.isCurrentSettingsTarget(target)) return;
     const support = this.selectedMachineSettingsSupport(target);
     if (isSelectedMachineSettingsUnsupported(support)) {
@@ -796,6 +816,35 @@ export class SettingsDialog extends LitElement {
       if (this.isCurrentSettingsTarget(target)) {
         const diagnostic = errorMessage(error);
         this.sessiondError = () => settingsDialogMessages.t("saveSessiond", { target: settingsFeedbackTargetLabel(target), error: settingsFeedbackSelectedError(diagnostic, target) });
+      }
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  private async saveSpeechConfig(config: PiWebConfigValues, unset: string[] = [], target = this.settingsTarget()): Promise<void> {
+    if (this.saving) return;
+    if (!this.isCurrentSettingsTarget(target)) return;
+    const support = this.selectedMachineSettingsSupport(target);
+    if (isSelectedMachineSettingsUnsupported(support)) {
+      this.speechError = support.message ?? t("ui.settingsDialog.doesNotSupportSelectedMachineSettings", "{value1} does not support selected-machine settings.", { value1: settingsMachineTargetLabel(target) });
+      return;
+    }
+    this.sessiondLoadRequestSeq += 1;
+    this.sessiondLoading = false;
+    this.saving = true;
+    this.speechError = "";
+    this.savedMessage = "";
+    try {
+      const response = await configApi.updateConfig({ ...explicitConfigUpdate(this.sessiondConfigResponse, config), ...resetConfigUpdate(this.sessiondConfigResponse, unset) }, target.id);
+      if (!this.isCurrentSettingsTarget(target)) return;
+      this.sessiondConfigResponse = response;
+      if (target.kind === "local" && this.configResponse !== undefined) this.configResponse = mergeSelectedMachineSessiondConfig(this.configResponse, response);
+      this.showSavedMessage(() => settingsDialogMessages.t("speechSaved", { name: target.name }), "speech");
+    } catch (error) {
+      if (this.isCurrentSettingsTarget(target)) {
+        const diagnostic = errorMessage(error);
+        this.speechError = () => settingsDialogMessages.t("saveSpeech", { target: settingsFeedbackTargetLabel(target), error: settingsFeedbackSelectedError(diagnostic, target) });
       }
     } finally {
       this.saving = false;
@@ -963,6 +1012,7 @@ export class SettingsDialog extends LitElement {
     this.sessiondLoadRequestSeq += 1;
     this.sessiondLoading = false;
     this.sessiondError = "";
+    this.speechError = "";
     this.sessiondConfigResponse = undefined;
     this.savedMessage = "";
   }
@@ -1050,6 +1100,7 @@ function errorMessage(error: unknown): string {
 
 export type SettingsPanelTag =
   | "settings-general-panel"
+  | "settings-speech-panel"
   | "settings-sessiond-panel"
   | "settings-packages-panel"
   | "settings-plugins-panel"
@@ -1068,6 +1119,8 @@ export function activeSettingsPanelTag(section: SettingsSection): SettingsPanelT
   switch (section) {
     case "sessiond":
       return "settings-sessiond-panel";
+    case "speech":
+      return "settings-speech-panel";
     case "packages":
       return "settings-packages-panel";
     case "plugins":

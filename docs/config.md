@@ -124,7 +124,7 @@ enforced environment > browser-local choice > supported project override
 
 Browser-local choices apply to colour theme, file icon theme, and localization. Project config participates only for supported keys. Environment policy wins over both; it is not a default that projects or browsers can override.
 
-Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace `{}` contributes no overrides; missing leaves inherit.
+Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: `uploads.defaultFolder`, `attachments.defaultFolder`, `speech.endpoint`, `speech.api`, `speech.model`, `speech.language`, `speech.apiKeyEnv`, `speech.timeoutMs`, `speech.maxAudioBytes`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace `{}` contributes no overrides; missing leaves inherit.
 
 Each plugin's `enabled` and each top-level `plugins.<id>.settings.<key>` also resolve independently. An individual array/dictionary-valued setting still replaces entirely, including an explicit empty value. `defaultTheme` remains one atomic, coherent preference; `shortcuts` and deprecated `agent` are also atomic. JSON depth alone does not define a setting. Path additions have the separate composition rules below.
 
@@ -140,9 +140,9 @@ PI_WEB_DEFAULT_LOCALIZATION='{"timeZone":"UTC"}'
 PI_WEB_PLUGINS='{"git":{"settings":{"workspaceDiscoveryHooks":false}}}'
 ```
 
-Container JSON variables keep their existing names: `PI_WEB_UPLOADS`, `PI_WEB_ATTACHMENTS`, `PI_WEB_SESSION_NAMING`, `PI_WEB_SESSION_ARCHIVE`, `PI_WEB_PATH_ACCESS`, and `PI_WEB_DEFAULT_LOCALIZATION`. Only supplied namespace leaves are enforced, including `pathAccess.allowedPaths` and plugin leaves; `{}` enforces none. Atomic settings lock the whole value. `PI_WEB_PORT` retains the `PORT` fallback; a nonempty `PI_WEB_SESSION_ARCHIVE_DIR` alias wins over `PI_WEB_SESSION_ARCHIVE` JSON. `PI_WEB_ALLOWED_HOSTS` accepts JSON `true` or a string array, plus legacy `true`/comma-separated hosts. Allowing all hosts is unsafe for an exposed development server; prefer an explicit list.
+Container JSON variables keep their existing names: `PI_WEB_UPLOADS`, `PI_WEB_ATTACHMENTS`, `PI_WEB_SPEECH`, `PI_WEB_SESSION_NAMING`, `PI_WEB_SESSION_ARCHIVE`, `PI_WEB_PATH_ACCESS`, and `PI_WEB_DEFAULT_LOCALIZATION`. Only supplied namespace leaves are enforced, including `pathAccess.allowedPaths` and plugin leaves; `{}` enforces none. Atomic settings lock the whole value. `PI_WEB_PORT` retains the `PORT` fallback; a nonempty `PI_WEB_SESSION_ARCHIVE_DIR` alias wins over `PI_WEB_SESSION_ARCHIVE` JSON. `PI_WEB_ALLOWED_HOSTS` accepts JSON `true` or a string array, plus legacy `true`/comma-separated hosts. Allowing all hosts is unsafe for an exposed development server; prefer an explicit list.
 
-Boolean environment inputs accept only `true`/`false` (case-insensitive) or `1`/`0`. Invalid supplied policy values fail startup instead of being ignored. Unknown fields in declared core containers are errors, including misspellings in `pathAccess`, `uploads`, and `attachments`. Plugin environment envelopes accept only `enabled` and `settings`; keys inside `settings` remain plugin-owned. Unset a variable to remove enforcement; empty strings are not a general reset syntax. Legacy empty host, port, allowed-hosts, upload-limit, and archive-directory overrides remain ignored. Runtime-only variables have their own contracts; see offline flags below. Markers such as `PI_WEB_SESSION` are not config policy.
+Boolean environment inputs accept only `true`/`false` (case-insensitive) or `1`/`0`. Invalid supplied policy values fail startup instead of being ignored. Unknown fields in declared core containers are errors, including misspellings in `pathAccess`, `uploads`, `attachments`, and `speech`. Plugin environment envelopes accept only `enabled` and `settings`; keys inside `settings` remain plugin-owned. Unset a variable to remove enforcement; empty strings are not a general reset syntax. Legacy empty host, port, allowed-hosts, upload-limit, and archive-directory overrides remain ignored. Runtime-only variables have their own contracts; see offline flags below. Markers such as `PI_WEB_SESSION` are not config policy.
 
 ### Sources, saves, and resets
 
@@ -173,6 +173,7 @@ Process restarts depend on the key:
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
 - `attachments.defaultFolder`: applies to new prompt-attachment saves after config/workspace refresh.
+- `speech.*`: the session daemon reads it once at startup because it also decides whether the runtime advertises `prompt.speechRecognition`; restart that machine's daemon to change it. The browser refreshes the control on the next runtime status read.
 - `plugins`: browser-only changes need a tab reload. Server-backed enablement, settings, or package changes require a manual session-daemon restart, then a tab reload. See [Project plugin settings](#project-plugin-settings).
 - `serverPlugins.safeStart`: persistent offline recovery state applied before server-plugin discovery/import on the next sessiond start; use the `pi-web plugins safe-start ...` CLI rather than hand-editing it.
 - Pi package changes: use `/reload` in each idle session for ordinary extensions, skills, templates, and themes. Packages containing server plugins require a manual session-daemon restart and browser reload. Global provider registration or connection changes also require a daemon restart; model-list-only updates do not. See [Pi extension provider baseline](#pi-extension-provider-baseline).
@@ -343,6 +344,7 @@ worktree_path="$1"
 | 外部路径根 | `pathAccess.allowedPaths` | `PI_WEB_PATH_ACCESS` | 机器 + 项目 | basePaths 后加全局/项目；环境替换添加项；下次文件请求 |
 | 上传目录 | `uploads.defaultFolder` | `PI_WEB_UPLOADS` | 机器 + 项目 | 项目覆盖；新对话框/拖放批次 |
 | 附件目录 | `attachments.defaultFolder` | `PI_WEB_ATTACHMENTS` | 机器 + 项目 | 项目覆盖；新附件保存 |
+| 语音输入 | `speech.endpoint/api/model/language/apiKeyEnv/timeoutMs/maxAudioBytes` | `PI_WEB_SPEECH` | 机器 | 未配置即关闭；重启 daemon |
 | 请求大小 | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | 机器 | Web/API 与 daemon 重启 |
 | 独立会话 | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | daemon | 重启 daemon |
 | 跟踪子会话 | `subsessions` | `PI_WEB_SUBSESSIONS` | daemon | 也需要 `spawnSessions`；重启 |
@@ -476,6 +478,31 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 ### 提示词附件默认目录
 
 附件投递“保存到…”把文件写入工作区，并在提示词中引用路径，不以内联方式附加内容。默认 `.pi-web/attachments`，项目 `attachments.defaultFolder` 覆盖机器默认值；格式/逃逸规则与上传目录一致。显式附件 API 请求目录优先于配置。联邦设置保存在目标机器，编辑器使用有效项目目录。
+
+<a id="speech-dictation"></a>
+### 语音输入
+
+输入框的话筒把一段录音交给语音服务转写，结果插入当前草稿的光标处，不自动发送，也不产生附件或会话数据。浏览器只负责采集（MediaRecorder），daemon 负责校验并转发，因此请求发往拥有所选项目的机器。麦克风要求安全上下文：HTTPS 或 `localhost`/`127.0.0.1`；非安全来源下浏览器不提供 `navigator.mediaDevices`，此时不渲染话筒并显示说明。
+
+```json
+{
+  "speech": {
+    "endpoint": "http://192.168.2.162:8080",
+    "api": "transcriptions",
+    "model": "qwen3-asr-0.6b",
+    "language": "zh",
+    "apiKeyEnv": "SPEECH_API_KEY"
+  }
+}
+```
+
+`endpoint` 是 OpenAI 兼容服务根，缺少 `/v1` 时自动补全。`api` 选 `transcriptions`（默认；multipart 调用 `/v1/audio/transcriptions`，读取响应 `text`）或 `chat`（`/v1/chat/completions` + `audio_url` 数据 URI；正文从 `<asr_text>` 标签之后提取，语言标签丢弃）。`model` 用服务端暴露的模型名，不是仓库 id。`language` 省略即自动识别；`timeoutMs` 默认 60000、上限 300000；`maxAudioBytes` 是 base64 解码后的上限，默认 8 MiB、上限 32 MiB。
+
+密钥只经 `apiKeyEnv` 指向的环境变量传入，作为 `Authorization: Bearer` 发送；配置文件、日志、`/api/config` 响应和审计都不含密钥本身。服务不需要鉴权时省略该字段。
+
+未配置 `endpoint` 视为关闭：daemon 的运行时能力报告不含 `prompt.speechRecognition`，浏览器不渲染话筒。该判断发生在 daemon 启动时，修改后须重启 daemon；Web/API 与 daemon 必须使用同一份有效配置。录音容器（WebM/Opus、Ogg/Opus、MP4/AAC）直接上传，不做浏览器转码。
+
+设置 → **语音输入** 编辑所选机器的 `endpoint`、`api`、`model`、`language` 与 `apiKeyEnv`；被环境强制的字段显示锁定与来源，保存只写入改动过的叶，清空已保存的叶会显式 unset。`timeoutMs` 与 `maxAudioBytes` 仍只通过配置文件或环境设置。面板保存后提示重启该机器的 daemon，浏览器在下次读取运行时状态时决定是否显示话筒。
 
 <a id="agent-state-directory"></a>
 <a id="agent-runtime"></a>

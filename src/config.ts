@@ -66,6 +66,14 @@ export const DEFAULT_UPLOADS_FOLDER = ".pi-web/uploads";
 export const DEFAULT_ATTACHMENT_FOLDER = ".pi-web/attachments";
 
 /**
+ * Composer dictation defaults. Timeout covers one utterance round trip through
+ * the speech service; the byte cap applies after base64 decoding and stays far
+ * below the service-side per-file limit.
+ */
+export const DEFAULT_SPEECH_TIMEOUT_MS = 60_000;
+export const DEFAULT_SPEECH_MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+
+/**
  * Default auto-cancel delay for extension dialogs whose extension set no
  * `timeout` of its own: five minutes. `extensionDialogsTimeoutMs: 0` waits
  * forever. Tunes the unattended-dialog safety valve only; dialogs are always
@@ -166,6 +174,17 @@ export function effectiveAttachmentsConfig(config: Pick<PiWebConfig, "attachment
   return { defaultFolder: config.attachments?.defaultFolder ?? DEFAULT_ATTACHMENT_FOLDER };
 }
 
+/** Fill dictation defaults without resolving the bearer token, which stays in the environment. */
+export function effectiveSpeechConfig(configured: PiWebConfig["speech"]): PiWebConfig["speech"] {
+  if (configured === undefined) return undefined;
+  return {
+    ...configured,
+    api: configured.api ?? "transcriptions",
+    timeoutMs: configured.timeoutMs ?? DEFAULT_SPEECH_TIMEOUT_MS,
+    maxAudioBytes: configured.maxAudioBytes ?? DEFAULT_SPEECH_MAX_AUDIO_BYTES,
+  };
+}
+
 export function maxUploadBytes(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): number {
   const fromEnv = env["PI_WEB_MAX_UPLOAD_BYTES"];
   if (fromEnv !== undefined && fromEnv !== "") return parseMaxUploadBytes(fromEnv, "PI_WEB_MAX_UPLOAD_BYTES");
@@ -241,6 +260,7 @@ export function resolveEffectivePiWebConfig(loaded: LoadedPiWebConfig, options: 
   const agent = effectiveAgentConfig(env, config);
   const workbenchIntegration = effectiveWorkbenchIntegrationConfig(env, config.workbenchIntegration);
   const auditLog = effectiveAuditLogConfig(config.auditLog, env);
+  const speech = effectiveSpeechConfig(config.speech);
   return {
     ...loaded,
     config: {
@@ -249,6 +269,9 @@ export function resolveEffectivePiWebConfig(loaded: LoadedPiWebConfig, options: 
       auditLog,
       uploads: effectiveUploadsConfig(config),
       attachments: effectiveAttachmentsConfig(config),
+      // Absent speech config keeps dictation off; the daemon advertises its
+      // capability only when an endpoint is configured.
+      ...(speech === undefined ? {} : { speech }),
       // Always resolved (on by default) so the effective config is the single
       // source of truth for the runtime state and the settings UI toggle.
       spawnSessions: spawnSessionsEnabled({}, config),

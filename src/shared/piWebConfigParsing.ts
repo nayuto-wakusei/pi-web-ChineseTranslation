@@ -32,6 +32,7 @@ export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unk
     ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
     ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
     ...(config.attachments !== undefined ? { attachments: config.attachments } : {}),
+    ...(config.speech !== undefined ? { speech: config.speech } : {}),
     ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
     ...(config.sessionArchive !== undefined ? { sessionArchive: config.sessionArchive } : {}),
     ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
@@ -85,6 +86,7 @@ function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseCo
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["attachments"] !== undefined ? { attachments: parseAttachmentsConfig(value["attachments"], context.format === "file" ? context.path : "request") } : {}),
+    ...(value["speech"] !== undefined ? { speech: parseSpeechConfig(value["speech"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", context.format === "file" ? context.path : "request") } : {}),
     ...(value["sessionArchive"] !== undefined ? { sessionArchive: parseSessionArchiveConfig(value["sessionArchive"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseBoolean(value["spawnSessions"], "spawnSessions", context) } : {}),
@@ -388,6 +390,84 @@ export function parseAttachmentsConfig(value: unknown, path: string): NonNullabl
   return {
     ...(defaultFolder !== undefined ? { defaultFolder: parseWorkspaceRelativeFolder(defaultFolder, "attachments.defaultFolder", path) } : {}),
   };
+}
+
+const SPEECH_CONFIG_KEYS = new Set(["endpoint", "api", "model", "language", "apiKeyEnv", "timeoutMs", "maxAudioBytes"]);
+const SPEECH_MAX_TIMEOUT_MS = 300_000;
+const SPEECH_MAX_AUDIO_BYTES = 32 * 1024 * 1024;
+
+/** Validate composer dictation settings; the bearer token itself is never part of config. */
+export function parseSpeechConfig(value: unknown, source: string): NonNullable<PiWebConfigValues["speech"]> {
+  if (!isRecord(value) || Array.isArray(value)) throw new UserFacingError("configError.pi.web.config.speech.must.be.an.object", "PI WEB config speech must be an object: {source}", { source });
+  const unknownKey = Object.keys(value).find((key) => !SPEECH_CONFIG_KEYS.has(key));
+  if (unknownKey !== undefined) throw new UserFacingError("configError.pi.web.config.speech.unknownKey", "PI WEB config speech contains unknown key {key}: {source}", { key: JSON.stringify(unknownKey), source });
+  const endpoint = value["endpoint"];
+  const api = value["api"];
+  const model = value["model"];
+  const language = value["language"];
+  const apiKeyEnv = value["apiKeyEnv"];
+  return {
+    ...(endpoint === undefined ? {} : { endpoint: parseSpeechEndpoint(endpoint, source) }),
+    ...(api === undefined ? {} : { api: parseSpeechApi(api, source) }),
+    ...(model === undefined ? {} : { model: parseSpeechText(model, "speech.model", source) }),
+    ...(language === undefined ? {} : { language: parseSpeechLanguage(language, source) }),
+    ...(apiKeyEnv === undefined ? {} : { apiKeyEnv: parseSpeechApiKeyEnv(apiKeyEnv, source) }),
+    ...optionalSpeechPositiveInteger(value, "timeoutMs", SPEECH_MAX_TIMEOUT_MS, "milliseconds", source),
+    ...optionalSpeechPositiveInteger(value, "maxAudioBytes", SPEECH_MAX_AUDIO_BYTES, "bytes", source),
+  };
+}
+
+function parseSpeechEndpoint(value: unknown, source: string): string {
+  const text = parseSpeechText(value, "speech.endpoint", source);
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new UserFacingError("configError.pi.web.config.speech.endpoint", "PI WEB config speech.endpoint must be an absolute HTTP URL: {source}", { source });
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username !== "" || url.password !== "") {
+    throw new UserFacingError("configError.pi.web.config.speech.endpoint", "PI WEB config speech.endpoint must be an absolute HTTP URL: {source}", { source });
+  }
+  return text;
+}
+
+function parseSpeechApi(value: unknown, source: string): "transcriptions" | "chat" {
+  if (value !== "transcriptions" && value !== "chat") {
+    throw new UserFacingError("configError.pi.web.config.speech.api", "PI WEB config speech.api must be \"transcriptions\" or \"chat\": {source}", { source });
+  }
+  return value;
+}
+
+function parseSpeechText(value: unknown, key: string, source: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new UserFacingError("configError.pi.web.config.speech.field", "PI WEB config {key} must be a non-empty string: {source}", { key, source });
+  }
+  return value;
+}
+
+function parseSpeechLanguage(value: unknown, source: string): string {
+  const language = parseSpeechText(value, "speech.language", source);
+  if (!/^[A-Za-z]{2,8}(?:[-_][A-Za-z0-9]{1,8})*$/.test(language)) {
+    throw new UserFacingError("configError.pi.web.config.speech.language", "PI WEB config speech.language must be a language tag such as zh or en-US: {source}", { source });
+  }
+  return language;
+}
+
+function parseSpeechApiKeyEnv(value: unknown, source: string): string {
+  const name = parseSpeechText(value, "speech.apiKeyEnv", source);
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new UserFacingError("configError.pi.web.config.speech.apiKeyEnv", "PI WEB config speech.apiKeyEnv must be an environment variable name: {source}", { source });
+  }
+  return name;
+}
+
+function optionalSpeechPositiveInteger(value: Record<string, unknown>, field: string, maximum: number, unit: string, source: string): Record<string, number> {
+  const candidate = value[field];
+  if (candidate === undefined) return {};
+  if (typeof candidate !== "number" || !Number.isInteger(candidate) || candidate < 1 || candidate > maximum) {
+    throw new UserFacingError("configError.pi.web.config.speech.integer", "PI WEB config speech.{field} must be an integer from 1 to {maximum} {unit}: {source}", { field, maximum, unit, source });
+  }
+  return { [field]: candidate };
 }
 
 function parseWorkspaceRelativeFolder(value: unknown, key: string, path: string): string {

@@ -2,11 +2,15 @@ import { initializeClientLocalization } from "../../src/client/src/localizationB
 import { localization } from "../../src/client/src/localization/browser";
 import { configApi, piPackagesApi, pluginsApi, type Machine, type PiWebConfigResponse, type PiWebConfigValues } from "../../src/client/src/api";
 import { SettingsDialog } from "../../src/client/src/components/SettingsDialog";
+import { parseSettingsSection } from "../../src/client/src/settingsRoute";
 import chinesePlugin from "../../pi-web-plugins/zh-cn/pi-web-plugin";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../../src/shared/pluginRecoveryCommands";
 
+const params = new URLSearchParams(window.location.search);
+const language = params.get("lang") === "en" ? "en" : "zh-CN";
+
 await initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }]));
-await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
+await localization.setPreferences({ language, formatLocale: language });
 
 const style = document.createElement("style");
 style.textContent = `
@@ -15,19 +19,45 @@ style.textContent = `
 `;
 document.head.append(style);
 
+// Long values exercise wrapping in the config-path card and the speech fields.
+const longSpeech: PiWebConfigValues["speech"] = params.get("speech") === "long" ? {
+  endpoint: "http://speech-service.internal.example.test:18080/openai-compatible/v1",
+  api: "transcriptions",
+  model: "qwen3-asr-0.6b-instruct-quantized-long-name",
+  language: "zh-CN",
+  apiKeyEnv: "PI_WEB_SPEECH_BEARER_TOKEN",
+} : undefined;
+const enforced = params.get("enforced") === "1";
+const configPath = params.get("speech") === "long"
+  ? "/srv/organizations/north-region/deployments/pi-web-production/config.json"
+  : "/fixture/config.json";
+
 function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
   return {
-    path: "/fixture/config.json", exists: true, config, effectiveConfig: config,
+    path: configPath, exists: true, config, effectiveConfig: config,
     envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, sessionMessages: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
+    ...(enforced ? { enforcedSettings: { "/speech/endpoint": "PI_WEB_SPEECH" } } : {}),
   };
 }
 
-configApi.config = (id) => Promise.resolve(configResponse({
-  host: "127.0.0.1", port: 8504, uploads: { defaultFolder: `${id ?? "gateway"}/uploads` },
-}));
+function seededConfig(id?: string): PiWebConfigValues {
+  return {
+    host: "127.0.0.1", port: 8504, uploads: { defaultFolder: `${id ?? "gateway"}/uploads` },
+    ...(longSpeech === undefined ? {} : { speech: longSpeech }),
+  };
+}
+
+function patchedConfig(base: PiWebConfigValues, set: PiWebConfigValues): PiWebConfigValues {
+  // PATCH semantics: declared namespaces merge leaf-by-leaf, everything else replaces.
+  const next: PiWebConfigValues = { ...base, ...set };
+  if (set.speech !== undefined) next.speech = { ...base.speech, ...set.speech };
+  return next;
+}
+
+configApi.config = (id) => Promise.resolve(configResponse(seededConfig(id)));
 configApi.namingModels = () => Promise.resolve({ models: [] });
 configApi.saveConfig = (config) => Promise.resolve(configResponse(config));
-configApi.updateConfig = (update) => Promise.resolve(configResponse(update.set ?? {}));
+configApi.updateConfig = (update, id) => Promise.resolve(configResponse(patchedConfig(seededConfig(id), update.set ?? {})));
 piPackagesApi.packages = () => Promise.resolve({ packages: [] });
 pluginsApi.plugins = () => Promise.resolve({
   lifecycleVersion: 2, plugins: [], diagnostics: [],
@@ -44,6 +74,7 @@ const dialog = new SettingsDialog();
 dialog.actions = [{ id: "fixture", title: "打开导航", description: "选择应用中的其他页面", group: "通用", shortcut: "Ctrl+K", run: () => undefined }];
 dialog.machine = first;
 dialog.machines = [local, first, second];
+dialog.section = parseSettingsSection(params.get("settings")) ?? "general";
 dialog.onNavigate = (section) => { dialog.section = section; };
 dialog.onClose = () => { dialog.remove(); };
 document.body.append(dialog);

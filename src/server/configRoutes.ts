@@ -21,6 +21,7 @@ export const SELECTED_MACHINE_CONFIG_KEYS = [
   "basePaths",
   "uploads",
   "attachments",
+  "speech",
   "maxUploadBytes",
   "spawnSessions",
   "sessionMessages",

@@ -195,6 +195,9 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   app.all(`${prefix}/auth/*`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/sessions`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/sessions/*`, (request, reply) => proxy(request, reply));
+  // Composer dictation is daemon-owned so a remote machine's speech endpoint
+  // settings apply where the audio is sent.
+  app.post(`${prefix}/speech/transcriptions`, (request, reply) => cancellableProxy(request, reply));
   app.post(`${prefix}/projects`, (request, reply) => projectMutationProxy(request, reply, "/projects"));
   app.delete<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId`, (request, reply) => projectMutationProxy(request, reply, `/projects/${encodeURIComponent(request.params.projectId)}`));
 }

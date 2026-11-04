@@ -204,7 +204,9 @@ Inside `:host(prompt-editor)`, the existing footer carries `[data-ui-context="co
 | `[data-composer-action]` | Purpose of a native button; independent of its label, icon, and visual treatment |
 | `[data-ui-context="composer-attachment-sources"]` | Existing native attachment-source popover inside the composer context |
 
-Supported action values are `model`, `thinking`, `attach`, `send`, `queue`, `steer`, and `stop`. Attachment-source buttons use `attach-photos`, `attach-camera`, and `attach-files`.
+Supported action values are `model`, `thinking`, `attach`, `dictate`, `send`, `queue`, `steer`, and `stop`. Attachment-source buttons use `attach-photos`, `attach-camera`, and `attach-files`.
+
+The dictation button is present only when the selected machine advertises `prompt.speechRecognition` and the workspace path is known; it exposes `data-state="idle" | "recording" | "transcribing"` and `aria-pressed`, and swaps its icon between microphone and stop while recording. It sits in the same actions group as send. Themes may restyle its recording state, but pressing it must keep its start/stop meaning.
 
 The same primary button changes its action from `send` to `queue` while requests are queued; this does not replace the button or move its focus. Steer is present only while offered by the existing session state, and is hidden during compaction. Stop remains a separate button. Themes should target purpose attributes instead of the older internal `.send-button`, `.select-model`, or icon classes.
 

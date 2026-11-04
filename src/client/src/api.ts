@@ -1,4 +1,5 @@
 export { activityApi, api, configApi, filesApi, machinesApi, machineStatusApi, normalAuthApi, noticesApi, piPackagesApi, piWebApi, pluginsApi, projectsApi, SessionTreeForkUnavailableError, sessionsApi, terminalsApi, workspacesApi } from "./api/clients";
+export { parseSpeechTranscription, speechApi } from "./api/speech";
 export { globalSessionEvents, realtimeEvents, sessionEvents } from "./api/sockets";
 export { setApiScope } from "./api/http";
 export type { ApiScope } from "./api/managementEmbed";

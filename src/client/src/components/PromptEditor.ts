@@ -10,7 +10,7 @@ import { promptArgumentHintExtension, setPromptArgumentHint } from "../promptArg
 import { defaultHighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { LitElement, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
-import { api, DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER, type FileSuggestion, type PromptAttachment, type SessionModel, type SessionStatus, type SlashCommand } from "../api";
+import { api, DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER, speechApi, type FileSuggestion, type PromptAttachment, type SessionModel, type SessionStatus, type SlashCommand } from "../api";
 import type { PromptAttachmentDelivery } from "../../../shared/apiTypes";
 import { capturePromptAttachments, effectivePromptAttachmentDelivery, isInlinePromptAttachment, promptAttachmentsCanUseInlineDelivery } from "../promptAttachmentCapture";
 import { inputModeForDraft, inputModesEqual, type InputMode } from "../inputModes";
@@ -24,7 +24,9 @@ import { MOBILE_PROMPT_ENTER_MEDIA_QUERY, shouldUsePromptEnterShiftShortcut } fr
 import { composerSendShortcut, matchesComposerSend } from "../composerShortcuts";
 import { normalizeShortcut, type ShortcutPreferenceConfig } from "../keyboardShortcuts";
 import { promptEditorStyles, type CompletionItem } from "./shared";
-import { renderAttachIcon, renderCameraIcon, renderPhotosIcon, renderSendIcon, renderQueueIcon, renderSteerIcon, renderStopIcon, renderThinkingGauge } from "./promptEditorIcons";
+import { renderAttachIcon, renderCameraIcon, renderMicrophoneIcon, renderPhotosIcon, renderSendIcon, renderQueueIcon, renderSteerIcon, renderStopIcon, renderThinkingGauge } from "./promptEditorIcons";
+import { MAX_SPEECH_RECORDING_MS } from "../../../shared/speechTranscription";
+import { readSpeechRecordingBase64, speechRecordingAvailable, SpeechRecorder } from "../speech/recorder";
 import { thinkingGauge, thinkingLevelDisplayLabel } from "../../../shared/thinkingLevels";
 import { AnchoredPopupController } from "./anchoredPopup";
 import "./AutocompleteMenu";
@@ -34,6 +36,14 @@ function shouldShowAttachSourceMenu(): boolean {
   // platforms use their native chooser directly, including unknown devices;
   // pointer type does not tell us which native attachment sources are offered.
   return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 // Text nodes inside contenteditable can become iOS keyboard context, even in
@@ -74,6 +84,8 @@ export class PromptEditor extends LitElement {
   @property({ type: Boolean }) canStop = false;
   @property({ attribute: false }) status?: SessionStatus;
   @property({ type: Boolean }) sending = false;
+  /** The selected machine advertises composer dictation and has a speech endpoint. */
+  @property({ type: Boolean }) speechRecognition = false;
   @property({ attribute: false }) shortcutConfig: Record<string, string | null> = {};
   @property({ attribute: false }) shortcuts: ShortcutPreferenceConfig | undefined;
   @property({ attribute: false }) promptChips: readonly StagedPromptChip[] = [];
@@ -105,6 +117,17 @@ export class PromptEditor extends LitElement {
   @state() private chipSendingKey: string | undefined = undefined;
   @state() private chipError: { kind: "retry" } | { kind: "failed"; error: string } | undefined = undefined;
   @state() private attachSourceOpen = false;
+  @state() private dictation: "idle" | "recording" | "transcribing" = "idle";
+  @state() private speechError: string | undefined = undefined;
+  private readonly speechRecorder = new SpeechRecorder();
+  private speechAbort: AbortController | undefined;
+  private speechAutoStop: ReturnType<typeof setTimeout> | undefined;
+  // Guards the permission prompt: the recorder is still idle while the user
+  // decides, so a second click must not begin another capture.
+  private dictationStarting = false;
+  // Invalidates in-flight capture and transcription when the composer switches
+  // to another session, machine, or workspace.
+  private dictationGeneration = 0;
   private readonly attachPopup = new AnchoredPopupController(this, () => {
     if (!this.attachSourceOpen || !this.attachButton || !this.attachSourcePanel) return undefined;
     return {
@@ -131,7 +154,10 @@ export class PromptEditor extends LitElement {
 
   protected override willUpdate(changed: PropertyValues<this>) {
     if (this.busy || changed.has("sessionId") || changed.has("machineId") || changed.has("cwd")) this.attachSourceOpen = false;
-    if (changed.has("sessionId") || changed.has("machineId") || changed.has("cwd")) this.attachmentContextGeneration += 1;
+    if (changed.has("sessionId") || changed.has("machineId") || changed.has("cwd")) {
+      this.attachmentContextGeneration += 1;
+      this.cancelDictation();
+    }
     if ((["cwd", "projectId", "workspaceId", "machineId", "sessionId"] as const).some((key) => changed.has(key))) this.cancelFileCompletion();
     if (!changed.has("sessionId") && !changed.has("machineId")) return;
     const previousSessionId = changed.has("sessionId") ? changed.get("sessionId") : this.sessionId;
@@ -190,6 +216,7 @@ export class PromptEditor extends LitElement {
     this.mobilePromptEnterMedia?.removeEventListener("change", this.handleShortcutMediaChange);
     this.attachSourceOpen = false;
     this.attachmentContextGeneration += 1;
+    this.cancelDictation();
     this.cancelFileCompletion();
     this.editor?.destroy();
     this.editor = undefined;
@@ -207,6 +234,8 @@ export class PromptEditor extends LitElement {
     const hasSendShortcut = shortcut !== null && normalizeShortcut(shortcut).length === 1;
     const defaultAction = busy || !hasSendShortcut ? "none" : keyboardSteers ? "steer" : submitAction;
     const sourceMenu = shouldShowAttachSourceMenu();
+    const dictationAvailable = this.speechRecognition && this.cwd !== undefined && this.cwd !== "";
+    const microphoneReady = dictationAvailable && speechRecordingAvailable();
     return html`
       <footer ?data-active-work=${this.canStop} data-ui-context="composer" data-mode=${shellMode ? "shell" : "text"} data-busy=${this.submitting} data-disabled=${this.disabled} data-compacting=${this.isCompacting} data-default-action=${defaultAction} class=${shellMode ? "shell-mode" : ""} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
         <div class="editor-wrap">
@@ -222,16 +251,21 @@ export class PromptEditor extends LitElement {
               <button type="button" class="ui-button ui-menu-item" data-composer-action="attach-camera" ?disabled=${busy} title=${messages.t("cameraTitle")} @click=${() => { this.openAttachmentPicker(this.attachmentCameraInput); }}><span class="attach-source-icon" aria-hidden="true">${renderCameraIcon()}</span><span class="attach-source-label">${messages.t("camera")}</span></button>
               <button type="button" class="ui-button ui-menu-item" data-composer-action="attach-files" ?disabled=${busy} title=${messages.t("filesTitle")} @click=${() => { this.openAttachmentPicker(this.attachmentInput); }}><span class="attach-source-icon" aria-hidden="true">${renderAttachIcon()}</span><span class="attach-source-label">${messages.t("files")}</span></button>
             </div>
+            ${this.dictation === "recording" ? html`<div class="mode-hint dictation-hint" role="status">${messages.t("recording")}</div>` : null}
+            ${this.dictation === "transcribing" ? html`<div class="mode-hint dictation-hint" role="status">${messages.t("transcribing")}</div>` : null}
             ${shellMode ? html`<div class="mode-hint">${messages.t("shell", { excluded: shellInputMode.excludeFromContext ? "yes" : "no" })}</div>` : null}
             ${this.isCompacting && !shellMode ? html`<div class="mode-hint">${messages.t("compacting")}</div>` : null}
           </div>
           ${this.renderPromptChips()}
           ${this.renderAttachments()}
+          ${this.speechError === undefined ? null : html`<div class="attachments"><div class="chip-error" role="alert">${messages.t("dictationFailed", { error: this.speechError })}</div></div>`}
+          ${dictationAvailable && !microphoneReady ? html`<div class="attachments"><div class="dictation-note" role="status">${messages.t("dictationInsecure")}</div></div>` : null}
           <autocomplete-menu .onClose=${() => { this.closeCompletions(); }} .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
         <div class="actions ui-toolbar ui-toolbar--primary ui-toolbar--borderless ui-composer-toolbar">
           ${this.renderCompactStatus()}
           <div class="ui-toolbar-group ui-composer-actions">
+            ${microphoneReady ? html`<button class="ui-button ui-button--icon icon-button dictate-button" data-composer-action="dictate" data-state=${this.dictation} ?disabled=${busy || this.dictation === "transcribing"} title=${messages.t(this.dictation === "recording" ? "stopDictation" : "dictate")} aria-label=${messages.t(this.dictation === "recording" ? "stopDictation" : "dictate")} aria-pressed=${this.dictation === "recording" ? "true" : "false"} @click=${() => { void this.toggleDictation(); }}>${this.dictation === "recording" ? renderStopIcon() : renderMicrophoneIcon()}</button>` : null}
             <button class="ui-button ui-button--icon icon-button send-button ${defaultAction === submitAction ? "default-send-action" : ""}" data-composer-action=${submitAction} data-default=${defaultAction === submitAction} ?disabled=${busy} title=${messages.t(queuesInput ? "queueTitle" : "send")} aria-label=${messages.t(queuesInput ? "queue" : "send")} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
             ${this.canSteer && !this.isCompacting ? html`<button class="ui-button ui-button--icon icon-button steer-button ${defaultAction === "steer" ? "default-send-action" : ""}" data-composer-action="steer" data-default=${defaultAction === "steer"} ?disabled=${busy} title=${messages.t("steerTitle")} aria-label=${messages.t("steer")} @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
             <button class="ui-button ui-button--icon icon-button stop-button" data-composer-action="stop" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? t("ui.promptEditor.stopCurrentWorkAndClearQueuedMessages", "Stop current work and clear queued messages") : messages.t("idle")} aria-label=${messages.t("stop")} @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
@@ -270,6 +304,103 @@ export class PromptEditor extends LitElement {
   /** Get the underlying CM6 EditorView, or undefined if not yet mounted. */
   get view(): EditorView | undefined {
     return this.editor;
+  }
+
+  private async toggleDictation(): Promise<void> {
+    if (this.busy) return;
+    if (this.dictation === "recording") {
+      await this.finishDictation();
+      return;
+    }
+    if (this.dictation !== "idle") return;
+    await this.startDictation();
+  }
+
+  private async startDictation(): Promise<void> {
+    if (this.dictationStarting) return;
+    const generation = this.dictationGeneration;
+    this.dictationStarting = true;
+    this.speechError = undefined;
+    try {
+      await this.speechRecorder.start();
+    } catch (error) {
+      if (generation === this.dictationGeneration && !isAbortError(error)) this.speechError = errorText(error);
+      return;
+    } finally {
+      this.dictationStarting = false;
+    }
+    if (generation !== this.dictationGeneration) {
+      this.speechRecorder.cancel();
+      return;
+    }
+    this.dictation = "recording";
+    this.speechAutoStop = setTimeout(() => { void this.finishDictation(); }, MAX_SPEECH_RECORDING_MS);
+  }
+
+  private async finishDictation(): Promise<void> {
+    if (this.dictation !== "recording") return;
+    if (this.speechAutoStop !== undefined) {
+      clearTimeout(this.speechAutoStop);
+      this.speechAutoStop = undefined;
+    }
+    const generation = this.dictationGeneration;
+    let recording = await this.speechRecorder.stop();
+    if (recording === undefined || generation !== this.dictationGeneration) return;
+    this.dictation = "transcribing";
+    const abort = new AbortController();
+    this.speechAbort = abort;
+    try {
+      const data = await readSpeechRecordingBase64(recording.blob);
+      const mimeType = recording.mimeType;
+      const durationMs = Math.round(recording.durationMs);
+      // The base64 payload is all the request needs; release the recorded bytes
+      // before the network round trip instead of holding them for its duration.
+      recording = undefined;
+      const response = await speechApi.transcribe(
+        { cwd: this.cwd ?? "", audio: { mimeType, data }, durationMs },
+        this.machineId,
+        { signal: abort.signal },
+      );
+      if (generation !== this.dictationGeneration) return;
+      this.insertDictationText(response.text);
+    } catch (error) {
+      if (generation === this.dictationGeneration && !abort.signal.aborted) this.speechError = errorText(error);
+    } finally {
+      if (this.speechAbort === abort) this.speechAbort = undefined;
+      if (generation === this.dictationGeneration) this.dictation = "idle";
+    }
+  }
+
+  private cancelDictation(): void {
+    this.dictationGeneration += 1;
+    if (this.speechAutoStop !== undefined) {
+      clearTimeout(this.speechAutoStop);
+      this.speechAutoStop = undefined;
+    }
+    this.speechAbort?.abort();
+    this.speechAbort = undefined;
+    this.speechRecorder.cancel();
+    this.dictation = "idle";
+    this.speechError = undefined;
+  }
+
+  /** Insert at the caret so dictation composes with whatever is already typed. */
+  private insertDictationText(text: string): void {
+    const spoken = text.trim();
+    if (spoken === "") return;
+    const editor = this.editor;
+    if (editor === undefined) {
+      this.replaceText(this.draft === "" ? spoken : `${this.draft} ${spoken}`);
+      return;
+    }
+    const selection = editor.state.selection.main;
+    const preceding = editor.state.doc.sliceString(Math.max(0, selection.from - 1), selection.from);
+    const insertion = preceding !== "" && !/\s/u.test(preceding) ? ` ${spoken}` : spoken;
+    editor.dispatch({
+      changes: { from: selection.from, to: selection.to, insert: insertion },
+      selection: EditorSelection.cursor(selection.from + insertion.length),
+    });
+    editor.focus();
   }
 
   private renderCompactStatus() {
@@ -717,6 +848,8 @@ export class PromptEditor extends LitElement {
   }
 
   private resetComposer() {
+    // A pending utterance would otherwise land in the next, empty draft.
+    this.cancelDictation();
     this.draft = "";
     this.currentInputMode = { kind: "normal" };
     const key = draftStorageKey(this.machineId, this.sessionId);

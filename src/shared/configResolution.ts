@@ -6,6 +6,7 @@ export const PI_WEB_CONFIG_DEFINITIONS = {
   shortcuts: "json", defaultTheme: "json", defaultLocalization: "json",
   defaultStreamingBehavior: "string", quietMode: "boolean", plugins: "json",
   basePaths: "json", pathAccess: "json", uploads: "json", attachments: "json",
+  speech: "json",
   maxUploadBytes: "number", sessionArchive: "json",
   spawnSessions: "boolean", sessionMessages: "boolean", subsessions: "boolean", askUser: "boolean",
   environmentFacts: "boolean", extensionDialogsTimeoutMs: "number",
@@ -17,6 +18,7 @@ const PI_WEB_CONFIG_NAMESPACES = {
   defaultLocalization: ["language", "formatLocale", "timeZone", "hourCycle"],
   uploads: ["defaultFolder"],
   attachments: ["defaultFolder"],
+  speech: ["endpoint", "api", "model", "language", "apiKeyEnv", "timeoutMs", "maxAudioBytes"],
   sessionArchive: ["directory"],
   pathAccess: ["allowedPaths"],
 } as const satisfies { [Key in keyof PiWebConfigValues]?: readonly (keyof NonNullable<PiWebConfigValues[Key]>)[] };

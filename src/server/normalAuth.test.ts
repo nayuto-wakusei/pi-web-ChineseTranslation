@@ -96,12 +96,12 @@ describe("management auth route boundary", () => {
       authenticate: () => Promise.resolve({ user: { id: "limited-user", rootUserId: "root", roles: [], permissions: [] }, projects: [] }),
     });
     for (const prefix of ["/api", "/api/machines/local"]) {
-      for (const path of ["/sessions", "/auth/api-key", "/auth/oauth/start", "/auth/oauth/flow-1/input", "/projects/p/workspaces/w/file", "/projects/p/workspaces/w/terminals", "/terminal-command-runs/run-1/cancel", "/status", "/activity"]) {
+      for (const path of ["/sessions", "/auth/api-key", "/auth/oauth/start", "/auth/oauth/flow-1/input", "/projects/p/workspaces/w/file", "/projects/p/workspaces/w/terminals", "/terminal-command-runs/run-1/cancel", "/speech/transcriptions", "/status", "/activity"]) {
         app.post(`${prefix}${path}`, () => ({ ok: true }));
       }
     }
     for (const prefix of ["/api", "/api/machines/local"]) {
-      for (const path of ["/sessions", "/auth/api-key", "/auth/oauth/start", "/auth/oauth/flow-1/input", "/projects/p/workspaces/w/file", "/projects/p/workspaces/w/terminals", "/terminal-command-runs/run-1/cancel", "/status", "/activity"]) {
+      for (const path of ["/sessions", "/auth/api-key", "/auth/oauth/start", "/auth/oauth/flow-1/input", "/projects/p/workspaces/w/file", "/projects/p/workspaces/w/terminals", "/terminal-command-runs/run-1/cancel", "/speech/transcriptions", "/status", "/activity"]) {
         const response = await app.inject({ method: "POST", url: `${prefix}${path}?embed=management&token=launch-token`, payload: {} });
         expect(response.statusCode, `${prefix}${path}`).toBe(200);
       }

@@ -149,6 +149,8 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/status" },
   { method: "GET", path: "/notices" },
   { method: "POST", path: "/notices/dismiss" },
+  // Composer dictation is forwarded to the machine that owns the selected project.
+  { method: "POST", path: "/speech/transcriptions", timeoutMs: 300_000, responseBodyLimit: 2 * 1024 * 1024, propagateCancellation: true },
   { method: "GET", path: "/sessions" },
   { method: "GET", path: "/sessions/search" },
   { method: "GET", path: "/sessions/search-content" },

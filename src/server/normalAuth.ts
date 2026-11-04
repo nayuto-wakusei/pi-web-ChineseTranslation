@@ -294,7 +294,7 @@ function allowsManagementRequest(request: FastifyRequest): boolean {
     return request.method === "GET" || request.method === "HEAD" || request.method === "PUT";
   }
   // Only local APIs that preserve management context may bypass normal auth.
-  return /^\/(?:projects|files|auth|sessions|activity|status|events|notices|plugins|paired-plugin-backends|terminal-command-runs)(?:\/|$)/u.test(path)
+  return /^\/(?:projects|files|auth|sessions|activity|status|events|notices|plugins|paired-plugin-backends|terminal-command-runs|speech)(?:\/|$)/u.test(path)
     || /^\/sessiond\/(?:health|runtime)$/u.test(path);
 }
 

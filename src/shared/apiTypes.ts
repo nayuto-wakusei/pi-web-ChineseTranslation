@@ -95,6 +95,7 @@ export const PI_WEB_CAPABILITIES = {
   sessionsUnread: "sessions.unread",
   sessionsAskUser: "sessions.askUser",
   promptAttachments: "prompt.attachments",
+  promptSpeechRecognition: "prompt.speechRecognition",
   workspaceFileSuggestions: "workspace.fileSuggestions",
   piPackagesManage: "piPackages.manage",
   selectedMachineSettings: "settings.selectedMachine",
@@ -167,6 +168,31 @@ export interface PiWebAttachmentsConfig {
   defaultFolder?: string;
 }
 
+/**
+ * Composer dictation backend. Audio is recorded by the browser and transcribed
+ * by the session daemon, so the endpoint is reached from the machine that owns
+ * the selected project rather than from the browser.
+ */
+export interface PiWebSpeechConfig {
+  /** Base URL of an OpenAI-compatible speech service, such as a GPUStack deployment. */
+  endpoint?: string;
+  /**
+   * Which upstream API to call: the OpenAI transcription endpoint (default) or
+   * chat completions with an `audio_url` content part. Some speech backends
+   * expose only one of the two.
+   */
+  api?: "transcriptions" | "chat";
+  /** Model name as the service exposes it (not necessarily the upstream repository id). */
+  model?: string;
+  /** ISO language hint; omitted means the service auto-detects the language. */
+  language?: string;
+  /** Environment variable holding a bearer token. The token itself is never stored in config. */
+  apiKeyEnv?: string;
+  timeoutMs?: number;
+  /** Maximum accepted audio payload size in bytes, after base64 decoding. */
+  maxAudioBytes?: number;
+}
+
 export interface PiWebAgentConfig {
   /** Pi-compatible companion CLI used for diagnostics and safe package-managed updates; sessions use the bundled Pi SDK. */
   command?: string;
@@ -227,6 +253,8 @@ export interface PiWebConfigValues {
   uploads?: PiWebUploadsConfig;
   /** Workspace-relative defaults for prompt attachments saved into the workspace. */
   attachments?: PiWebAttachmentsConfig;
+  /** Composer dictation; absent or without an endpoint means dictation is off. */
+  speech?: PiWebSpeechConfig;
   /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
   maxUploadBytes?: number;
   /** Destination for newly archived transcripts; the index remains in the PI WEB data directory. */
@@ -1115,6 +1143,28 @@ export interface SavedPromptAttachment {
   path: string;
   mimeType: string;
   size: number;
+}
+
+/**
+ * One recorded utterance sent to the daemon for transcription. The browser owns
+ * capture and encoding; the daemon only validates and forwards the bytes.
+ * `cwd` scopes the request to the same workspace as the composer that produced it.
+ */
+export interface SpeechTranscriptionRequest {
+  cwd: string;
+  audio: {
+    /** Recorded container MIME type (audio/webm, audio/ogg, audio/mp4, audio/wav). */
+    mimeType: string;
+    /** Base64-encoded audio payload (no data: URL prefix). */
+    data: string;
+  };
+  /** Recording length in milliseconds; used for diagnostics and duration limits. */
+  durationMs?: number;
+}
+
+export interface SpeechTranscriptionResponse {
+  /** Transcribed plain text. Empty when the service detected no speech. */
+  text: string;
 }
 
 export interface SessionModel {

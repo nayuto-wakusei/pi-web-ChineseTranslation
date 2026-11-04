@@ -38,6 +38,8 @@ UI 保存的是受支持配置，不应该把密码 hash、服务端秘密或不
 
 `defaultTheme` 是网关提供的应用默认主题，除环境强制外浏览器设备覆盖优先；主题暂不可用时回退不抹掉原偏好，切远端不改变保存目标。自动命名由可移除的 Pi 包持有 profile 内配置，每次命名读取，仍使用原会话项目/管理模型 registry；核心 `sessionNaming` 键已退役并在配置加载时迁移。`sessionArchive.directory` 与环境覆盖在 daemon 启动时决定新归档目的地，索引仍在托管数据目录，不迁移既有归档；精确字段与迁移见[配置参考](../config.md#session-naming-and-archives)。
 
+`speech` 是机器级容器，没有项目形式：daemon 启动时把它解析为语音转写适配器，并据此决定运行时能力报告是否包含 `prompt.speechRecognition`，所以修改后必须重启该机器的 daemon。`speech.apiKeyEnv` 只保存环境变量名，解析出的 Bearer 令牌不进入配置响应、日志或审计；未配置 `endpoint` 时能力位不广播，浏览器不渲染话筒。设置页的「语音输入」面板只编辑 `endpoint`、`api`、`model`、`language`、`apiKeyEnv`，`timeoutMs` 与 `maxAudioBytes` 仍属配置文件或环境选项。
+
 普通导航顺序按机器保存到 Web 管理的托管状态，带作用域与 revision，不是项目配置键，也不作为手工编辑接口。管理导航维持独立路径。浏览器的主题覆盖、编辑器偏好和分区尺寸也不能被误写成目标机器配置。
 
 ## 新增配置的修改顺序

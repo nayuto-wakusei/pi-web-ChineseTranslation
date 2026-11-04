@@ -32,6 +32,16 @@ export function renderAttachIcon(): TemplateResult {
   `;
 }
 
+export function renderMicrophoneIcon(): TemplateResult {
+  return svg`
+    <svg class="prompt-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="9" y="2.5" width="6" height="11" rx="3"></rect>
+      <path d="M5.5 11a6.5 6.5 0 0 0 13 0"></path>
+      <path d="M12 17.5V21"></path>
+    </svg>
+  `;
+}
+
 export function renderSendIcon(): TemplateResult {
   return svg`
     <svg class="prompt-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">

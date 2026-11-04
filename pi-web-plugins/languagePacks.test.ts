@@ -71,6 +71,7 @@ const sourcePaths: Record<string, string> = {
   "core.settingsTheme": "../src/client/src/components/settings/settingsTheme.messages.ts",
   "core.settingsShortcuts": "../src/client/src/components/settings/settingsShortcuts.messages.ts",
   "core.settingsSessiond": "../src/client/src/components/settings/settingsSessiond.messages.ts",
+  "core.settingsSpeech": "../src/client/src/components/settings/settingsSpeech.messages.ts",
   "core.settingsMcp": "../src/client/src/components/settings/settingsMcp.messages.ts",
   "core.settingsFeedback": "../src/client/src/components/settings/settingsFeedback.messages.ts",
   "core.settingsGeneral": "../src/client/src/components/settings/settingsGeneral.messages.ts",

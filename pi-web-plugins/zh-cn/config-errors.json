@@ -184,5 +184,13 @@
   "configError.sessionNaming.timeoutMs.selectedMachine": "所选机器的 sessionNaming.timeoutMs 配置必须为 1 到 2147483647 之间的整数：{source}",
   "configError.sessionArchive.object": "PI WEB 配置 sessionArchive 必须为对象：{source}",
   "configError.sessionArchive.unknownKey": "PI WEB 配置 sessionArchive 包含未知字段 {key}：{source}",
-  "configError.sessionArchive.directory": "PI WEB 配置 sessionArchive.directory 必须为非空路径：{source}"
+  "configError.sessionArchive.directory": "PI WEB 配置 sessionArchive.directory 必须为非空路径：{source}",
+  "configError.pi.web.config.speech.must.be.an.object": "PI WEB 配置 speech 必须为对象：{source}",
+  "configError.pi.web.config.speech.unknownKey": "PI WEB 配置 speech 包含未知字段 {key}：{source}",
+  "configError.pi.web.config.speech.endpoint": "PI WEB 配置 speech.endpoint 必须为绝对 HTTP URL：{source}",
+  "configError.pi.web.config.speech.api": "PI WEB 配置 speech.api 必须为 \"transcriptions\" 或 \"chat\"：{source}",
+  "configError.pi.web.config.speech.field": "PI WEB 配置 {key} 必须为非空字符串：{source}",
+  "configError.pi.web.config.speech.language": "PI WEB 配置 speech.language 必须为 zh 或 en-US 这类语言标签：{source}",
+  "configError.pi.web.config.speech.apiKeyEnv": "PI WEB 配置 speech.apiKeyEnv 必须为环境变量名：{source}",
+  "configError.pi.web.config.speech.integer": "PI WEB 配置 speech.{field} 必须为 1 到 {maximum} 的整数（{unit}）：{source}"
 }

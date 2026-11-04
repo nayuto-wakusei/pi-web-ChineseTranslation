@@ -1,5 +1,13 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.5
+
+### Patch Changes
+
+- Add composer dictation: record an utterance with the microphone and insert the transcript at the caret, using an OpenAI-compatible speech endpoint configured per machine under `speech`. Settings → Speech edits the endpoint, upstream API mode, model, language, and API-key environment variable; timeout and size limits stay in config. The daemon forwards the audio and advertises `prompt.speechRecognition` only when an endpoint is configured; the browser needs a secure context (HTTPS or localhost) for microphone access.
+- fa5e88f: Sort pinned conversations by recent activity within the pinned section, while keeping pin membership and nested session trees unchanged.
+- Keep speech settings labels and environment-policy indicators separated on narrow screens, and complete Chinese speech configuration diagnostics.
+
 ## 2.202611.4
 
 ### Patch Changes

@@ -256,6 +256,7 @@ export const promptEditorLayoutStyles = css`
   .icon-button .prompt-action-icon-filled { fill: currentColor; stroke: none; }
   .default-send-action:not(:disabled), .default-send-action:hover:not(:disabled) { color: var(--pi-accent, var(--pi-text)); }
   .stop-button:not(:disabled), .stop-button:hover:not(:disabled) { color: var(--pi-danger); }
+  .dictate-button[data-state="recording"]:not(:disabled), .dictate-button[data-state="recording"]:hover:not(:disabled) { color: var(--pi-danger); }
   .select-thinking .prompt-thinking-gauge .gauge-bar { fill: currentColor; stroke: none; opacity: .28; }
   .select-thinking .prompt-thinking-gauge .gauge-bar-active { opacity: 1; }
   .editor-chat-navigation { position: absolute; inset-inline-end: 0; top: 0; z-index: 2; box-sizing: border-box; width: 58px; border: 1px solid var(--pi-border-muted); }
@@ -275,6 +276,7 @@ export const promptEditorLayoutStyles = css`
   .prompt-chip { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); padding-inline-start: 6px; }
   .prompt-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chip-error { overflow-wrap: anywhere; min-width: 0; flex-basis: 100%; color: var(--pi-danger); font-size: 12px; }
+  .dictation-note { overflow-wrap: anywhere; min-width: 0; flex-basis: 100%; color: var(--pi-muted); font-size: 12px; }
   .attachment-chip { --attachment-remove-width: 32px; position: relative; width: 56px; height: 56px; padding-inline-end: var(--attachment-remove-width); border: 1px solid var(--pi-border); border-radius: 8px; overflow: hidden; background: var(--pi-bg); }
   .attachment-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .attachment-chip-file { display: grid; place-items: center; }
