@@ -22,7 +22,7 @@ export type NormalProjectCwdResolver = (requestedCwds?: readonly string[]) => Pr
 export function registerSessionProxyRoutes(app: FastifyInstance, daemon: SessionProxyDaemon = new SessionDaemonClient(), prefix = "/api", managementEmbed?: ManagementEmbedRuntime, resolveManagementProjectCwds?: ManagementProjectCwdResolver, resolveNormalProjectCwds?: NormalProjectCwdResolver, t: Translator = createTranslator("en", {})): void {
   const proxy = async (request: FastifyRequest, reply: FastifyReply) => {
     const path = new URL(stripPrefix(request.url, prefix), "http://local").pathname;
-    if (path.startsWith("/auth/mcp/") || /^\/sessions\/[^/]+\/mcp\/auth(?:\/|$)/u.test(path)) reply.header("cache-control", "no-store");
+    if (path.startsWith("/auth/mcp/") || /^\/sessions\/[^/]+\/mcp\/auth(?:\/|$)/u.test(path) || path === "/speech/transcriptions") reply.header("cache-control", "no-store");
     try {
       return await withRequestCancellation(request, reply, async (signal) => {
         const managementContext = await managementContextForRequest(request, managementEmbed, reply);
@@ -195,9 +195,10 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
   app.all(`${prefix}/auth/*`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/sessions`, (request, reply) => proxy(request, reply));
   app.all(`${prefix}/sessions/*`, (request, reply) => proxy(request, reply));
-  // Composer dictation is daemon-owned so a remote machine's speech endpoint
-  // settings apply where the audio is sent.
-  app.post(`${prefix}/speech/transcriptions`, (request, reply) => cancellableProxy(request, reply));
+  // Composer dictation is a management-capable session helper: it uses the
+  // management-aware proxy so the verified identity reaches the daemon, unlike
+  // plugin catalog/session routes, which keep denying management callers.
+  app.post(`${prefix}/speech/transcriptions`, (request, reply) => proxy(request, reply));
   app.post(`${prefix}/projects`, (request, reply) => projectMutationProxy(request, reply, "/projects"));
   app.delete<{ Params: { projectId: string } }>(`${prefix}/projects/:projectId`, (request, reply) => projectMutationProxy(request, reply, `/projects/${encodeURIComponent(request.params.projectId)}`));
 }
@@ -206,7 +207,10 @@ async function managementBody(url: string, body: unknown, context: ManagementEmb
   if (context === undefined) return body;
   const parsed = new URL(url, "http://local");
   const routePath = parsed.pathname;
-  if (routePath !== "/sessions" && !routePath.startsWith("/sessions/")) return body;
+  // Dictation carries the composer workspace path, so it gets the same managed
+  // sandbox check as session requests even though the daemon only forwards audio.
+  const managedSpeech = routePath === "/speech/transcriptions";
+  if (routePath !== "/sessions" && !routePath.startsWith("/sessions/") && !managedSpeech) return body;
   for (const cwd of parsed.searchParams.getAll("cwd")) {
     await assertManagedCwd(managementProjectRoot(managementEmbed), context, cwd, { create: false });
   }

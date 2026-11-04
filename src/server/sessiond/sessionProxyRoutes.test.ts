@@ -553,6 +553,99 @@ describe.each(["/api", "/api/machines/local"])("project mutation proxy at %s", (
   });
 });
 
+describe.each(["/api", "/api/machines/local"])("speech transcription proxy at %s", (prefix) => {
+  const cwd = process.cwd();
+  const query = "embed=management&token=entry-token";
+  const audio = { mimeType: "audio/webm", data: "AAAA" };
+
+  const managementContext = (privileged?: ManagementEmbedContext["privileged"]): ManagementEmbedContext => ({
+    user: { id: "account-1", rootUserId: "root-user", roles: [], permissions: [] },
+    projects: [{ id: "p1", name: "Project 1", root: cwd }],
+    ...(privileged === undefined ? {} : { privileged }),
+  });
+
+  async function mountManagement(context: ManagementEmbedContext | undefined): Promise<void> {
+    await app.close();
+    await daemon.close();
+    app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    daemon = await FakeSessionDaemon.create();
+    registerSessionProxyRoutes(app, daemon, prefix, context === undefined ? undefined : {
+      enabled: true,
+      projectRoot: cwd,
+      authenticate: (token) => token === "entry-token" ? Promise.resolve(context) : Promise.reject(new Error("invalid management token")),
+    }, (projectId) => Promise.resolve(projectId === "p1" ? [cwd] : [dirname(cwd)]));
+  }
+
+  it("forwards verified restricted management identity and no-store", async () => {
+    const context = managementContext();
+    await mountManagement(context);
+
+    const response = await app.inject({ method: "POST", url: `${prefix}/speech/transcriptions?${query}`, payload: { cwd, audio, durationMs: 900 } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(daemon.requests).toHaveLength(1);
+    expect(daemon.requests[0]?.method).toBe("POST");
+    expect(daemon.requests[0]?.path).toBe(`/speech/transcriptions?${query}`);
+    expect(daemon.requests[0]?.body).toMatchObject({ audio, durationMs: 900 });
+    expect(decodeManagementContext(daemon.requestHeaders[0]?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(context);
+    expect(daemon.requestSignals[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it("forwards privileged management identity without dropping it", async () => {
+    const context = managementContext({ bash: true, network: true });
+    await mountManagement(context);
+
+    const response = await app.inject({ method: "POST", url: `${prefix}/speech/transcriptions?${query}`, payload: { cwd, audio } });
+
+    expect(response.statusCode).toBe(200);
+    expect(decodeManagementContext(daemon.requestHeaders[0]?.[MANAGEMENT_EMBED_CONTEXT_HEADER])).toEqual(context);
+  });
+
+  it("keeps plugin catalog and plugin session management denials", async () => {
+    await mountManagement(managementContext());
+
+    const catalog = await app.inject({ method: "GET", url: `${prefix}/plugin-catalog/projects?${query}` });
+    const pluginSession = await app.inject({ method: "GET", url: `${prefix}/plugin-sessions/projects/p%2Fone/workspaces/w/sessions/s?${query}` });
+
+    expect(catalog.statusCode).toBe(403);
+    expect(pluginSession.statusCode).toBe(403);
+    expect(daemon.requests).toEqual([]);
+  });
+
+  it("keeps ordinary dictation working without a management context", async () => {
+    await mountManagement(undefined);
+
+    const response = await app.inject({ method: "POST", url: `${prefix}/speech/transcriptions`, payload: { cwd, audio } });
+
+    expect(response.statusCode).toBe(200);
+    expect(daemon.requestHeaders[0]).toBeUndefined();
+    expect(daemon.requests).toEqual([{ method: "POST", path: "/speech/transcriptions", body: { cwd, audio } }]);
+  });
+
+  it("rejects a managed workspace outside the authorized project without reaching the daemon", async () => {
+    await mountManagement(managementContext());
+
+    const response = await app.inject({ method: "POST", url: `${prefix}/speech/transcriptions?${query}`, payload: { cwd: dirname(cwd), audio } });
+
+    expect(response.statusCode).toBe(502);
+    expect(daemon.requests).toEqual([]);
+  });
+
+  it.each([
+    { name: "a missing token", url: `${prefix}/speech/transcriptions?embed=management` },
+    { name: "a forged token", url: `${prefix}/speech/transcriptions?embed=management&token=forged` },
+  ])("fails $name without reaching the daemon", async ({ url }) => {
+    await mountManagement(managementContext());
+
+    const response = await app.inject({ method: "POST", url, payload: { cwd, audio } });
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(400);
+    expect(daemon.requests).toEqual([]);
+  });
+});
+
 describe.each(["/api", "/api/machines/local"])("project mutation proxy at %s", (prefix) => {
   it("forwards add body and close path, preserving daemon responses", async () => {
     const project = { id: "project-1", path: "/repo" };

@@ -74,7 +74,7 @@ Web 与 daemon 使用相同的 WebSocket 错误处理：接收器因协议错误
 
 本机能力同时保留传统 `/api/...` 与 `/api/machines/local/...` 别名；远端走 `/api/machines/:machineId/...` 代理。新增机器 HTTP/WS 端点必须同步 `src/shared/federatedRoutes.ts`、本机路由注册、客户端和联邦路由契约测试。
 
-语音输入是 daemon 路由：网关通过既有 `/speech/transcriptions` 代理转发，联邦条目带 300 秒超时、2 MiB 响应上限和取消传播。能力位 `prompt.speechRecognition` 只在该机器配置了 `speech.endpoint` 时随运行时报告广播；浏览器据此决定是否渲染话筒，因此未配置的机器表现为功能不存在而不是请求失败。该路由不读取、不写入工作区文件，所以管理嵌入模式也允许经本地别名调用，与只读请求之外的普通认证白名单分开处理。
+语音输入是 daemon 路由：网关通过既有 `/speech/transcriptions` 代理转发，联邦条目带 300 秒超时、2 MiB 响应上限和取消传播。能力位 `prompt.speechRecognition` 只在该机器配置了 `speech.endpoint` 时随运行时报告广播；浏览器据此决定是否渲染话筒，因此未配置的机器表现为功能不存在而不是请求失败。普通模式与有效的受限或完整特权管理均可经 `/api` 和 `/api/machines/local` 调用；网关保留已验证的管理上下文（含既有 Workbench handle），并按授权管理项目校验请求携带的工作区路径，不为该路径创建目录。插件 catalog 与 plugin-sessions 仍拒绝管理调用。
 
 浏览器传输统一在 `src/client/src/api/`：`clients.ts` 管理端点族，`urls.ts` 构造地址，`http.ts` 管理 HTTP/认证作用域，`sockets.ts` 管理 socket。共享请求/响应类型放在 `src/shared/apiTypes.ts`；响应视为不可信输入，在 `parsers.ts` 或其子模块校验，不能在组件或 controller 中强制类型转换。浏览器 URL 约束：
 
