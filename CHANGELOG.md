@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.6
+
+### Patch Changes
+
+- fe261d8: Fix composer speech transcription in the management embed. The gateway now forwards the verified management context (and keeps the managed workspace sandbox check) instead of rejecting the request through the plugin-session proxy. Plugin catalog and plugin session routes keep denying management callers.
+
 ## 2.202611.5
 
 ### Patch Changes
