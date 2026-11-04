@@ -1291,7 +1291,10 @@ export function pinnedSessionRows(rows: readonly SessionRow[], pinIds: readonly 
     const root = tree[0];
     return root !== undefined && isPinnableRoot(root) ? [[root.session.id, tree] as const] : [];
   }));
-  const pinnedRootIds = [...new Set(pinIds)].filter((id) => eligible.has(id));
+  // Saved order breaks ties; new conversation activity takes precedence in the pinned queue.
+  const modifiedByRoot = new Map([...eligible].map(([id, tree]) => [id, tree[0]?.session.modified ?? ""]));
+  const pinnedRootIds = [...new Set(pinIds)].filter((id) => eligible.has(id))
+    .sort((left, right) => (modifiedByRoot.get(right) ?? "").localeCompare(modifiedByRoot.get(left) ?? ""));
   const pinned = new Set(pinnedRootIds);
   const pinnedRows = pinnedRootIds.flatMap((id) => eligible.get(id) ?? []);
   return {

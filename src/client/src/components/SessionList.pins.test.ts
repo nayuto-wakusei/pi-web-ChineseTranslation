@@ -6,7 +6,7 @@ beforeEach(() => { setClientTranslations("en", {}); });
 import type { SessionInfo } from "../api";
 import { installPopoverFake } from "./anchoredPopup.testSupport";
 installPopoverFake();
-import { pinnedSessionRootIds, pinnedSessionRows, SessionList, sessionRowsForCurrentTree } from "./SessionList";
+import { orderedPinnedSessionRootIds, pinnedSessionRootIds, pinnedSessionRows, SessionList, sessionRowsForCurrentTree } from "./SessionList";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -62,6 +62,25 @@ function rowIds(list: SessionList): string[] {
 }
 
 describe("session root pins", () => {
+  it("moves the most recently modified pinned tree first without changing membership or the recent queue", async () => {
+    const a = session("a");
+    const b = session("b", { modified: "2026-06-10T00:00:00.000Z" });
+    const child = session("child", { parentSessionPath: a.path });
+    const recent = session("recent", { modified: "2026-06-12T00:00:00.000Z" });
+    const older = session("older");
+    const pins = ["a", "b"];
+    const list = await mount([older, a, child, b, recent], pins);
+    expect(rowIds(list)).toEqual(["b", "a", "child", "recent", "older"]);
+    expect(orderedPinnedSessionRootIds(list.sessions, pins)).toEqual(["b", "a"]);
+
+    list.sessions = list.sessions.map((item) => item.id === "a" ? { ...item, modified: "2026-06-11T00:00:00.000Z" } : item);
+    await list.updateComplete;
+    expect(rowIds(list)).toEqual(["a", "child", "b", "recent", "older"]);
+    expect(orderedPinnedSessionRootIds(list.sessions, pins)).toEqual(["a", "b"]);
+    expect(list.pinnedSessionIds).toEqual(pins);
+    expect(list.pinnedRootIds).toEqual(pins);
+  });
+
   it("projects ordered complete trees once, preserving child nesting and unpinned recency", () => {
     const recent = session("recent");
     const a = session("a");
