@@ -1,5 +1,12 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.7
+
+### Patch Changes
+
+- 223afee: Add Workbench tools to read and modify authorized BookStack content with action permissions, version checks, and stable idempotency keys. Query personal operation receipts when a result is uncertain or the book has been deleted. Existing grants remain read-only unless write actions are assigned.
+- de480e8: Allow speech recognition API keys to be entered and reloaded in Settings while retaining environment-variable authentication. Keep ordinary configuration responses redacted, backfill saved keys into password fields through an authenticated non-cached read, and preserve unchanged keys when other settings change.
+
 ## 2.202611.6
 
 ### Patch Changes
