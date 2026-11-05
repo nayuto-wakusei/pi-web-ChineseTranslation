@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.8
+
+### Patch Changes
+
+- 9054029: Allow Workbench requests 30 seconds by default, report timeouts clearly, and cancel knowledge reads when their tool call is stopped. Clarify how to find authorized books before searching their contents. BookStack writes are never retried automatically after a timeout.
+
 ## 2.202611.7
 
 ### Patch Changes
