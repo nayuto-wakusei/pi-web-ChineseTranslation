@@ -25,5 +25,6 @@
   "managementError.management.embed.token.is.expired": "管理嵌入令牌已过期",
   "managementError.management.embed.introspection.response.is.invalid": "管理嵌入验证响应无效",
   "managementError.management.embed.project.entry.is.invalid": "管理嵌入项目条目无效",
-  "managementError.management.embed.field.is.required": "必须提供管理嵌入字段 {key}"
+  "managementError.management.embed.field.is.required": "必须提供管理嵌入字段 {key}",
+  "managementError.workbench.timeout": "工作台响应超时。如果已提交写入，请先查询原操作回执再决定后续操作。"
 }

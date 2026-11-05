@@ -323,12 +323,20 @@ describe("PI WEB config persistence", () => {
     expect(effective).toEqual({
       baseUrl: "http://127.0.0.1:8787",
       mcpUrl: "http://mcp:8000/mcp",
-      requestTimeoutMs: 10_000,
+      requestTimeoutMs: 30_000,
       capabilityTimeoutMs: 45_000,
       skillBundleMaxBytes: 10 * 1024 * 1024,
       skillFileMaxBytes: 2 * 1024 * 1024,
       skillFileCountMax: 200,
     });
+
+    await writeFile(configPath, `${JSON.stringify({ workbenchIntegration: {
+      baseUrl: "http://backend:8787", mcpUrl: "http://mcp:8000/mcp", requestTimeoutMs: 17_000,
+    } })}\n`, "utf8");
+    expect(effectivePiWebConfig(testOptions()).config.workbenchIntegration?.requestTimeoutMs).toBe(17_000);
+    expect(effectivePiWebConfig({ ...testOptions(), env: {
+      ...testOptions().env, PI_WEB_WORKBENCH_TIMEOUT_MS: "25000",
+    } }).config.workbenchIntegration?.requestTimeoutMs).toBe(25_000);
   });
 
   it("rejects invalid and unknown workbench integration settings", async () => {

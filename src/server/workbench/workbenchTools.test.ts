@@ -106,7 +106,7 @@ describe("Workbench controlled tools", () => {
       resourceName: "knowledge.nanning.optical",
       topK: 7,
       filters: { document_type: "private-filter" },
-    });
+    }, undefined);
     expect(JSON.stringify(output)).toContain("knowledge://knowledge.nanning.optical@r3/doc-1/chunk-1");
     expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({
       knowledgeName: "knowledge.nanning.optical",

@@ -411,7 +411,7 @@ ES 错误记日志，不停止管理会话。有界内存队列重试，并在�
 
 `workbenchIntegration` 是管理嵌入的受控适配器，不限制普通会话。`baseUrl` 为服务器可访问的 Workbench 后端 origin，`mcpUrl` 为 MCP Streamable HTTP endpoint，两者必需。环境覆盖：`PI_WEB_WORKBENCH_URL`、`PI_WEB_MCP_URL`、`PI_WEB_WORKBENCH_TIMEOUT_MS`、`PI_WEB_MCP_TIMEOUT_MS`、`PI_WEB_SKILL_BUNDLE_MAX_BYTES`、`PI_WEB_SKILL_FILE_MAX_BYTES`、`PI_WEB_SKILL_FILE_COUNT_MAX`。
 
-默认 request/capability 超时 10000/30000ms、Skill bundle/file 上限 10485760/2097152 字节、文件数 200。适配器把一次性管理 token 换成私有 Agent Session，仅加载授权固定资源快照；并发同 entry token 复用该 Agent Session。
+每次 Workbench HTTP 请求（含响应正文读取）的 `requestTimeoutMs` 默认 30000ms，显式配置继续生效，`PI_WEB_WORKBENCH_TIMEOUT_MS` 优先于配置文件；MCP `capabilityTimeoutMs` 默认 30000ms。Skill bundle/file 上限 10485760/2097152 字节、文件数 200。适配器把一次性管理 token 换成私有 Agent Session，仅加载授权固定资源快照；并发同 entry token 复用该 Agent Session。
 
 平台的浏览器入口同样先换票：应用相对 `POST api/management-entry-tickets`（JSON 正文 `{"token":"..."}`）返回 `201` 与 `{entryPath, expiresAt}`，不设置浏览器 Cookie；`GET management-entry?ticket=...` 兑换后写管理 HttpOnly Cookie 并 `303` 到 `./?embed=management`。票据一次性、最多 60 秒，最多 256 个待用票据且序列化上下文合计 8 MiB；`POST` 正文 1 MiB、编码上下文 1 MiB（`413`），daemon 内部 HTTP 头限额 1 MiB + 64 KiB，均不提高对外反向代理的请求行限制。换票响应使用 `no-store`，兑换响应附加 `no-referrer`。细节见[短入口换票](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/admin/management-audit.md#management-entry-tickets)。
 
@@ -431,7 +431,9 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 
 完整特权管理会话在启动和 `/reload` 时仅清理确认是平台原样下发的项目 Relay 副本，改由已启用的内置 Relay 包提供技能。清理只匹配当前模板或已知历史模板，且目录中必须仅有普通文件 `SKILL.md`；用户改过的内容、额外文件、符号链接及其他自定义 Skill 均保留，真实同名冲突仍会提示。取消特权后，下次创建或重载受限管理会话会按上述受限模式规则重新下发当前模板；旧特权会话不会运行中自动降权，应停止使用并通过新的授权入口进入。普通模式不执行此清理。升级此行为需重启 `pi-web-sessiond.service`，不改变现有特权授权与沙箱规则。
 
-`workbench_search_knowledge` 检索授权元数据，可用 provider=ragflow/bookstack；RAGFlow 内容用 `workbench_retrieve_knowledge`，BookStack 关键词检索用 `workbench_retrieve_bookstack`，参数 `resource_name`、简洁 `question`、可选 `resource_version=live`、`top_k` 默认 8/最大 20。通过后端 `POST /api/knowledge-access/bookstack/retrieval` 读取独立授权的已发布书籍当前非草稿页；该检索工具只读，不提供语义检索。返回纯文本、修订、更新时间、源 URL 与 `knowledge://` 引用；`truncated` 表示搜索/文本限制，不保证包含所有匹配。上限五批各 100 候选、每页 8000 字符、总 40000。源链接仍需要读者自身浏览器权限，工具不授予 BookStack 登录。
+`workbench_search_knowledge` 只搜索授权目录中的资源名称和元数据，不搜索正文，可用 provider=ragflow/bookstack。正文关键词没有匹配资源时，应省略 `keyword` 再列出授权目录，选取返回的精确 `resourceName` 后检索正文；目录无匹配不代表正文没有内容。RAGFlow 内容用 `workbench_retrieve_knowledge`，BookStack 关键词检索用 `workbench_retrieve_bookstack`，参数 `resource_name`、简洁 `question`、可选 `resource_version=live`、`top_k` 默认 8/最大 20。通过后端 `POST /api/knowledge-access/bookstack/retrieval` 读取独立授权的已发布书籍当前非草稿页；该检索工具只读，不提供语义检索。返回纯文本、修订、更新时间、源 URL 与 `knowledge://` 引用；`truncated` 表示搜索/文本限制，不保证包含所有匹配。上限五批各 100 候选、每页 8000 字符、总 40000。源链接仍需要读者自身浏览器权限，工具不授予 BookStack 登录。
+
+停止 `workbench_retrieve_knowledge`、`workbench_retrieve_bookstack` 或 `workbench_read_bookstack` 工具调用时，取消会传给正在进行的 HTTP 请求，取消与请求超时分别报告。写入超时表示结果未确认，应按下述回执流程核查，不能据此认定未写入或自动重试。
 
 签名 `projects[].agentsInstructions` 仅在项目 `AGENTS.md` 不存在时独占创建，`replace-managed` 策略为首次创建的文件保留托管标记；已有文件不因初始化自动覆盖。管理嵌入可在当前工作区的[指令确认菜单](plugins.md#managed-agents-review)中选择覆盖并备份或保留，无此字段仍兼容，普通项目不受影响。
 

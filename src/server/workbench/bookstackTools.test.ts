@@ -9,13 +9,14 @@ import { createWorkbenchToolDefinitions } from "./workbenchTools.js";
 describe("BookStack controlled tool", () => {
   it("retrieves only the authorized book through a one-time token and audits metadata only", async () => {
     const h = harness();
-    const output = await h.tool.execute("call-1", { resource_name: "bookstack.gx.1", question: " private question ", top_k: 7 }, undefined, undefined, context());
+    const signal = new AbortController().signal;
+    const output = await h.tool.execute("call-1", { resource_name: "bookstack.gx.1", question: " private question ", top_k: 7 }, signal, undefined, context());
     expect(h.issueToken).toHaveBeenCalledExactlyOnceWith("private-agent-token", expect.objectContaining({
       resourceName: "bookstack.gx.1", resourceVersion: "live",
-    }));
+    }), signal);
     expect(h.issueToken.mock.calls[0]?.[1].runId).toMatch(/^run-/u);
     expect(h.issueToken.mock.calls[0]?.[1].traceId).toMatch(/^trace-/u);
-    expect(h.retrieve).toHaveBeenCalledExactlyOnceWith("private-knowledge-token", { resourceName: "bookstack.gx.1", question: "private question", topK: 7 });
+    expect(h.retrieve).toHaveBeenCalledExactlyOnceWith("private-knowledge-token", { resourceName: "bookstack.gx.1", question: "private question", topK: 7 }, signal);
     expect(JSON.stringify(output)).toContain("knowledge://bookstack.gx.1@live/12/2");
     expect(h.ragflow).not.toHaveBeenCalled();
     expect(h.audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "workbench_knowledge_retrieval", status: "completed", knowledgeName: "bookstack.gx.1", knowledgeVersion: "live", resultCount: 1 }));

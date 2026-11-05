@@ -1,4 +1,5 @@
 import { loadNodeTranslator } from "../../localization.js";
+import { DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS } from "../../config.js";
 import type { Translator } from "../../shared/i18n.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
@@ -129,7 +130,7 @@ export class WorkbenchSkillSynchronizer {
     const url = new URL(`/integration/v1/skills/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}/${resource}`, mcpUrl.origin);
     const response = await this.fetchImpl(url, {
       headers: { authorization: `Bearer ${ticket}` },
-      signal: AbortSignal.timeout(this.config.requestTimeoutMs ?? 10_000),
+      signal: AbortSignal.timeout(this.config.requestTimeoutMs ?? DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) throw new WorkbenchHttpError(
       response.status,

@@ -27,6 +27,16 @@ export class WorkbenchHttpError extends Error {
   }
 }
 
+export class WorkbenchTimeoutError extends UserFacingError {
+  readonly code = "WORKBENCH_REQUEST_TIMEOUT";
+  readonly status = 504;
+
+  constructor() {
+    super("managementError.workbench.timeout", "Workbench did not respond in time. If a write was submitted, check its operation receipt before trying again.");
+    this.name = "WorkbenchTimeoutError";
+  }
+}
+
 export interface WorkbenchClientOptions {
   baseUrl: string;
   requestTimeoutMs: number;
@@ -99,21 +109,21 @@ export class WorkbenchClient {
     }), "Skill ticket response"), "token");
   }
 
-  async issueKnowledgeToken(bearerToken: string, request: KnowledgeTokenRequest): Promise<string> {
+  async issueKnowledgeToken(bearerToken: string, request: KnowledgeTokenRequest, signal?: AbortSignal): Promise<string> {
     return stringField(record(await this.json("/api/agent-access/knowledge-token", {
-      method: "POST", token: bearerToken, expectedStatus: 200, body: request,
+      method: "POST", token: bearerToken, expectedStatus: 200, body: request, signal,
     }), "knowledge token response"), "token");
   }
 
-  async retrieveKnowledge(knowledgeToken: string, request: KnowledgeRetrievalRequest): Promise<KnowledgeRetrievalResult> {
+  async retrieveKnowledge(knowledgeToken: string, request: KnowledgeRetrievalRequest, signal?: AbortSignal): Promise<KnowledgeRetrievalResult> {
     return parseKnowledgeRetrievalResult(await this.json("/api/knowledge-access/retrieval", {
-      method: "POST", token: knowledgeToken, expectedStatus: 200, body: request,
+      method: "POST", token: knowledgeToken, expectedStatus: 200, body: request, signal,
     }));
   }
 
-  async retrieveBookstack(knowledgeToken: string, request: BookstackRetrievalRequest): Promise<BookstackRetrievalResult> {
+  async retrieveBookstack(knowledgeToken: string, request: BookstackRetrievalRequest, signal?: AbortSignal): Promise<BookstackRetrievalResult> {
     const result = parseBookstackRetrievalResult(await this.json("/api/knowledge-access/bookstack/retrieval", {
-      method: "POST", token: knowledgeToken, expectedStatus: 200, body: request,
+      method: "POST", token: knowledgeToken, expectedStatus: 200, body: request, signal,
     }));
     if (result.resourceName !== request.resourceName || result.resourceVersion !== "live") {
       throw new Error("BookStack response does not match the requested resource");
@@ -121,9 +131,9 @@ export class WorkbenchClient {
     return result;
   }
 
-  async readBookstack(bearerToken: string, request: BookstackReadRequest): Promise<BookstackReadResult> {
+  async readBookstack(bearerToken: string, request: BookstackReadRequest, signal?: AbortSignal): Promise<BookstackReadResult> {
     const value = record(await this.json("/api/agent-access/bookstack/read", {
-      method: "POST", token: bearerToken, expectedStatus: 200, body: request,
+      method: "POST", token: bearerToken, expectedStatus: 200, body: request, signal,
     }), "BookStack read response");
     const result: BookstackReadResult = {
       resourceName: stringField(value, "resourceName"),
@@ -202,19 +212,30 @@ export class WorkbenchClient {
     return result;
   }
 
-  private async json(path: string, request: { method: string; token: string; expectedStatus: number; body?: unknown }): Promise<unknown> {
+  private async json(path: string, request: { method: string; token: string; expectedStatus: number; body?: unknown; signal?: AbortSignal | undefined }): Promise<unknown> {
+    request.signal?.throwIfAborted();
+    const timeout = AbortSignal.timeout(this.options.requestTimeoutMs);
     const headers: Record<string, string> = { authorization: `Bearer ${request.token}` };
     const init: RequestInit = {
       method: request.method,
       headers,
-      signal: AbortSignal.timeout(this.options.requestTimeoutMs),
+      signal: request.signal === undefined ? timeout : AbortSignal.any([request.signal, timeout]),
     };
     if (request.body !== undefined) {
       headers["content-type"] = "application/json";
       init.body = JSON.stringify(request.body);
     }
-    const response = await this.fetchImpl(new URL(path, trailingSlash(this.options.baseUrl)), init);
-    const text = await response.text();
+    let response: Response;
+    let text: string;
+    try {
+      response = await this.fetchImpl(new URL(path, trailingSlash(this.options.baseUrl)), init);
+      text = await response.text();
+    } catch (error) {
+      // A caller cancellation is not a server timeout. Never replay a consumed token or a write.
+      request.signal?.throwIfAborted();
+      if (timeout.aborted) throw new WorkbenchTimeoutError();
+      throw error;
+    }
     if (response.status !== request.expectedStatus) throw new WorkbenchHttpError(response.status, responseMessage(text, response.status));
     try {
       const value: unknown = JSON.parse(text);

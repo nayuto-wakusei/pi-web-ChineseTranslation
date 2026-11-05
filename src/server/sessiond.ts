@@ -50,7 +50,7 @@ import { REQUIRED_TERMINAL_SERVICE_CAPABILITY, unavailableRequiredTerminalServic
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
 import { PI_WEB_CAPABILITIES } from "../shared/apiTypes.js";
-import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV, agentSessionDirEnvKeys, agentSessionDirEnvOverride, effectivePiWebConfig, maxUploadBytes, offlineModeEnabled, piWebDataDir, sessionArchiveDirectory } from "../config.js";
+import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV, agentSessionDirEnvKeys, agentSessionDirEnvOverride, effectivePiWebConfig, maxUploadBytes, offlineModeEnabled, piWebDataDir, sessionArchiveDirectory } from "../config.js";
 import { createActiveAgentProfileDescriptor, publicActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
 import { scrubNonAgentVisibleEnvKeys } from "./sessiond/agentProcessEnvironment.js";
 import { claimSessiondStateOwnership, type SessiondStateOwnership } from "./sessiond/sessiondStateOwnership.js";
@@ -318,7 +318,7 @@ await runSessionDaemonStartup({
     const workbench = config.workbenchIntegration === undefined ? undefined : (() => {
       const client = new WorkbenchClient({
         baseUrl: config.workbenchIntegration.baseUrl,
-        requestTimeoutMs: config.workbenchIntegration.requestTimeoutMs ?? 10_000,
+        requestTimeoutMs: config.workbenchIntegration.requestTimeoutMs ?? DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS,
       });
       return {
         translator,

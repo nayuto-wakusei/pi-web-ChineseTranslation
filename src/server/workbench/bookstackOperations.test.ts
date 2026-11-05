@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createManagementPermissionSystemPolicy, managementAgentToolNames } from "../sessions/managementPermissionSystem.js";
 import type { AuthorizedResource, BookstackOperationReceipt, BookstackOperationResult, BookstackReadResult, WorkbenchResourceAction } from "./types.js";
 import { WorkbenchMcpClient } from "./mcpClient.js";
-import { parseAuthorizedResources, WorkbenchClient, WorkbenchHttpError } from "./workbenchClient.js";
+import { parseAuthorizedResources, WorkbenchClient, WorkbenchHttpError, WorkbenchTimeoutError } from "./workbenchClient.js";
 import { createWorkbenchToolDefinitions } from "./workbenchTools.js";
 
 describe("BookStack entity transport", () => {
@@ -78,8 +78,9 @@ describe("BookStack entity transport", () => {
 describe("BookStack entity tools", () => {
   it("reads with the user bearer and permits a book read without a physical ID", async () => {
     const h = harness();
-    await h.readTool.execute("call", { resource_name: "bookstack.gx.1", entity_type: "book" }, undefined, undefined, context());
-    expect(h.read).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", entityType: "book" });
+    const signal = new AbortController().signal;
+    await h.readTool.execute("call", { resource_name: "bookstack.gx.1", entity_type: "book" }, signal, undefined, context());
+    expect(h.read).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", entityType: "book" }, signal);
     expect(h.issueToken).not.toHaveBeenCalled();
     await expect(h.readTool.execute("call", { resource_name: "bookstack.gx.1", entity_type: "page" }, undefined, undefined, context())).rejects.toThrow("ID");
     expect(h.read).toHaveBeenCalledTimes(1);
@@ -140,9 +141,9 @@ describe("BookStack entity tools", () => {
     expect(h.write).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", action: "book.delete", baseVersion: "book-revision", idempotencyKey: "delete-key" });
   });
 
-  it("does not replay an uncertain mutation and reports the original key", async () => {
+  it.each([new TypeError("Network failed"), new WorkbenchTimeoutError()])("does not replay an uncertain mutation and reports the original key (%s)", async (error) => {
     const h = harness(["read", "update"]);
-    h.write.mockRejectedValue(new TypeError("Network failed"));
+    h.write.mockRejectedValue(error);
     await expect(h.writeTool.execute("call", { ...updateInput(), idempotency_key: "keep-this-key" }, undefined, undefined, context())).rejects.toThrow("keep-this-key");
     expect(h.write).toHaveBeenCalledTimes(1);
     h.write.mockResolvedValue({ ...writeResult(), status: "unknown" });

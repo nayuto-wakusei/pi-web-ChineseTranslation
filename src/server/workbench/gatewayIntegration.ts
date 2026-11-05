@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS } from "../../config.js";
 import type { PiWebWorkbenchIntegrationConfig } from "../../shared/apiTypes.js";
 import type { SessionProxyDaemon } from "../sessiond/sessionProxyRoutes.js";
 import type { ManagementEmbedContext, ManagementEmbedRuntime } from "../managementEmbed.js";
@@ -27,7 +28,7 @@ export function createWorkbenchManagementRuntime(
   if (base === undefined || config === undefined) return base;
   const contextBindings = new WeakMap<ManagementEmbedContext, WorkbenchBinding>();
   const bindings = new Map<string, CachedWorkbenchBinding>();
-  const client = new WorkbenchClient({ baseUrl: config.baseUrl, requestTimeoutMs: config.requestTimeoutMs ?? 10_000 });
+  const client = new WorkbenchClient({ baseUrl: config.baseUrl, requestTimeoutMs: config.requestTimeoutMs ?? DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS });
   return {
     ...base,
     async authenticate(token) {

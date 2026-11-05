@@ -268,5 +268,10 @@
   "navigationPreference.idsNonEmpty": "导航 ID 必须是非空字符串",
   "navigationPreference.idsUnique": "导航 ID 不得重复",
   "navigationPreference.revisionInvalid": "导航版本号必须是非负安全整数",
-  "navigationPreference.conflict": "导航偏好版本冲突"
+  "navigationPreference.conflict": "导航偏好版本冲突",
+  "workbench.knowledge.searchLabel": "检索授权知识资源",
+  "workbench.knowledge.searchDescription": "仅检索已授权、已发布的 L0 RAGFlow 和 BookStack 资源名称及元数据。这是资源目录检索，不搜索文档正文。",
+  "workbench.knowledge.searchSnippet": "查找已授权的知识资源",
+  "workbench.knowledge.directoryGuideline": "按手册名称或资源范围搜索。正文关键词没有命中目录时，省略 keyword 列出已授权目录；目录无匹配不代表正文中没有该内容。",
+  "workbench.knowledge.retrieveGuideline": "只能使用返回的精确 resourceName。provider=bookstack 时用 workbench_retrieve_bookstack 检索正文，provider=ragflow 时用 workbench_retrieve_knowledge。"
 }

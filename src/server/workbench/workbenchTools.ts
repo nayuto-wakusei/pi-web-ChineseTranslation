@@ -7,7 +7,7 @@ import { requireAuthorizedL0Capability, searchAuthorizedCapabilities } from "./c
 import { requireAuthorizedBookstackKnowledge, requireAuthorizedRagflowKnowledge, searchAuthorizedKnowledge } from "./knowledgeSearch.js";
 import { McpHttpError, McpTransportError, WorkbenchMcpClient } from "./mcpClient.js";
 import type { BookstackRetrievalResult, KnowledgeRetrievalResult, WorkbenchAgentAccessState } from "./types.js";
-import { WorkbenchClient, WorkbenchHttpError } from "./workbenchClient.js";
+import { WorkbenchClient, WorkbenchHttpError, WorkbenchTimeoutError } from "./workbenchClient.js";
 import type { ManagementAuditIdentity, ManagementAuditRecorder, ManagementAuditStatus } from "../audit/managementAuditStore.js";
 import { createBookstackOperationTools } from "./bookstackOperationTools.js";
 
@@ -77,10 +77,13 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
     }),
     defineTool<typeof SearchKnowledgeParams, undefined>({
       name: "workbench_search_knowledge",
-      label: "检索授权知识",
-      description: "仅检索当前工作台会话已授权、已发布的L0 RAGFlow知识库和BookStack记忆笔记资源目录，不检索正文。",
-      promptSnippet: "检索当前账号已授权的知识资源",
-      promptGuidelines: ["检索知识前先按问题搜索；只能使用返回的精确resourceName。", "provider为bookstack时调用workbench_retrieve_bookstack；ragflow时调用workbench_retrieve_knowledge。"],
+      label: t("workbench.knowledge.searchLabel", "Search authorized knowledge resources"),
+      description: t("workbench.knowledge.searchDescription", "Search only the names and metadata of authorized, published L0 RAGFlow and BookStack resources. This searches the resource directory, not document content."),
+      promptSnippet: t("workbench.knowledge.searchSnippet", "Find authorized knowledge resources"),
+      promptGuidelines: [
+        t("workbench.knowledge.directoryGuideline", "Search by book name or resource scope. If a content keyword returns no resources, omit keyword to list the authorized directory; no directory match does not mean the content is absent."),
+        t("workbench.knowledge.retrieveGuideline", "Use only an exact returned resourceName. Search its content with workbench_retrieve_bookstack for provider=bookstack or workbench_retrieve_knowledge for provider=ragflow."),
+      ],
       parameters: SearchKnowledgeParams,
       async execute(_toolCallId, params) {
         const result = searchAuthorizedKnowledge((await deps.getState()).resources, params);
@@ -98,8 +101,8 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
         "回答时优先引用返回的knowledge://citation。",
       ],
       parameters: RetrieveKnowledgeParams,
-      async execute(_toolCallId, params) {
-        return executeKnowledgeRetrieval(deps, params, "ragflow");
+      async execute(_toolCallId, params, signal) {
+        return executeKnowledgeRetrieval(deps, params, "ragflow", signal);
       },
     }),
     defineTool<typeof RetrieveBookstackParams, undefined>({
@@ -115,8 +118,8 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
         "truncated为true表示结果受限，不能据此声称已搜索全部内容。",
       ],
       parameters: RetrieveBookstackParams,
-      async execute(_toolCallId, params) {
-        return executeKnowledgeRetrieval(deps, params, "bookstack");
+      async execute(_toolCallId, params, signal) {
+        return executeKnowledgeRetrieval(deps, params, "bookstack", signal);
       },
     }),
     defineTool<typeof CallCapabilityParams, undefined>({
@@ -194,7 +197,9 @@ async function executeKnowledgeRetrieval(
   deps: WorkbenchToolDependencies,
   params: { resource_name: string; question: string; resource_version?: string; top_k?: number; filters?: Record<string, unknown> },
   provider: "ragflow" | "bookstack",
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const runId = `run-${randomUUID()}`;
   const traceId = `trace-${randomUUID()}`;
   const startedAt = Date.now();
@@ -219,7 +224,7 @@ async function executeKnowledgeRetrieval(
       ...(params.filters === undefined ? {} : { filters: params.filters }),
       runId,
       traceId,
-    }, provider);
+    }, provider, signal);
     const details = {
       ...auditBase,
       knowledgeName: resource.resourceName,
@@ -341,32 +346,33 @@ async function retrieveKnowledgeOnce(
     traceId: string;
   },
   provider: "ragflow" | "bookstack",
+  signal?: AbortSignal,
 ): Promise<KnowledgeRetrievalResult | BookstackRetrievalResult> {
   try {
     const request = { resourceName: input.resourceName, resourceVersion: input.resourceVersion, runId: input.runId, traceId: input.traceId };
     let token: string;
     try {
-      token = await deps.workbench.issueKnowledgeToken(bearerToken, request);
+      token = await deps.workbench.issueKnowledgeToken(bearerToken, request, signal);
     } catch (error) {
       if (!(error instanceof WorkbenchHttpError) || error.status !== 401) throw error;
       const refreshedState = await deps.getState();
       const requireResource = provider === "bookstack" ? requireAuthorizedBookstackKnowledge : requireAuthorizedRagflowKnowledge;
       requireResource(refreshedState.resources, input.resourceName, input.resourceVersion);
-      token = await deps.workbench.issueKnowledgeToken(refreshedState.bearerToken, request);
+      token = await deps.workbench.issueKnowledgeToken(refreshedState.bearerToken, request, signal);
     }
     if (provider === "bookstack") {
       return await deps.workbench.retrieveBookstack(token, {
         question: input.question,
         resourceName: input.resourceName,
         ...(input.topK === undefined ? {} : { topK: input.topK }),
-      });
+      }, signal);
     }
     return await deps.workbench.retrieveKnowledge(token, {
       question: input.question,
       resourceName: input.resourceName,
       ...(input.topK === undefined ? {} : { topK: input.topK }),
       ...(input.filters === undefined ? {} : { filters: input.filters }),
-    });
+    }, signal);
   } catch (error) {
     if (error instanceof WorkbenchHttpError && (error.status === 401 || (provider === "bookstack" && error.status === 403))) {
       deps.invalidate?.();
@@ -377,12 +383,13 @@ async function retrieveKnowledgeOnce(
 }
 
 function errorStatus(error: unknown): number | string {
-  if (error instanceof WorkbenchHttpError || error instanceof McpHttpError) return error.status;
+  if (error instanceof WorkbenchHttpError || error instanceof WorkbenchTimeoutError || error instanceof McpHttpError) return error.status;
   if (error instanceof McpTransportError) return `mcp_transport_${error.code}`;
   return "local_error";
 }
 
 function errorCode(error: unknown): string {
+  if (error instanceof WorkbenchTimeoutError) return error.code;
   if (error instanceof McpTransportError) return error.code;
   if (error instanceof WorkbenchHttpError) return `workbench_http_${String(error.status)}`;
   if (error instanceof McpHttpError) return `mcp_http_${String(error.status)}`;
