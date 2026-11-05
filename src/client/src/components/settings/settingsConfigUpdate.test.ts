@@ -7,6 +7,17 @@ function response(): PiWebConfigResponse {
 }
 
 describe("explicit Settings updates", () => {
+  it("resets hidden saved speech keys and replaces their selected-machine presence metadata", () => {
+    const saved = response();
+    saved.speechApiKeyPresence = { config: true, effectiveConfig: true, defaultsConfig: false };
+    expect(resetConfigUpdate(saved, ["/speech"])).toEqual({ unset: ["/speech/apiKey"] });
+    saved.enforcedSettings = { "/speech/apiKey": "PI_WEB_SPEECH" };
+    expect(resetConfigUpdate(saved, ["/speech/apiKey"])).toEqual({ unset: [] });
+    const incoming = response();
+    expect(mergeSelectedSettingsResponse(saved, incoming, ["speech"]).speechApiKeyPresence).toBeUndefined();
+    expect(mergeSelectedSettingsResponse(saved, incoming, ["uploads"]).speechApiKeyPresence).toEqual(saved.speechApiKeyPresence);
+  });
+
   it("omits unchanged defaults and enforced values, preserving hidden saved overrides", () => {
     const snapshot = response();
     expect(explicitConfigUpdate(snapshot, { ...snapshot.effectiveConfig, quietMode: false }, snapshot.effectiveConfig)).toEqual({ set: { quietMode: false } });

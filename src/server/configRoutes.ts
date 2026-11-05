@@ -2,10 +2,11 @@ import { UserFacingError, createTranslator, userFacingErrorMessage, type Transla
 import type { FastifyInstance } from "fastify";
 import { loadPiWebConfig, overlayPiWebConfig, piWebConfigEnforcedSettings, piWebConfigSources, parsePiWebConfig, resolveEffectivePiWebConfig, savePiWebConfig, type AgentPathHost, type LoadOptions, type PiWebConfig } from "../config.js";
 import { CONFIG_KEYS, parseConfigPointer, preserveEnforcedConfigOverrides, removeConfigOverrides, validateConfigUpdate, type PiWebConfigUpdate } from "./configUpdates.js";
-import type { PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
+import type { PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebSpeechApiKeyPresence } from "../shared/apiTypes.js";
 import type { PiWebAgentDirEnvSource } from "../shared/apiTypes.js";
 import { agentDirEnvSource, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride } from "../config.js";
 import { parsePiWebConfigRequest } from "../shared/piWebConfigParsing.js";
+import { preserveStoredSpeechApiKey, redactPiWebConfigResponse } from "../shared/configSecrets.js";
 
 export interface PiWebConfigService {
   read: () => PiWebConfigResponse | Promise<PiWebConfigResponse>;
@@ -45,7 +46,10 @@ export function createFilePiWebConfigService(options: LoadOptions = {}): PiWebCo
     replace: (config, selectedMachine) => {
       const current = currentPiWebConfigResponse(options);
       const replacement = selectedMachine ? mergeSelectedMachineConfig(current.config, config) : config;
-      savePiWebConfig(preserveEnforcedConfigOverrides(current.config, replacement, current.enforcedSettings), options);
+      // A redacted client cannot send the saved key back. Omitting it means
+      // "unchanged"; only PATCH unset clears it.
+      const merged = preserveStoredSpeechApiKey(current.config, preserveEnforcedConfigOverrides(current.config, replacement, current.enforcedSettings));
+      savePiWebConfig(merged, options);
       return currentPiWebConfigResponse(options);
     },
     update: (update) => {
@@ -74,9 +78,10 @@ export function currentPiWebConfigResponse(options: LoadOptions = {}): PiWebConf
 }
 
 export function registerConfigRoutes(app: FastifyInstance, service: PiWebConfigService = createFilePiWebConfigService(), translate: Translator = createTranslator("en", {})): void {
+  registerSpeechApiKeyRoute(app, service, "/api/config/speech-api-key", translate);
   app.get("/api/config", async (_request, reply) => {
     try {
-      return await service.read();
+      return redactPiWebConfigResponse(await service.read());
     } catch (error) {
       return reply.code(500).send({ error: userFacingErrorMessage(error, translate) });
     }
@@ -84,7 +89,7 @@ export function registerConfigRoutes(app: FastifyInstance, service: PiWebConfigS
 
   app.patch<{ Body: unknown }>("/api/config", async (request, reply) => {
     try {
-      return await updateConfigService(service, parsePiWebConfigUpdate(request.body));
+      return redactPiWebConfigResponse(await updateConfigService(service, parsePiWebConfigUpdate(request.body)));
     } catch (error) {
       return reply.code(isConfigValidationError(error) ? 400 : 500).send({ error: errorMessage(error) });
     }
@@ -92,7 +97,7 @@ export function registerConfigRoutes(app: FastifyInstance, service: PiWebConfigS
 
   app.put<{ Body: { config?: unknown } | undefined }>("/api/config", async (request, reply) => {
     try {
-      return await replaceConfigService(service, parseConfigRequest(request.body?.config));
+      return redactPiWebConfigResponse(await replaceConfigService(service, parseConfigRequest(request.body?.config)));
     } catch (error) {
       const status = isConfigValidationError(error) ? 400 : 500;
       return reply.code(status).send({ error: userFacingErrorMessage(error, translate) });
@@ -101,9 +106,10 @@ export function registerConfigRoutes(app: FastifyInstance, service: PiWebConfigS
 }
 
 export function registerLocalMachineConfigRoutes(app: FastifyInstance, service: PiWebConfigService = createFilePiWebConfigService(), translate: Translator = createTranslator("en", {})): void {
+  registerSpeechApiKeyRoute(app, service, "/api/machines/local/config/speech-api-key", translate);
   app.get("/api/machines/local/config", async (_request, reply) => {
     try {
-      return selectedMachineConfigResponse(await service.read());
+      return redactPiWebConfigResponse(selectedMachineConfigResponse(await service.read()));
     } catch (error) {
       return reply.code(500).send({ error: userFacingErrorMessage(error, translate) });
     }
@@ -111,7 +117,7 @@ export function registerLocalMachineConfigRoutes(app: FastifyInstance, service: 
 
   app.patch<{ Body: unknown }>("/api/machines/local/config", async (request, reply) => {
     try {
-      return selectedMachineConfigResponse(await updateConfigService(service, parsePiWebConfigUpdate(request.body, true)));
+      return redactPiWebConfigResponse(selectedMachineConfigResponse(await updateConfigService(service, parsePiWebConfigUpdate(request.body, true))));
     } catch (error) {
       return reply.code(isConfigValidationError(error) ? 400 : 500).send({ error: errorMessage(error) });
     }
@@ -120,10 +126,22 @@ export function registerLocalMachineConfigRoutes(app: FastifyInstance, service: 
   app.put<{ Body: { config?: unknown } | undefined }>("/api/machines/local/config", async (request, reply) => {
     try {
       const patch = parseSelectedMachineConfigRequest(request.body?.config);
-      return selectedMachineConfigResponse(await replaceConfigService(service, patch, true));
+      return redactPiWebConfigResponse(selectedMachineConfigResponse(await replaceConfigService(service, patch, true)));
     } catch (error) {
       const status = isConfigValidationError(error) ? 400 : 500;
       return reply.code(status).send({ error: userFacingErrorMessage(error, translate) });
+    }
+  });
+}
+
+function registerSpeechApiKeyRoute(app: FastifyInstance, service: PiWebConfigService, path: string, translate: Translator): void {
+  app.get(path, async (_request, reply) => {
+    reply.header("cache-control", "no-store");
+    try {
+      const response = await service.read();
+      return { apiKey: response.config.speech?.apiKey ?? "" };
+    } catch (error) {
+      return reply.code(500).send({ error: userFacingErrorMessage(error, translate) });
     }
   });
 }
@@ -154,7 +172,7 @@ async function replaceConfigService(service: PiWebConfigService, config: PiWebCo
   if (service.replace !== undefined) return service.replace(config, selectedMachine);
   const current = await service.read();
   const replacement = selectedMachine ? mergeSelectedMachineConfig(current.config, config) : config;
-  return service.write(preserveEnforcedConfigOverrides(current.config, replacement, current.enforcedSettings));
+  return service.write(preserveStoredSpeechApiKey(current.config, preserveEnforcedConfigOverrides(current.config, replacement, current.enforcedSettings)));
 }
 
 async function updateConfigService(service: PiWebConfigService, update: PiWebConfigUpdate): Promise<PiWebConfigResponse> {
@@ -203,7 +221,7 @@ export function parseSelectedMachineConfigRequest(value: unknown, agentPathHost:
 }
 
 export function mergeSelectedMachineConfig(current: PiWebConfigValues, patch: PiWebConfigValues): PiWebConfig {
-  return { ...current, ...pickSelectedMachineConfig(patch) };
+  return preserveStoredSpeechApiKey(current, { ...current, ...pickSelectedMachineConfig(patch) });
 }
 
 export function selectedMachineConfigResponse(response: PiWebConfigResponse): PiWebConfigResponse {
@@ -219,7 +237,7 @@ export function selectedMachineConfigResponse(response: PiWebConfigResponse): Pi
 
 export function parsePiWebConfigResponseBody(value: unknown, source = "PI WEB config response"): PiWebConfigResponse {
   const record = requireResponseRecord(value, source);
-  return {
+  return redactPiWebConfigResponse({
     path: requireResponseString(record, "path", source),
     exists: requireResponseBoolean(record, "exists", source),
     config: parseConfigRequest(record["config"], "portable"),
@@ -229,6 +247,17 @@ export function parsePiWebConfigResponseBody(value: unknown, source = "PI WEB co
     ...(record["configSources"] === undefined ? {} : { configSources: parseSourceMap(record["configSources"], source) }),
     ...(record["defaultsPath"] === undefined ? {} : { defaultsPath: requireResponseString(record, "defaultsPath", source) }),
     ...(record["defaultsConfig"] === undefined ? {} : { defaultsConfig: parseConfigRequest(record["defaultsConfig"], "portable") }),
+    ...(record["speechApiKeyPresence"] === undefined ? {} : { speechApiKeyPresence: parseSpeechApiKeyPresence(record["speechApiKeyPresence"], source) }),
+  });
+}
+
+function parseSpeechApiKeyPresence(value: unknown, source: string): PiWebSpeechApiKeyPresence {
+  const record = requireResponseRecord(value, `${source} speechApiKeyPresence`);
+  const label = `${source} speechApiKeyPresence`;
+  return {
+    config: requireResponseBoolean(record, "config", label),
+    effectiveConfig: requireResponseBoolean(record, "effectiveConfig", label),
+    defaultsConfig: requireResponseBoolean(record, "defaultsConfig", label),
   };
 }
 

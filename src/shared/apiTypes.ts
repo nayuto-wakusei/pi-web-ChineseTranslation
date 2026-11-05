@@ -186,7 +186,13 @@ export interface PiWebSpeechConfig {
   model?: string;
   /** ISO language hint; omitted means the service auto-detects the language. */
   language?: string;
-  /** Environment variable holding a bearer token. The token itself is never stored in config. */
+  /**
+   * Bearer token stored directly in the machine config. When non-empty it takes
+   * precedence over `apiKeyEnv`; removing the saved override restores inherited
+   * configuration. Config responses never expose the value.
+   */
+  apiKey?: string;
+  /** Environment variable holding a bearer token, used only when `apiKey` is absent. */
   apiKeyEnv?: string;
   timeoutMs?: number;
   /** Maximum accepted audio payload size in bytes, after base64 decoding. */
@@ -446,12 +452,33 @@ export interface PiWebConfigEnvOverrides {
   agentSessionDir: boolean;
 }
 
+/**
+ * Redacted presence of the directly stored speech API key. Responses never
+ * carry the value; this metadata lets Settings show saved, inherited, and
+ * environment-enforced key states without treating a mask as a real value.
+ */
+export interface PiWebSpeechApiKeyPresence {
+  /** Writable machine config contains a direct key. */
+  config: boolean;
+  /** Effective config contains a direct key from any layer. */
+  effectiveConfig: boolean;
+  /** Deployment defaults contain a direct key. */
+  defaultsConfig: boolean;
+}
+
+/** Private, authenticated Settings read; never cached or included in config responses. */
+export interface PiWebSpeechApiKeyResponse {
+  apiKey: string;
+}
+
 export interface PiWebConfigResponse {
   path: string;
   exists: boolean;
   config: PiWebConfigValues;
   effectiveConfig: PiWebConfigValues;
   envOverrides: PiWebConfigEnvOverrides;
+  /** Present when a direct speech key exists in at least one layer. */
+  speechApiKeyPresence?: PiWebSpeechApiKeyPresence;
   /** JSON-pointer setting identifiers mapped to controlling environment variable names. */
   enforcedSettings?: Record<string, string>;
   /** JSON-pointer setting identifiers mapped to their winning configuration source. */

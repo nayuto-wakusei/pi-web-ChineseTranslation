@@ -100,6 +100,18 @@ describe("speech transcription service", () => {
     expect(error.message).toContain("SPEECH_TOKEN");
   });
 
+  it("prefers a directly stored key over the environment variable", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() => Promise.resolve(new Response(JSON.stringify({ text: "ok" }), { status: 200 })));
+    const directKey = "direct-test-key";
+    const environmentKey = "environment-test-key";
+    // The fallback variable is neither required nor read while a direct key exists.
+    await service(config({ apiKey: ` ${directKey} `, apiKeyEnv: "SPEECH_TOKEN" }), {}, fetchImpl).transcribe(audio);
+    expect(headerOf(fetchImpl.mock.calls[0]?.[1], "authorization")).toBe(`Bearer ${directKey}`);
+
+    await service(config({ apiKey: directKey, apiKeyEnv: "SPEECH_TOKEN" }), { SPEECH_TOKEN: environmentKey }, fetchImpl).transcribe(audio);
+    expect(headerOf(fetchImpl.mock.calls[1]?.[1], "authorization")).toBe(`Bearer ${directKey}`);
+  });
+
   it("reports a missing endpoint or model as an unconfigured feature", async () => {
     const unconfigured = new SpeechTranscriptionService({ config: undefined, env: {}, fetch: vi.fn() });
     expect((await failure(unconfigured.transcribe(audio))).status).toBe(409);

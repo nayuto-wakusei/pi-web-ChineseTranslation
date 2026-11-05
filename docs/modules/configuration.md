@@ -38,7 +38,7 @@ UI 保存的是受支持配置，不应该把密码 hash、服务端秘密或不
 
 `defaultTheme` 是网关提供的应用默认主题，除环境强制外浏览器设备覆盖优先；主题暂不可用时回退不抹掉原偏好，切远端不改变保存目标。自动命名由可移除的 Pi 包持有 profile 内配置，每次命名读取，仍使用原会话项目/管理模型 registry；核心 `sessionNaming` 键已退役并在配置加载时迁移。`sessionArchive.directory` 与环境覆盖在 daemon 启动时决定新归档目的地，索引仍在托管数据目录，不迁移既有归档；精确字段与迁移见[配置参考](../config.md#session-naming-and-archives)。
 
-`speech` 是机器级容器，没有项目形式：daemon 启动时把它解析为语音转写适配器，并据此决定运行时能力报告是否包含 `prompt.speechRecognition`，所以修改后必须重启该机器的 daemon。`speech.apiKeyEnv` 只保存环境变量名，解析出的 Bearer 令牌不进入配置响应、日志或审计；未配置 `endpoint` 时能力位不广播，浏览器不渲染话筒。设置页的「语音输入」面板只编辑 `endpoint`、`api`、`model`、`language`、`apiKeyEnv`，`timeoutMs` 与 `maxAudioBytes` 仍属配置文件或环境选项。
+`speech` 是机器级容器，没有项目形式：daemon 启动时把它解析为语音转写适配器，并据此决定运行时能力报告是否包含 `prompt.speechRecognition`，所以修改后必须重启该机器的 daemon。有效的 `speech.apiKey` 直接密钥优先于 `speech.apiKeyEnv` 指向的环境变量；直填值保存在现有机器全局配置中，普通配置响应移除各层 `apiKey`，仅以 `speechApiKeyPresence` 报告存在状态，内部读写仍保留原值。单独的机器作用域读取接口遵循网关普通访问认证策略、禁止缓存，只返回可写层已保存的 Key，不返回环境或部署默认令牌。设置面板按存在状态加载并回填密码输入框，默认掩码显示；未修改的 Key 不重复保存，主动清空或显式清除只删除可写覆盖，未编辑的空草稿仍保留原值。密钥不写入浏览器持久存储、日志或审计，切换机器与断开后忽略迟到读取。legacy PUT 省略密钥保留，PATCH unset 删除。继承、环境强制和被遮蔽的已存值遵循通用配置契约。未配置 `endpoint` 时能力位不广播，浏览器不渲染话筒。面板编辑 `endpoint`、`api`、`model`、`language`、`apiKey`、`apiKeyEnv`，`timeoutMs` 与 `maxAudioBytes` 仍属配置文件或环境选项。
 
 普通导航顺序按机器保存到 Web 管理的托管状态，带作用域与 revision，不是项目配置键，也不作为手工编辑接口。管理导航维持独立路径。浏览器的主题覆盖、编辑器偏好和分区尺寸也不能被误写成目标机器配置。
 

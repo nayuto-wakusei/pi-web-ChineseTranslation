@@ -1,4 +1,5 @@
 import { t } from "../i18n";
+import { parseSpeechApiKeyResponse } from "./parsers";
 import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionDefaultsUpdate, SessionModelScopeMode, SessionNotificationDismissThrough, SessionRef, SessionTreeForkRequest, SessionTreeForkResult, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, TerminalCommandRun, TerminalCommandRunFilter, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
 import type { WorkspaceTreeBatchRequest, WorkspaceRemovalRequest, SessionBulkMutationRequest } from "../../../shared/apiTypes";
 import type { SessionQueueMessageMutation } from "../../../shared/apiTypes";
@@ -168,6 +169,7 @@ export const configApi = {
     return request(`${machinePrefix(target.machineId)}/models${query === "" ? "" : `?${query}`}`, parseModelSelectionResponse);
   },
   config: (machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse),
+  speechApiKey: (machineId?: string) => request(`${configPath(machineId)}/speech-api-key`, parseSpeechApiKeyResponse, { cache: "no-store", timeoutMs: 10_000 }),
   updateConfig: (update: { set?: PiWebConfigValues; unset?: string[] }, machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse, { method: "PATCH", body: JSON.stringify(update) }),
   saveConfig: (config: PiWebConfigValues, machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse, { method: "PUT", body: JSON.stringify({ config }) }),
 };

@@ -4,7 +4,8 @@ import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFilePiWebConfigService, parsePiWebConfigResponseBody, registerConfigRoutes, registerLocalMachineConfigRoutes } from "./configRoutes.js";
-import type { PiWebConfigResponse } from "../shared/apiTypes.js";
+import type { PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
+import { loadPiWebConfig } from "../config.js";
 
 let app: FastifyInstance;
 let directory: string;
@@ -22,14 +23,86 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
-function start(env: NodeJS.ProcessEnv = {}): void {
+function start(env: NodeJS.ProcessEnv = {}, readWriteOnly = false): void {
   app = Fastify({ logger: false });
-  const service = createFilePiWebConfigService({ env: { PI_WEB_CONFIG: writable, PI_WEB_DEFAULTS_CONFIG: defaults, ...env } });
+  const fileService = createFilePiWebConfigService({ env: { PI_WEB_CONFIG: writable, PI_WEB_DEFAULTS_CONFIG: defaults, ...env } });
+  const service = readWriteOnly ? { read: fileService.read, write: fileService.write } : fileService;
   registerConfigRoutes(app, service);
   registerLocalMachineConfigRoutes(app, service);
 }
 
 describe("layered config updates", () => {
+  it("preserves the direct key when the application wraps config as a read/write-only service", async () => {
+    writeFileSync(defaults, "{}");
+    writeFileSync(writable, JSON.stringify({ speech: { apiKey: "wrapped-test-key" } }));
+    start({}, true);
+    const result = await app.inject({ method: "PUT", url: "/api/config", payload: { config: { askUser: false } } });
+    expect(result.statusCode).toBe(200);
+    expect(result.body).not.toContain("wrapped-test-key");
+    expect(JSON.parse(readFileSync(writable, "utf8"))).toEqual({ askUser: false, speech: { apiKey: "wrapped-test-key" } });
+  });
+
+  it.each(["/api/config", "/api/machines/local/config"])("stores, redacts, preserves and explicitly clears speech keys through %s", async (url) => {
+    writeFileSync(defaults, JSON.stringify({ speech: { apiKey: "deployment-test-key" } }));
+    writeFileSync(writable, JSON.stringify({ speech: { apiKeyEnv: "SPEECH_TOKEN" } }));
+    start();
+    const stored = (): PiWebConfigValues => loadPiWebConfig({ env: { PI_WEB_CONFIG: writable } }).config;
+    const checkRedacted = (body: string) => {
+      expect(body).not.toContain("deployment-test-key");
+      expect(body).not.toContain("saved-test-key");
+      return parsePiWebConfigResponseBody(JSON.parse(body));
+    };
+
+    const initial = await app.inject({ method: "GET", url });
+    expect(checkRedacted(initial.body).speechApiKeyPresence).toEqual({ config: false, effectiveConfig: true, defaultsConfig: true });
+    const absentKey = await app.inject({ method: "GET", url: `${url}/speech-api-key` });
+    expect(absentKey.json()).toEqual({ apiKey: "" });
+    expect(absentKey.headers["cache-control"]).toBe("no-store");
+    const saved = await app.inject({ method: "PATCH", url, payload: { set: { speech: { apiKey: "saved-test-key" } } } });
+    expect(saved.statusCode).toBe(200);
+    expect(stored().speech?.apiKey).toBe("saved-test-key");
+    expect(checkRedacted(saved.body).speechApiKeyPresence).toEqual({ config: true, effectiveConfig: true, defaultsConfig: true });
+    const privateRead = await app.inject({ method: "GET", url: `${url}/speech-api-key` });
+    expect(privateRead.statusCode).toBe(200);
+    expect(privateRead.json()).toEqual({ apiKey: "saved-test-key" });
+    expect(privateRead.headers["cache-control"]).toBe("no-store");
+
+    const changed = await app.inject({ method: "PATCH", url, payload: { set: { speech: { model: "asr" } } } });
+    expect(changed.statusCode).toBe(200);
+    checkRedacted(changed.body);
+    expect(stored().speech).toEqual({ apiKey: "saved-test-key", apiKeyEnv: "SPEECH_TOKEN", model: "asr" });
+    const roundtrip = await app.inject({ method: "PUT", url, payload: { config: checkRedacted(changed.body).config } });
+    expect(roundtrip.statusCode).toBe(200);
+    checkRedacted(roundtrip.body);
+    expect(stored().speech?.apiKey).toBe("saved-test-key");
+
+    const cleared = await app.inject({ method: "PATCH", url, payload: { unset: ["/speech/apiKey"] } });
+    expect(cleared.statusCode).toBe(200);
+    expect(stored().speech?.apiKey).toBeUndefined();
+    expect(checkRedacted(cleared.body).speechApiKeyPresence).toEqual({ config: false, effectiveConfig: true, defaultsConfig: true });
+    expect(readFileSync(defaults, "utf8")).toContain("deployment-test-key");
+  });
+
+  it("protects environment-enforced direct keys and saved hidden overrides", async () => {
+    writeFileSync(defaults, "{}");
+    writeFileSync(writable, JSON.stringify({ speech: { apiKey: "hidden-test-key" } }));
+    start({ PI_WEB_SPEECH: JSON.stringify({ apiKey: "enforced-test-key" }) });
+    const url = "/api/config";
+    const read = await app.inject({ method: "GET", url });
+    expect(read.body).not.toContain("hidden-test-key");
+    expect(read.body).not.toContain("enforced-test-key");
+    expect(read.json<PiWebConfigResponse>().enforcedSettings).toMatchObject({ "/speech/apiKey": "PI_WEB_SPEECH" });
+    for (const payload of [{ set: { speech: { apiKey: "replacement" } } }, { unset: ["/speech/apiKey"] }, { unset: ["/speech"] }]) {
+      const rejected = await app.inject({ method: "PATCH", url, payload });
+      expect(rejected.statusCode).toBe(400);
+    }
+    const replaced = await app.inject({ method: "PUT", url, payload: { config: { speech: { model: "asr" } } } });
+    expect(replaced.statusCode).toBe(200);
+    expect(replaced.body).not.toContain("hidden-test-key");
+    expect(replaced.body).not.toContain("enforced-test-key");
+    expect(JSON.parse(readFileSync(writable, "utf8"))).toEqual({ speech: { model: "asr", apiKey: "hidden-test-key" } });
+  });
+
   it.each(["/api/config", "/api/machines/local/config"])("rejects legacy core sessionNaming updates through %s without touching persistence", async (url) => {
     const deployment = JSON.stringify({ uploads: { defaultFolder: "deployed" } });
     const saved = JSON.stringify({ askUser: false });

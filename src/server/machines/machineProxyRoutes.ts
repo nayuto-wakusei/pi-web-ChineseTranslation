@@ -231,7 +231,7 @@ async function proxyHttpRequest(
     }
     reply.code(upstream.statusCode);
     applySafeHeaders(reply, upstream.headers);
-    if (mcpAuth) reply.header("cache-control", "no-store");
+    if (mcpAuth || spec.path === "/config/speech-api-key") reply.header("cache-control", "no-store");
     if (previewPolicy !== undefined) {
       const enforcedPolicy = isSuccessfulStatus(upstream.statusCode) ? previewPolicy : workspaceFilePreviewErrorResponsePolicy();
       applyWorkspaceFilePreviewResponsePolicy(reply, enforcedPolicy);

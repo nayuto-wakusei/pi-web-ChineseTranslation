@@ -362,6 +362,7 @@ export class SettingsDialog extends LitElement {
           .saving=${this.saving}
           .error=${this.speechError}
           .savedMessage=${this.savedSection === "speech" ? this.savedMessage : ""}
+          .onLoadApiKey=${async () => (await configApi.speechApiKey(target.id)).apiKey}
           .onReload=${() => this.reloadSessiondState()}
           .onSave=${(config: PiWebConfigValues, unset?: string[]) => this.saveSpeechConfig(config, unset, target)}
           .onReset=${(paths: string[]) => this.saveSpeechConfig({}, paths, target)}

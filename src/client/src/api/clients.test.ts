@@ -196,6 +196,15 @@ describe("machine-scoped runtime API", () => {
 });
 
 describe("settings config and plugin APIs", () => {
+  it("reads saved speech keys only from the selected machine without caching", async () => {
+    vi.stubEnv("BASE_URL", "./");
+    vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/" });
+    const fetchMock = stubJsonFetch({ apiKey: "saved-test-key" });
+    await expect(configApi.speechApiKey("remote /a")).resolves.toEqual({ apiKey: "saved-test-key" });
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/nested/api/machines/remote%20%2Fa/config/speech-api-key");
+    expect(fetchCall(fetchMock, 0)[1]?.cache).toBe("no-store");
+  });
+
   it("updates and resets settings in one PATCH at the gateway or selected machine", async () => {
     const response = { ...piWebConfigResponse({ quietMode: false }), enforcedSettings: { "/host": "PI_WEB_HOST" }, configSources: { "/quietMode": "defaults" }, defaultsConfig: { quietMode: false }, defaultsPath: "/etc/defaults.json" };
     const fetchMock = stubSequenceFetch([jsonResponse(response), jsonResponse(response)]);

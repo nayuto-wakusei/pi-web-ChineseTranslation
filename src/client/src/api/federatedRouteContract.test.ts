@@ -204,6 +204,7 @@ describe("federated route contract", () => {
       ignoreParseFailure(piWebApi.piWebStatus(machineId)),
       ignoreParseFailure(piWebApi.checkForUpdates(machineId)),
       ignoreParseFailure(configApi.config(machineId)),
+      ignoreParseFailure(configApi.speechApiKey(machineId)),
       ignoreParseFailure(configApi.namingModels({ machineId, projectId: workspace.projectId })),
       ignoreParseFailure(configApi.saveConfig({ spawnSessions: true }, machineId)),
       ignoreParseFailure(pluginsApi.plugins(machineId)),

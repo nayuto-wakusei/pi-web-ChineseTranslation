@@ -392,11 +392,14 @@ export function parseAttachmentsConfig(value: unknown, path: string): NonNullabl
   };
 }
 
-const SPEECH_CONFIG_KEYS = new Set(["endpoint", "api", "model", "language", "apiKeyEnv", "timeoutMs", "maxAudioBytes"]);
+const SPEECH_CONFIG_KEYS = new Set(["endpoint", "api", "model", "language", "apiKey", "apiKeyEnv", "timeoutMs", "maxAudioBytes"]);
 const SPEECH_MAX_TIMEOUT_MS = 300_000;
 const SPEECH_MAX_AUDIO_BYTES = 32 * 1024 * 1024;
 
-/** Validate composer dictation settings; the bearer token itself is never part of config. */
+/**
+ * Validate composer dictation settings. A directly stored key is accepted but
+ * config responses redact it; error messages never echo either secret form.
+ */
 export function parseSpeechConfig(value: unknown, source: string): NonNullable<PiWebConfigValues["speech"]> {
   if (!isRecord(value) || Array.isArray(value)) throw new UserFacingError("configError.pi.web.config.speech.must.be.an.object", "PI WEB config speech must be an object: {source}", { source });
   const unknownKey = Object.keys(value).find((key) => !SPEECH_CONFIG_KEYS.has(key));
@@ -405,12 +408,14 @@ export function parseSpeechConfig(value: unknown, source: string): NonNullable<P
   const api = value["api"];
   const model = value["model"];
   const language = value["language"];
+  const apiKey = value["apiKey"];
   const apiKeyEnv = value["apiKeyEnv"];
   return {
     ...(endpoint === undefined ? {} : { endpoint: parseSpeechEndpoint(endpoint, source) }),
     ...(api === undefined ? {} : { api: parseSpeechApi(api, source) }),
     ...(model === undefined ? {} : { model: parseSpeechText(model, "speech.model", source) }),
     ...(language === undefined ? {} : { language: parseSpeechLanguage(language, source) }),
+    ...(apiKey === undefined ? {} : { apiKey: parseSpeechApiKey(apiKey, source) }),
     ...(apiKeyEnv === undefined ? {} : { apiKeyEnv: parseSpeechApiKeyEnv(apiKeyEnv, source) }),
     ...optionalSpeechPositiveInteger(value, "timeoutMs", SPEECH_MAX_TIMEOUT_MS, "milliseconds", source),
     ...optionalSpeechPositiveInteger(value, "maxAudioBytes", SPEECH_MAX_AUDIO_BYTES, "bytes", source),
@@ -451,6 +456,13 @@ function parseSpeechLanguage(value: unknown, source: string): string {
     throw new UserFacingError("configError.pi.web.config.speech.language", "PI WEB config speech.language must be a language tag such as zh or en-US: {source}", { source });
   }
   return language;
+}
+
+function parseSpeechApiKey(value: unknown, source: string): string {
+  if (typeof value !== "string" || value.trim() === "" || Array.from(value).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) {
+    throw new UserFacingError("configError.pi.web.config.speech.apiKey", "PI WEB config speech.apiKey must be a non-empty key string without control characters: {source}", { source });
+  }
+  return value.trim();
 }
 
 function parseSpeechApiKeyEnv(value: unknown, source: string): string {

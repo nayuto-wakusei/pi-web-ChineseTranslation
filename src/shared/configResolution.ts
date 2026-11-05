@@ -18,7 +18,7 @@ const PI_WEB_CONFIG_NAMESPACES = {
   defaultLocalization: ["language", "formatLocale", "timeZone", "hourCycle"],
   uploads: ["defaultFolder"],
   attachments: ["defaultFolder"],
-  speech: ["endpoint", "api", "model", "language", "apiKeyEnv", "timeoutMs", "maxAudioBytes"],
+  speech: ["endpoint", "api", "model", "language", "apiKey", "apiKeyEnv", "timeoutMs", "maxAudioBytes"],
   sessionArchive: ["directory"],
   pathAccess: ["allowedPaths"],
 } as const satisfies { [Key in keyof PiWebConfigValues]?: readonly (keyof NonNullable<PiWebConfigValues[Key]>)[] };

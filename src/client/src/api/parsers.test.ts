@@ -9,6 +9,23 @@ import { ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOT
 import { parseAskUserOutcome, parseAskUserRequest, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMachineRuntime, parseMessagePage, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionModelCatalogResponse, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamSnapshot, parseSessionTreeForkResult, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
+  it("retains speech settings and validates redacted key presence without exposing peer keys", () => {
+    const response = {
+      path: "/tmp/config.json", exists: true,
+      config: { speech: { apiKey: "peer-test-key", apiKeyEnv: "SPEECH_TOKEN", model: "asr", api: "chat" } },
+      effectiveConfig: { speech: { apiKey: "effective-test-key" } },
+      defaultsConfig: { speech: { apiKey: "default-test-key" } },
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false },
+    };
+    const parsed = parsePiWebConfigResponse(response);
+    expect(parsed.config.speech).toEqual({ apiKeyEnv: "SPEECH_TOKEN", model: "asr", api: "chat" });
+    expect(parsed.speechApiKeyPresence).toEqual({ config: true, effectiveConfig: true, defaultsConfig: true });
+    expect(JSON.stringify(parsed)).not.toContain("test-key");
+    expect(parsePiWebConfigResponse(parsed)).toEqual(parsed);
+    expect(() => parsePiWebConfigResponse({ ...response, speechApiKeyPresence: { config: "yes" } })).toThrow();
+    expect(() => parsePiWebConfigResponse({ ...response, config: { speech: { timeoutMs: -1 } } })).toThrow();
+  });
+
   it("preserves optional intervention state and validates live transitions", () => {
     const info = { id: "s", path: "/s.jsonl", cwd: "/repo", created: "now", modified: "now", messageCount: 1, firstMessage: "hi" };
     for (const interventionRequired of [true, false]) {

@@ -124,7 +124,7 @@ enforced environment > browser-local choice > supported project override
 
 Browser-local choices apply to colour theme, file icon theme, and localization. Project config participates only for supported keys. Environment policy wins over both; it is not a default that projects or browsers can override.
 
-Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: `uploads.defaultFolder`, `attachments.defaultFolder`, `speech.endpoint`, `speech.api`, `speech.model`, `speech.language`, `speech.apiKeyEnv`, `speech.timeoutMs`, `speech.maxAudioBytes`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace `{}` contributes no overrides; missing leaves inherit.
+Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: `uploads.defaultFolder`, `attachments.defaultFolder`, `speech.endpoint`, `speech.api`, `speech.model`, `speech.language`, `speech.apiKey`, `speech.apiKeyEnv`, `speech.timeoutMs`, `speech.maxAudioBytes`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace `{}` contributes no overrides; missing leaves inherit.
 
 Each plugin's `enabled` and each top-level `plugins.<id>.settings.<key>` also resolve independently. An individual array/dictionary-valued setting still replaces entirely, including an explicit empty value. `defaultTheme` remains one atomic, coherent preference; `shortcuts` and deprecated `agent` are also atomic. JSON depth alone does not define a setting. Path additions have the separate composition rules below.
 
@@ -344,7 +344,7 @@ worktree_path="$1"
 | 外部路径根 | `pathAccess.allowedPaths` | `PI_WEB_PATH_ACCESS` | 机器 + 项目 | basePaths 后加全局/项目；环境替换添加项；下次文件请求 |
 | 上传目录 | `uploads.defaultFolder` | `PI_WEB_UPLOADS` | 机器 + 项目 | 项目覆盖；新对话框/拖放批次 |
 | 附件目录 | `attachments.defaultFolder` | `PI_WEB_ATTACHMENTS` | 机器 + 项目 | 项目覆盖；新附件保存 |
-| 语音输入 | `speech.endpoint/api/model/language/apiKeyEnv/timeoutMs/maxAudioBytes` | `PI_WEB_SPEECH` | 机器 | 未配置即关闭；重启 daemon |
+| 语音输入 | `speech.endpoint/api/model/language/apiKey/apiKeyEnv/timeoutMs/maxAudioBytes` | `PI_WEB_SPEECH` | 机器 | 未配置即关闭；重启 daemon |
 | 请求大小 | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | 机器 | Web/API 与 daemon 重启 |
 | 独立会话 | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | daemon | 重启 daemon |
 | 跟踪子会话 | `subsessions` | `PI_WEB_SUBSESSIONS` | daemon | 也需要 `spawnSessions`；重启 |
@@ -519,11 +519,13 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 
 `endpoint` 是 OpenAI 兼容服务根，缺少 `/v1` 时自动补全。`api` 选 `transcriptions`（默认；multipart 调用 `/v1/audio/transcriptions`，读取响应 `text`）或 `chat`（`/v1/chat/completions` + `audio_url` 数据 URI；正文从 `<asr_text>` 标签之后提取，语言标签丢弃）。`model` 用服务端暴露的模型名，不是仓库 id。`language` 省略即自动识别；`timeoutMs` 默认 60000、上限 300000；`maxAudioBytes` 是 base64 解码后的上限，默认 8 MiB、上限 32 MiB。
 
-密钥只经 `apiKeyEnv` 指向的环境变量传入，作为 `Authorization: Bearer` 发送；配置文件、日志、`/api/config` 响应和审计都不含密钥本身。服务不需要鉴权时省略该字段。
+鉴权可直接设置 `speech.apiKey`，或保留示例中的 `apiKeyEnv` 环境变量方式。有效配置中的非空 `apiKey` 优先；没有直填 Key 时，daemon 从 `apiKeyEnv` 指定的环境变量读取令牌，变量未设置或为空会报错，不会把变量名当作 Key。两种方式均作为 `Authorization: Bearer` 发送；无需鉴权时同时省略这两个字段。`speech` 仅支持机器级配置，`PI_WEB_SPEECH` JSON 也接受 `apiKey`。
+
+直填 Key 以明文保存在所选机器现有的全局配置文件中，不要写入项目配置或提交到 Git；应限制该文件及备份的访问权限。普通配置 HTTP 响应的 `config`、`effectiveConfig`、`defaultsConfig` 均移除 `apiKey`，通过可选的 `speechApiKeyPresence` 对象报告这三层是否存在直填 Key（同名布尔字段）；密钥不写入日志或审计。设置面板通过单独的 `GET /api/config/speech-api-key` 或 `GET /api/machines/:machineId/config/speech-api-key`（含 `local` 别名和远端转发）读取可写层已保存的 Key；该接口遵循网关现有的普通访问认证策略，返回 `{ "apiKey": "..." }`，未保存时为空字符串，使用 `Cache-Control: no-store`，不返回环境变量或部署默认值中的令牌。旧版 PUT 保存省略 `apiKey` 时保留已存值；显式删除使用 PATCH 的 `unset: ["/speech/apiKey"]`，只移除可写层，随后恢复继承的部署默认 Key；若没有继承的直填 Key，才使用环境变量方式。
 
 未配置 `endpoint` 视为关闭：daemon 的运行时能力报告不含 `prompt.speechRecognition`，浏览器不渲染话筒。该判断发生在 daemon 启动时，修改后须重启 daemon；Web/API 与 daemon 必须使用同一份有效配置。录音容器（WebM/Opus、Ogg/Opus、MP4/AAC）直接上传，不做浏览器转码。
 
-设置 → **语音输入** 编辑所选机器的 `endpoint`、`api`、`model`、`language` 与 `apiKeyEnv`；被环境强制的字段显示锁定与来源，保存只写入改动过的叶，清空已保存的叶会显式 unset。`timeoutMs` 与 `maxAudioBytes` 仍只通过配置文件或环境设置。面板保存后提示重启该机器的 daemon，浏览器在下次读取运行时状态时决定是否显示话筒。
+设置 → **语音输入** 编辑所选机器的 `endpoint`、`api`、`model`、`language`、`apiKey` 与 `apiKeyEnv`。存在可写层已保存 Key 时，面板单独加载并回填密码输入框，默认以掩码显示，不写入 `localStorage`；切换机器或关闭面板后的迟到响应不会回填。未修改的 Key 不随其他设置重复保存，填写新值会替换，主动清空输入框或使用清除操作后保存会移除可写层的 Key；没有编辑过的空草稿仍保留已存值。其他已保存字段清空时也会显式 unset。被环境强制的字段显示锁定与来源，保存只写入改动过的叶，不删除被环境策略遮蔽的已存覆盖。`timeoutMs` 与 `maxAudioBytes` 仍只通过配置文件或环境设置。面板保存后提示重启该机器的 daemon，浏览器在下次读取运行时状态时决定是否显示话筒。
 
 <a id="agent-state-directory"></a>
 <a id="agent-runtime"></a>

@@ -9,6 +9,21 @@ import { workspaceFilePreviewErrorResponsePolicy, workspaceFilePreviewResponsePo
 
 registerAppTestHooks();
 
+it("reads a saved speech key from its owning remote machine without caching it", async () => {
+  const added = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+  const remote = added.json<{ id: string }>();
+  const request = vi.fn<MachineClient["request"]>(() => Promise.resolve({
+    statusCode: 200, headers: { "content-type": "application/json", "cache-control": "public, max-age=3600" },
+    body: Readable.from([JSON.stringify({ apiKey: "remote-test-key" })]),
+  }));
+  appTestContext.remoteClient = fakeRemoteClient({ request });
+  const response = await appTestContext.app.inject({ method: "GET", url: `/api/machines/${remote.id}/config/speech-api-key` });
+  expect(response.statusCode).toBe(200);
+  expect(response.json()).toEqual({ apiKey: "remote-test-key" });
+  expect(response.headers["cache-control"]).toBe("no-store");
+  expect(request.mock.calls[0]?.slice(0, 3)).toEqual(["GET", "/api/config/speech-api-key", undefined]);
+});
+
 /**
  * Preview proxy calls carry a cancellation signal, so the remaining arguments
  * are asserted positionally against the recorded call.

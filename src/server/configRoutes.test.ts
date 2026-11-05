@@ -441,6 +441,26 @@ describe("config routes", () => {
     }
   });
 
+  it("redacts direct speech keys from peer responses while retaining presence metadata", () => {
+    const peerKey = "peer-test-key";
+    const response = {
+      ...responseFor({}, true),
+      config: { speech: { endpoint: "http://gpu.example.test:8080", model: "asr", apiKey: peerKey } },
+      effectiveConfig: { speech: { apiKey: peerKey } },
+      defaultsConfig: { speech: { apiKey: peerKey } },
+    };
+    const parsed = parsePiWebConfigResponseBody(response);
+    expect(JSON.stringify(parsed)).not.toContain(peerKey);
+    expect(parsed.config.speech).toEqual({ endpoint: "http://gpu.example.test:8080", model: "asr" });
+    expect(parsed.effectiveConfig.speech).toEqual({});
+    expect(parsed.defaultsConfig?.speech).toEqual({});
+    expect(parsed.speechApiKeyPresence).toEqual({ config: true, effectiveConfig: true, defaultsConfig: true });
+    expect(() => parsePiWebConfigResponseBody({
+      ...responseFor({}, true),
+      speechApiKeyPresence: { config: "yes", effectiveConfig: false, defaultsConfig: false },
+    })).toThrow("speechApiKeyPresence");
+  });
+
   it("accepts older peer responses without the sessionMessages override flag but rejects invalid supplied values", () => {
     const response = responseFor({}, false);
     const legacyOverrides = Object.fromEntries(Object.entries(response.envOverrides).filter(([key]) => key !== "sessionMessages"));

@@ -56,7 +56,12 @@ export function explicitConfigUpdate(response: PiWebConfigResponse | undefined, 
 }
 
 export function resetConfigUpdate(response: PiWebConfigResponse | undefined, paths: string[]): SettingsConfigUpdate {
-  const saved = piWebConfigSettingPointers(response?.config ?? {});
+  // A redacted response hides the key value but still owns the saved leaf, so
+  // explicit clears must survive pointer filtering.
+  const saved = [
+    ...piWebConfigSettingPointers(response?.config ?? {}),
+    ...(response?.speechApiKeyPresence?.config === true ? ["/speech/apiKey"] : []),
+  ];
   return { unset: [...new Set(paths.flatMap((path) => saved.filter((leaf) => leaf === path || leaf.startsWith(`${path}/`))))]
     .filter((path) => enforcedSetting(response, path) === undefined) };
 }
@@ -72,10 +77,13 @@ export function mergeSelectedSettingsResponse(base: PiWebConfigResponse, incomin
     ...Object.fromEntries(Object.entries(previous).filter(([path]) => !keys.some((key) => path === `/${key}` || path.startsWith(`/${key}/`)))),
     ...Object.fromEntries(Object.entries(next).filter(([path]) => keys.some((key) => path === `/${key}` || path.startsWith(`/${key}/`)))),
   });
-  return { ...base, config: values(base.config, incoming.config), effectiveConfig: values(base.effectiveConfig, incoming.effectiveConfig),
+  const { speechApiKeyPresence: basePresence, ...rest } = base;
+  const presence = keys.some((key) => key === "speech") ? incoming.speechApiKeyPresence : basePresence;
+  return { ...rest, config: values(base.config, incoming.config), effectiveConfig: values(base.effectiveConfig, incoming.effectiveConfig),
     ...(base.defaultsConfig === undefined && incoming.defaultsConfig === undefined ? {} : { defaultsConfig: values(base.defaultsConfig ?? {}, incoming.defaultsConfig ?? {}) }),
     ...(base.enforcedSettings === undefined && incoming.enforcedSettings === undefined ? {} : { enforcedSettings: sources(base.enforcedSettings, incoming.enforcedSettings) }),
     ...(base.configSources === undefined && incoming.configSources === undefined ? {} : { configSources: sources(base.configSources, incoming.configSources) }),
+    ...(presence === undefined ? {} : { speechApiKeyPresence: presence }),
     envOverrides: { ...base.envOverrides, ...incoming.envOverrides },
   };
 }

@@ -38,6 +38,7 @@ export interface FederatedHttpRouteSpec {
 export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/pi-web/status" },
   { method: "GET", path: "/config" },
+  { method: "GET", path: "/config/speech-api-key", responseBodyLimit: 64 * 1024 },
   { method: "PUT", path: "/config" },
   ...NAVIGATION_PREFERENCE_ROUTES.flatMap((path): FederatedHttpRouteSpec[] => [
     { method: "GET", path },

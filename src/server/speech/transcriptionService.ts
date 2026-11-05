@@ -26,7 +26,7 @@ export interface SpeechTranscriptionInput {
 export interface SpeechTranscriptionServiceOptions {
   /** Effective settings; absent means dictation is off for this daemon. */
   config?: PiWebSpeechConfig | undefined;
-  /** Environment used to resolve `apiKeyEnv`; the token never enters config or logs. */
+  /** Environment used when only `apiKeyEnv` supplies the token; keys never enter logs. */
   env?: NodeJS.ProcessEnv;
   fetch?: typeof fetch;
 }
@@ -96,6 +96,12 @@ export class SpeechTranscriptionService {
     // Multipart bodies must keep undici's generated boundary, so only chat
     // requests declare their content type explicitly.
     if ((config.api ?? "transcriptions") === "chat") headers["content-type"] = "application/json";
+    // A directly stored key wins. The environment form stays a strict fallback:
+    // a missing variable fails rather than treating its name as the token.
+    if (config.apiKey !== undefined && config.apiKey.trim() !== "") {
+      headers["authorization"] = `Bearer ${config.apiKey.trim()}`;
+      return headers;
+    }
     if (config.apiKeyEnv === undefined || config.apiKeyEnv === "") return headers;
     const token = this.#env[config.apiKeyEnv];
     if (token === undefined || token === "") {

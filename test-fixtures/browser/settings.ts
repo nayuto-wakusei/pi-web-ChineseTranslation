@@ -28,6 +28,9 @@ const longSpeech: PiWebConfigValues["speech"] = params.get("speech") === "long" 
   apiKeyEnv: "PI_WEB_SPEECH_BEARER_TOKEN",
 } : undefined;
 const enforced = params.get("enforced") === "1";
+// The real server never returns the key value; the fixture mirrors that with
+// presence metadata only, so the panel's saved/clear states are exercised.
+let speechKeySaved = longSpeech !== undefined;
 const configPath = params.get("speech") === "long"
   ? "/srv/organizations/north-region/deployments/pi-web-production/config.json"
   : "/fixture/config.json";
@@ -37,6 +40,7 @@ function configResponse(config: PiWebConfigValues): PiWebConfigResponse {
     path: configPath, exists: true, config, effectiveConfig: config,
     envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, sessionMessages: false, askUser: false, agentCommand: false, agentDir: false, agentSessionDir: false },
     ...(enforced ? { enforcedSettings: { "/speech/endpoint": "PI_WEB_SPEECH" } } : {}),
+    ...(speechKeySaved ? { speechApiKeyPresence: { config: true, effectiveConfig: true, defaultsConfig: false } } : {}),
   };
 }
 
@@ -56,8 +60,13 @@ function patchedConfig(base: PiWebConfigValues, set: PiWebConfigValues): PiWebCo
 
 configApi.config = (id) => Promise.resolve(configResponse(seededConfig(id)));
 configApi.namingModels = () => Promise.resolve({ models: [] });
+configApi.speechApiKey = () => Promise.resolve({ apiKey: speechKeySaved ? "fixture-speech-key" : "" });
 configApi.saveConfig = (config) => Promise.resolve(configResponse(config));
-configApi.updateConfig = (update, id) => Promise.resolve(configResponse(patchedConfig(seededConfig(id), update.set ?? {})));
+configApi.updateConfig = (update, id) => {
+  if (update.unset?.includes("/speech/apiKey") === true) speechKeySaved = false;
+  if (update.set?.speech?.apiKey !== undefined) speechKeySaved = true;
+  return Promise.resolve(configResponse(patchedConfig(seededConfig(id), update.set ?? {})));
+};
 piPackagesApi.packages = () => Promise.resolve({ packages: [] });
 pluginsApi.plugins = () => Promise.resolve({
   lifecycleVersion: 2, plugins: [], diagnostics: [],

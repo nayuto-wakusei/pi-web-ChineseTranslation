@@ -77,6 +77,19 @@ afterEach(async () => {
 });
 
 describe("buildApp", () => {
+  it("requires normal authentication for saved speech key reads on both local paths", async () => {
+    piWebConfig = { ...piWebConfig, speech: { apiKey: "private-test-key" } };
+    for (const url of ["/api/config/speech-api-key", "/api/machines/local/config/speech-api-key"]) {
+      const blocked = await app.inject({ method: "GET", url, headers: { cookie: "" } });
+      expect(blocked.statusCode).toBe(401);
+      expect(blocked.body).not.toContain("private-test-key");
+      const authorized = await app.inject({ method: "GET", url });
+      expect(authorized.statusCode).toBe(200);
+      expect(authorized.json()).toEqual({ apiKey: "private-test-key" });
+      expect(authorized.headers["cache-control"]).toBe("no-store");
+    }
+  });
+
   it("captures the gateway language at startup and uses English when the plugin is disabled", async () => {
     const chinese = await app.inject({ method: "GET", url: "/api/files" });
     expect(chinese.json()).toEqual({ error: "必须提供 cwd 查询参数" });

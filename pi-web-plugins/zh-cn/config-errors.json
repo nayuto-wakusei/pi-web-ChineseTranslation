@@ -191,6 +191,7 @@
   "configError.pi.web.config.speech.api": "PI WEB 配置 speech.api 必须为 \"transcriptions\" 或 \"chat\"：{source}",
   "configError.pi.web.config.speech.field": "PI WEB 配置 {key} 必须为非空字符串：{source}",
   "configError.pi.web.config.speech.language": "PI WEB 配置 speech.language 必须为 zh 或 en-US 这类语言标签：{source}",
+  "configError.pi.web.config.speech.apiKey": "PI WEB 配置 speech.apiKey 必须是不含控制字符的非空密钥字符串：{source}",
   "configError.pi.web.config.speech.apiKeyEnv": "PI WEB 配置 speech.apiKeyEnv 必须为环境变量名：{source}",
   "configError.pi.web.config.speech.integer": "PI WEB 配置 speech.{field} 必须为 1 到 {maximum} 的整数（{unit}）：{source}"
 }

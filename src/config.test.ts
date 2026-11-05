@@ -112,6 +112,43 @@ describe("sessionArchive config", () => {
   });
 });
 
+describe("speech configuration", () => {
+  it("round-trips direct and environment key leaves through the file and PI_WEB_SPEECH", () => {
+    const directKey = "file-test-key";
+    const speech = {
+      endpoint: "http://gpu.example.test:8080",
+      api: "chat" as const,
+      model: "asr-test-model",
+      language: "zh",
+      apiKey: ` ${directKey} `,
+      apiKeyEnv: "SPEECH_TEST_TOKEN",
+    };
+    savePiWebConfig({ speech }, testOptions());
+    const saved = { ...speech, apiKey: directKey };
+    expect(loadPiWebConfig(testOptions()).config.speech).toEqual(saved);
+    expect(effectivePiWebConfig(testOptions()).config.speech).toMatchObject(saved);
+
+    const env = { ...testOptions().env, PI_WEB_SPEECH: JSON.stringify({ apiKey: directKey, apiKeyEnv: "SPEECH_TEST_TOKEN" }) };
+    expect(effectivePiWebConfig({ env }).config.speech).toMatchObject({ apiKey: directKey, apiKeyEnv: "SPEECH_TEST_TOKEN" });
+    expect(piWebConfigEnforcedSettings(env)).toMatchObject({ "/speech/apiKey": "PI_WEB_SPEECH", "/speech/apiKeyEnv": "PI_WEB_SPEECH" });
+    expect(piWebConfigSources(loadPiWebConfig({ env }), { env })["/speech/apiKey"]).toBe("PI_WEB_SPEECH");
+  });
+
+  it.each([null, 42, "", "   ", "bad\u0000key"])("rejects invalid direct keys %j without echoing them", async (apiKey) => {
+    await writeFile(configPath, JSON.stringify({ speech: { apiKey } }), "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("speech.apiKey");
+    const env = { ...testOptions().env, PI_WEB_SPEECH: JSON.stringify({ apiKey }) };
+    expect(() => effectivePiWebConfig({ env })).toThrow("speech.apiKey");
+    if (typeof apiKey === "string" && apiKey !== "" && apiKey.trim() !== "") {
+      try {
+        effectivePiWebConfig({ env });
+      } catch (error) {
+        expect(String(error)).not.toContain(apiKey);
+      }
+    }
+  });
+});
+
 describe("PI WEB config persistence", () => {
   it("writes and reads the configured PI WEB config path", () => {
     const requestedConfig = {

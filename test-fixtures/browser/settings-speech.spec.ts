@@ -37,7 +37,7 @@ async function assertSpeechGeometry(dialog: Locator, panel: Locator): Promise<vo
 
   const panelBox = await box(panel);
   const fields = panel.locator("label.ui-form-field");
-  await expect(fields).toHaveCount(5);
+  await expect(fields).toHaveCount(6);
   const fieldCount = await fields.count();
   for (let index = 0; index < fieldCount; index += 1) {
     const field = fields.nth(index);
@@ -109,6 +109,19 @@ for (const language of languages) {
     page.on("pageerror", (error) => errors.push(error.message));
 
     const { dialog, panel } = await openSpeechSettings(page, language.code, language.nav);
+
+    // The direct key field is a password input that never prefills the saved
+    // value; its status exposes presence and a pending clear without a mask value.
+    const apiKeyInput = panel.locator("#speech-api-key");
+    await expect(apiKeyInput).toHaveAttribute("type", "password");
+    await expect(apiKeyInput).toHaveValue("fixture-speech-key");
+    const savedKeyText = language.code === "zh" ? "已保存 API 密钥" : "saved API key";
+    await expect(panel.locator(".api-key-status")).toContainText(savedKeyText);
+    await panel.locator(".api-key-status").getByRole("button").click();
+    await expect(panel.locator(".api-key-status").getByRole("button", { name: language.code === "zh" ? "保留已保存密钥" : "Keep saved key" })).toBeVisible();
+    await assertNoHorizontalOverflow(panel, "speech panel with a pending key clear");
+    await panel.locator(".api-key-status").getByRole("button").click();
+    await expect(panel.locator(".api-key-status")).toContainText(savedKeyText);
 
     for (const width of widths) {
       await page.setViewportSize({ width, height: width < 600 ? 760 : 900 });
