@@ -4,6 +4,12 @@ import type {
   BookstackRetrievalPage,
   BookstackRetrievalRequest,
   BookstackRetrievalResult,
+  BookstackReadRequest,
+  BookstackReadResult,
+  BookstackOperationRequest,
+  BookstackOperationResult,
+  BookstackOperationReceipt,
+  BookstackOperationReceiptRequest,
   CapabilityTokenRequest,
   KnowledgeRetrievalChunk,
   KnowledgeRetrievalRequest,
@@ -11,7 +17,9 @@ import type {
   KnowledgeTokenRequest,
   SkillTicketRequest,
   WorkbenchAgentAccessState,
+  WorkbenchResourceAction,
 } from "./types.js";
+import { BOOKSTACK_OPERATION_ACTIONS } from "./types.js";
 
 export class WorkbenchHttpError extends Error {
   constructor(readonly status: number, message: string) {
@@ -113,10 +121,85 @@ export class WorkbenchClient {
     return result;
   }
 
+  async readBookstack(bearerToken: string, request: BookstackReadRequest): Promise<BookstackReadResult> {
+    const value = record(await this.json("/api/agent-access/bookstack/read", {
+      method: "POST", token: bearerToken, expectedStatus: 200, body: request,
+    }), "BookStack read response");
+    const result: BookstackReadResult = {
+      resourceName: stringField(value, "resourceName"),
+      entityType: enumField(value, "entityType", ["book", "chapter", "page"] as const),
+      entityId: positiveIntegerField(value, "entityId"),
+      content: record(value["content"], "BookStack content"),
+      baseVersion: stringField(value, "baseVersion"),
+      actions: parseResourceActions(value["actions"]),
+    };
+    if (result.resourceName !== request.resourceName || result.entityType !== request.entityType
+      || (request.entityId !== undefined && result.entityId !== request.entityId)) {
+      throw new Error("BookStack response does not match the requested entity");
+    }
+    return result;
+  }
+
+  async writeBookstack(bearerToken: string, request: BookstackOperationRequest): Promise<BookstackOperationResult> {
+    const value = record(await this.json("/api/agent-access/bookstack/operations", {
+      method: "POST", token: bearerToken, expectedStatus: 200, body: request,
+    }), "BookStack operation response");
+    const result: BookstackOperationResult = {
+      operationId: stringField(value, "operationId"),
+      status: enumField(value, "status", ["succeeded", "unknown"] as const),
+      resourceName: stringField(value, "resourceName"),
+      action: enumField(value, "action", BOOKSTACK_OPERATION_ACTIONS),
+      ...(value["entityId"] === undefined ? {} : { entityId: positiveIntegerField(value, "entityId") }),
+      ...(value["url"] === undefined ? {} : { url: httpUrlField(value, "url") }),
+      ...(value["message"] === undefined ? {} : { message: stringValueField(value, "message") }),
+    };
+    if (result.resourceName !== request.resourceName || result.action !== request.action
+      || (request.entityId !== undefined && result.entityId !== undefined && result.entityId !== request.entityId)) {
+      throw new Error("BookStack response does not match the requested operation");
+    }
+    return result;
+  }
+
   async revoke(state: Pick<WorkbenchAgentAccessState, "sessionId" | "bearerToken">): Promise<void> {
     await this.json(`/api/agent-access/sessions/${encodeURIComponent(state.sessionId)}/revoke`, {
       method: "POST", token: state.bearerToken, expectedStatus: 200,
     });
+  }
+
+  async getBookstackOperation(bearerToken: string, request: BookstackOperationReceiptRequest): Promise<BookstackOperationReceipt> {
+    const value = record(await this.json("/api/agent-access/bookstack/operations/receipt", {
+      method: "POST", token: bearerToken, expectedStatus: 200, body: request,
+    }), "BookStack operation receipt");
+    const actor = record(value["actor"], "BookStack operation actor");
+    const result: BookstackOperationReceipt = {
+      operationId: stringField(value, "operationId"),
+      status: enumField(value, "status", ["pending", "succeeded", "unknown", "failed"] as const),
+      resourceName: stringField(value, "resourceName"),
+      action: enumField(value, "action", BOOKSTACK_OPERATION_ACTIONS),
+      createdAt: timestampField(value, "createdAt"),
+      completedAt: value["completedAt"] === null ? null : timestampField(value, "completedAt"),
+      actor: { id: stringField(actor, "id"), username: stringField(actor, "username"), displayName: stringValueField(actor, "displayName") },
+      ...(value["entityId"] === undefined ? {} : { entityId: positiveIntegerField(value, "entityId") }),
+      ...(value["url"] === undefined ? {} : { url: httpUrlField(value, "url") }),
+      ...(value["message"] === undefined ? {} : { message: stringValueField(value, "message") }),
+    };
+    if (value["failureStatus"] !== undefined) {
+      const status = integerField(value, "failureStatus");
+      if (status < 400 || status > 599) throw new Error("BookStack operation failure status is invalid");
+      result.failureStatus = status;
+    }
+    if (value["resolution"] !== undefined) {
+      const resolution = record(value["resolution"], "BookStack operation resolution");
+      result.resolution = {
+        actorUserId: stringField(resolution, "actorUserId"), reason: stringField(resolution, "reason"),
+        resolvedAt: timestampField(resolution, "resolvedAt"), outcome: enumField(resolution, "outcome", ["applied", "not_applied"] as const),
+        ...(resolution["entityId"] === undefined ? {} : { entityId: positiveIntegerField(resolution, "entityId") }),
+      };
+    }
+    if (result.resourceName !== request.resourceName || (request.operationId !== undefined && result.operationId !== request.operationId)) {
+      throw new Error("BookStack receipt does not match the requested operation");
+    }
+    return result;
   }
 
   private async json(path: string, request: { method: string; token: string; expectedStatus: number; body?: unknown }): Promise<unknown> {
@@ -164,8 +247,32 @@ export function parseAuthorizedResources(value: unknown): AuthorizedResource[] {
         };
       }) : [],
       metadata: isRecord(resource["metadata"]) ? resource["metadata"] : {},
+      ...(resource["actions"] === undefined ? {} : { actions: parseResourceActions(resource["actions"]) }),
     };
   });
+}
+
+function parseResourceActions(value: unknown): WorkbenchResourceAction[] {
+  if (!Array.isArray(value)) throw new Error("Resource actions must be an array");
+  return [...new Set(value.map((action) => enumField({ action }, "action", ["read", "create", "update", "delete"] as const)))];
+}
+
+function positiveIntegerField(value: Record<string, unknown>, key: string): number {
+  const result = integerField(value, key);
+  if (!Number.isSafeInteger(result) || result <= 0) throw new Error(`${key} must be a positive safe integer`);
+  return result;
+}
+
+function timestampField(value: Record<string, unknown>, key: string): string {
+  const timestamp = stringField(value, key);
+  if (!Number.isFinite(Date.parse(timestamp))) throw new Error(`${key} must be a valid timestamp`);
+  return timestamp;
+}
+
+function httpUrlField(value: Record<string, unknown>, key: string): string {
+  const url = new URL(stringField(value, key));
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("BookStack source URL is invalid");
+  return url.href;
 }
 
 function parseKnowledgeRetrievalResult(value: unknown): KnowledgeRetrievalResult {
@@ -233,6 +340,7 @@ function responseMessage(text: string, status: number): string {
   try {
     const value: unknown = JSON.parse(text);
     if (isRecord(value) && typeof value["error"] === "string") return `Workbench HTTP ${String(status)}: ${value["error"]}`;
+    if (isRecord(value) && typeof value["message"] === "string") return `Workbench HTTP ${String(status)}: ${value["message"]}`;
   } catch { /* response is not JSON */ }
   return `Workbench HTTP ${String(status)}`;
 }

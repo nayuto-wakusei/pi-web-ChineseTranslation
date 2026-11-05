@@ -12,6 +12,7 @@ import { planPiWebDockerDevHostCommand } from "../docker/piWebDockerCommandPlan.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const dockerEntrypoint = join(repoRoot, "docker", "pi-web-docker");
 const shellExecutable = resolveShellExecutable();
+const bashExecutable = process.env["PI_WEB_TEST_BASH"] ?? (process.platform === "win32" ? join(dirname(shellExecutable), "bash.exe") : "bash");
 
 let tempDir = "";
 
@@ -39,7 +40,6 @@ describe("Docker command assets", () => {
   const dockerCommandIt = it.skipIf(process.platform === "win32");
 
   it("keeps shell entrypoints syntactically valid", async () => {
-    const bashExecutable = process.platform === "win32" ? join(dirname(shellExecutable), "bash.exe") : "bash";
     await Promise.all([
       execUtf8(shellExecutable, ["-n", dockerEntrypoint], process.env),
       execUtf8(shellExecutable, ["-n", join(repoRoot, "docker/internal/bin/pi-web-reconcile-mise")], process.env),
@@ -57,7 +57,6 @@ describe("Docker command assets", () => {
     const installer = await readRepoFile("docker/internal/image/install-ubuntu-base");
     expect(installer).toMatch(/^#!\/usr\/bin\/env bash\n/);
     expect(installer).not.toContain("\r");
-    const bashExecutable = process.platform === "win32" ? join(dirname(shellExecutable), "bash.exe") : "bash";
     await execUtf8(bashExecutable, ["-n", join(repoRoot, "docker", "internal", "image", "install-ubuntu-base")], process.env);
   });
 

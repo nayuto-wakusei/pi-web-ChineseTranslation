@@ -9,6 +9,7 @@ import { McpHttpError, McpTransportError, WorkbenchMcpClient } from "./mcpClient
 import type { BookstackRetrievalResult, KnowledgeRetrievalResult, WorkbenchAgentAccessState } from "./types.js";
 import { WorkbenchClient, WorkbenchHttpError } from "./workbenchClient.js";
 import type { ManagementAuditIdentity, ManagementAuditRecorder, ManagementAuditStatus } from "../audit/managementAuditStore.js";
+import { createBookstackOperationTools } from "./bookstackOperationTools.js";
 
 const SearchCapabilitiesParams = Type.Object({
   keyword: Type.Optional(Type.String()),
@@ -61,6 +62,7 @@ export interface WorkbenchToolDependencies {
 export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) {
   const t = deps.translator ?? loadNodeTranslator("server");
   return [
+    ...createBookstackOperationTools(deps),
     defineTool<typeof SearchCapabilitiesParams, undefined>({
       name: "icnoc_search_capabilities",
       label: t("workbench.searchLabel", "Search authorized capabilities"),

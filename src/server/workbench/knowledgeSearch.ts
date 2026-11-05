@@ -1,6 +1,6 @@
 import type { Translator } from "../../shared/i18n.js";
 import { loadNodeTranslator } from "../../localization.js";
-import type { AuthorizedResource } from "./types.js";
+import type { AuthorizedResource, WorkbenchResourceAction } from "./types.js";
 
 export interface SearchKnowledgeInput {
   provider?: "ragflow" | "bookstack";
@@ -27,6 +27,7 @@ export interface KnowledgeSummary {
   effectiveDate?: string;
   provider: "ragflow" | "bookstack";
   riskLevel: "L0";
+  actions: WorkbenchResourceAction[];
 }
 
 export function searchAuthorizedKnowledge(resources: readonly AuthorizedResource[], input: SearchKnowledgeInput): { items: KnowledgeSummary[]; total: number } {
@@ -49,7 +50,21 @@ export function requireAuthorizedRagflowKnowledge(resources: readonly Authorized
 }
 
 export function requireAuthorizedBookstackKnowledge(resources: readonly AuthorizedResource[], name: string, version?: string, t: Translator = loadNodeTranslator("server")): AuthorizedResource {
-  return requireAuthorizedKnowledge(resources, name, "bookstack", version, t);
+  const resource = requireAuthorizedKnowledge(resources, name, "bookstack", version, t);
+  requireResourceAction(resource, "read", t);
+  return resource;
+}
+
+export function requireAuthorizedBookstackAction(resources: readonly AuthorizedResource[], name: string, action: WorkbenchResourceAction, t: Translator = loadNodeTranslator("server")): AuthorizedResource {
+  const resource = requireAuthorizedKnowledge(resources, name, "bookstack", undefined, t);
+  requireResourceAction(resource, action, t);
+  return resource;
+}
+
+function requireResourceAction(resource: AuthorizedResource, action: WorkbenchResourceAction, t: Translator): void {
+  if (!(resource.actions ?? ["read"]).includes(action)) {
+    throw new Error(t("workbench.bookstack.actionDenied", "The current account is not authorized to perform {action} on this BookStack resource.", { action }));
+  }
 }
 
 function requireAuthorizedKnowledge(resources: readonly AuthorizedResource[], name: string, provider: "ragflow" | "bookstack", version?: string, t: Translator = loadNodeTranslator("server")): AuthorizedResource {
@@ -117,6 +132,7 @@ function toKnowledgeSummary(item: AuthorizedResource): KnowledgeSummary {
     ...(effectiveDate === undefined ? {} : { effectiveDate }),
     provider: knowledgeProvider(item) === "bookstack" ? "bookstack" : "ragflow",
     riskLevel: "L0",
+    actions: item.actions ?? ["read"],
   };
 }
 

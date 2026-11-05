@@ -58,9 +58,13 @@ describe("machine-local language dictionaries", () => {
       await writeFile(path, JSON.stringify({ plugins: { "zh-cn": { enabled } } }));
       const args = command === "plugins" ? [command, "safe-start", "show", "--config", path] : [command];
       const result = spawnSync(process.execPath, ["--import", "tsx", cliPath, ...args], {
+        // Bound real CLI startup separately from the localization assertions.
+        timeout: 20_000,
         env: { ...process.env, PI_WEB_CONFIG: path },
         encoding: "utf8",
       });
+      expect(result.error).toBeUndefined();
+      expect(result.signal).toBeNull();
       if (command === "unknown-user-command") {
         expect(result.status).toBe(1);
         expect(result.stderr).toContain(enabled ? "未知命令：unknown-user-command" : "Unknown command: unknown-user-command");
@@ -72,7 +76,7 @@ describe("machine-local language dictionaries", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("translates CLI diagnostics without changing underlying errors or repair commands", () => {
     const t = loadNodeTranslator("cli", {});

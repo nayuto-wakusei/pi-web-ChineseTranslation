@@ -415,7 +415,7 @@ ES 错误记日志，不停止管理会话。有界内存队列重试，并在�
 
 平台的浏览器入口同样先换票：应用相对 `POST api/management-entry-tickets`（JSON 正文 `{"token":"..."}`）返回 `201` 与 `{entryPath, expiresAt}`，不设置浏览器 Cookie；`GET management-entry?ticket=...` 兑换后写管理 HttpOnly Cookie 并 `303` 到 `./?embed=management`。票据一次性、最多 60 秒，最多 256 个待用票据且序列化上下文合计 8 MiB；`POST` 正文 1 MiB、编码上下文 1 MiB（`413`），daemon 内部 HTTP 头限额 1 MiB + 64 KiB，均不提高对外反向代理的请求行限制。换票响应使用 `no-store`，兑换响应附加 `no-referrer`。细节见[短入口换票](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/admin/management-audit.md#management-entry-tickets)。
 
-受控工具为 `icnoc_search_capabilities`、`icnoc_call_capability`、`workbench_search_knowledge`、`workbench_retrieve_knowledge`、`workbench_retrieve_bookstack`、管理文件工具与 Bubblewrap 隔离的 `python`。知识访问经后端短期一次性 token，PI WEB 不配置 RAGFlow/BookStack 服务凭据，工具不接受 tenant/dataset ID。来源链接不是连接配置。全局开关允许时再提供 spawn/跟踪子会话/ask_user，子会话继承管理上下文及显式拒绝。
+受控工具为 `icnoc_search_capabilities`、`icnoc_call_capability`、`workbench_search_knowledge`、`workbench_retrieve_knowledge`、`workbench_retrieve_bookstack`、`workbench_read_bookstack`、`workbench_write_bookstack`、`workbench_get_bookstack_operation`、管理文件工具与 Bubblewrap 隔离的 `python`。知识检索使用后端短期一次性 token，BookStack 定向读取、写入和操作回执使用服务端 Agent Session Bearer；PI WEB 不配置 RAGFlow/BookStack 服务凭据，工具不接受 tenant/dataset ID。来源链接不是连接配置。全局开关允许时再提供 spawn/跟踪子会话/ask_user，子会话继承管理上下文及显式拒绝。
 
 Python 与受限 bash 默认无网络，只绑定管理工作区及必要的只读运行库；bash 可在该工作区沙盒内执行命令，不默认暴露其他宿主目录。通用 MCP、HTTP、Web 搜索、宿主 shell 和交互终端默认拒绝。签名 token 的 `privileged.bash`/`privileged.network` 仅在机器 `managementEmbed.allowPrivileged: true`（默认 false）时生效；仅 tools.allow 不足以获得特权。单项授权仍采用受限模式，tools.allow/deny 继续有效：仅 bash 授权可提供工作区可写、其他宿主目录只读的沙盒；仅网络授权可启用 http/webfetch/websearch 并移除管理 Python/bash/terminal-command-runs 的 `--unshare-net`，但不增加宿主文件可见性。
 
@@ -431,11 +431,32 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 
 完整特权管理会话在启动和 `/reload` 时仅清理确认是平台原样下发的项目 Relay 副本，改由已启用的内置 Relay 包提供技能。清理只匹配当前模板或已知历史模板，且目录中必须仅有普通文件 `SKILL.md`；用户改过的内容、额外文件、符号链接及其他自定义 Skill 均保留，真实同名冲突仍会提示。取消特权后，下次创建或重载受限管理会话会按上述受限模式规则重新下发当前模板；旧特权会话不会运行中自动降权，应停止使用并通过新的授权入口进入。普通模式不执行此清理。升级此行为需重启 `pi-web-sessiond.service`，不改变现有特权授权与沙箱规则。
 
-`workbench_search_knowledge` 检索授权元数据，可用 provider=ragflow/bookstack；RAGFlow 内容用 retrieve_knowledge，BookStack 用 retrieve_bookstack，参数 resource_name、简洁 question、可选 resource_version=live、top_k 默认 8/最大 20。通过后端 `POST /api/knowledge-access/bookstack/retrieval` 读取独立授权的已发布书籍当前非草稿页，不编辑、不提供语义检索。返回纯文本、修订、更新时间、源 URL 与 knowledge:// 引用；truncated 表示搜索/文本限制，不保证包含所有匹配。上限五批各 100 候选、每页 8000 字符、总 40000。源链接仍需要读者自身浏览器权限，工具不授予 BookStack 登录。
+`workbench_search_knowledge` 检索授权元数据，可用 provider=ragflow/bookstack；RAGFlow 内容用 `workbench_retrieve_knowledge`，BookStack 关键词检索用 `workbench_retrieve_bookstack`，参数 `resource_name`、简洁 `question`、可选 `resource_version=live`、`top_k` 默认 8/最大 20。通过后端 `POST /api/knowledge-access/bookstack/retrieval` 读取独立授权的已发布书籍当前非草稿页；该检索工具只读，不提供语义检索。返回纯文本、修订、更新时间、源 URL 与 `knowledge://` 引用；`truncated` 表示搜索/文本限制，不保证包含所有匹配。上限五批各 100 候选、每页 8000 字符、总 40000。源链接仍需要读者自身浏览器权限，工具不授予 BookStack 登录。
 
-先部署支持资源快照、knowledge token 和检索 endpoint 的 Workbench 后端，再更新 PI WEB；BookStack 凭据只在后端，不新增 PI WEB BookStack 配置。工具更新重启 daemon；共享 endpoint/limit 改变重启两进程。签名 `projects[].agentsInstructions` 仅在项目 `AGENTS.md` 不存在时独占创建，`replace-managed` 策略为首次创建的文件保留托管标记；已有文件不因初始化自动覆盖。管理嵌入可在当前工作区的[指令确认菜单](plugins.md#managed-agents-review)中选择覆盖并备份或保留，无此字段仍兼容，普通项目不受影响。
+签名 `projects[].agentsInstructions` 仅在项目 `AGENTS.md` 不存在时独占创建，`replace-managed` 策略为首次创建的文件保留托管标记；已有文件不因初始化自动覆盖。管理嵌入可在当前工作区的[指令确认菜单](plugins.md#managed-agents-review)中选择覆盖并备份或保留，无此字段仍兼容，普通项目不受影响。
 
 可选签名字段 `projects[].agentsInstructionsUpdatedAt` 由平台提供模板的实际更新时间，使用带时区的 ISO 时间，如 `2026-10-26T10:00:00Z`。PI WEB 用它与当前工作区 `AGENTS.md` 修改时间比较，不从模板修订号或请求时间伪造更新时间；缺少此字段时界面显示“未提供”，不自动闪烁，仍可手动选择覆盖或保留。平台须提供此字段才能按时间提醒模板更新。时间判定、用户确认与备份规则见[管理工作区指令](plugins.md#managed-agents-review)。
+
+<a id="bookstack-content-operations"></a>
+#### BookStack 定向读取与写入
+
+`workbench_search_knowledge` 返回每项资源的 `actions`，可取 `read`、`create`、`update`、`delete`；旧授权未提供该字段时按 `read` 处理，不自动获得写权限。BookStack 仍须是已发布、`L0`、`live` 的授权知识资源；目录中的 `L0` 不授予写权限。PI WEB 检查相应 action，再由 Workbench 后端按当前用户和指定整本书复核操作范围。
+
+| 工具 | 参数与结果 |
+| --- | --- |
+| `workbench_read_bookstack` | `resource_name`、`entity_type`（`book`、`chapter`、`page`）及可选 `entity_id`；读取章节/页面时必须传 ID。返回实体 `content`、`baseVersion` 和 `actions`。 |
+| `workbench_write_bookstack` | `resource_name`、`action`，按操作传 `entity_id`、`name`、`html` 或 `markdown`；`parent_chapter_id` 仅用于新增页面。修改/删除必须传 `base_version`。可传 `idempotency_key`，省略时由 PI WEB 按会话与工具调用 ID 生成稳定键，结果中回传所用键。 |
+| `workbench_get_bookstack_operation` | `resource_name`，以及 `operation_id` / `idempotency_key` 二选一。只读查询本人的操作回执，返回状态、实际操作者、时间和可选核实结论；不读取正文或重放请求。 |
+
+写入动作限 `book.update`、`book.delete`、`chapter.create/update/delete`、`page.create/update/delete`。`create` 仅在授权书内创建章节或页面；新增页面须提供非空 HTML 或 Markdown，整本书创建由工作台管理入口负责。`update`/`delete` 可作用于授权书本身及其章节、页面；`book.delete` 删除整本书，整书或整章删除会按原生规则级联删除其内容，包括子草稿。独立草稿页读/改/删以及移动页面不在此入口支持范围。工具参数不接受操作者身份，实际用户由后端 Agent Session 确定；后端负责授权与操作审计。PI WEB 不增加 AI 或人工审批步骤，已有工具 allow/deny 仍生效。
+
+修改或删除前先定向读取目标，将返回的 `baseVersion` 原样作为 `base_version`。版本冲突后重新读取并核对内容，再决定如何修改。后端按整书串行执行工作台写入，但这不构成与原生编辑器共享的原子版本锁。写入返回 `operationId` 和 `status`（`succeeded` 或 `unknown`）；`unknown`、网络超时或服务端错误表示结果未确认，PI WEB 不自动重试，也不能换新键重发。
+
+保留原 `idempotencyKey` 和已返回的操作编号，调用 `workbench_get_bookstack_operation` 核查。回执状态为 `pending/succeeded/unknown/failed`，可能另带 `resolution`（实际核实者、时间、依据、`applied/not_applied` 结论）；核实不会改写原执行状态。手册已删除或当前授权已撤销时，有效账号仍可查本人历史回执。未结案的 `pending/unknown` 会冻结同书新写入，须由工作台平台管理员核对原生结果并结案；这是异常恢复流程，不是正常写入审批，PI WEB 工具不会替管理员解冻或重放。
+
+定向读取、写入及回执分别调用后端 `POST /api/agent-access/bookstack/read`、`POST /api/agent-access/bookstack/operations`、`POST /api/agent-access/bookstack/operations/receipt`，把工具的 snake_case 参数转换为 camelCase；成功响应均为 HTTP `200`，执行结果以正文 `status` 区分。RAGFlow 检索和受控 MCP 的 `L0` 只读能力边界保持不变。
+
+先协调部署匹配的 Workbench 后端与 BookStack 原生补丁，确保资源快照、knowledge token、检索、读写及回执 endpoint 可用，再更新 PI WEB；旧后端不会因升级 PI WEB 自动具备写入能力。BookStack 凭据只在后端，不新增 PI WEB BookStack 配置。工具更新需重启 `pi-web-sessiond.service`，Web/API 与 daemon 保持版本及有效配置一致；共享 endpoint/limit 改变时重启两进程。
 
 <a id="managed-data-directory"></a>
 ### 托管数据目录

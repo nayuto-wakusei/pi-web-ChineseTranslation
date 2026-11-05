@@ -114,10 +114,16 @@ iframe.src = entryUrl;
 
 1. `workbench_search_knowledge` 查找授权资源元数据。
 2. 使用返回的精确 `resourceName`；RAGFlow 走 `workbench_retrieve_knowledge`，BookStack 走 `workbench_retrieve_bookstack`。
-3. 阅读返回文本及引用。BookStack 是授权已发布书籍的当前非草稿页检索，不提供编辑，也不能描述为通用语义搜索。
+3. 阅读返回文本及引用。`workbench_retrieve_bookstack` 只读检索授权已发布书籍的当前非草稿页，不能描述为通用语义搜索。
 4. 遇到 `truncated` 时说明结果有限，不把它当作完整知识库；凭引用和修订判断来源。
 
 PI WEB 不配置这些知识服务的后台账号，不接受任意 tenant/dataset ID 越过授权；短期知识票据由后端处理。知识来源 URL 是引用，不是连接配置。
+
+BookStack 编辑使用独立的 `workbench_read_bookstack` / `workbench_write_bookstack` 工具，由服务端 Agent Session 向 Workbench 后端发起。授权目录的 `actions` 缺省为 `read`；创建、修改、删除分别要求对应 action，不能由资源的 `L0` 标签推导写权限。授权以指定整本书为范围，创建仅限书内章节/页面，修改和删除可作用于书本身及其内容；整本书创建仍走工作台管理入口。受控 MCP 继续只允许已授权的 `L0` 能力，RAGFlow 仍走原检索路径。
+
+PI WEB 负责参数校验、传递版本与幂等键；省略键时按会话和工具调用 ID 生成稳定键。后端负责复核当前用户、书籍归属、有效授权及操作审计，并按整书串行执行工作台写入；该锁不协调原生编辑器。操作者来自已验证的 Agent Session，工具不接受模型填写的用户身份，也不增加 AI 或人工审批。现有管理工具 allow/deny 和子会话上下文继续有效，普通模式及完整特权模式的工具装配不变。
+
+修改/删除前读取当前实体并传回其 `baseVersion`，版本冲突须重新核对内容。独立草稿页读/改/删以及移动页面不由此入口处理；整书或整章删除则按原生规则级联，包括其下草稿。工具不会自动重试写入；`unknown` 或请求结果无法确认时，用 `workbench_get_bookstack_operation` 携带原幂等键或操作编号查询本人回执，不能换键重发或声称成功。有效账号可在删书或撤权后查询自己的历史元数据，不借此读取正文。未结案 `pending/unknown` 会阻塞同书新写入，工作台平台管理员核实后另存结案依据、保留原状态；结案不重放请求，也不是审批。启用前须部署匹配的后端与 BookStack 补丁并重启 PI WEB daemon；公开参数、结果及兼容要求见 [BookStack 读写契约](../config.md#bookstack-content-operations)。
 
 Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下载后同步到管理工作区 `.pi/skills/`。受限启动强制同步 `relay` 和 `relay-runner` 模板到 `.pi/skills/<name>/SKILL.md`，只替换所属工作区内的同名内容；因此不要把它们作为自定义内容的唯一副本。两个模板都必须纳入 npm 包和 Workbench Skill allowlist。普通与完整特权启动既不创建也不覆盖这些项目 Skill。
 
@@ -162,6 +168,6 @@ Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下
 
 - 入口与权限：[managementEmbed.ts](../../src/server/managementEmbed.ts)、[managementPrivileges.ts](../../src/server/managementPrivileges.ts)、[权限测试](../../src/server/managementPrivileges.test.ts)。
 - bootstrap：[gatewayIntegration.ts](../../src/server/workbench/gatewayIntegration.ts)、[并发测试](../../src/server/workbench/gatewayIntegration.test.ts)。
-- 资源与知识：[workbenchTools.ts](../../src/server/workbench/workbenchTools.ts)、[skillSync.ts](../../src/server/workbench/skillSync.ts)。
+- 资源与知识：[workbenchTools.ts](../../src/server/workbench/workbenchTools.ts)、[BookStack 读写工具](../../src/server/workbench/bookstackOperationTools.ts)、[skillSync.ts](../../src/server/workbench/skillSync.ts)。
 - 沙箱：[managementSandbox.ts](../../src/server/sessions/managementSandbox.ts)、[完整特权测试](../../src/server/sessions/piSessionService.privilegedManagement.test.ts)。
 - 审计：[normalToolAuditStore.ts](../../src/server/audit/normalToolAuditStore.ts)、[managementAuditStore.ts](../../src/server/audit/managementAuditStore.ts)、[会话审计测试](../../src/server/sessions/piSessionService.audit.test.ts)。

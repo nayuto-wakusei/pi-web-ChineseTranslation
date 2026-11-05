@@ -1,4 +1,5 @@
 export type WorkbenchResourceType = "capability" | "skill" | "knowledge";
+export type WorkbenchResourceAction = "read" | "create" | "update" | "delete";
 
 export interface AuthorizedResourceDependency {
   capabilityName: string;
@@ -16,6 +17,7 @@ export interface AuthorizedResource {
   description: string;
   dependencies: AuthorizedResourceDependency[];
   metadata: Record<string, unknown>;
+  actions?: WorkbenchResourceAction[];
 }
 
 export interface WorkbenchAgentAccessState {
@@ -101,6 +103,68 @@ export interface BookstackRetrievalResult {
   resourceVersion: string;
   pages: BookstackRetrievalPage[];
   truncated: boolean;
+}
+
+export type BookstackEntityType = "book" | "chapter" | "page";
+export const BOOKSTACK_OPERATION_ACTIONS = [
+  "book.update", "book.delete", "chapter.create", "chapter.update", "chapter.delete", "page.create", "page.update", "page.delete",
+] as const;
+export type BookstackOperationAction = typeof BOOKSTACK_OPERATION_ACTIONS[number];
+
+export interface BookstackReadRequest {
+  resourceName: string;
+  entityType: BookstackEntityType;
+  entityId?: number;
+}
+
+export interface BookstackReadResult {
+  resourceName: string;
+  entityType: BookstackEntityType;
+  entityId: number;
+  content: Record<string, unknown>;
+  baseVersion: string;
+  actions: WorkbenchResourceAction[];
+}
+
+export interface BookstackOperationRequest {
+  resourceName: string;
+  action: BookstackOperationAction;
+  entityId?: number;
+  parentChapterId?: number;
+  name?: string;
+  html?: string;
+  markdown?: string;
+  baseVersion?: string;
+  idempotencyKey: string;
+}
+
+export interface BookstackOperationResult {
+  operationId: string;
+  status: "succeeded" | "unknown";
+  resourceName: string;
+  action: BookstackOperationAction;
+  entityId?: number;
+  url?: string;
+  message?: string;
+}
+
+export type BookstackOperationReceiptRequest = { resourceName: string } & (
+  { operationId: string; idempotencyKey?: never } | { idempotencyKey: string; operationId?: never }
+);
+
+export interface BookstackOperationReceipt extends Omit<BookstackOperationResult, "status"> {
+  status: "pending" | "succeeded" | "unknown" | "failed";
+  createdAt: string;
+  completedAt: string | null;
+  actor: { id: string; username: string; displayName: string };
+  failureStatus?: number;
+  resolution?: {
+    actorUserId: string;
+    reason: string;
+    resolvedAt: string;
+    outcome: "applied" | "not_applied";
+    entityId?: number;
+  };
 }
 
 export interface WorkbenchSkillManifestFile {

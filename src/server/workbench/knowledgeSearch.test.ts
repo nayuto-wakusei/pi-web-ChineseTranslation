@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requireAuthorizedBookstackKnowledge, requireAuthorizedRagflowKnowledge, searchAuthorizedKnowledge } from "./knowledgeSearch.js";
+import { requireAuthorizedBookstackAction, requireAuthorizedBookstackKnowledge, requireAuthorizedRagflowKnowledge, searchAuthorizedKnowledge } from "./knowledgeSearch.js";
 import type { AuthorizedResource } from "./types.js";
 
 describe("authorized knowledge search", () => {
@@ -80,6 +80,7 @@ describe("authorized knowledge search", () => {
       effectiveDate: "2026-08-30",
       provider: "ragflow",
       riskLevel: "L0",
+      actions: ["read"],
     });
     expect(JSON.stringify(result)).not.toContain("dataset-secret");
     expect(JSON.stringify(result)).not.toContain("apiKey");
@@ -101,6 +102,20 @@ describe("authorized knowledge search", () => {
     expect(searchAuthorizedKnowledge(resources, { provider: "ragflow" }).items[0]?.provider).toBe("ragflow");
     expect(requireAuthorizedRagflowKnowledge(resources, "legacy").resourceName).toBe("legacy");
     expect(() => requireAuthorizedBookstackKnowledge(resources, "legacy")).toThrow("未获授权");
+  });
+
+  it("advertises BookStack actions while keeping legacy grants read-only and explicit denials closed", () => {
+    const legacy = knowledge("bookstack.gx.legacy", { resourceVersion: "live", metadata: { provider: "bookstack" } });
+    const editable = knowledge("bookstack.gx.editable", { resourceVersion: "live", metadata: { provider: "bookstack" }, actions: ["read", "create", "update"] });
+    const denied = { ...legacy, resourceName: "bookstack.gx.denied", actions: [] };
+    const resources = [legacy, editable, denied];
+    const result = searchAuthorizedKnowledge(resources, { provider: "bookstack" });
+    expect(result.items.find((item) => item.resourceName === legacy.resourceName)?.actions).toEqual(["read"]);
+    expect(result.items.find((item) => item.resourceName === editable.resourceName)?.actions).toEqual(["read", "create", "update"]);
+    expect(requireAuthorizedBookstackAction(resources, editable.resourceName, "update")).toBe(editable);
+    expect(() => requireAuthorizedBookstackAction(resources, legacy.resourceName, "update")).toThrow("未获授权");
+    expect(() => requireAuthorizedBookstackAction(resources, editable.resourceName, "delete")).toThrow("未获授权");
+    expect(() => requireAuthorizedBookstackKnowledge(resources, denied.resourceName)).toThrow("未获授权");
   });
 });
 
