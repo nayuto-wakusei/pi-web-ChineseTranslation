@@ -128,8 +128,10 @@ describe("plugin-defined transcript message actions", () => {
     } finally { view.remove(); await registry.dispose(); }
   });
 
-  it("preserves core confirmation for cloning through the public callback", async () => {
-    const label = "Clone session from this message";
+  it.each([
+    ["Clone session from this message", "fork", "Are you sure you want to fork this session?"],
+    ["Go back to this message", "goBack", undefined],
+  ] as const)("preserves the confirmation owner for %s through the public callback", async (label, action, copy) => {
     const { view, context } = await mount();
     expect(buttons(view).map((button) => button.getAttribute("aria-label"))).toEqual([
       "Clone session from this message", "Go back to this message", "Copy user message",
@@ -138,13 +140,19 @@ describe("plugin-defined transcript message actions", () => {
     vi.stubGlobal("confirm", confirm);
     button(view, label).click();
     await settle(view);
-    expect(confirm).toHaveBeenCalledWith("Are you sure you want to fork this session?");
-    expect(context.history.fork).not.toHaveBeenCalled();
+    if (copy === undefined) {
+      // The host owns confirmation when going back would replace an unsent draft.
+      expect(confirm).not.toHaveBeenCalled();
+      expect(context.history.goBack).toHaveBeenCalledOnce();
+      return;
+    }
+    expect(confirm).toHaveBeenCalledWith(copy);
+    expect(context.history[action]).not.toHaveBeenCalled();
     await vi.waitFor(() => { expect(button(view, label).disabled).toBe(false); });
     confirm.mockReturnValue(true);
     button(view, label).click();
     await settle(view);
-    await vi.waitFor(() => { expect(context.history.fork).toHaveBeenCalledOnce(); });
+    await vi.waitFor(() => { expect(context.history[action]).toHaveBeenCalledOnce(); });
   });
 
   it.each([false, true])("offers existing history actions on question requests (answered: %s), targeting the tool result", async (answered) => {
@@ -229,6 +237,7 @@ describe("plugin-defined transcript message actions", () => {
     await settle(view);
     const group = view.renderRoot.querySelector<HTMLDetailsElement>(".event-group");
     if (group === null) throw new Error("Missing skill group");
+    expect(group.open).toBe(false);
     expect(buttons(view)).toHaveLength(0);
     group.open = true; group.dispatchEvent(new Event("toggle"));
     await settle(view);

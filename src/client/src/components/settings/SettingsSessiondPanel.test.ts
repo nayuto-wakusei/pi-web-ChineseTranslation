@@ -1,16 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ActiveAgentProfileDescriptor, PiWebConfigResponse } from "../../api";
-import { SettingsSessiondPanel, sessiondDescription, sessiondPanelNotices, type SessiondPanelNoticeContext } from "./SettingsSessiondPanel";
+import { SettingsSessiondPanel, sessiondPanelNotices, type SessiondPanelNoticeContext } from "./SettingsSessiondPanel";
 import { configResponse } from "../SettingsDialog.testSupport";
-
-// This suite asserts the session-daemon panel's dynamic behavior through public
-// seams rather than by inspecting rendered Lit `TemplateResult` internals:
-// notice composition/ordering and the description string come from the exported
-// `sessiondPanelNotices`/`sessiondDescription` helpers, and profile-save and
-// draft-preservation behavior are observed via injected callbacks and public
-// state. Static labels and layout are intentionally not asserted here (no DOM
-// harness); per the testing-guide skill those are not verified by scraping
-// template internals.
 
 describe("session daemon panel notices", () => {
   it("orders save/load notices without config or activation guidance", () => {
@@ -20,15 +11,13 @@ describe("session daemon panel notices", () => {
     ]);
     expect(sessiondPanelNotices(undefined, noticeContext({}))).toEqual([]);
   });
-  it("names the selected machine in the scope description and restart notice", () => {
+  it("names the selected machine in the restart notice", () => {
     const targetLabel = "Lab Mac (remote machine)";
     const config = configResponse({
       agent: { command: "agent-lab", dir: "/srv/agent-lab" },
       spawnSessions: true,
       subsessions: false,
     });
-
-    expect(sessiondDescription(targetLabel)).toContain("Lab Mac (remote machine)");
 
     const notices = sessiondPanelNotices(config, noticeContext({
       activeProfile: activeProfile("/srv/pi"),

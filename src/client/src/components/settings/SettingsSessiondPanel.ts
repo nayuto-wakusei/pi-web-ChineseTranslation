@@ -309,10 +309,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function sessiondDescription(targetLabel: string): string {
-  return sessiondMessages.t("description", { target: targetLabel });
-}
-
 export interface SessiondPanelNoticeContext {
   readonly error: string;
   readonly savedMessage: string;

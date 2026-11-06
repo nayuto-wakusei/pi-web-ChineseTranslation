@@ -1,7 +1,7 @@
 
 import { api as defaultApi, type Project } from "../api";
 import { BrowserErrorReporter, machineBrowserErrorScope, projectBrowserErrorScope } from "../browserErrors";
-import { selectedMachineId, type GetState, type NavigationDestinationOptions, type NavigationSelection, type SetState } from "./types";
+import { navigationSelection, selectedMachineId, type GetState, type NavigationDestinationOptions, type NavigationSelection, type SetState } from "./types";
 import type { WorkspaceController } from "./workspaceController";
 import { projectWorkspaceMessages as messages, ProjectWorkspaceError, reportProjectWorkspaceError } from "./projectWorkspaceMessages";
 
@@ -130,13 +130,4 @@ export class ProjectController {
       this.browserErrors.report(projectBrowserErrorScope(machineId, projectId), String(error));
     }
   }
-}
-
-function navigationSelection(state: ReturnType<GetState>, captureNavigation?: () => NavigationSelection): NavigationSelection {
-  return captureNavigation?.() ?? {
-    machineId: selectedMachineId(state),
-    projectId: state.selectedProject?.id,
-    workspaceId: state.selectedWorkspace?.id,
-    ...(state.selectedSession === undefined || Reflect.get(state.selectedSession, "clientPendingStart") !== true ? { sessionId: state.selectedSession?.id } : {}),
-  };
 }

@@ -66,6 +66,29 @@ describe("ProjectController", () => {
     expect(state.selectedProject?.id).toBe("newer");
   });
 
+  it.each([true, false])("captures parent navigation without forwarding a pending session id (%s)", async (clientPendingStart) => {
+    const selectedProject = project("project", "/repo");
+    const selectedWorkspace = workspace(selectedProject.id, selectedProject.path);
+    const selectedSession = { id: "session", cwd: "/repo", path: "/session.json", created: "now", modified: "now", messageCount: 0, firstMessage: "", clientPendingStart };
+    let state: AppState = {
+      ...initialAppState(), selectedProject, selectedWorkspace, selectedSession,
+      selectedMachine: { id: "remote", name: "Remote", kind: "remote", baseUrl: "https://remote.example", createdAt: "now", updatedAt: "now" },
+    };
+    const navigateToProject = vi.fn().mockResolvedValue(true);
+    const controller = new ProjectController(() => state, (patch) => { state = { ...state, ...patch }; }, {
+      selectProject: vi.fn(), forgetProject: vi.fn(), clearSelection: vi.fn(),
+    }, {
+      api: { projects: vi.fn(), addProject: vi.fn(), closeProject: vi.fn().mockResolvedValue({ closed: true }) }, navigateToProject,
+    });
+
+    await controller.closeProject(selectedProject.id);
+
+    expect(navigateToProject).toHaveBeenCalledWith(undefined, { expected: {
+      machineId: "remote", projectId: selectedProject.id, workspaceId: selectedWorkspace.id,
+      ...(clientPendingStart ? {} : { sessionId: selectedSession.id }),
+    } });
+  });
+
   it("does not clear a newer selection when closing the former project completes", async () => {
     const closed = project("closed", "/closed");
     const newer = project("newer", "/newer");

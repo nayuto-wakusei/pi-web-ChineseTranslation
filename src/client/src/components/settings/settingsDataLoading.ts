@@ -1,6 +1,7 @@
 import { t } from "../../i18n.js";
 import type { PiPackagesResponse, PiWebConfigResponse, PiWebPluginsResponse } from "../../api";
-import { friendlyPiPackageErrorMessage, isPiPackageManagementUnsupported, piPackageTargetLabel, type PiPackageManagementSupport, type PiPackageTargetContext } from "./piPackageSettings";
+import { friendlyPiPackageErrorMessage, isPiPackageManagementUnsupported, type PiPackageManagementSupport, type PiPackageTargetContext } from "./piPackageSettings";
+import { settingsMachineTargetLabel } from "./settingsMachineTarget";
 
 export interface GatewaySettingsLoaders {
   loadConfig: () => Promise<PiWebConfigResponse>;
@@ -46,14 +47,14 @@ export async function loadGatewaySettingsData(loaders: GatewaySettingsLoaders): 
 
 export async function loadPiPackagesData(target: PiPackageTargetContext, loadPackages: (targetId: string) => Promise<PiPackagesResponse>, support?: PiPackageManagementSupport): Promise<PiPackagesLoadResult> {
   if (isPiPackageManagementUnsupported(support)) {
-    return { error: support.message ?? t("ui.settingsDataLoading.doesNotSupportPiPackageManagement", "{piPackageTargetLabeltarget} does not support Pi package management.", { piPackageTargetLabeltarget: piPackageTargetLabel(target) }), skipped: true };
+    return { error: support.message ?? t("ui.settingsDataLoading.doesNotSupportPiPackageManagement", "{piPackageTargetLabeltarget} does not support Pi package management.", { piPackageTargetLabeltarget: settingsMachineTargetLabel(target) }), skipped: true };
   }
 
   try {
     return { packagesResponse: await loadPackages(target.id), error: "" };
   } catch (error) {
     const diagnostic = errorMessage(error);
-    return { failure: diagnostic, error: `Failed to load Pi packages from ${piPackageTargetLabel(target)}: ${friendlyPiPackageErrorMessage(diagnostic, target)}` };
+    return { failure: diagnostic, error: `Failed to load Pi packages from ${settingsMachineTargetLabel(target)}: ${friendlyPiPackageErrorMessage(diagnostic, target)}` };
   }
 }
 

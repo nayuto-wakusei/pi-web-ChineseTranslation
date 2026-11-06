@@ -1,17 +1,11 @@
+import { browserStorage } from "./browserStorage";
+
 export interface NavigationPreferences {
   pinnedIds: string[];
   mobileCollapsed: boolean;
 }
 
 const storageKey = "pi-web:navigation-preferences";
-
-function browserStorage(): Storage | undefined {
-  try {
-    return typeof localStorage === "undefined" ? undefined : localStorage;
-  } catch {
-    return undefined;
-  }
-}
 
 export function loadNavigationPreferences(storage: Pick<Storage, "getItem"> | undefined = browserStorage()): NavigationPreferences {
   try {

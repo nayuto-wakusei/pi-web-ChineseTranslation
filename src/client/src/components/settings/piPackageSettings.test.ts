@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../../shared/capabilities";
 import type { MachineRuntime, PiPackageInfo } from "../../api";
-import { canUpdateAllPiPackages, friendlyPiPackageErrorMessage, isPiPackageManagementUnsupported, isPiPackageOperationPending, normalizePiPackageSource, piPackageFilteredLabel, piPackageManagementSupport, piPackageMutationFollowUpMessage, piPackagesResponseAfterMutation, piPackageScopeLabel, piPackageSourceValidationMessage, piPackageTargetContext, piPackageTargetLabel, piPackageUpdateDisabledReason, shouldRefreshGatewayPluginsAfterPiPackageMutation, updateAllPiPackagesDisabledReason, type PiPackageTargetContext } from "./piPackageSettings";
+import { canUpdateAllPiPackages, friendlyPiPackageErrorMessage, isPiPackageManagementUnsupported, isPiPackageOperationPending, normalizePiPackageSource, piPackageFilteredLabel, piPackageManagementSupport, piPackageMutationFollowUpMessage, piPackagesResponseAfterMutation, piPackageScopeLabel, piPackageSourceValidationMessage, piPackageTargetContext, piPackageUpdateDisabledReason, shouldRefreshGatewayPluginsAfterPiPackageMutation, updateAllPiPackagesDisabledReason, type PiPackageTargetContext } from "./piPackageSettings";
 
 const userPackage: PiPackageInfo = { source: "npm:@acme/tools", scope: "user", filtered: false, installedPath: "/home/test/.pi/packages/tools" };
 const projectPackage: PiPackageInfo = { source: "../project-tools", scope: "project", filtered: true };
@@ -40,10 +40,8 @@ describe("Pi package settings helpers", () => {
     expect(isPiPackageOperationPending({ kind: "update-all" }, "update-all")).toBe(true);
   });
 
-  it("labels package targets and gateway plugin refresh scope", () => {
+  it("keeps package targets and gateway plugin refresh machine-scoped", () => {
     expect(piPackageTargetContext(undefined)).toEqual(localTarget);
-    expect(piPackageTargetLabel(localTarget)).toBe("本机（本地网关）");
-    expect(piPackageTargetLabel(remoteTarget)).toBe("Lab Mac（远程机器）");
     expect(shouldRefreshGatewayPluginsAfterPiPackageMutation(localTarget)).toBe(true);
     expect(shouldRefreshGatewayPluginsAfterPiPackageMutation(remoteTarget)).toBe(false);
   });

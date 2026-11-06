@@ -1,13 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import * as info from "./info/i18n.js";
 import * as updates from "./updates/i18n.js";
 import * as tasks from "./workspace-tasks/i18n.js";
-import * as relays from "../pi-packages/relays/i18n.js";
 import { chinesePluginLocalization, translateChinese } from "./localization.testSupport.js";
 import { createInfoContent } from "./info/infoInternals.js";
 import { loadWorkspaceTasksConfig } from "./workspace-tasks/workspaceTasksClient.js";
 
-const translators = [info, updates, tasks, relays];
+const translators = [updates, tasks];
 
 afterEach(() => {
   for (const translator of translators) translator.setTranslator(undefined);
@@ -22,7 +20,6 @@ describe("bundled plugin localization", () => {
   });
 
   it("uses the activation translator without translating runtime values", async () => {
-    info.setTranslator(translateChinese);
     const { releaseSummary } = createInfoContent(await chinesePluginLocalization("info"));
     expect(releaseSummary({ packageName: "pi-web", updateAvailable: false, error: "user: <custom>" })).toBe("更新检查失败：user: <custom>");
   });

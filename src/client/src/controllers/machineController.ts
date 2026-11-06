@@ -3,7 +3,7 @@ import { machineMessages as messages } from "../machineMessages";
 import { api, type Machine, type MachineHealth, type MachineRuntime } from "../api";
 import { resetWorkspaceScopedState } from "../appState";
 import { BrowserErrorReporter, machineBrowserErrorScope } from "../browserErrors";
-import type { GetState, NavigationDestinationOptions, NavigationSelection, SetState, UpdateUrl } from "./types";
+import { navigationSelection, type GetState, type NavigationDestinationOptions, type NavigationSelection, type SetState, type UpdateUrl } from "./types";
 import type { ProjectController } from "./projectController";
 
 export interface MachineControllerDependencies {
@@ -248,13 +248,4 @@ function omitKey<T>(record: Record<string, T>, keyToOmit: string): Record<string
 
 function filterKeys<T>(record: Record<string, T>, allowedKeys: Set<string>): Record<string, T> {
   return Object.fromEntries(Object.entries(record).filter(([key]) => allowedKeys.has(key)));
-}
-
-function navigationSelection(state: ReturnType<GetState>, captureNavigation?: () => NavigationSelection): NavigationSelection {
-  return captureNavigation?.() ?? {
-    machineId: state.selectedMachine?.id ?? "local",
-    projectId: state.selectedProject?.id,
-    workspaceId: state.selectedWorkspace?.id,
-    ...(state.selectedSession === undefined || Reflect.get(state.selectedSession, "clientPendingStart") !== true ? { sessionId: state.selectedSession?.id } : {}),
-  };
 }

@@ -27,7 +27,7 @@ import "./settings/SettingsSpeechPanel";
 import "./settings/SettingsPackagesPanel";
 import "./settings/SettingsPluginsPanel";
 import "./settings/SettingsShortcutsPanel";
-import { isPiPackageManagementUnsupported, piPackageManagementSupport, piPackageManagementSupportKey, piPackagesResponseAfterMutation, piPackageTargetLabel, shouldRefreshGatewayPluginsAfterPiPackageMutation, type PiPackageManagementSupport, type PiPackageOperationState, type PiPackageTargetContext } from "./settings/piPackageSettings";
+import { isPiPackageManagementUnsupported, piPackageManagementSupport, piPackageManagementSupportKey, piPackagesResponseAfterMutation, shouldRefreshGatewayPluginsAfterPiPackageMutation, type PiPackageManagementSupport, type PiPackageOperationState, type PiPackageTargetContext } from "./settings/piPackageSettings";
 import { loadGatewaySettingsData, loadPiPackagesData } from "./settings/settingsDataLoading";
 import { mergeSelectedMachineAccessConfig } from "./settings/settingsMachineAccessConfig";
 import { agentProfileSettingsSupport, isAgentProfileSettingsSupported, isSelectedMachineSettingsUnsupported, pluginLifecycleSupport, selectedMachineSettingsSupport, selectedMachineSettingsSupportKey, settingsMachineTarget, settingsMachineTargetLabel, type AgentProfileSettingsSupport, type SelectedMachineSettingsSupport, type SettingsMachineTarget } from "./settings/settingsMachineTarget";
@@ -870,7 +870,7 @@ export class SettingsDialog extends LitElement {
   private async runPiPackageMutation(operation: PiPackageOperationState, target: PiPackageTargetContext, mutate: () => Promise<PiPackageMutationResponse>): Promise<void> {
     const support = this.packageManagementSupport(target);
     if (isPiPackageManagementUnsupported(support)) {
-      this.packageError = support.message ?? t("ui.settingsDataLoading.doesNotSupportPiPackageManagement", "{piPackageTargetLabeltarget} does not support Pi package management.", { piPackageTargetLabeltarget: piPackageTargetLabel(target) });
+      this.packageError = support.message ?? t("ui.settingsDataLoading.doesNotSupportPiPackageManagement", "{piPackageTargetLabeltarget} does not support Pi package management.", { piPackageTargetLabeltarget: settingsMachineTargetLabel(target) });
       throw new Error(this.packageError);
     }
     if (this.saving) throw new Error(settingsDialogMessages.t("operationRunning"));
@@ -1099,39 +1099,4 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export type SettingsPanelTag =
-  | "settings-general-panel"
-  | "settings-speech-panel"
-  | "settings-sessiond-panel"
-  | "settings-packages-panel"
-  | "settings-plugins-panel"
-  | "settings-shortcuts-panel"
-  | "settings-mcp-panel";
-
-/**
- * The single custom-element panel the settings dialog renders for a section.
- *
- * This is the public routing contract behind `renderActiveSection`: each section
- * maps to exactly one panel element and nothing else (no per-tab "scope note"
- * wrapper). Tests assert this mapping instead of inspecting the rendered
- * `TemplateResult`'s markup.
- */
-export function activeSettingsPanelTag(section: SettingsSection): SettingsPanelTag {
-  switch (section) {
-    case "sessiond":
-      return "settings-sessiond-panel";
-    case "speech":
-      return "settings-speech-panel";
-    case "packages":
-      return "settings-packages-panel";
-    case "plugins":
-      return "settings-plugins-panel";
-    case "shortcuts":
-      return "settings-shortcuts-panel";
-    case "mcp":
-      return "settings-mcp-panel";
-    case "general":
-      return "settings-general-panel";
-  }
-}
 import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../../shared/requiredTerminalPlugin";

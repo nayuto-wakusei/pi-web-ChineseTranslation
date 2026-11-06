@@ -110,6 +110,16 @@ describe("sessionArchive config", () => {
     expect(sessionArchiveDirectory({}, { sessionArchive: { directory: tempDir } }, resolve(tempDir, "other"))).toBe(tempDir);
     expect(sessionArchiveDirectory(env, { sessionArchive: {} }, tempDir)).toBe(join(tempDir, "state", "archived-sessions"));
   });
+
+  it("does not resolve relative destinations against the config file or expand home shortcuts", () => {
+    const sessionArchive = { directory: "~/archive-files" };
+    savePiWebConfig({ sessionArchive }, testOptions());
+    const loaded = loadPiWebConfig(testOptions());
+    const daemonCwd = join(tempDir, "daemon-cwd");
+    expect(loaded.config.sessionArchive).toEqual(sessionArchive);
+    expect(sessionArchiveDirectory(testOptions().env, loaded.config, daemonCwd)).toBe(resolve(daemonCwd, "~/archive-files"));
+    expect(sessionArchiveDirectory({ PI_WEB_SESSION_ARCHIVE_DIR: "~/external" }, loaded.config, daemonCwd)).toBe(resolve(daemonCwd, "~/external"));
+  });
 });
 
 describe("speech configuration", () => {

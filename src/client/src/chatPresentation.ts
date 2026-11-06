@@ -72,7 +72,7 @@ function shortValue(value: unknown, labels: ArgumentSummaryLabels): string {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
-function stringifyPrimitive(value: unknown): string {
+export function stringifyPrimitive(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);

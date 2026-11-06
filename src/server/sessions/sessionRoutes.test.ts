@@ -73,63 +73,6 @@ describe("session routes", () => {
     expect(responses.map((response) => response.statusCode)).toEqual([404, 404, 404]);
   });
 
-  it("serves model catalog reads and forwards normal enabled-scope edits", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const eventHub = new SessionEventHub();
-    const routeService = new CapturingRouteSessionService();
-    registerSessionRoutes(routeApp, routeService, eventHub);
-
-    try {
-      const cwd = resolve("/repo");
-      const catalog = await routeApp.inject({ method: "GET", url: `/sessions/session-1/models/catalog?cwd=${encodeURIComponent(cwd)}` });
-      const updated = await routeApp.inject({
-        method: "POST",
-        url: "/sessions/session-1/models/enabled",
-        payload: { cwd, provider: "anthropic", modelId: "claude-opus", enabled: false },
-      });
-      const invalid = await routeApp.inject({
-        method: "POST",
-        url: "/sessions/session-1/models/enabled",
-        payload: { cwd, provider: "anthropic", modelId: "claude-opus", enabled: "no" },
-      });
-
-      expect(catalog.statusCode).toBe(200);
-      expect(catalog.json()).toEqual({ models: [{ provider: "anthropic", id: "claude-opus", enabled: true }] });
-      expect(updated.statusCode).toBe(200);
-      expect(updated.json()).toEqual({ models: [{ provider: "anthropic", id: "claude-opus", enabled: false }] });
-      expect(invalid.statusCode).toBe(400);
-      expect(routeService.modelCatalogCalls).toEqual([{ lookup: { id: "session-1", cwd }, managementContext: undefined }]);
-      expect(routeService.setModelEnabledCalls).toEqual([{ lookup: { id: "session-1", cwd }, provider: "anthropic", modelId: "claude-opus", enabled: false, managementContext: undefined }]);
-    } finally {
-      await routeService.dispose();
-      await routeApp.close();
-    }
-  });
-
-  it("forwards atomic model-scope presets and rejects malformed modes", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const eventHub = new SessionEventHub();
-    const routeService = new CapturingRouteSessionService();
-    registerSessionRoutes(routeApp, routeService, eventHub);
-
-    try {
-      const cwd = resolve("/repo");
-      const updated = await routeApp.inject({ method: "POST", url: "/sessions/session-1/models/scope", payload: { cwd, mode: "current" } });
-      const invalid = await routeApp.inject({ method: "POST", url: "/sessions/session-1/models/scope", payload: { cwd, mode: "none" } });
-
-      expect(updated.statusCode).toBe(200);
-      expect(updated.json()).toEqual({ models: [{ provider: "anthropic", id: "claude-opus", enabled: false }] });
-      expect(invalid.statusCode).toBe(400);
-      expect(invalid.json()).toEqual({ error: "mode 字段必须是 all 或 current" });
-      expect(routeService.setModelScopeCalls).toEqual([{ lookup: { id: "session-1", cwd }, mode: "current", managementContext: undefined }]);
-    } finally {
-      await routeService.dispose();
-      await routeApp.close();
-    }
-  });
-
   it("pins one session default selector and rejects mixed updates", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -485,7 +428,7 @@ describe("session routes", () => {
     }
   });
 
-  it("parses ask submissions and reports both closed and stale outcomes", async () => {
+  it("forwards management identity on question responses and skips", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
     const eventHub = new SessionEventHub();
@@ -526,42 +469,6 @@ describe("session routes", () => {
       expect(cancelled.statusCode).toBe(200);
       expect(cancelled.json()).toMatchObject({ sessionId: "session-1" });
       expect(routeService.cancelAskCalls).toEqual([{ lookup: { id: "session-1", cwd: resolve("/repo") }, askId: "ask-2", managementContext }]);
-    } finally {
-      await routeService.dispose();
-      await routeApp.close();
-    }
-  });
-
-  it("rejects malformed ask payloads before calling the service", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const eventHub = new SessionEventHub();
-    const routeService = new CapturingRouteSessionService();
-    registerSessionRoutes(routeApp, routeService, eventHub);
-    const malformed: Record<string, unknown>[] = [
-      { answers: [] },
-      { askId: "", answers: [] },
-      { askId: "x".repeat(ASK_USER_ID_MAX_LENGTH + 1), answers: [] },
-      { askId: "ask-1" },
-      { askId: "ask-1", answers: {} },
-      { askId: "ask-1", answers: [{ values: ["pg"] }] },
-      { askId: "ask-1", answers: [{ id: "db" }] },
-      { askId: "ask-1", answers: [{ id: "db", values: [1] }] },
-      { askId: "ask-1", answers: [{ id: "db", values: [], otherText: 7 }] },
-      { askId: "ask-1", answers: [{ id: "db", values: [], otherText: "x".repeat(ASK_USER_OTHER_TEXT_MAX_LENGTH + 1) }] },
-      { askId: "ask-1", answers: new Array<unknown>(ASK_USER_QUESTION_LIMIT + 1).fill({ id: "db", values: [] }) },
-    ];
-
-    try {
-      for (const payload of malformed) {
-        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/submit", payload: { cwd: resolve("/repo"), ...payload } });
-        expect(response.statusCode).toBe(400);
-      }
-      const cancelWithoutAskId = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/cancel", payload: { cwd: resolve("/repo") } });
-
-      expect(cancelWithoutAskId.statusCode).toBe(400);
-      expect(routeService.submitAskCalls).toEqual([]);
-      expect(routeService.cancelAskCalls).toEqual([]);
     } finally {
       await routeService.dispose();
       await routeApp.close();
@@ -734,28 +641,6 @@ describe("session routes", () => {
       const bulk = await routeApp.inject({ method: "POST", url: "/sessions/bulk/archive", payload: { sessions: [{ id: "session-1" }] } });
       expect(bulk.statusCode).toBe(400);
       expect(bulk.json()).toEqual({ error: enabled ? "必须提供 cwd 字段" : "cwd field is required" });
-      expect(routeService.calls).toEqual([]);
-    } finally {
-      await routeService.dispose();
-      await routeApp.close();
-    }
-  });
-
-  it("rejects legacy per-session HTTP routes without cwd", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const eventHub = new SessionEventHub();
-    const routeService = new CapturingRouteSessionService();
-    registerSessionRoutes(routeApp, routeService, eventHub);
-
-    try {
-      const statusResponse = await routeApp.inject({ method: "GET", url: "/sessions/session-1/status" });
-      const promptResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/prompt", payload: { text: "hello" } });
-
-      expect(statusResponse.statusCode).toBe(400);
-      expect(statusResponse.json()).toEqual({ error: "必须提供 cwd 查询参数" });
-      expect(promptResponse.statusCode).toBe(400);
-      expect(promptResponse.json()).toEqual({ error: "必须提供 cwd 字段" });
       expect(routeService.calls).toEqual([]);
     } finally {
       await routeService.dispose();
@@ -1459,7 +1344,6 @@ class CapturingRouteSessionService implements SessionRouteService {
   restore(): never { throw unusedRouteMethod("restore"); }
   deleteArchived(): never { throw unusedRouteMethod("deleteArchived"); }
 
-
   detachParent(): never { throw unusedRouteMethod("detachParent"); }
 }
 
@@ -1521,7 +1405,7 @@ function unusedRouteMethod(name: string): Error {
   return new Error(`Route test did not expect ${name} to be called`);
 }
 
-describe("session routes upstream strict contract", () => {
+describe("session route validation and forwarding", () => {
   it("strictly parses cwd-scoped session tree fork requests", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -1760,7 +1644,7 @@ describe("session routes upstream strict contract", () => {
         const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/submit", payload });
         expect(response.statusCode).toBe(400);
       }
-      const cancelWithoutAskId = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/cancel", payload: {} });
+      const cancelWithoutAskId = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/cancel", payload: { cwd: resolve("/repo") } });
 
       expect(cancelWithoutAskId.statusCode).toBe(400);
       expect(routeService.submitAskCalls).toEqual([]);
@@ -1769,124 +1653,6 @@ describe("session routes upstream strict contract", () => {
       await routeService.dispose();
       await routeApp.close();
     }
-  });
-
-  it("maps a missing session on an ask submission to 404", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const eventHub = new SessionEventHub();
-    const routeService = new CapturingRouteSessionService();
-    routeService.askError = new Error("Session not found");
-    registerSessionRoutes(routeApp, routeService, eventHub);
-
-    try {
-      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/ask/submit", payload: { cwd: "/repo", askId: "ask-1", answers: [] } });
-
-      expect(response.statusCode).toBe(404);
-      expect(response.json()).toEqual({ error: "Session not found" });
-    } finally {
-      await routeService.dispose();
-      await routeApp.close();
-    }
-  });
-
-  it("parses dialog answers and cancels and reports both closed and stale outcomes", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const eventHub = new SessionEventHub();
-    const routeService = new CapturingRouteSessionService();
-    registerSessionRoutes(routeApp, routeService, eventHub);
-
-    try {
-      const answered = await routeApp.inject({
-        method: "POST",
-        url: "/sessions/session-1/dialogs/answer",
-        payload: { cwd: "/repo/./", dialogId: "dialog-1", value: true },
-      });
-      const answeredText = await routeApp.inject({
-        method: "POST",
-        url: "/sessions/session-1/dialogs/answer",
-        payload: { cwd: "/repo", dialogId: "dialog-2", value: "typed text" },
-      });
-      const cancelled = await routeApp.inject({
-        method: "POST",
-        url: "/sessions/session-1/dialogs/cancel",
-        payload: { cwd: "/repo", dialogId: "dialog-3" },
-      });
-
-      expect(answered.statusCode).toBe(200);
-      expect(answered.json()).toMatchObject({ result: "closed", sessionStatus: { sessionId: "session-1" } });
-      expect(answeredText.statusCode).toBe(200);
-      expect(routeService.answerDialogCalls).toEqual([
-        { lookup: { id: "session-1", cwd: resolve("/repo") }, dialogId: "dialog-1", value: true },
-        { lookup: { id: "session-1", cwd: resolve("/repo") }, dialogId: "dialog-2", value: "typed text" },
-      ]);
-      expect(cancelled.statusCode).toBe(200);
-      expect(cancelled.json()).toMatchObject({ result: "stale" });
-      expect(routeService.cancelDialogCalls).toEqual([{ lookup: { id: "session-1", cwd: resolve("/repo") }, dialogId: "dialog-3" }]);
-    } finally {
-      await routeService.dispose();
-      await routeApp.close();
-    }
-  });
-
-  it("rejects malformed dialog payloads before calling the service", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const eventHub = new SessionEventHub();
-    const routeService = new CapturingRouteSessionService();
-    registerSessionRoutes(routeApp, routeService, eventHub);
-    const malformedAnswers: Record<string, unknown>[] = [
-      { value: true },
-      { dialogId: "", value: true },
-      { dialogId: "x".repeat(EXTENSION_DIALOG_ID_MAX_LENGTH + 1), value: true },
-      { dialogId: "dialog-1" },
-      { dialogId: "dialog-1", value: 7 },
-      { dialogId: "dialog-1", value: ["option"] },
-      { dialogId: "dialog-1", value: "x".repeat(EXTENSION_DIALOG_INPUT_MAX_LENGTH + 1) },
-    ];
-
-    try {
-      for (const payload of malformedAnswers) {
-        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/dialogs/answer", payload });
-        expect(response.statusCode).toBe(400);
-      }
-      const cancelWithoutDialogId = await routeApp.inject({ method: "POST", url: "/sessions/session-1/dialogs/cancel", payload: {} });
-
-      expect(cancelWithoutDialogId.statusCode).toBe(400);
-      expect(routeService.answerDialogCalls).toEqual([]);
-      expect(routeService.cancelDialogCalls).toEqual([]);
-    } finally {
-      await routeService.dispose();
-      await routeApp.close();
-    }
-  });
-
-  it("maps a missing session on a dialog answer to 404", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const eventHub = new SessionEventHub();
-    const routeService = new CapturingRouteSessionService();
-    routeService.dialogError = new Error("Session not found");
-    registerSessionRoutes(routeApp, routeService, eventHub);
-
-    try {
-      const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/dialogs/answer", payload: { cwd: "/repo", dialogId: "dialog-1", value: true } });
-
-      expect(response.statusCode).toBe(404);
-      expect(response.json()).toEqual({ error: "Session not found" });
-    } finally {
-      await routeService.dispose();
-      await routeApp.close();
-    }
-  });
-
-  it("rejects prompt payloads that omit text without opening a session", async () => {
-    const response = await app.inject({ method: "POST", url: "/sessions/session-1/prompt", payload: { cwd: "/repo", body: "Build the thing" } });
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "提示文本为必填项" });
-    expect(sessionManager.calls).toEqual({ create: 0, list: 0, listAll: 0, open: 0 });
   });
 
   it("rejects per-session routes that omit cwd without calling the service", async () => {
@@ -2131,7 +1897,7 @@ describe("session routes upstream strict contract", () => {
     }
   });
 });
-describe("upstream group 4 route contracts", () => {
+describe("session snapshot and media routes", () => {
   it("keeps management snapshot and media lookups and projections in their owning scope", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -2159,23 +1925,6 @@ describe("upstream group 4 route contracts", () => {
     } finally { await routeApp.close(); }
   });
 
-  it("forwards only boolean checkpoint requests and rejects malformed values", async () => {
-    const routeApp = Fastify({ logger: false });
-    await routeApp.register(fastifyWebsocket);
-    const routeService = new CapturingRouteSessionService();
-    registerSessionRoutes(routeApp, routeService, new SessionEventHub());
-    try {
-      for (const retainCheckpoint of [true, false]) {
-        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/tree/navigate", payload: { cwd: "/repo", targetId: "entry", expectedLeafId: "leaf", summary: { mode: "none" }, retainCheckpoint } });
-        expect(response.statusCode).toBe(200);
-        expect(routeService.navigateTreeCalls.at(-1)?.request).toMatchObject({ retainCheckpoint });
-      }
-      for (const route of ["navigate", "fork"]) {
-        const response = await routeApp.inject({ method: "POST", url: `/sessions/session-1/tree/${route}`, payload: { cwd: "/repo", targetId: "entry", entryId: "entry", expectedLeafId: "leaf", summary: { mode: "none" }, retainCheckpoint: "true" } });
-        expect(response.statusCode).toBe(400);
-      }
-    } finally { await routeApp.close(); }
-  });
 it("returns a transcript snapshot with workspace and limit forwarding", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);

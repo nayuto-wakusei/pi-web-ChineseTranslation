@@ -1,4 +1,4 @@
-import { argumentSummaryPresentation, summarizeArgs } from "./chatPresentation";
+import { argumentSummaryPresentation, stringifyPrimitive, summarizeArgs } from "./chatPresentation";
 import { ASK_USER_ANSWERS_CUSTOM_TYPE } from "../../shared/apiTypes";
 import { parseAskUserOutcome, parseAskUserRequest } from "./api/parsers";
 import { isSessionMediaId, validImageDimensions } from "../../shared/sessionMedia";
@@ -449,11 +449,4 @@ function getBoolean(value: unknown, key: string): boolean | undefined {
 function getNumber(value: unknown, key: string): number | undefined {
   const property = getProperty(value, key);
   return typeof property === "number" && Number.isFinite(property) ? property : undefined;
-}
-
-function stringifyPrimitive(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
-  return "";
 }

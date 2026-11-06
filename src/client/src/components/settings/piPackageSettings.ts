@@ -26,10 +26,6 @@ export function piPackageTargetContext(machine: Pick<Machine, "id" | "name" | "k
   return { id: "local", name: t("ui.piPackageSettings.local", "Local"), kind: "local" };
 }
 
-export function piPackageTargetLabel(target: PiPackageTargetContext): string {
-  return target.kind === "local" ? t("ui.settingsMachineTarget.localGateway", "{name} (local gateway)", { name: target.name }) : t("ui.settingsMachineTarget.remoteMachine", "{name} (remote machine)", { name: target.name });
-}
-
 export function piPackageManagementSupport(target: PiPackageTargetContext, runtime: Pick<MachineRuntime, "ok" | "capabilities"> | undefined): PiPackageManagementSupport {
   if (target.kind === "local") return { state: "supported" };
   if (runtime?.ok !== true) return { state: "unknown" };

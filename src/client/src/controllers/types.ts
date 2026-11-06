@@ -19,6 +19,16 @@ export interface NavigationSelection {
   view?: string | undefined;
 }
 
+/** Fallback parent navigation omits client-only session creation ids. */
+export function navigationSelection(state: Pick<AppState, "selectedMachine" | "selectedProject" | "selectedWorkspace" | "selectedSession">, captureNavigation?: () => NavigationSelection): NavigationSelection {
+  return captureNavigation?.() ?? {
+    machineId: selectedMachineId(state),
+    projectId: state.selectedProject?.id,
+    workspaceId: state.selectedWorkspace?.id,
+    ...(state.selectedSession === undefined || Reflect.get(state.selectedSession, "clientPendingStart") !== true ? { sessionId: state.selectedSession?.id } : {}),
+  };
+}
+
 export type NavigationScope = "machine" | "project" | "workspace" | "session" | "tool" | "view";
 
 /**

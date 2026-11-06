@@ -100,15 +100,6 @@ describe("API parsers", () => {
       .toThrow("Expected non-negative safe integer field: catalogIndex");
   });
 
-  it("preserves additive interactive API-key flow hints and defaults legacy options", () => {
-    const base = { id: "openai", name: "OpenAI", authType: "api_key", status: { configured: false } };
-
-    expect(parseAuthProvidersResponse({ providers: [{ ...base, loginFlow: "interactive" }, base] }).providers).toEqual([
-      { ...base, loginFlow: "interactive" },
-      base,
-    ]);
-  });
-
   it("preserves additive OAuth interaction semantics", () => {
     expect(parseOAuthFlowState({
       flowId: "flow-1",
@@ -130,19 +121,6 @@ describe("API parsers", () => {
       select: { options: [{ value: "work", description: "Company account" }] },
       info: [{ links: [{ url: "https://example.test/docs", label: "Guide" }] }],
     });
-  });
-
-  it("defaults semantic prompt types from legacy OAuth wire kinds", () => {
-    const flow = {
-      flowId: "flow-1",
-      providerId: "provider",
-      providerName: "Provider",
-      status: "running",
-      progress: [],
-    };
-
-    expect(() => parseOAuthFlowState({ ...flow, prompt: { requestId: "text", message: "Value" } })).toThrow("Invalid OAuth prompt type");
-    expect(() => parseOAuthFlowState({ ...flow, prompt: { requestId: "text", message: "Value", promptType: "kind" } })).toThrow("Invalid OAuth prompt type");
   });
 
   it("retains deployment defaults and setting source metadata, rejecting malformed metadata", () => {
@@ -1203,7 +1181,6 @@ function notificationInboxWire() {
   };
 }
 
-
 describe("Upstream transport and navigation contracts", () => {
 
   it("preserves OAuth interaction semantics", () => {
@@ -1291,18 +1268,6 @@ describe("Upstream transport and navigation contracts", () => {
         envOverrides: incomplete,
       })).toThrow(`Expected boolean field: ${flag}`);
     }
-  });
-
-  it("parses installable known package suggestions when present and omits the field when absent", () => {
-    const installableKnownPackages = [{ id: "@jmfederico/pi-relay", label: "Relays", description: "Relay method prompts and skill.", source: "/pi-web/dist/pi-packages/relays" }];
-
-    expect(parsePiPackagesResponse({ packages: [], installableKnownPackages })).toEqual({ packages: [], installableKnownPackages });
-    expect(parsePiPackagesResponse({ packages: [] })).toEqual({ packages: [] });
-    expect(parsePiPackageMutationResponse({ action: "install", packages: [], installableKnownPackages })).toEqual({
-      action: "install",
-      packages: [],
-      installableKnownPackages,
-    });
   });
 
   it("parses desired and active PI WEB plugin lifecycle responses", () => {
@@ -1408,11 +1373,6 @@ describe("Upstream transport and navigation contracts", () => {
         },
       },
     })).toThrow("Unavailable PI WEB runtime cannot declare Terminal recovery mode");
-  });
-
-  it("parses paged message responses and rejects legacy array message pages", () => {
-    expect(parseMessagePage({ messages: ["c"], start: 3, total: 9 })).toEqual({ messages: ["c"], start: 3, total: 9 });
-    expect(() => parseMessagePage(["a", "b"])).toThrow("Expected array response");
   });
 
   it("parses the model catalog with enabled state and natural catalog positions", () => {

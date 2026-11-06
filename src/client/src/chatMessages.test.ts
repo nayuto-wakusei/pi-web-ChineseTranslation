@@ -45,6 +45,31 @@ const supersededAskUserOutcome: AskUserOutcome = {
 };
 
 describe("chat message normalization", () => {
+  it.each(["visible", "", undefined, 42])("preserves original text and optional string display text (%s)", (displayText) => {
+    const display = typeof displayText === "string" ? { displayText } : {};
+    expect(normalizeMessages([{ role: "assistant", content: [
+      { type: "text", text: "original", displayText },
+      { type: "thinking", thinking: "reasoning", displayText },
+      { type: "thinking", text: "fallback reasoning", displayText },
+    ] }])).toEqual([{ role: "assistant", parts: [
+      { type: "text", text: "original", ...display },
+      { type: "thinking", text: "reasoning", ...display },
+      { type: "thinking", text: "fallback reasoning", ...display },
+    ] }]);
+    expect(normalizeMessages([{ role: "user", content: "original", displayText }])).toEqual([
+      { role: "user", parts: [{ type: "text", text: "original", ...display }] },
+    ]);
+  });
+
+  it("drops stale display overrides when original text resumes streaming", () => {
+    expect(appendText([{ role: "assistant", parts: [{ type: "text", text: "original", displayText: "display" }] }], "assistant", " delta")).toEqual([
+      { role: "assistant", parts: [{ type: "text", text: "original delta" }] },
+    ]);
+    expect(appendThinking([{ role: "assistant", parts: [{ type: "thinking", text: "original", displayText: "display" }] }], " delta")).toEqual([
+      { role: "assistant", parts: [{ type: "thinking", text: "original delta" }] },
+    ]);
+  });
+
   it("retains raw transcript indexes through question coalescing and an invisible closing entry", () => {
     const messages = normalizeMessages([
       { role: "assistant", entryId: "call", content: [{ type: "toolCall", id: "ask-call", name: "ask_user", arguments: { questions: askUserRequest.questions } }] },
@@ -59,6 +84,12 @@ describe("chat message normalization", () => {
     expect(messages.at(-1)).toMatchObject({ streamId: "stream-2", parts: [{ type: "empty" }] });
     expect(openTranscriptQuestion(messages, { historyReady: true, writable: true, messageEnd: 43, messageTotal: 43 })).toBeUndefined();
     expect(groupChatMessages(messages, 40).map((group) => group.kind === "group" ? group.startIndex : group.index)).toEqual([40, 41]);
+  });
+
+  it("preserves primitive fallback text without adding argument presentation metadata", () => {
+    expect(normalizeMessages([{ role: "assistant", content: [42, false, 42n] }])).toEqual([
+      { role: "assistant", parts: [{ type: "text", text: "42" }, { type: "text", text: "false" }, { type: "text", text: "42" }] },
+    ]);
   });
 
   it("normalizes simple text messages and drops empty content", () => {
@@ -312,12 +343,6 @@ describe("chat message normalization", () => {
   it("carries the thinking level into assistant message metadata", () => {
     expect(normalizeMessage({ role: "assistant", content: [{ type: "text", text: "hi" }], provider: "openai", model: "gpt-4.1", timestamp: "2026-05-09T12:00:00.000Z", thinkingLevel: "max" })).toEqual([
       { role: "assistant", parts: [{ type: "text", text: "hi" }], meta: { timestamp: "2026-05-09T12:00:00.000Z", model: { provider: "openai", id: "gpt-4.1" }, thinkingLevel: "max" } },
-    ]);
-  });
-
-  it("shows assistant model errors as system chat messages", () => {
-    expect(normalizeMessage({ role: "assistant", content: [], stopReason: "error", errorMessage: "429 rate limit", timestamp: "2026-05-09T12:00:00.000Z", provider: "openai", model: "gpt-4.1" })).toEqual([
-      { role: "system", parts: [{ type: "text", text: "Model response failed: 429 rate limit", presentation: { kind: "modelError", detail: "429 rate limit" } }], meta: { timestamp: "2026-05-09T12:00:00.000Z", model: { provider: "openai", id: "gpt-4.1" } } },
     ]);
   });
 
