@@ -411,7 +411,13 @@ ES 错误记日志，不停止管理会话。有界内存队列重试，并在�
 
 `workbenchIntegration` 是管理嵌入的受控适配器，不限制普通会话。`baseUrl` 为服务器可访问的 Workbench 后端 origin，`mcpUrl` 为 MCP Streamable HTTP endpoint，两者必需。环境覆盖：`PI_WEB_WORKBENCH_URL`、`PI_WEB_MCP_URL`、`PI_WEB_WORKBENCH_TIMEOUT_MS`、`PI_WEB_MCP_TIMEOUT_MS`、`PI_WEB_SKILL_BUNDLE_MAX_BYTES`、`PI_WEB_SKILL_FILE_MAX_BYTES`、`PI_WEB_SKILL_FILE_COUNT_MAX`。
 
-每次 Workbench HTTP 请求（含响应正文读取）的 `requestTimeoutMs` 默认 30000ms，显式配置继续生效，`PI_WEB_WORKBENCH_TIMEOUT_MS` 优先于配置文件；MCP `capabilityTimeoutMs` 默认 30000ms。Skill bundle/file 上限 10485760/2097152 字节、文件数 200。适配器把一次性管理 token 换成私有 Agent Session，仅加载授权固定资源快照；并发同 entry token 复用该 Agent Session。
+每次 Workbench HTTP 请求（含响应正文读取）的 `requestTimeoutMs` 默认 30000ms，显式配置继续生效，`PI_WEB_WORKBENCH_TIMEOUT_MS` 优先于配置文件。受控 MCP 能力调用的 `capabilityTimeoutMs` 默认 30000ms，`PI_WEB_MCP_TIMEOUT_MS` 优先于配置文件；这是排队、资源授权检查、签票、MCP 握手、能力调用及最多一次重试共用的总预算，各阶段不会重新获得完整预算。
+
+受控 MCP 调用在单个 daemon 内默认最多同时执行 8 个，同一已验证用户最多同时执行 2 个；执行中与等待合计最多 32 个，其中同一用户最多 8 个；排队最多 2000ms。超限或等待到期会拒绝调用。这些准入限额为内部默认值，没有配置文件或环境变量覆盖，也不是跨实例总配额。取消会移除等待中的调用并中止进行中的 HTTP 请求。获得 MCP session ID 后，无论成功、异常或取消，均以独立的最多 1000ms 清理预算尽力发送 `DELETE`，因此返回可能包含这段额外等待；清理失败不替换原结果。取消与会话释放均不保证底层数据库查询已经停止。
+
+每次逻辑能力调用读取一次当前资源授权；签票收到 401 时会重新核验。最多重试一次，仅限该授权刷新、尚未提交 `tools/call` 的握手临时失败，或服务明确标记可重试的执行前忙/排队超时（`native_executor_busy`、`native_queue_timeout`、`native_target_busy`、`native_client_busy`、`http_executor_busy`、`http_queue_timeout`）。重试使用新的一次性票据，等待 250–500ms 抖动并遵从更长的 `Retry-After`，仍计入原总预算。`tools/call` 结果不明时不自动重放。更新这些调用行为需重启 `pi-web-sessiond.service`；修改共享 endpoint 或配置时，Web/API 与 daemon 须保持一致并同时重启。
+
+Skill bundle/file 上限 10485760/2097152 字节、文件数 200。适配器把一次性管理 token 换成私有 Agent Session，仅加载授权固定资源快照；并发同 entry token 复用该 Agent Session。
 
 平台的浏览器入口同样先换票：应用相对 `POST api/management-entry-tickets`（JSON 正文 `{"token":"..."}`）返回 `201` 与 `{entryPath, expiresAt}`，不设置浏览器 Cookie；`GET management-entry?ticket=...` 兑换后写管理 HttpOnly Cookie 并 `303` 到 `./?embed=management`。票据一次性、最多 60 秒，最多 256 个待用票据且序列化上下文合计 8 MiB；`POST` 正文 1 MiB、编码上下文 1 MiB（`413`），daemon 内部 HTTP 头限额 1 MiB + 64 KiB，均不提高对外反向代理的请求行限制。换票响应使用 `no-store`，兑换响应附加 `no-referrer`。细节见[短入口换票](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/admin/management-audit.md#management-entry-tickets)。
 

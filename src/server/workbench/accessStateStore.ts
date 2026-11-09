@@ -29,13 +29,16 @@ export class WorkbenchAccessStateStore {
     return state;
   }
 
-  async prepare(handle: string | undefined, client: WorkbenchClient, t: Translator = loadNodeTranslator("server")): Promise<WorkbenchAgentAccessState> {
+  async prepare(handle: string | undefined, client: WorkbenchClient, t: Translator = loadNodeTranslator("server"), signal?: AbortSignal): Promise<WorkbenchAgentAccessState> {
+    signal?.throwIfAborted();
     if (handle === undefined) throw new Error(t("workbench.authorizationMissing", "This management session has no Workbench resource authorization. Reopen the assistant from Workbench."));
     const state = this.states.get(handle);
     if (state === undefined) throw new Error(t("workbench.authorizationMissing", "This management session has no Workbench resource authorization. Reopen the assistant from Workbench."));
-    const existing = this.refreshes.get(handle);
+    // An individually cancellable request must not cancel another caller's shared refresh.
+    const existing = signal === undefined ? this.refreshes.get(handle) : undefined;
     if (existing !== undefined) return existing;
-    const pending = client.refreshAgentAccessState(state).then((renewed) => {
+    const pending = client.refreshAgentAccessState(state, signal).then((renewed) => {
+      signal?.throwIfAborted();
       const current = this.states.get(handle);
       if (current?.sessionId !== state.sessionId || current.bearerToken !== state.bearerToken) throw new Error("Workbench access state changed during renewal; try again");
       this.set(handle, renewed);
@@ -43,7 +46,7 @@ export class WorkbenchAccessStateStore {
     }).finally(() => {
       if (this.refreshes.get(handle) === pending) this.refreshes.delete(handle);
     });
-    this.refreshes.set(handle, pending);
+    if (signal === undefined) this.refreshes.set(handle, pending);
     return pending;
   }
 

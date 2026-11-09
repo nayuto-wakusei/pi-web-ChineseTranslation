@@ -72,17 +72,17 @@ export class WorkbenchClient {
     return { sessionId, bearerToken, expiresAt, authorizationRevision, resources: parseAuthorizedResources(snapshot["resources"]) };
   }
 
-  async issueCapabilityToken(bearerToken: string, request: CapabilityTokenRequest): Promise<string> {
+  async issueCapabilityToken(bearerToken: string, request: CapabilityTokenRequest, signal?: AbortSignal): Promise<string> {
     return stringField(record(await this.json("/api/agent-access/capability-token", {
-      method: "POST", token: bearerToken, expectedStatus: 200, body: request,
+      method: "POST", token: bearerToken, expectedStatus: 200, body: request, signal,
     }), "capability token response"), "token");
   }
 
-  async refreshAgentAccessState(state: WorkbenchAgentAccessState): Promise<WorkbenchAgentAccessState> {
+  async refreshAgentAccessState(state: WorkbenchAgentAccessState, signal?: AbortSignal): Promise<WorkbenchAgentAccessState> {
     if (Date.parse(state.expiresAt) > Date.now()) {
       try {
         const snapshot = record(await this.json("/api/agent-access/resources", {
-          method: "GET", token: state.bearerToken, expectedStatus: 200,
+          method: "GET", token: state.bearerToken, expectedStatus: 200, signal,
         }), "resource snapshot");
         if (stringField(snapshot, "sessionId") !== state.sessionId) throw new Error("Workbench resource snapshot does not match the Agent Session");
         if (Date.parse(state.expiresAt) > Date.now()) {
@@ -93,7 +93,7 @@ export class WorkbenchClient {
       }
     }
     const renewed = record(await this.json("/api/agent-access/sessions/renew", {
-      method: "POST", token: state.bearerToken, expectedStatus: 200,
+      method: "POST", token: state.bearerToken, expectedStatus: 200, signal,
     }), "Agent Session renewal");
     if (stringField(renewed, "sessionId") !== state.sessionId || stringField(renewed, "token") !== state.bearerToken) {
       throw new Error("Workbench renewal does not match the Agent Session");

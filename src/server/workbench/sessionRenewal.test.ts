@@ -12,6 +12,25 @@ const renewed = { sessionId: "session-1", token: "private-token", expiresAt: "20
 const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status });
 
 describe("private resource session renewal", () => {
+  it("cancels one refresh without cancelling another caller or replacing its fresh state", async () => {
+    const controller = new AbortController();
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockImplementationOnce(async (_url, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => { reject(init.signal?.reason instanceof Error ? init.signal.reason : new Error("aborted")); }, { once: true });
+      }))
+      .mockResolvedValueOnce(json(200, { ...renewed, expiresAt: "2099-01-01T00:00:00Z" }));
+    const client = new WorkbenchClient({ baseUrl: "http://backend", requestTimeoutMs: 1000, fetch: fetchImpl });
+    const store = new WorkbenchAccessStateStore();
+    store.set("handle", initial);
+    const cancelled = expect(store.prepare("handle", client, undefined, controller.signal)).rejects.toThrow("user cancelled");
+    const active = store.prepare("handle", client, undefined, new AbortController().signal);
+    controller.abort(new Error("user cancelled"));
+    await cancelled;
+    expect((await active).authorizationRevision).toBe(2);
+    expect(store.require("handle").authorizationRevision).toBe(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("renews repeatedly after idle expiry without using an entry token or changing the daemon handle", async () => {
     vi.useFakeTimers();
     vi.setSystemTime("2026-09-08T02:00:00Z");

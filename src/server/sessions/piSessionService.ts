@@ -1109,7 +1109,7 @@ function createManagementRuntimeFactory(
       cwd,
     });
     const workbenchTools = state === undefined || workbench === undefined ? [] : createWorkbenchToolDefinitions({
-      getState: () => workbench.accessStates.prepare(accessHandle, workbench.client),
+      getState: (signal) => workbench.accessStates.prepare(accessHandle, workbench.client, undefined, signal),
       workbench: workbench.client,
       mcp: workbench.mcp,
       invalidate: () => { if (accessHandle !== undefined) workbench.accessStates.delete(accessHandle); },

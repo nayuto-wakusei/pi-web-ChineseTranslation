@@ -37,6 +37,8 @@
   "workbench.bookstack.receiptSelectorRequired": "operation_id 和 idempotency_key 必须且只能提供一个。",
   "workbench.bookstack.versionRequired": "修改或删除前请先读取当前 BookStack 对象，并提供其 baseVersion。",
   "workbench.bookstack.uncertainWrite": "尚无法确认 BookStack 操作结果，请用原幂等键查询操作回执，不要再次提交写入。原幂等键：{idempotencyKey}",
+  "workbench.capacityBusy": "MCP 调用容量已满，请稍后再试。",
+  "workbench.queueTimeout": "MCP 调用排队超时，请稍后再试。",
   "workbench.callFailed": "能力调用失败",
   "workbench.capabilityUnauthorized": "当前账号未获授权使用该L0能力",
   "status.installedVersion": "；已安装版本为 {version}",

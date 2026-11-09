@@ -2,15 +2,16 @@ import type { Translator } from "../../shared/i18n.js";
 import { loadNodeTranslator } from "../../localization.js";
 import type { StableCapabilityResult } from "./types.js";
 import { isRecord, record, stringField } from "./workbenchClient.js";
+import { CapabilityAdmission } from "./capabilityAdmission.js";
 
 export class McpHttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(readonly status: number, message: string, readonly retryAfterMs?: number, readonly safeToRetry = false) {
     super(message);
   }
 }
 
 export class McpTransportError extends Error {
-  constructor(readonly code: string, message: string, options?: ErrorOptions) {
+  constructor(readonly code: string, message: string, options?: ErrorOptions, readonly safeToRetry = false) {
     super(message, options);
     this.name = "McpTransportError";
   }
@@ -20,42 +21,82 @@ export interface WorkbenchMcpClientOptions {
   mcpUrl: string;
   timeoutMs: number;
   fetch?: typeof fetch;
+  maxConcurrent?: number;
+  maxPerPrincipal?: number;
+  maxPending?: number;
+  maxPendingPerPrincipal?: number;
+  queueTimeoutMs?: number;
+  cleanupTimeoutMs?: number;
 }
 
 export class WorkbenchMcpClient {
   private readonly fetchImpl: typeof fetch;
+  private readonly admission: CapabilityAdmission;
 
   constructor(private readonly options: WorkbenchMcpClientOptions) {
     this.fetchImpl = options.fetch ?? fetch;
+    this.admission = new CapabilityAdmission({ concurrent: options.maxConcurrent ?? 8,
+      perPrincipal: options.maxPerPrincipal ?? 2, pending: options.maxPending ?? 32,
+      pendingPerPrincipal: options.maxPendingPerPrincipal ?? 8, queueMs: options.queueTimeoutMs ?? 2_000 });
   }
 
-  async callCapability(token: string, capabilityName: string, args: Record<string, unknown>, idempotencyKey?: string): Promise<StableCapabilityResult> {
-    const initialized = await this.rpc(token, undefined, {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "pi-web-workbench-adapter", version: "1.0.0" } },
-    });
-    const sessionId = initialized.headers.get("mcp-session-id");
-    if (sessionId === null || sessionId.trim() === "") throw new Error("MCP initialize response did not include mcp-session-id");
-    await this.rpc(token, sessionId, { jsonrpc: "2.0", method: "notifications/initialized" }, false);
-    const response = await this.rpc(token, sessionId, {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: {
-        name: "icnoc_call_capability",
-        arguments: {
-          capability_name: capabilityName,
-          arguments: args,
-          ...(idempotencyKey === undefined ? {} : { idempotency_key: idempotencyKey }),
+  async withCapacity<T>(principal: string, action: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const deadline = AbortSignal.timeout(this.options.timeoutMs);
+    const operation = signal === undefined ? deadline : AbortSignal.any([signal, deadline]);
+    return this.admission.run(principal, operation, () => action(operation));
+  }
+
+  async callCapability(token: string, capabilityName: string, args: Record<string, unknown>, idempotencyKey?: string, signal?: AbortSignal): Promise<StableCapabilityResult> {
+    const timeout = AbortSignal.timeout(this.options.timeoutMs);
+    const operation = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+    operation.throwIfAborted();
+    let sessionId: string | undefined;
+    try {
+      await this.rpc(token, undefined, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "pi-web-workbench-adapter", version: "1.0.0" } },
+      }, operation, true, true, (headers) => {
+        const value = headers.get("mcp-session-id")?.trim();
+        sessionId = value === "" ? undefined : value;
+      });
+      if (sessionId === undefined) throw new Error("MCP initialize response did not include mcp-session-id");
+      await this.rpc(token, sessionId, { jsonrpc: "2.0", method: "notifications/initialized" }, operation, false, true);
+      const response = await this.rpc(token, sessionId, {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "icnoc_call_capability",
+          arguments: {
+            capability_name: capabilityName,
+            arguments: args,
+            ...(idempotencyKey === undefined ? {} : { idempotency_key: idempotencyKey }),
+          },
         },
-      },
-    });
-    return parseStableCapabilityResult(response.value);
+      }, operation);
+      const result = parseStableCapabilityResult(response.value);
+      operation.throwIfAborted();
+      return result;
+    } finally {
+      // Releasing a session is independent of the cancelled call, but remains bounded.
+      if (sessionId !== undefined) await this.closeSession(token, sessionId);
+    }
   }
 
-  private async rpc(token: string, sessionId: string | undefined, body: unknown, expectBody = true, t: Translator = loadNodeTranslator("server")): Promise<{ headers: Headers; value: unknown }> {
+  private async closeSession(token: string, sessionId: string): Promise<void> {
+    try {
+      const response = await this.fetchImpl(this.options.mcpUrl, {
+        method: "DELETE", headers: { authorization: `Bearer ${token}`, "mcp-session-id": sessionId },
+        signal: AbortSignal.timeout(this.options.cleanupTimeoutMs ?? 1_000),
+      });
+      await response.body?.cancel();
+    } catch { /* Best effort: cleanup must not replace the tool result or cancellation. */ }
+  }
+
+  private async rpc(token: string, sessionId: string | undefined, body: unknown, signal: AbortSignal, expectBody = true, safeToRetry = false, onHeaders?: (headers: Headers) => void, t: Translator = loadNodeTranslator("server")): Promise<{ headers: Headers; value: unknown }> {
+    signal.throwIfAborted();
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
       accept: "application/json, text/event-stream",
@@ -69,14 +110,21 @@ export class WorkbenchMcpClient {
         method: "POST",
         headers,
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(this.options.timeoutMs),
+        signal,
       });
+      onHeaders?.(response.headers);
       text = await response.text();
     } catch (error) {
+      signal.throwIfAborted();
       const code = transportErrorCode(error);
-      throw new McpTransportError(code, transportErrorMessage(code, t), { cause: error });
+      throw new McpTransportError(code, transportErrorMessage(code, t), { cause: error }, safeToRetry);
     }
-    if (!response.ok) throw new McpHttpError(response.status, mcpErrorMessage(text, response.status));
+    if (!response.ok) {
+      const retryAfter = response.headers.get("retry-after");
+      const seconds = retryAfter === null ? Number.NaN : Number(retryAfter);
+      const retryAfterMs = retryAfter === null ? undefined : Number.isFinite(seconds) ? Math.max(0, seconds * 1_000) : Math.max(0, Date.parse(retryAfter) - Date.now());
+      throw new McpHttpError(response.status, mcpErrorMessage(text, response.status), retryAfterMs, safeToRetry);
+    }
     return { headers: response.headers, value: expectBody ? parseMcpPayload(text, response.headers.get("content-type")) : undefined };
   }
 }

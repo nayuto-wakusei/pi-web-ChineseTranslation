@@ -1,6 +1,6 @@
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { McpTransportError, WorkbenchMcpClient } from "./mcpClient.js";
+import { McpHttpError, McpTransportError, WorkbenchMcpClient } from "./mcpClient.js";
 import type { AuthorizedResource, WorkbenchAgentAccessState } from "./types.js";
 import { WorkbenchClient, WorkbenchHttpError } from "./workbenchClient.js";
 import { createWorkbenchToolDefinitions } from "./workbenchTools.js";
@@ -199,16 +199,18 @@ describe("Workbench controlled tools", () => {
       .mockResolvedValueOnce("renewed-capability-token");
     const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000 });
     const call = vi.spyOn(mcp, "callCapability").mockResolvedValue(stableCapabilityResult("allowed.read"));
-    const getState = vi.fn(() => Promise.resolve(state));
+    const refreshed = { ...state, authorizationRevision: 13, resources: [{ ...capability("allowed.read"), resourceVersion: "3" }] };
+    const getState = vi.fn().mockResolvedValueOnce(state).mockResolvedValueOnce(refreshed);
     const tool = createWorkbenchToolDefinitions({ getState, workbench, mcp }).find((definition) => definition.name === "icnoc_call_capability");
     if (tool === undefined) throw new Error("call tool was not registered");
     await tool.execute("call-1", { capability_name: "allowed.read", arguments: {} }, undefined, undefined, extensionContext());
     expect(issueToken).toHaveBeenCalledTimes(2);
-    expect(getState).toHaveBeenCalledTimes(3);
+    expect(getState).toHaveBeenCalledTimes(2);
     expect(call).toHaveBeenCalledTimes(1);
+    expect(issueToken).toHaveBeenNthCalledWith(2, state.bearerToken, expect.objectContaining({ capabilityVersion: "3" }), expect.any(AbortSignal));
   });
 
-  it("retries one MCP transport failure with a fresh capability token", async () => {
+  it("retries one failed MCP handshake with a fresh capability token", async () => {
     const state = accessState([capability("allowed.read")]);
     const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });
     const issueToken = vi.spyOn(workbench, "issueCapabilityToken")
@@ -216,7 +218,7 @@ describe("Workbench controlled tools", () => {
       .mockResolvedValueOnce("capability-token-2");
     const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000 });
     const callCapability = vi.spyOn(mcp, "callCapability")
-      .mockRejectedValueOnce(new McpTransportError("ECONNRESET", "MCP 通道连接失败（ECONNRESET）"))
+      .mockRejectedValueOnce(new McpTransportError("ECONNRESET", "MCP 通道连接失败（ECONNRESET）", undefined, true))
       .mockResolvedValueOnce(stableCapabilityResult("allowed.read"));
     const logger = { info: vi.fn() };
     const tool = createWorkbenchToolDefinitions({
@@ -231,13 +233,13 @@ describe("Workbench controlled tools", () => {
     const output = await tool.execute("call-1", { capability_name: "allowed.read", arguments: {} }, undefined, undefined, extensionContext());
 
     expect(issueToken).toHaveBeenCalledTimes(2);
-    expect(callCapability).toHaveBeenNthCalledWith(1, "capability-token-1", "allowed.read", {}, undefined);
-    expect(callCapability).toHaveBeenNthCalledWith(2, "capability-token-2", "allowed.read", {}, undefined);
+    expect(callCapability).toHaveBeenNthCalledWith(1, "capability-token-1", "allowed.read", {}, undefined, expect.any(AbortSignal));
+    expect(callCapability).toHaveBeenNthCalledWith(2, "capability-token-2", "allowed.read", {}, undefined, expect.any(AbortSignal));
     expect(JSON.stringify(output)).toContain('\\"ok\\":true');
     expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ retryCount: 1 }), "Workbench capability call completed");
   });
 
-  it("logs a safe transport category after the retry is exhausted", async () => {
+  it("logs a safe transport category without replaying an ambiguous failure", async () => {
     const state = accessState([capability("allowed.read")]);
     const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });
     vi.spyOn(workbench, "issueCapabilityToken").mockResolvedValue("private-capability-token");
@@ -263,6 +265,115 @@ describe("Workbench controlled tools", () => {
     }), "Workbench capability call rejected or failed");
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain("private-capability-token");
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain("private-query");
+  });
+
+  it("loads resources once and never replays an ambiguously completed tool request", async () => {
+    const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });
+    const token = vi.spyOn(workbench, "issueCapabilityToken").mockResolvedValue("ticket");
+    const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000 });
+    const call = vi.spyOn(mcp, "callCapability").mockRejectedValue(new McpTransportError("ECONNRESET", "response lost"));
+    const getState = vi.fn(() => accessState([capability("allowed.read")]));
+    const tool = createWorkbenchToolDefinitions({ getState, workbench, mcp }).find(item => item.name === "icnoc_call_capability");
+    if (tool === undefined) throw new Error("missing capability tool");
+    await expect(tool.execute("call", { capability_name: "allowed.read", arguments: {} }, undefined, undefined, extensionContext())).rejects.toThrow("response lost");
+    expect(getState).toHaveBeenCalledTimes(1);
+    expect(token).toHaveBeenCalledTimes(1);
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  it("never signs a ticket when the caller is already cancelled", async () => {
+    const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });
+    const token = vi.spyOn(workbench, "issueCapabilityToken");
+    const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000 });
+    const getState = vi.fn(() => accessState([capability("allowed.read")]));
+    const tool = createWorkbenchToolDefinitions({ getState, workbench, mcp }).find(item => item.name === "icnoc_call_capability");
+    if (tool === undefined) throw new Error("missing capability tool");
+    await expect(tool.execute("call", { capability_name: "allowed.read", arguments: {} }, AbortSignal.abort(new Error("cancelled")), undefined, extensionContext())).rejects.toThrow("cancelled");
+    expect(getState).not.toHaveBeenCalled();
+    expect(token).not.toHaveBeenCalled();
+  });
+
+  it.each(["busy", "long Retry-After"])("stops %s backoff without signing a second ticket when cancelled", async failure => {
+    const controller = new AbortController();
+    const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });
+    const token = vi.spyOn(workbench, "issueCapabilityToken").mockResolvedValue("ticket");
+    const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000 });
+    vi.spyOn(mcp, "callCapability").mockImplementation(() => {
+      setTimeout(() => { controller.abort(new Error("cancelled during backoff")); }, 10);
+      if (failure === "long Retry-After") return Promise.reject(new McpHttpError(503, "busy", 3_000_000_000, true));
+      return Promise.resolve({ ...stableCapabilityResult("allowed.read"), ok: false, status_code: 503,
+        error: { code: "native_executor_busy", message: "busy", retryable: true } });
+    });
+    const tool = createWorkbenchToolDefinitions({ getState: () => accessState([capability("allowed.read")]), workbench, mcp }).find(item => item.name === "icnoc_call_capability");
+    if (tool === undefined) throw new Error("missing capability tool");
+    await expect(tool.execute("call", { capability_name: "allowed.read", arguments: {} }, controller.signal, undefined, extensionContext())).rejects.toThrow();
+    expect(token).toHaveBeenCalledTimes(1);
+  });
+  it("preserves a confirmed result when session cleanup crosses the total deadline", async () => {
+    const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });
+    vi.spyOn(workbench, "issueCapabilityToken").mockResolvedValue("ticket");
+    let operation: AbortSignal | null | undefined;
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("{}", { headers: { "mcp-session-id": "session" } }))
+      .mockResolvedValueOnce(new Response(null, { status: 202 }))
+      .mockImplementationOnce((_url, init) => {
+        operation = init?.signal;
+        return Promise.resolve(Response.json({ result: { content: [{ type: "text", text: JSON.stringify(stableCapabilityResult("allowed.read")) }] } }));
+      })
+      .mockImplementationOnce(async () => {
+        if (operation?.aborted !== true) await new Promise<void>(resolve => { operation?.addEventListener("abort", () => { resolve(); }, { once: true }); });
+        return new Response(null, { status: 204 });
+      });
+    const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 30, fetch: fetchImpl });
+    const tool = createWorkbenchToolDefinitions({ getState: () => accessState([capability("allowed.read")]), workbench, mcp }).find(item => item.name === "icnoc_call_capability");
+    if (tool === undefined) throw new Error("missing capability tool");
+    const output = await tool.execute("call", { capability_name: "allowed.read", arguments: {} }, undefined, undefined, extensionContext());
+    expect(operation?.aborted).toBe(true);
+    expect(JSON.stringify(output)).toContain('\\"ok\\":true');
+    expect(fetchImpl.mock.calls[3]?.[1]?.method).toBe("DELETE");
+  });
+
+  it.each(["native_target_busy", "native_client_busy"])("retries %s once without refreshing resources again", async code => {
+    const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });
+    const token = vi.spyOn(workbench, "issueCapabilityToken").mockResolvedValue("ticket");
+    const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000 });
+    const call = vi.spyOn(mcp, "callCapability").mockResolvedValue({ ...stableCapabilityResult("allowed.read"), ok: false, status_code: 503,
+      error: { code, message: "busy", retryable: true } });
+    const getState = vi.fn(() => accessState([capability("allowed.read")]));
+    const tool = createWorkbenchToolDefinitions({ getState, workbench, mcp }).find(item => item.name === "icnoc_call_capability");
+    if (tool === undefined) throw new Error("missing capability tool");
+    await tool.execute("call", { capability_name: "allowed.read", arguments: {} }, undefined, undefined, extensionContext());
+    expect(token).toHaveBeenCalledTimes(2);
+    expect(call).toHaveBeenCalledTimes(2);
+    expect(getState).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["blocking_io_busy", "http_execution_timeout", "native_execution_timeout"])("does not replay %s", async code => {
+    const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 1_000 });
+    const token = vi.spyOn(workbench, "issueCapabilityToken").mockResolvedValue("ticket");
+    const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000 });
+    const call = vi.spyOn(mcp, "callCapability").mockResolvedValue({ ...stableCapabilityResult("allowed.read"), ok: false, status_code: 503,
+      error: { code, message: "busy", retryable: true } });
+    const tool = createWorkbenchToolDefinitions({ getState: () => accessState([capability("allowed.read")]), workbench, mcp }).find(item => item.name === "icnoc_call_capability");
+    if (tool === undefined) throw new Error("missing capability tool");
+    await tool.execute("call", { capability_name: "allowed.read", arguments: {} }, undefined, undefined, extensionContext());
+    expect(token).toHaveBeenCalledTimes(1);
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors Retry-After before signing the only retry ticket", async () => {
+    const workbench = new WorkbenchClient({ baseUrl: "http://workbench", requestTimeoutMs: 2_000 });
+    const issuedAt: number[] = [];
+    vi.spyOn(workbench, "issueCapabilityToken").mockImplementation(() => { issuedAt.push(Date.now()); return Promise.resolve("ticket"); });
+    const mcp = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 2_000 });
+    vi.spyOn(mcp, "callCapability").mockRejectedValueOnce(new McpHttpError(503, "busy", 600, true)).mockResolvedValueOnce(stableCapabilityResult("allowed.read"));
+    const getState = vi.fn(() => accessState([capability("allowed.read")]));
+    const tool = createWorkbenchToolDefinitions({ getState, workbench, mcp }).find(item => item.name === "icnoc_call_capability");
+    if (tool === undefined) throw new Error("missing capability tool");
+    await tool.execute("call", { capability_name: "allowed.read", arguments: {} }, undefined, undefined, extensionContext());
+    expect(issuedAt).toHaveLength(2);
+    expect((issuedAt[1] ?? 0) - (issuedAt[0] ?? 0)).toBeGreaterThanOrEqual(590);
+    expect(getState).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { loadNodeTranslator } from "../../localization.js";
 import type { Translator } from "../../shared/i18n.js";
 import { defineTool } from "../../piSdk.js";
@@ -50,7 +51,7 @@ const RetrieveBookstackParams = Type.Object({
 
 export interface WorkbenchToolDependencies {
   translator?: Translator;
-  getState(): WorkbenchAgentAccessState | Promise<WorkbenchAgentAccessState>;
+  getState(signal?: AbortSignal): WorkbenchAgentAccessState | Promise<WorkbenchAgentAccessState>;
   workbench: WorkbenchClient;
   mcp: WorkbenchMcpClient;
   invalidate?(): void;
@@ -129,65 +130,69 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
       promptSnippet: "调用一个已授权的网络能力",
       promptGuidelines: ["只能调用icnoc_search_capabilities返回的能力；arguments必须符合其inputSchema。"],
       parameters: CallCapabilityParams,
-      async execute(_toolCallId, params) {
-        const runId = `run-${randomUUID()}`;
-        const traceId = `trace-${randomUUID()}`;
-        const startedAt = Date.now();
-        const state = await deps.getState();
-        try {
-          const capability = requireAuthorizedL0Capability(state.resources, params.capability_name, t);
-          const invocation = await callWithOneTransientRetry(deps, capability.resourceName, capability.resourceVersion, params.arguments, params.idempotency_key, runId, traceId, t);
-          deps.logger?.info({
-            ...deps.auditContext,
-            agentSessionId: state.sessionId,
-            authorizationRevision: state.authorizationRevision,
-            runId,
-            traceId,
-            mcpTraceId: invocation.result.meta.trace_id,
-            capabilityName: capability.resourceName,
-            capabilityVersion: capability.resourceVersion,
-            statusCode: invocation.result.status_code,
-            durationMs: Date.now() - startedAt,
-            retryCount: invocation.retryCount,
-          }, "Workbench capability call completed");
-          recordCapabilityAudit(deps, {
-            status: invocation.result.ok ? "completed" : "failed",
-            agentSessionId: state.sessionId,
-            authorizationRevision: state.authorizationRevision,
-            runId,
-            traceId,
-            mcpTraceId: invocation.result.meta.trace_id,
-            capabilityName: capability.resourceName,
-            capabilityVersion: capability.resourceVersion,
-            statusCode: invocation.result.status_code,
-            durationMs: Date.now() - startedAt,
-            retryCount: invocation.retryCount,
-          });
-          return { content: [{ type: "text", text: JSON.stringify(invocation.result) }], details: undefined };
-        } catch (error) {
-          deps.logger?.info({
-            ...deps.auditContext,
-            agentSessionId: state.sessionId,
-            authorizationRevision: state.authorizationRevision,
-            runId,
-            traceId,
-            capabilityName: params.capability_name,
-            statusCode: errorStatus(error),
-            errorCode: errorCode(error),
-            durationMs: Date.now() - startedAt,
-          }, "Workbench capability call rejected or failed");
-          recordCapabilityAudit(deps, {
-            status: "failed",
-            agentSessionId: state.sessionId,
-            authorizationRevision: state.authorizationRevision,
-            runId,
-            traceId,
-            capabilityName: params.capability_name,
-            statusCode: errorStatus(error),
-            durationMs: Date.now() - startedAt,
-          });
-          throw error;
-        }
+      async execute(_toolCallId, params, signal) {
+        return deps.mcp.withCapacity(deps.auditContext?.userId ?? deps.auditContext?.sessionId ?? "workbench", async (operationSignal) => {
+          const runId = `run-${randomUUID()}`;
+          const traceId = `trace-${randomUUID()}`;
+          const startedAt = Date.now();
+          operationSignal.throwIfAborted();
+          const state = await deps.getState(operationSignal);
+          operationSignal.throwIfAborted();
+          try {
+            const capability = requireAuthorizedL0Capability(state.resources, params.capability_name, t);
+            const invocation = await callWithOneTransientRetry(deps, state, capability.resourceName, capability.resourceVersion, params.arguments, params.idempotency_key, runId, traceId, operationSignal, t);
+            deps.logger?.info({
+              ...deps.auditContext,
+              agentSessionId: state.sessionId,
+              authorizationRevision: invocation.authorizationRevision,
+              runId,
+              traceId,
+              mcpTraceId: invocation.result.meta.trace_id,
+              capabilityName: capability.resourceName,
+              capabilityVersion: invocation.capabilityVersion,
+              statusCode: invocation.result.status_code,
+              durationMs: Date.now() - startedAt,
+              retryCount: invocation.retryCount,
+            }, "Workbench capability call completed");
+            recordCapabilityAudit(deps, {
+              status: invocation.result.ok ? "completed" : "failed",
+              agentSessionId: state.sessionId,
+              authorizationRevision: invocation.authorizationRevision,
+              runId,
+              traceId,
+              mcpTraceId: invocation.result.meta.trace_id,
+              capabilityName: capability.resourceName,
+              capabilityVersion: invocation.capabilityVersion,
+              statusCode: invocation.result.status_code,
+              durationMs: Date.now() - startedAt,
+              retryCount: invocation.retryCount,
+            });
+            return { content: [{ type: "text", text: JSON.stringify(invocation.result) }], details: undefined };
+          } catch (error) {
+            deps.logger?.info({
+              ...deps.auditContext,
+              agentSessionId: state.sessionId,
+              authorizationRevision: state.authorizationRevision,
+              runId,
+              traceId,
+              capabilityName: params.capability_name,
+              statusCode: errorStatus(error),
+              errorCode: errorCode(error),
+              durationMs: Date.now() - startedAt,
+            }, "Workbench capability call rejected or failed");
+            recordCapabilityAudit(deps, {
+              status: "failed",
+              agentSessionId: state.sessionId,
+              authorizationRevision: state.authorizationRevision,
+              runId,
+              traceId,
+              capabilityName: params.capability_name,
+              statusCode: errorStatus(error),
+              durationMs: Date.now() - startedAt,
+            });
+            throw error;
+          }
+        }, signal);
       },
     }),
   ];
@@ -303,32 +308,50 @@ function recordCapabilityAudit(
 
 async function callWithOneTransientRetry(
   deps: WorkbenchToolDependencies,
+  state: WorkbenchAgentAccessState,
   capabilityName: string,
   capabilityVersion: string,
   args: Record<string, unknown>,
   idempotencyKey: string | undefined,
   runId: string,
   traceId: string,
+  signal: AbortSignal,
   t: Translator,
 ) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    signal.throwIfAborted();
+    let retryAfterMs: number | undefined;
     try {
-      const token = await deps.workbench.issueCapabilityToken((await deps.getState()).bearerToken, {
+      const token = await deps.workbench.issueCapabilityToken(state.bearerToken, {
         capabilityName, capabilityVersion, runId, traceId, approvalCount: 0,
-      });
-      const result = await deps.mcp.callCapability(token, capabilityName, args, idempotencyKey);
-      if (attempt === 0 && !result.ok && result.error?.retryable === true && [502, 503, 504].includes(result.status_code)) continue;
-      return { result, retryCount: attempt };
+      }, signal);
+      signal.throwIfAborted();
+      const result = await deps.mcp.callCapability(token, capabilityName, args, idempotencyKey, signal);
+      const rejectedBeforeExecution = result.status_code === 503 && result.error?.retryable === true
+        && ["native_executor_busy", "native_queue_timeout", "native_target_busy", "native_client_busy", "http_executor_busy", "http_queue_timeout"].includes(result.error.code);
+      // The client checks the deadline before cleanup; a confirmed result survives a slow DELETE.
+      if (attempt !== 0 || !rejectedBeforeExecution) return { result, retryCount: attempt, capabilityVersion, authorizationRevision: state.authorizationRevision };
     } catch (error) {
+      signal.throwIfAborted();
       if (error instanceof WorkbenchHttpError && error.status === 401) {
-        if (attempt === 0) continue;
-        deps.invalidate?.();
-        throw new Error("当前资源授权已过期或发生变化，请返回工作台重新进入桂小智。", { cause: error });
+        if (attempt === 0) {
+          state = await deps.getState(signal);
+          capabilityVersion = requireAuthorizedL0Capability(state.resources, capabilityName, t).resourceVersion;
+        } else {
+          deps.invalidate?.();
+          throw new Error("当前资源授权已过期或发生变化，请返回工作台重新进入桂小智。", { cause: error });
+        }
+      } else if (attempt === 0 && error instanceof McpTransportError && error.safeToRetry) {
+        // No tools/call was submitted; obtain a fresh one-time ticket after backoff.
+      } else if (attempt === 0 && error instanceof McpHttpError && error.safeToRetry && [429, 502, 503, 504].includes(error.status)) {
+        retryAfterMs = error.retryAfterMs;
+      } else {
+        throw error;
       }
-      if (attempt === 0 && error instanceof McpTransportError) continue;
-      if (attempt === 0 && error instanceof McpHttpError && [502, 503, 504].includes(error.status)) continue;
-      throw error;
     }
+    // Node timers overflow above this bound; the shared deadline will abort a long wait.
+    const waitMs = Math.min(2_147_483_647, Math.max(250 + Math.random() * 250, Number.isFinite(retryAfterMs) ? retryAfterMs ?? 0 : 0));
+    await delay(waitMs, undefined, { signal });
   }
   throw new Error(t("workbench.callFailed", "Capability call failed"));
 }
