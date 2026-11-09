@@ -4,6 +4,16 @@ import type { StableCapabilityResult } from "./types.js";
 import { isRecord, record, stringField } from "./workbenchClient.js";
 import { CapabilityAdmission } from "./capabilityAdmission.js";
 
+const requestedProtocolVersion = "2025-06-18";
+const supportedProtocolVersions = new Set(["2025-03-26", requestedProtocolVersion]);
+
+interface RpcOptions {
+  expectBody?: boolean;
+  safeToRetry?: boolean;
+  protocolVersion?: string;
+  onHeaders?: (headers: Headers) => void;
+}
+
 export class McpHttpError extends Error {
   constructor(readonly status: number, message: string, readonly retryAfterMs?: number, readonly safeToRetry = false) {
     super(message);
@@ -51,18 +61,22 @@ export class WorkbenchMcpClient {
     const operation = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
     operation.throwIfAborted();
     let sessionId: string | undefined;
+    let protocolVersion = requestedProtocolVersion;
     try {
-      await this.rpc(token, undefined, {
+      const initialized = await this.rpc(token, undefined, {
         jsonrpc: "2.0",
         id: 1,
         method: "initialize",
-        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "pi-web-workbench-adapter", version: "1.0.0" } },
-      }, operation, true, true, (headers) => {
-        const value = headers.get("mcp-session-id")?.trim();
-        sessionId = value === "" ? undefined : value;
+        params: { protocolVersion: requestedProtocolVersion, capabilities: {}, clientInfo: { name: "pi-web-workbench-adapter", version: "1.0.0" } },
+      }, operation, {
+        safeToRetry: true,
+        onHeaders: (headers) => {
+          const value = headers.get("mcp-session-id")?.trim();
+          sessionId = value === "" ? undefined : value;
+        },
       });
-      if (sessionId === undefined) throw new Error("MCP initialize response did not include mcp-session-id");
-      await this.rpc(token, sessionId, { jsonrpc: "2.0", method: "notifications/initialized" }, operation, false, true);
+      protocolVersion = negotiatedProtocolVersion(initialized.value);
+      await this.rpc(token, sessionId, { jsonrpc: "2.0", method: "notifications/initialized" }, operation, { expectBody: false, safeToRetry: true, protocolVersion });
       const response = await this.rpc(token, sessionId, {
         jsonrpc: "2.0",
         id: 2,
@@ -75,33 +89,34 @@ export class WorkbenchMcpClient {
             ...(idempotencyKey === undefined ? {} : { idempotency_key: idempotencyKey }),
           },
         },
-      }, operation);
+      }, operation, { protocolVersion });
       const result = parseStableCapabilityResult(response.value);
       operation.throwIfAborted();
       return result;
     } finally {
       // Releasing a session is independent of the cancelled call, but remains bounded.
-      if (sessionId !== undefined) await this.closeSession(token, sessionId);
+      if (sessionId !== undefined) await this.closeSession(token, sessionId, protocolVersion);
     }
   }
 
-  private async closeSession(token: string, sessionId: string): Promise<void> {
+  private async closeSession(token: string, sessionId: string, protocolVersion: string): Promise<void> {
     try {
       const response = await this.fetchImpl(this.options.mcpUrl, {
-        method: "DELETE", headers: { authorization: `Bearer ${token}`, "mcp-session-id": sessionId },
+        method: "DELETE", headers: { authorization: `Bearer ${token}`, "mcp-session-id": sessionId, "mcp-protocol-version": protocolVersion },
         signal: AbortSignal.timeout(this.options.cleanupTimeoutMs ?? 1_000),
       });
       await response.body?.cancel();
     } catch { /* Best effort: cleanup must not replace the tool result or cancellation. */ }
   }
 
-  private async rpc(token: string, sessionId: string | undefined, body: unknown, signal: AbortSignal, expectBody = true, safeToRetry = false, onHeaders?: (headers: Headers) => void, t: Translator = loadNodeTranslator("server")): Promise<{ headers: Headers; value: unknown }> {
+  private async rpc(token: string, sessionId: string | undefined, body: unknown, signal: AbortSignal, options: RpcOptions = {}, t: Translator = loadNodeTranslator("server")): Promise<{ headers: Headers; value: unknown }> {
     signal.throwIfAborted();
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
       accept: "application/json, text/event-stream",
       "content-type": "application/json",
       ...(sessionId === undefined ? {} : { "mcp-session-id": sessionId }),
+      ...(options.protocolVersion === undefined ? {} : { "mcp-protocol-version": options.protocolVersion }),
     };
     let response: Response;
     let text: string;
@@ -112,21 +127,30 @@ export class WorkbenchMcpClient {
         body: JSON.stringify(body),
         signal,
       });
-      onHeaders?.(response.headers);
+      options.onHeaders?.(response.headers);
       text = await response.text();
     } catch (error) {
       signal.throwIfAborted();
       const code = transportErrorCode(error);
-      throw new McpTransportError(code, transportErrorMessage(code, t), { cause: error }, safeToRetry);
+      throw new McpTransportError(code, transportErrorMessage(code, t), { cause: error }, options.safeToRetry);
     }
     if (!response.ok) {
       const retryAfter = response.headers.get("retry-after");
       const seconds = retryAfter === null ? Number.NaN : Number(retryAfter);
       const retryAfterMs = retryAfter === null ? undefined : Number.isFinite(seconds) ? Math.max(0, seconds * 1_000) : Math.max(0, Date.parse(retryAfter) - Date.now());
-      throw new McpHttpError(response.status, mcpErrorMessage(text, response.status), retryAfterMs, safeToRetry);
+      throw new McpHttpError(response.status, mcpErrorMessage(text, response.status), retryAfterMs, options.safeToRetry);
     }
-    return { headers: response.headers, value: expectBody ? parseMcpPayload(text, response.headers.get("content-type")) : undefined };
+    return { headers: response.headers, value: options.expectBody === false ? undefined : parseMcpPayload(text, response.headers.get("content-type")) };
   }
+}
+
+function negotiatedProtocolVersion(payload: unknown): string {
+  const envelope = record(payload, "MCP initialize response");
+  if (envelope["error"] !== undefined) throw new Error(jsonRpcError(envelope["error"]));
+  const result = record(envelope["result"], "MCP initialize result");
+  const version = stringField(result, "protocolVersion");
+  if (!supportedProtocolVersions.has(version)) throw new Error(`Unsupported MCP protocol version: ${version}`);
+  return version;
 }
 
 export function parseMcpPayload(text: string, contentType: string | null): unknown {

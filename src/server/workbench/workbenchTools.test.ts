@@ -314,7 +314,7 @@ describe("Workbench controlled tools", () => {
     vi.spyOn(workbench, "issueCapabilityToken").mockResolvedValue("ticket");
     let operation: AbortSignal | null | undefined;
     const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response("{}", { headers: { "mcp-session-id": "session" } }))
+      .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "test", version: "1.0.0" } } }, { headers: { "mcp-session-id": "session" } }))
       .mockResolvedValueOnce(new Response(null, { status: 202 }))
       .mockImplementationOnce((_url, init) => {
         operation = init?.signal;

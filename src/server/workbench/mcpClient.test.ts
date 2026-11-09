@@ -10,6 +10,11 @@ const stableResult = {
   meta: { trace_id: "mcp-trace", duration_ms: 12, truncated: false },
 };
 
+function initializeResponse(sessionId?: string, protocolVersion = "2025-06-18"): Response {
+  return Response.json({ jsonrpc: "2.0", id: 1, result: { protocolVersion, capabilities: {}, serverInfo: { name: "test", version: "1.0.0" } } },
+    { headers: sessionId === undefined ? {} : { "mcp-session-id": sessionId } });
+}
+
 describe("MCP response parsing", () => {
   it("parses JSON and SSE JSON-RPC envelopes", () => {
     const envelope = { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify(stableResult) }] } };
@@ -49,7 +54,7 @@ describe("MCP response parsing", () => {
 
   it("deletes a stateful session after success and preserves the result if cleanup fails", async () => {
     const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response("{}", { headers: { "mcp-session-id": "session" } }))
+      .mockResolvedValueOnce(initializeResponse("session"))
       .mockResolvedValueOnce(new Response(null, { status: 202 }))
       .mockResolvedValueOnce(Response.json({ result: { content: [{ type: "text", text: JSON.stringify(stableResult) }] } }))
       .mockRejectedValueOnce(new Error("cleanup unavailable"));
@@ -61,12 +66,59 @@ describe("MCP response parsing", () => {
     expect(cleanup?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("propagates cancellation through tools/call and still releases its session", async () => {
+  it.each([
+    { sessionId: undefined, protocolVersion: "2025-06-18" },
+    { sessionId: "", protocolVersion: "2025-03-26" },
+    { sessionId: "session", protocolVersion: "2025-03-26" },
+  ])("uses the negotiated protocol with optional session identity ($sessionId, $protocolVersion)", async ({ sessionId, protocolVersion }) => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(initializeResponse(sessionId, protocolVersion))
+      .mockResolvedValueOnce(new Response(null, { status: 202 }))
+      .mockResolvedValueOnce(Response.json({ result: { content: [{ type: "text", text: JSON.stringify(stableResult) }] } }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000, fetch: fetchImpl });
+    expect(await client.callCapability("ticket", "e2e.echo", {})).toEqual(stableResult);
+    const hasSession = sessionId !== undefined && sessionId !== "";
+    expect(fetchImpl.mock.calls.map(([, init]) => init?.method)).toEqual(hasSession ? ["POST", "POST", "POST", "DELETE"] : ["POST", "POST", "POST"]);
+    expect(new Headers(fetchImpl.mock.calls[0]?.[1]?.headers).has("mcp-protocol-version")).toBe(false);
+    for (const [, init] of fetchImpl.mock.calls.slice(1)) {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("authorization")).toBe("Bearer ticket");
+      expect(headers.get("mcp-protocol-version")).toBe(protocolVersion);
+      expect(headers.get("mcp-session-id")).toBe(hasSession ? sessionId : null);
+    }
+  });
+
+  it("accepts a stateless SSE initialize response", async () => {
+    const envelope = { jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-06-18" } };
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(`event: message\ndata: ${JSON.stringify(envelope)}\n\n`, { headers: { "content-type": "text/event-stream" } }))
+      .mockResolvedValueOnce(new Response(null, { status: 202 }))
+      .mockResolvedValueOnce(Response.json({ result: { content: [{ type: "text", text: JSON.stringify(stableResult) }] } }));
+    const client = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000, fetch: fetchImpl });
+    expect(await client.callCapability("ticket", "e2e.echo", {})).toEqual(stableResult);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    { payload: { result: { protocolVersion: "2099-01-01" } }, message: "Unsupported MCP protocol version" },
+    { payload: { result: {} }, message: "protocolVersion must be a non-empty string" },
+    { payload: { error: { code: -32603, message: "initialize failed" } }, message: "MCP JSON-RPC error: initialize failed" },
+  ])("rejects invalid negotiation before issuing any tools/call ($message)", async ({ payload, message }) => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(payload, { headers: { "mcp-session-id": "session" } }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000, fetch: fetchImpl });
+    await expect(client.callCapability("ticket", "e2e.echo", {})).rejects.toThrow(message);
+    expect(fetchImpl.mock.calls.map(([, init]) => init?.method)).toEqual(["POST", "DELETE"]);
+  });
+
+  it.each(["session", undefined])("propagates cancellation and releases only an issued session (%s)", async (sessionId) => {
     const controller = new AbortController();
     let entered!: () => void;
     const started = new Promise<void>(resolve => { entered = resolve; });
     const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response("{}", { headers: { "mcp-session-id": "session" } }))
+      .mockResolvedValueOnce(initializeResponse(sessionId))
       .mockResolvedValueOnce(new Response(null, { status: 202 }))
       .mockImplementationOnce(async (_url, init) => {
         entered();
@@ -79,19 +131,22 @@ describe("MCP response parsing", () => {
     await started;
     controller.abort(new Error("user cancelled"));
     await rejected;
-    expect(fetchImpl.mock.calls[3]?.[1]?.method).toBe("DELETE");
-    expect(fetchImpl.mock.calls[3]?.[1]?.signal?.aborted).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(sessionId === undefined ? 3 : 4);
+    if (sessionId !== undefined) {
+      expect(fetchImpl.mock.calls[3]?.[1]?.method).toBe("DELETE");
+      expect(fetchImpl.mock.calls[3]?.[1]?.signal?.aborted).toBe(false);
+    }
   });
 
-  it("marks a tools/call transport failure as unsafe to replay", async () => {
+  it.each(["session", undefined])("never marks unknown tools/call execution as safe to replay (%s)", async (sessionId) => {
     const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response("{}", { headers: { "mcp-session-id": "session" } }))
+      .mockResolvedValueOnce(initializeResponse(sessionId))
       .mockResolvedValueOnce(new Response(null, { status: 202 }))
       .mockRejectedValueOnce(new Error("response lost after query started"))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const client = new WorkbenchMcpClient({ mcpUrl: "http://mcp/mcp", timeoutMs: 1_000, fetch: fetchImpl });
     await expect(client.callCapability("ticket", "e2e.echo", {})).rejects.toMatchObject({ safeToRetry: false });
-    expect(fetchImpl.mock.calls[3]?.[1]?.method).toBe("DELETE");
+    expect(fetchImpl.mock.calls.map(([, init]) => init?.method)).toEqual(sessionId === undefined ? ["POST", "POST", "POST"] : ["POST", "POST", "POST", "DELETE"]);
   });
 
   it("uses one deadline across admission and all network stages", async () => {
@@ -121,7 +176,7 @@ describe("MCP response parsing", () => {
 
   it("bounds cleanup time even when the server never acknowledges DELETE", async () => {
     const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response("{}", { headers: { "mcp-session-id": "session" } }))
+      .mockResolvedValueOnce(initializeResponse("session"))
       .mockResolvedValueOnce(new Response(null, { status: 202 }))
       .mockResolvedValueOnce(Response.json({ result: { content: [{ type: "text", text: JSON.stringify(stableResult) }] } }))
       .mockImplementationOnce(async (_url, init) => new Promise((_resolve, reject) => {

@@ -413,6 +413,8 @@ ES 错误记日志，不停止管理会话。有界内存队列重试，并在�
 
 每次 Workbench HTTP 请求（含响应正文读取）的 `requestTimeoutMs` 默认 30000ms，显式配置继续生效，`PI_WEB_WORKBENCH_TIMEOUT_MS` 优先于配置文件。受控 MCP 能力调用的 `capabilityTimeoutMs` 默认 30000ms，`PI_WEB_MCP_TIMEOUT_MS` 优先于配置文件；这是排队、资源授权检查、签票、MCP 握手、能力调用及最多一次重试共用的总预算，各阶段不会重新获得完整预算。
 
+受控客户端自动兼容有会话与无会话的 MCP Streamable HTTP 服务，无需新增 Pi 配置。初始化请求协议版本 `2025-06-18`，支持服务端协商为 `2025-03-26` 或 `2025-06-18`，后续请求携带协商后的 `MCP-Protocol-Version`。仅在服务端返回 session ID 时携带该 ID 并在结束时发送 `DELETE`；无会话模式不依赖 MCP 副本的粘性路由。这里的无状态支持属于 MCP 调用协议，PI WEB 的 daemon 会话归属与下述单 daemon 准入限额仍按现有边界运行。
+
 受控 MCP 调用在单个 daemon 内默认最多同时执行 8 个，同一已验证用户最多同时执行 2 个；执行中与等待合计最多 32 个，其中同一用户最多 8 个；排队最多 2000ms。超限或等待到期会拒绝调用。这些准入限额为内部默认值，没有配置文件或环境变量覆盖，也不是跨实例总配额。取消会移除等待中的调用并中止进行中的 HTTP 请求。获得 MCP session ID 后，无论成功、异常或取消，均以独立的最多 1000ms 清理预算尽力发送 `DELETE`，因此返回可能包含这段额外等待；清理失败不替换原结果。取消与会话释放均不保证底层数据库查询已经停止。
 
 每次逻辑能力调用读取一次当前资源授权；签票收到 401 时会重新核验。最多重试一次，仅限该授权刷新、尚未提交 `tools/call` 的握手临时失败，或服务明确标记可重试的执行前忙/排队超时（`native_executor_busy`、`native_queue_timeout`、`native_target_busy`、`native_client_busy`、`http_executor_busy`、`http_queue_timeout`）。重试使用新的一次性票据，等待 250–500ms 抖动并遵从更长的 `Retry-After`，仍计入原总预算。`tools/call` 结果不明时不自动重放。更新这些调用行为需重启 `pi-web-sessiond.service`；修改共享 endpoint 或配置时，Web/API 与 daemon 须保持一致并同时重启。
