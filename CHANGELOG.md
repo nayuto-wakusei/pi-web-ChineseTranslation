@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.9
+
+### Patch Changes
+
+- 094db75: Bound concurrent Workbench capability calls across sessions and users, and carry cancellation through authorization and MCP requests. Release completed MCP sessions and retry only calls known not to have started, using the original call deadline.
+
 ## 2.202611.8
 
 ### Patch Changes
