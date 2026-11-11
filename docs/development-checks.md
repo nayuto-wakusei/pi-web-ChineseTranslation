@@ -66,6 +66,19 @@ node scripts/measure-client-bundle.mjs node_modules/.cache/pi-web/performance/cl
 
 该脚本只读取当前 `dist` 中入口、PiWebApp 启动模块及其递归静态 JavaScript 依赖，不计入后续动态导入，也不测量网络延迟或应用就绪时间。各版本需分别在对应源码构建后保存结果，不能拿旧 `dist` 代表新源码。
 
+### 完整应用首屏
+
+先安装 Playwright Chromium，再构建并运行完整首屏基线：
+
+```sh
+npm run build
+node scripts/measure-startup-performance.mjs --out-dir node_modules/.cache/pi-web/performance/startup
+```
+
+脚本从 `dist` 启动仅监听本机的隔离 Web/API 和 sessiond，使用临时配置、合成项目和会话，不调用模型。登录、空工作区、已有会话直达分别在桌面和移动视口采样；每组默认 20 次，每次新建浏览器上下文，服务进程保持运行。不模拟网络或 CPU 降速。用 `--samples 1 --skip-trace` 快速检查环境和场景。
+
+`report.json` 保留每次采样及 p50/p95。首屏可用时间以中文界面对应控件就绪为准，独立于可能只绘制启动遮罩的 FCP。报告还记录 TTFB、可用前发起的同源 HTTP 请求、已完成的 JS 传输量和长任务。失败样本单列并使脚本以非零状态退出。每组另有一个 Chromium trace，不参与分位数统计；在 Performance 面板中查看 `pi-web-startup-ready` 标记前的请求与主线程工作。
+
 ## 交付阶段
 
 ```sh

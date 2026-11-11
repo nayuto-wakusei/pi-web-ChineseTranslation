@@ -11,4 +11,6 @@ export default {
   activityNotice: message("Recently active in another PI-WEB instance. Avoid working on this session in both instances at once.", "Session activity warning above the composer"),
   dismissActivity: message("Dismiss and continue", "Acknowledge cross-instance activity and resume composing"),
   loadingConversation: message("Loading conversation…", "Selected conversation is being loaded before the transcript mounts"),
+  loadingComposer: message("Loading message editor…", "The conversation is visible while its editor loads"),
+  composerLoadFailed: message("Could not load the message editor. Reload the page to try again.", "Editor module failed; conversation history remains available"),
 };

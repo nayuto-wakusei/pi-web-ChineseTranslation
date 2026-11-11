@@ -76,6 +76,8 @@
     "activityNotice": "此会话最近在另一个 PI WEB 实例中活动。请避免在两个实例中同时操作此会话。",
     "dismissActivity": "关闭提示并继续",
     "loadingConversation": "正在加载对话...",
+    "loadingComposer": "正在加载消息编辑器…",
+    "composerLoadFailed": "无法加载消息编辑器。请刷新页面后重试。",
     "workspaceRemovalFailed": "无法启动工作区移除：{detail}",
     "workspaceRemovalRefreshFailed": "工作区已移除，但刷新工作区列表失败：{detail}。正在重试…",
     "removeMachine": "移除 {name}？\n\n此操作仅从当前 PI WEB 网关移除其登记。",
@@ -969,6 +971,10 @@
     "abortFailed": "无法取消摘要生成：{error}",
     "forkFailed": "无法分叉会话历史：{error}",
     "characterCount": "{count, number} / {max, number}"
+  },
+  "core.notices": {
+    "title": "通知",
+    "empty": "暂无通知"
   },
   "core.serverNotices": {
     "workspaceRemovalCommandFailed": "工作区移除失败，请查看终端输出。",

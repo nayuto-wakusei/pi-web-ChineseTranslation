@@ -15,6 +15,9 @@ import type { MarkdownWorkspaceContext, WorkspaceFileOpenRequest } from "../form
 import { formattedTextStyles } from "./formattedTextStyles";
 import { codeBlockFrameStyles } from "./codeBlockFrameStyles";
 
+const LONG_MARKDOWN_LENGTH = 4096;
+const LONG_MARKDOWN_INTERVAL_MS = 80;
+
 @customElement("formatted-text")
 export class FormattedText extends LitElement {
   constructor() {
@@ -36,6 +39,9 @@ export class FormattedText extends LitElement {
   private readonly enhancement = new VisibleContentController(this);
   private phase: "markdown" | "preview" | "done" = "markdown";
   private scheduled = false;
+  private appendOnly = false;
+  private lastFormatStarted = -Infinity;
+  private formatTimer: ReturnType<typeof setTimeout> | undefined;
   private markup: string | undefined;
   private content: TemplateResult | undefined;
   private displayedText = "";
@@ -46,7 +52,12 @@ export class FormattedText extends LitElement {
 
   protected override willUpdate(changes: PropertyValues<this>): void {
     const inputs = ["text", "intentKey", "imagesEnabled", "codeBlocks", "contentRendering", "contentRendererVersion", "machineId", "workspaceContext"] as const;
-    if (!inputs.some((key) => changes.has(key))) return;
+    const changedInputs = inputs.filter((key) => changes.has(key));
+    if (changedInputs.length === 0) return;
+    const previousText = changes.get("text");
+    this.appendOnly = changedInputs.length === 1 && typeof previousText === "string"
+      && this.text.length > previousText.length && this.text.startsWith(previousText);
+    if (!this.appendOnly) this.cancelFormatTimer();
     // Queued work reads the latest inputs; restarting it on each chunk can starve streaming Markdown.
     this.phase = "markdown";
     this.markup = undefined;
@@ -62,6 +73,8 @@ export class FormattedText extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.cancelFormatTimer();
+    this.lastFormatStarted = -Infinity;
     super.disconnectedCallback();
     this.scheduled = false;
   }
@@ -76,20 +89,15 @@ export class FormattedText extends LitElement {
     return html`<div class=${className} dir="auto" @load=${this.onImageLoad} @click=${this.onFormattedClick}><div class="enhanced-content" ?hidden=${this.replacing}>${this.content}</div><span class="pending-source" ?hidden=${!showSource}>${showSource ? this.text : ""}</span></div>`;
   }
 
-  override updated(): void {
+  override updated(changes: PropertyValues<this>): void {
     if (this.phase !== "done" && !this.scheduled) {
       this.scheduled = true;
-      this.enhancement.request(() => {
-        this.scheduled = false;
-        if (this.phase === "markdown") this.formatMarkdown();
-        else if (this.phase === "preview") this.enhanceMarkdown();
-        this.requestUpdate();
-      });
+      this.queueEnhancement();
     }
     // HTML is memoized independently of geometry; apply hints on every DOM mount,
     // in this update's microtask before paint or the chat's position-restoration frame.
-    restoreExternalMarkdownImageDimensions(this.renderRoot);
-    this.applyHighlight();
+    if (this.layoutChanged) restoreExternalMarkdownImageDimensions(this.renderRoot);
+    if (this.layoutChanged || changes.has("highlight")) this.applyHighlight();
     if (this.labelsDirty) {
       this.labelsDirty = false;
       // Sanitized HTML is cached independently of language. Update only owned
@@ -110,13 +118,44 @@ export class FormattedText extends LitElement {
     }
   }
 
+  private queueEnhancement(): void {
+    this.enhancement.request(() => {
+      if (this.phase === "markdown" && this.appendOnly && this.content !== undefined && !this.replacing
+        && this.text.length >= LONG_MARKDOWN_LENGTH) {
+        const wait = this.lastFormatStarted + LONG_MARKDOWN_INTERVAL_MS - performance.now();
+        if (wait > 0) {
+          // One trailing timer reads the latest text even if output never pauses.
+          this.formatTimer = setTimeout(() => {
+            this.formatTimer = undefined;
+            this.queueEnhancement();
+          }, Math.ceil(wait));
+          return;
+        }
+      }
+      this.scheduled = false;
+      if (this.phase === "markdown") {
+        this.lastFormatStarted = performance.now();
+        this.formatMarkdown();
+      } else if (this.phase === "preview") this.enhanceMarkdown();
+      this.requestUpdate();
+    });
+  }
+
+  private cancelFormatTimer(): void {
+    if (this.formatTimer === undefined) return;
+    clearTimeout(this.formatTimer);
+    this.formatTimer = undefined;
+    this.scheduled = false;
+  }
+
   private applyHighlight(): void {
     const root = this.renderRoot.querySelector(".enhanced-content");
     if (!(root instanceof HTMLElement)) return;
-    root.querySelectorAll("mark[data-search-highlight]").forEach((mark) => {
+    const previous = root.querySelectorAll("mark[data-search-highlight]");
+    previous.forEach((mark) => {
       mark.replaceWith(document.createTextNode(mark.textContent));
     });
-    root.normalize();
+    if (previous.length !== 0) root.normalize();
     const query = this.highlight.trim();
     if (query === "") return;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);

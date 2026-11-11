@@ -1,5 +1,7 @@
 import { MAX_INLINE_PREVIEW_BYTES } from "../../../shared/workspaceFiles";
+import { FILE_TREE_BATCH_MAX_PATHS } from "../../../shared/apiTypes";
 import type { ManagedAgentsControl } from "../../../plugin-api";
+import { HttpRequestError } from "../api/http";
 import { managedAgentsApi } from "../api/managedAgents";
 import {
   uploadWorkspaceFile as defaultUploadWorkspaceFile,
@@ -13,6 +15,7 @@ import {
   type WriteWorkspaceFileOptions,
   type WriteWorkspaceFileResponse,
   type Workspace,
+  type WorkspaceTreeBatchResponse,
 } from "../api";
 import { workspaceFilePreviewUrl as defaultWorkspaceFilePreviewUrl } from "../api/urls";
 import type {
@@ -33,6 +36,7 @@ export interface WorkspaceFilesApi {
   workspaceFile(projectId: string, workspaceId: string, path: string, machineId?: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse>;
   optionalWorkspaceFile?(projectId: string, workspaceId: string, path: string, machineId?: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse | undefined>;
   workspaceTree(projectId: string, workspaceId: string, path?: string, machineId?: string, options?: WorkspaceFileRequestOptions): Promise<FileTreeResponse>;
+  workspaceTreeBatch?(projectId: string, workspaceId: string, paths: readonly string[], machineId?: string, options?: WorkspaceFileRequestOptions): Promise<WorkspaceTreeBatchResponse>;
   writeWorkspaceFile(projectId: string, workspaceId: string, path: string, content: string | Uint8Array, options?: WriteWorkspaceFileOptions, machineId?: string): Promise<WriteWorkspaceFileResponse>;
   deleteWorkspaceFile(projectId: string, workspaceId: string, path: string, machineId?: string): Promise<DeleteWorkspaceFileResponse>;
   moveWorkspaceFile(projectId: string, workspaceId: string, fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions, machineId?: string): Promise<MoveWorkspaceFileResponse>;
@@ -74,6 +78,9 @@ export function createWorkspaceFiles(
   const moveDirectory = api.moveWorkspaceDirectory?.bind(api);
   const deleteDirectory = api.deleteWorkspaceDirectory?.bind(api);
   const readOptionalFile = api.optionalWorkspaceFile?.bind(api);
+  const readBatch = api.workspaceTreeBatch?.bind(api);
+  const listFiles: WorkspaceFilesCapabilityV1["listFiles"] = (path, requestOptions) =>
+    api.workspaceTree(projectId, workspaceId, path, machineId, requestOptions);
   const previewUrl = options.workspaceFilePreviewUrl ?? defaultWorkspaceFilePreviewUrl;
   const uploadFile = options.uploadWorkspaceFile ?? defaultUploadWorkspaceFile;
   const publishMutation = () => { onFilesChanged?.(); options.onInvalidate?.(workspaceFilesMutationInvalidation); };
@@ -110,7 +117,10 @@ export function createWorkspaceFiles(
     ...(readOptionalFile === undefined ? {} : {
       readOptionalFile: (path: string, requestOptions?: WorkspaceFileRequestOptions) => readOptionalFile(projectId, workspaceId, path, machineId, requestOptions),
     }),
-    listFiles: (path, requestOptions) => api.workspaceTree(projectId, workspaceId, path, machineId, requestOptions),
+    listFiles,
+    ...(readBatch === undefined ? {} : { listFilesBatch: (paths: readonly string[], requestOptions?: WorkspaceFileRequestOptions) =>
+      listDirectoryBatches(paths, listFiles, (batch) => readBatch(projectId, workspaceId, batch, machineId, requestOptions), requestOptions),
+    }),
     writeFile: async (path, content, writeOptions) => {
       const result = await api.writeWorkspaceFile(projectId, workspaceId, path, content, writeOptions, machineId);
       publishMutation();
@@ -159,6 +169,42 @@ export function createWorkspaceFiles(
       return { path, completed, cancel };
     },
   };
+}
+
+async function listDirectoryBatches(
+  paths: readonly string[],
+  list: WorkspaceFilesCapabilityV1["listFiles"],
+  readBatch: (paths: readonly string[]) => Promise<WorkspaceTreeBatchResponse>,
+  options?: WorkspaceFileRequestOptions,
+): Promise<WorkspaceTreeBatchResponse> {
+  const uniquePaths = [...new Set(paths)];
+  const results: WorkspaceTreeBatchResponse["results"] = [];
+  let supportsBatch = true;
+  for (let i = 0; i < uniquePaths.length; i += FILE_TREE_BATCH_MAX_PATHS) {
+    options?.signal?.throwIfAborted();
+    const batch = uniquePaths.slice(i, i + FILE_TREE_BATCH_MAX_PATHS);
+    if (supportsBatch) {
+      try {
+        results.push(...(await readBatch(batch)).results);
+        continue;
+      } catch (error) {
+        if (!(error instanceof HttpRequestError) || (error.status !== 404 && error.status !== 405)) throw error;
+        // Older federated peers can still list the same authorized directories.
+        supportsBatch = false;
+      }
+    }
+    results.push(...await Promise.all(batch.map(async (path) => {
+      options?.signal?.throwIfAborted();
+      try {
+        return { path, tree: await list(path, options) };
+      } catch (error) {
+        options?.signal?.throwIfAborted();
+        return { path, error: error instanceof Error ? error.message : String(error) };
+      }
+    })));
+  }
+  options?.signal?.throwIfAborted();
+  return { results };
 }
 
 function referenceVersion(reference: WorkspaceFileReferenceOptions | undefined): { modifiedAt?: string } {

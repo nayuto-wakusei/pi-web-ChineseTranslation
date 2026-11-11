@@ -302,6 +302,11 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin
 - **Session naming** 可移除 Pi 扩展，负责新会话首条提示命名；配置与迁移见[会话命名](config.md#session-naming)。
 - **Scheduled agent tasks（beta）** 可选包，提供代理管理的计划与只读“计划任务”面板；Web 插件默认禁用。安装、时区及执行历史见[指南](scheduled-tasks.md)。
 
+<a id="batch-workspace-directory-listings"></a>
+### 批量列出工作区目录
+
+`files.listFilesBatch(paths, options?)` 是工作区文件能力 v1 的可选方法。路径和权限与 `listFiles` 相同，返回 `{ results }`，每个路径对应 `{ path, tree }` 或 `{ path, error }`，可通过 `options.signal` 取消。旧宿主未提供时，插件应使用 `listFiles`。
+
 <a id="managed-agents-review"></a>
 ### 管理工作区指令
 
@@ -401,6 +406,8 @@ This uses the same authenticated file-serving path as downloads, including remot
 Files shows all eligible previewers as named view buttons and keeps **Download** available. Images, SVG, PDF, HTML, and Markdown are contributions from the bundled Files plugin, using the same discovery, selection, and lifecycle API as Audio and third-party previews. Existing text `contentRenderers` are adapted into this file-preview pipeline; their chat behavior and public contribution API remain unchanged. Files itself owns only selection, Raw source, and download fallback. `renderMode: "automatic"` opts into automatic rendering; otherwise selection is explicit. Later matching automatic previewers take precedence over earlier defaults, but an explicit view choice takes priority. Raster images and PDF opt into automatic rendering. SVG, HTML, and Markdown keep Raw as their fresh-browser default; a saved or linked Preview preference activates their registered previewer. Built-in document previewers retain the core size limits, safe file URLs, HTML sandboxing, and native PDF policy. Previewers can handle large files without inheriting the core inline-preview size cap; they must enforce their own limits.
 
 `render` receives a frozen file snapshot, `machineId`, `projectId`, `workspaceId`, workspace `files`, and—when this package has one—its own paired `backend`. It never receives another plugin's backend. The host aborts `signal` when the file, selected view, mounting, or plugin lifetime changes. Stop requests and release media, object URLs, observers, and workers when aborted or disconnected. Report asynchronous failures through `fail(error)`; synchronous failures are caught by the host. Files displays the failure and retains a source/download fallback; failures from obsolete previews cannot replace a newer selection.
+
+The bundled Files source viewer loads on demand from the active machine's Files registration. If that editor cannot load, Files still shows the source as plain text and keeps Download available.
 
 For another file-view consumer, require the host capability `{ pluginId: "pi-web", id: "file-previewing", version: 1 }`. Its `listPreviewers(request)` discovers matching views and `renderPreview({ ...request, previewerId, files, fail })` mounts one selected view with the same lifecycle handling. Supply the actual machine and authoritative project/workspace IDs. Require this capability when your plugin must fail explicitly on older hosts rather than run without file-preview support.
 

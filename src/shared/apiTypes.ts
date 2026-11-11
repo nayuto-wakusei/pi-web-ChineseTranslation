@@ -14,6 +14,8 @@ import type {
   FileContentResponse,
   FileTreeEntry,
   FileTreeResponse,
+  WorkspaceTreeBatchResult,
+  WorkspaceTreeBatchResponse,
   JsonObject,
   JsonPrimitive,
   JsonValue,
@@ -48,6 +50,8 @@ export type {
   FileContentResponse,
   FileTreeEntry,
   FileTreeResponse,
+  WorkspaceTreeBatchResult,
+  WorkspaceTreeBatchResponse,
   JsonObject,
   JsonPrimitive,
   JsonValue,
@@ -1745,14 +1749,6 @@ export interface WorkspaceActivityResponse {
 
 export interface WorkspaceTreeBatchRequest {
   paths: string[];
-}
-
-export type WorkspaceTreeBatchResult =
-  | { path: string; tree: FileTreeResponse }
-  | { path: string; error: string };
-
-export interface WorkspaceTreeBatchResponse {
-  results: WorkspaceTreeBatchResult[];
 }
 
 export interface WorkspacePathOperationResponse {

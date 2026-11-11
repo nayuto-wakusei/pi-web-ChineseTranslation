@@ -263,9 +263,9 @@ export const workspacesApi = {
     return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}`, (value): unknown => value, { method: "DELETE", body: JSON.stringify(body) });
   },
   workspaceTree: (projectId: string, workspaceId: string, path = "", machineId = "local", options?: { readonly signal?: AbortSignal }) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree?path=${encodeURIComponent(path)}`, parseFileTreeResponse, options),
-  workspaceTreeBatch: (projectId: string, workspaceId: string, paths: readonly string[], machineId = "local") => {
+  workspaceTreeBatch: (projectId: string, workspaceId: string, paths: readonly string[], machineId = "local", options?: { readonly signal?: AbortSignal }) => {
     const body: WorkspaceTreeBatchRequest = { paths: [...paths] };
-    return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree/batch`, parseWorkspaceTreeBatchResponse, { method: "POST", body: JSON.stringify(body) });
+    return request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/tree/batch`, parseWorkspaceTreeBatchResponse, { ...options, method: "POST", body: JSON.stringify(body) });
   },
   workspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local", options?: { readonly signal?: AbortSignal }) => request(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`, parseFileContentResponse, options),
   optionalWorkspaceFile: (projectId: string, workspaceId: string, path: string, machineId = "local", options?: { readonly signal?: AbortSignal }) => requestOptional(`${machinePrefix(machineId)}/projects/${encodeURIComponent(projectId)}/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}&optional=true`, parseFileContentResponse, options),

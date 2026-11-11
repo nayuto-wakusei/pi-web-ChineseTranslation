@@ -119,7 +119,7 @@ describe("plugin delivery artifacts", () => {
     expect(filesPluginFiles).toEqual(
       expect.arrayContaining(["dist/pi-web-plugins/files/package.json", "dist/pi-web-plugins/files/browser/pi-web-plugin.js"])
     );
-    expect(filesPluginFiles.some((path) => /\/browser\/assets\/viewerDependencies-[^/]+\.js$/u.test(path))).toBe(false);
+    expect(filesPluginFiles.some((path) => /\/browser\/assets\/viewerDependencies-[^/]+\.js$/u.test(path))).toBe(true);
     expect(filesPluginFiles.some((path) => /\/browser\/assets\/files-icon-[^/]+\.svg$/u.test(path))).toBe(true);
     expect(filesPluginFiles.every((path) => path.endsWith("/package.json") || path.includes("/browser/"))).toBe(true);
     expect(packagedFiles).toEqual(expect.arrayContaining(filesPluginFiles));
@@ -336,14 +336,15 @@ describe("plugin delivery artifacts", () => {
   });
 
   describe("Files browser package build", () => {
-    it("emits only package metadata and an entry-resident browser graph within catalog bounds", { timeout: 30_000 }, async () => {
+    it("ships a package-local lazy viewer and loads it from the active machine registration", { timeout: 30_000 }, async () => {
       const target = join(tempDir, "files");
       await cp(join(repoRoot, "dist/pi-web-plugins/files"), target, { recursive: true });
 
       const packageFiles = await recursiveFiles(target);
       expect(packageFiles.filter((path) => !path.startsWith("browser/"))).toEqual(["package.json"]);
       expect(packageFiles).toContain("browser/pi-web-plugin.js");
-      expect(packageFiles.some((path) => /^browser\/assets\/viewerDependencies-[^/]+\.js$/u.test(path))).toBe(false);
+      const viewerChunk = packageFiles.find((path) => /^browser\/assets\/viewerDependencies-[^/]+\.js$/u.test(path));
+      expect(viewerChunk).toBeDefined();
       expect(packageFiles.some((path) => /^browser\/assets\/files-icon-[^/]+\.svg$/u.test(path))).toBe(true);
       expect(packageFiles.some((path) => path.endsWith(".map"))).toBe(false);
       expect(packageFiles.some((path) => /\.(?:ts|css)$/u.test(path))).toBe(false);
@@ -364,7 +365,7 @@ describe("plugin delivery artifacts", () => {
 
       const browserRoot = join(target, "browser");
       const browserJavaScript = packageFiles.filter((path) => path.startsWith("browser/") && path.endsWith(".js"));
-      expect(browserJavaScript).toEqual(["browser/pi-web-plugin.js"]);
+      expect(browserJavaScript).toEqual([viewerChunk, "browser/pi-web-plugin.js"]);
       for (const packagePath of browserJavaScript) {
         const file = join(target, packagePath);
         const sourceText = await readFile(file, "utf8");
@@ -379,7 +380,20 @@ describe("plugin delivery artifacts", () => {
 
       const entryPath = join(browserRoot, "pi-web-plugin.js");
       const entrySource = await readFile(entryPath, "utf8");
-      expect(moduleSpecifiers(entrySource).filter((specifier) => specifier.endsWith(".js"))).toEqual([]);
+      const entryAst = ts.createSourceFile(entryPath, entrySource, ts.ScriptTarget.Latest);
+      expect(entryAst.statements.some((statement) => ts.isImportDeclaration(statement)
+        || (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined))).toBe(false);
+      const lazyImports = [];
+      function collectImports(node) {
+        if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+          const [specifier] = node.arguments;
+          if (specifier === undefined || !ts.isStringLiteralLike(specifier)) throw new Error("Files viewer chunk path is not a literal");
+          lazyImports.push(specifier.text);
+        }
+        ts.forEachChild(node, collectImports);
+      }
+      collectImports(entryAst);
+      expect(lazyImports).toEqual([`./${viewerChunk.slice("browser/".length)}`]);
 
       const artifactProbeRoot = join(tempDir, "_artifact-probe");
       const firstBrowserRoot = join(artifactProbeRoot, "remote-a", "browser");
@@ -412,6 +426,12 @@ describe("plugin delivery artifacts", () => {
         const panels = registry.getWorkspacePanels();
         const firstContext = builtWorkspacePanelContext("remote-1");
         const secondContext = builtWorkspacePanelContext("remote-2");
+        const selectedPath = "probe.ts";
+        secondContext.files.listFiles = async () => ({ path: "", entries: [{ name: selectedPath, path: selectedPath, type: "file" }], scannedAt: "now", truncated: false });
+        secondContext.files.readFile = async () => ({
+          path: selectedPath, encoding: "utf8", content: remoteBContent, language: "typescript",
+          size: remoteBContent.length, modifiedAt: "now", truncated: false, binary: false,
+        });
         const firstRendered = panels.find((panel) => panel.machineId === "remote-1")?.render(firstContext);
         const secondRendered = panels.find((panel) => panel.machineId === "remote-2")?.render(secondContext);
 
@@ -419,12 +439,18 @@ describe("plugin delivery artifacts", () => {
         // post-entry A asset, then prove healthy remote B content still gets a
         // real CodeMirror editor without consulting A's old artifact root.
         await rm(join(firstBrowserRoot, "assets"), { recursive: true, force: true });
-        const secondDependencies = await secondImported.loadFilesViewerDependencies();
-        const codeViewer = document.createElement("pi-web-files-code-viewer");
-        codeViewer.content = remoteBContent;
-        codeViewer.language = "typescript";
-        document.body.append(codeViewer);
-        await waitFor(() => codeViewer.shadowRoot?.querySelector(".cm-editor") != null);
+        const panel = document.createElement("pi-web-files-panel");
+        panel.context = secondContext;
+        panel.runtime = secondRendered?.values.find((value) => value instanceof secondImported.FilesRuntime);
+        panel.content = secondRendered?.values.find((value) => value?.localization !== undefined && value?.messages !== undefined);
+        panel.loadViewerDependencies = secondRendered?.values.find((value) => value === secondImported.loadFilesViewerDependencies);
+        expect(panel.loadViewerDependencies).toBe(secondImported.loadFilesViewerDependencies);
+        document.body.append(panel);
+        const row = () => panel.shadowRoot?.querySelector(".ui-file-row");
+        await waitFor(() => row() != null);
+        row().click();
+        const codeViewer = () => panel.shadowRoot?.querySelector("pi-web-files-viewer")?.shadowRoot?.querySelector("pi-web-files-code-viewer");
+        await waitFor(() => codeViewer()?.shadowRoot?.querySelector(".cm-editor") != null);
 
         return {
           builtModule: imported,
@@ -442,9 +468,8 @@ describe("plugin delivery artifacts", () => {
           },
           viewerProbe: {
             firstAssetsUnavailable: await stat(join(firstBrowserRoot, "assets")).then(() => false, () => true),
-            secondLoaderSucceeded: typeof secondDependencies.EditorView === "function",
-            rendered: codeViewer.shadowRoot?.querySelector(".cm-editor") != null,
-            text: codeViewer.shadowRoot?.textContent ?? "",
+            rendered: codeViewer()?.shadowRoot?.querySelector(".cm-editor") != null,
+            text: codeViewer()?.shadowRoot?.textContent ?? "",
           },
         };
       });
@@ -463,7 +488,6 @@ describe("plugin delivery artifacts", () => {
       expect(registrations.secondRuntime).not.toBe(registrations.firstRuntime);
       expect(viewerProbe).toMatchObject({
         firstAssetsUnavailable: true,
-        secondLoaderSucceeded: true,
         rendered: true,
       });
       expect(viewerProbe.text).toContain("selectedOnRemoteB");

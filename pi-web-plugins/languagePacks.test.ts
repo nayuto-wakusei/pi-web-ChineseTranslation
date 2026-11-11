@@ -6,6 +6,7 @@ import { validateCatalog } from "../src/client/src/localization/catalog.js";
 import { LocalizationService } from "../src/client/src/localization/service.js";
 import { createPluginLocalization } from "../src/client/src/plugins/localization.js";
 import authDefinitions from "../src/client/src/components/auth.messages.js";
+import noticesDefinitions from "../src/client/src/components/SessionNoticesPanel.messages.js";
 import fileDefinitions from "./files/files.messages.js";
 import spanish from "./language-spanish/pi-web-plugin.js";
 import swedish from "./language-swedish/pi-web-plugin.js";
@@ -61,6 +62,7 @@ const sourcePaths: Record<string, string> = {
   "core.runtimeActivity": "../src/client/src/components/runtimeActivity.messages.ts",
   "core.sessionTree": "../src/client/src/components/sessionTree.messages.ts",
   "core.serverNotices": "../src/client/src/serverNotices.messages.ts",
+  "core.notices": "../src/client/src/components/SessionNoticesPanel.messages.ts",
   "core.statusBar": "../src/client/src/components/statusBar.messages.ts",
   "core.askUser": "../src/client/src/components/askUser.messages.ts",
   "core.content-renderer": "../src/client/src/components/contentRenderer.messages.ts",
@@ -147,6 +149,7 @@ describe.each(packs)("$id", (pack) => {
     const diagnostic = vi.fn();
     const service = new LocalizationService({ diagnostic });
     const auth = service.registerMessages("core.auth", authDefinitions);
+    const notices = service.registerMessages("core.notices", noticesDefinitions);
     const files = service.registerMessages("plugin:files:files", fileDefinitions);
     const lifetime = new AbortController();
     const localization = createPluginLocalization(service, pack.id, `remote-${pack.id}`, lifetime.signal);
@@ -174,6 +177,10 @@ describe.each(packs)("$id", (pack) => {
       expect(auth.t("cancel")).toBe(catalogs["core.auth"].cancel);
       expect(files.t("cancel")).toBe(catalogs["plugin:files:files"].cancel);
       expect(auth.t("cancel")).not.toBe("Cancel");
+      if (pack.id === "zh-cn") {
+        expect(notices.t("title")).toBe("通知");
+        expect(notices.t("empty")).toBe("暂无通知");
+      }
       expect(service.language).toBe(pack.locale);
       expect(service.preferences.formatLocale).toBe("en-US");
 
@@ -184,6 +191,8 @@ describe.each(packs)("$id", (pack) => {
       expect(auth.t("cancel")).toBe("Cancel");
       expect(files.t("cancel")).toBe("Cancel");
       expect(service.preferences.language).toBe(pack.regional);
+      expect(notices.t("title")).toBe("Notices");
+      expect(notices.t("empty")).toBe("No notices");
       expect(diagnostic).not.toHaveBeenCalled();
     } finally {
       lifetime.abort();

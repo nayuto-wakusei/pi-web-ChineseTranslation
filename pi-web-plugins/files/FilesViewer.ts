@@ -5,6 +5,7 @@ import { keyed } from "lit/directives/keyed.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 import { FilesLocalizationController, formatFileSize, type FilesContent } from "./filesLocalization";
 import { DEFAULT_WORKSPACE_FILE_VIEW_MODE, workspaceFileViewModeStore, type WorkspaceFileViewMode, type WorkspaceFileViewModeStore } from "./workspaceFileViewMode";
+import type { FilesViewerLoader } from "./viewerLoader";
 
 export const DEFAULT_MAX_INLINE_PREVIEW_BYTES = 1024 * 1024;
 
@@ -65,6 +66,7 @@ export class WorkspaceFileViewer extends LitElement {
 
   @property({ attribute: false }) machineId = "";
   @property({ attribute: false }) filePreviewing: FilePreviewingCapability | undefined;
+  @property({ attribute: false }) loadViewerDependencies: FilesViewerLoader | undefined;
   @property({ attribute: false }) files: WorkspaceFilesContextValue | undefined;
   @property({ attribute: false }) projectId = "";
   @property({ attribute: false }) workspaceId = "";
@@ -228,7 +230,14 @@ export class WorkspaceFileViewer extends LitElement {
     if (file.size === 0) return this.renderStatus(this.text.messages.t("empty"));
     return html`
       ${file.truncated ? html`<p class="preview-note" role="status">${this.text.messages.t("rawTruncated")}</p>` : null}
-      <pi-web-files-code-viewer .stylesheetIntegration=${this.stylesheetIntegration} .content=${file.content} .language=${file.language}></pi-web-files-code-viewer>
+      <pi-web-files-code-viewer
+        .stylesheetIntegration=${this.stylesheetIntegration}
+        .content=${file.content}
+        .language=${file.language}
+        .loadViewerDependencies=${this.loadViewerDependencies}
+        .loadingLabel=${this.text.messages.t("loadingFile", { path: file.path })}
+        .failureLabel=${this.text.messages.t("previewFailed", { path: file.path })}
+      ></pi-web-files-code-viewer>
     `;
   }
 

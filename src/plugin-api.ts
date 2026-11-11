@@ -1,5 +1,6 @@
 import type { ReactiveController, ReactiveControllerHost, TemplateResult } from "lit";
 import type { ManagedAgentsStatus, ManagedAgentsDecision, LocalizationContribution, Translator, JsonValue } from "./shared/pluginApiTypes.js";
+import type { WorkspaceTreeBatchResponse } from "./shared/pluginApiTypes.js";
 export type { ManagedAgentsStatus, ManagedAgentsDecision } from "./shared/pluginApiTypes.js";
 import type { LocalizationReader, LocalizedMessages, MessageDefinitions, TranslationContribution } from "./shared/localization.js";
 export type * from "./shared/localization.js";
@@ -27,6 +28,8 @@ export type {
   FileContentResponse,
   FileTreeEntry,
   FileTreeResponse,
+  WorkspaceTreeBatchResponse,
+  WorkspaceTreeBatchResult,
   JsonObject,
   JsonPrimitive,
   JsonValue,
@@ -875,6 +878,8 @@ export interface WorkspaceFilesCapabilityV1 extends WorkspaceFiles {
   readonly managedAgents?: ManagedAgentsControl;
   readFile(path: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse>;
   listFiles(path: string, options?: WorkspaceFileRequestOptions): Promise<FileTreeResponse>;
+  /** Optional directory listings on the same workspace, with per-path results. */
+  listFilesBatch?(paths: readonly string[], options?: WorkspaceFileRequestOptions): Promise<WorkspaceTreeBatchResponse>;
   /** Return a browser-ready URL already resolved by the host for this deployment and machine. */
   previewUrl(path: string, options?: WorkspaceFileReferenceOptions): string;
   /** Return a browser-ready download URL already resolved by the host for this deployment and machine. */

@@ -2,7 +2,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { basename } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveFileIcon } from "../fileIcons";
+import { createFileIconResolver } from "../fileIcons";
 import { PluginRegistry } from "../registry";
 import type { FileIconThemeContribution } from "../types";
 import { themePackPlugin } from "./index";
@@ -14,6 +14,7 @@ afterEach(async () => {
 });
 
 const material: FileIconThemeContribution = { id: "material", name: "Material", ...materialFileIcons };
+const resolveMaterialIcon = createFileIconResolver(material);
 const assetName = (url: string) => basename(new URL(url).pathname);
 
 describe("bundled Material file icons", () => {
@@ -40,16 +41,16 @@ describe("bundled Material file icons", () => {
     ["unrecognized.zzz-unknown", "file.svg"],
     ["no-extension", "file.svg"],
   ])("resolves %s to %s", (path, expected) => {
-    expect(assetName(resolveFileIcon(material, path, "dark"))).toBe(expected);
+    expect(assetName(resolveMaterialIcon(path, "dark"))).toBe(expected);
   });
 
   it("uses the same extension-specific mask shapes in light and dark themes", () => {
     const samples: [string, string][] = [["next.config.ts", "next.svg"], ["config.toml", "toml.svg"], ["main.ts", "typescript.svg"]];
     for (const [path, expected] of samples) {
-      expect(assetName(resolveFileIcon(material, path, "dark"))).toBe(expected);
-      expect(resolveFileIcon(material, path, "light")).toBe(resolveFileIcon(material, path, "dark"));
+      expect(assetName(resolveMaterialIcon(path, "dark"))).toBe(expected);
+      expect(resolveMaterialIcon(path, "light")).toBe(resolveMaterialIcon(path, "dark"));
     }
-    expect(resolveFileIcon(material, "unknown", "light")).toBe(material.file.url);
+    expect(resolveMaterialIcon("unknown", "light")).toBe(material.file.url);
   });
 
   it("generates a broad, entirely local static SVG set with packaged license notices", async () => {

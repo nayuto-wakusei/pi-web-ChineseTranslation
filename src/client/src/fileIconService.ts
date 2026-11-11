@@ -1,6 +1,6 @@
 import type { FileIconsCapability, PluginCapability } from "../../plugin-api";
 import type { QualifiedFileIconThemeContribution, ThemeColorScheme } from "./plugins/types";
-import { resolveFileIcon } from "./plugins/fileIcons";
+import { createFileIconResolver } from "./plugins/fileIcons";
 import { DEFAULT_FILE_ICON_THEME_ID, NO_FILE_ICONS } from "./fileIconPreferences";
 
 export const fileIconsCapabilityToken: PluginCapability<FileIconsCapability> = {
@@ -22,13 +22,14 @@ export class FileIconService {
   private themes: readonly QualifiedFileIconThemeContribution[] = [];
   private preference: string | undefined;
   private colorScheme: ThemeColorScheme = "dark";
+  private theme: QualifiedFileIconThemeContribution | undefined;
+  private resolveIcon: ReturnType<typeof createFileIconResolver> | undefined;
   private readonly listeners = new Set<() => void>();
   readonly capability: FileIconsCapability = Object.freeze({
     resolveIcon: (path: string): string | undefined => {
-      if (this.preference === NO_FILE_ICONS) return undefined;
-      const theme = this.themes.find(({ id }) => id === this.preference)
-        ?? this.themes.find(({ id }) => id === DEFAULT_FILE_ICON_THEME_ID);
-      return theme === undefined ? undefined : resolveFileIcon(theme, path, this.colorScheme);
+      if (this.theme === undefined) return undefined;
+      this.resolveIcon ??= createFileIconResolver(this.theme);
+      return this.resolveIcon(path, this.colorScheme);
     },
     subscribe: (listener: () => void): (() => void) => {
       this.listeners.add(listener);
@@ -42,6 +43,12 @@ export class FileIconService {
     this.themes = [...themes];
     this.preference = preference;
     this.colorScheme = colorScheme;
+    const theme = preference === NO_FILE_ICONS ? undefined
+      : themes.find(({ id }) => id === preference) ?? themes.find(({ id }) => id === DEFAULT_FILE_ICON_THEME_ID);
+    if (theme !== this.theme) {
+      this.theme = theme;
+      this.resolveIcon = undefined;
+    }
     if (changed) for (const listener of [...this.listeners]) {
       try { listener(); }
       catch (error) { console.warn("Failed to notify file icon subscriber", error); }

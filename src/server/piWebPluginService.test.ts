@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, realpath, rm, writeFile, mkdir, symlink } from "node:fs/promises";
+import { mkdtemp, readdir, realpath, rm, writeFile, mkdir, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,6 +55,34 @@ describe("PiWebPluginService", () => {
     const manifest = await service.localizationManifest();
     expect(manifest.plugins.map((entry) => entry.id)).toEqual(enabled !== false ? ["zh-cn"] : []);
     if (enabled !== false) expect(await service.readAsset("zh-cn", "plugin.js")).toBeDefined();
+  });
+
+  it("discovers only the shipped language package at bootstrap and still refreshes its asset revision", async () => {
+    const bundled = join(tempDir, "bundled");
+    const chinese = join(bundled, "zh-cn");
+    const other = join(bundled, "unrelated");
+    for (const [id, root] of [["zh-cn", chinese], ["unrelated", other]] as const) {
+      await writePlugin(root, {
+        packageJson: { piWeb: { plugins: [{ id, browserRoot: ".", module: "plugin.js" }] } },
+        files: { "plugin.js": "export default {};", "catalog.json": '{"label":"First"}' },
+      });
+    }
+    const listDirectory = vi.fn((path: string) => readdir(path));
+    const service = new RuntimePiWebPluginService({
+      roots: [{ path: bundled, source: "bundled", scope: "bundled" }],
+      packageProvider: false,
+      directoryEntryNamesProvider: listDirectory,
+    });
+
+    const first = await service.localizationManifest();
+    expect(first.plugins.map(({ id }) => id)).toEqual(["zh-cn"]);
+    await writeFile(join(chinese, "catalog.json"), '{"label":"Second"}');
+    const second = await service.localizationManifest();
+    expect(second.plugins[0]?.module).not.toBe(first.plugins[0]?.module);
+    const asset = await service.readAsset("zh-cn", "catalog.json");
+    expect(asset?.content.toString()).toBe('{"label":"Second"}');
+    expect(listDirectory).toHaveBeenCalledWith(await realpath(chinese));
+    expect(listDirectory).not.toHaveBeenCalledWith(await realpath(other));
   });
 
   it("reports legacy browser manifests and never serves them through an asset fallback", async () => {

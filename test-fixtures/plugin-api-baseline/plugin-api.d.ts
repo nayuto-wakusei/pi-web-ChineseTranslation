@@ -1,5 +1,6 @@
 import type { ReactiveController, ReactiveControllerHost, TemplateResult } from "lit";
 import type { ManagedAgentsStatus, ManagedAgentsDecision, LocalizationContribution, Translator, JsonValue } from "./shared/pluginApiTypes.js";
+import type { WorkspaceTreeBatchResponse } from "./shared/pluginApiTypes.js";
 export type { ManagedAgentsStatus, ManagedAgentsDecision } from "./shared/pluginApiTypes.js";
 import type { LocalizationReader, LocalizedMessages, MessageDefinitions, TranslationContribution } from "./shared/localization.js";
 export type * from "./shared/localization.js";
@@ -16,7 +17,7 @@ export interface PluginLocalization extends LocalizationReader {
     controller(host: ReactiveControllerHost): ReactiveController;
 }
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, MachineKind, PluginBackend, PluginPeer, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, MaintenanceTerminalCommandRun, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
-export type { LocalizationContribution, TranslationMessages, TranslationParameters, Translator, FileContentMediaType, FileContentResponse, FileTreeEntry, FileTreeResponse, JsonObject, JsonPrimitive, JsonValue, PluginBackend, PluginBackendScope, PluginPeer, PluginPeerRequestOptions, PluginPeerChannelOptions, PluginPeerChannelClose, PluginPeerChannel, MachineKind, PiWebComponentStatus, PiWebRuntimeIdentity, PiWebDockerMode, PiWebInstallationInfo, PiWebInstallationKind, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, PiWebVersionResponse, PluginCapability, PluginCapabilityProvision, SessionUiMetadata, AnyTerminalCommandRun, MaintenanceTerminalCommandRun, TerminalCommandRun, TerminalCommandRunHandle, TerminalCommandRunStatus, WorkspaceProviderCapabilities, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, } from "./shared/pluginApiTypes.js";
+export type { LocalizationContribution, TranslationMessages, TranslationParameters, Translator, FileContentMediaType, FileContentResponse, FileTreeEntry, FileTreeResponse, WorkspaceTreeBatchResponse, WorkspaceTreeBatchResult, JsonObject, JsonPrimitive, JsonValue, PluginBackend, PluginBackendScope, PluginPeer, PluginPeerRequestOptions, PluginPeerChannelOptions, PluginPeerChannelClose, PluginPeerChannel, MachineKind, PiWebComponentStatus, PiWebRuntimeIdentity, PiWebDockerMode, PiWebInstallationInfo, PiWebInstallationKind, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, PiWebVersionResponse, PluginCapability, PluginCapabilityProvision, SessionUiMetadata, AnyTerminalCommandRun, MaintenanceTerminalCommandRun, TerminalCommandRun, TerminalCommandRunHandle, TerminalCommandRunStatus, WorkspaceProviderCapabilities, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, } from "./shared/pluginApiTypes.js";
 export type { PluginCatalogV1, PluginCatalogProject, PluginCatalogWorkspace, PluginSessionSnapshot, PluginWorkspaceSelection, PluginSessionSelection, PluginCatalogReadOptions } from "./shared/pluginCatalogTypes.js";
 import type { PluginCatalogV1 } from "./shared/pluginCatalogTypes.js";
 export type { PluginSessionLifecycleV1, PluginSessionLifecycleState, PluginSessionLifecycleOptions } from "./shared/pluginSessionLifecycleTypes.js";
@@ -765,6 +766,8 @@ export interface WorkspaceFilesCapabilityV1 extends WorkspaceFiles {
     readonly managedAgents?: ManagedAgentsControl;
     readFile(path: string, options?: WorkspaceFileRequestOptions): Promise<FileContentResponse>;
     listFiles(path: string, options?: WorkspaceFileRequestOptions): Promise<FileTreeResponse>;
+    /** Optional directory listings on the same workspace, with per-path results. */
+    listFilesBatch?(paths: readonly string[], options?: WorkspaceFileRequestOptions): Promise<WorkspaceTreeBatchResponse>;
     /** Return a browser-ready URL already resolved by the host for this deployment and machine. */
     previewUrl(path: string, options?: WorkspaceFileReferenceOptions): string;
     /** Return a browser-ready download URL already resolved by the host for this deployment and machine. */

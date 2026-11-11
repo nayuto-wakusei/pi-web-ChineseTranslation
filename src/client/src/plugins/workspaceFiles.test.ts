@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_INLINE_PREVIEW_BYTES } from "../../../shared/workspaceFiles";
+import { FILE_TREE_BATCH_MAX_PATHS } from "../../../shared/apiTypes";
 import { managedAgentsApi } from "../api/managedAgents";
+import { HttpRequestError } from "../api/http";
 import {
   uploadWorkspaceFile,
   WorkspaceUploadCancelledError,
@@ -81,6 +83,39 @@ describe("createWorkspaceFiles", () => {
     const files = createWorkspaceFiles(fakeApi({ workspaceTree }), workspace, "local", hostOptions());
 
     await expect(files.listFiles(".pi-web/relays")).rejects.toThrow("Path not found: .pi-web/relays");
+  });
+
+  it("binds batch listing to the same workspace and bounds each cancellable request", async () => {
+    const workspaceTreeBatch = vi.fn<NonNullable<WorkspaceFilesApi["workspaceTreeBatch"]>>((_p, _w, paths) =>
+      Promise.resolve({ results: paths.map((path) => ({ path, tree: { ...testFileTreeResponse(), path } })) }));
+    const files = createWorkspaceFiles(fakeApi({ workspaceTreeBatch }), workspace, "remote-1", hostOptions());
+    const signal = new AbortController().signal;
+    const paths = Array.from({ length: FILE_TREE_BATCH_MAX_PATHS + 1 }, (_, index) => String(index));
+
+    const result = await files.listFilesBatch?.([...paths, "0"], { signal });
+    expect(result?.results.map(({ path }) => path)).toEqual(paths);
+    expect(workspaceTreeBatch.mock.calls).toEqual([
+      ["p-1", "w-1", paths.slice(0, FILE_TREE_BATCH_MAX_PATHS), "remote-1", { signal }],
+      ["p-1", "w-1", paths.slice(FILE_TREE_BATCH_MAX_PATHS), "remote-1", { signal }],
+    ]);
+  });
+
+  it("falls back to scoped per-directory reads on an older gateway, but not on denial", async () => {
+    const workspaceTreeBatch = vi.fn<NonNullable<WorkspaceFilesApi["workspaceTreeBatch"]>>()
+      .mockRejectedValueOnce(new HttpRequestError("Not found", 404))
+      .mockRejectedValueOnce(new HttpRequestError("Forbidden", 403));
+    const workspaceTree = vi.fn<WorkspaceFilesApi["workspaceTree"]>()
+      .mockResolvedValueOnce(testFileTreeResponse()).mockRejectedValueOnce(new Error("Missing directory"));
+    const files = createWorkspaceFiles(fakeApi({ workspaceTreeBatch, workspaceTree }), workspace, "remote-1", hostOptions());
+    const signal = new AbortController().signal;
+    await expect(files.listFilesBatch?.(["src", "docs"], { signal })).resolves.toEqual({
+      results: [{ path: "src", tree: testFileTreeResponse() }, { path: "docs", error: "Missing directory" }],
+    });
+    expect(workspaceTree.mock.calls).toEqual([
+      ["p-1", "w-1", "src", "remote-1", { signal }], ["p-1", "w-1", "docs", "remote-1", { signal }],
+    ]);
+    await expect(files.listFilesBatch?.(["src", "docs"], { signal })).rejects.toThrow("Forbidden");
+    expect(workspaceTree).toHaveBeenCalledTimes(2);
   });
 
   it("readFile forwards cancellation through the bound workspace and machine", async () => {

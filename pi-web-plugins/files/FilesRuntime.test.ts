@@ -141,6 +141,45 @@ describe("FilesRuntime tree and selection", () => {
     expect(scope.expandedDirs).toEqual({});
   });
 
+  it("joins the mount refresh during route finalization but replaces it on mutation", async () => {
+    const trees = deferredTrees();
+    const context = createContext({ files: createFiles({ listFiles: trees.fn }) });
+    const runtime = new FilesRuntime();
+    const scope = runtime.prepare(context);
+    const route = runtime.invalidate(context);
+    expect(trees.fn).toHaveBeenCalledOnce();
+    expect(trees.request(0).signal.aborted).toBe(false);
+
+    const mutation = runtime.invalidate(context, { reason: "mutation", resources: ["workspace.files"] });
+    expect(trees.request(0).signal.aborted).toBe(true);
+    trees.request(1).resolve(treeResponse("", [fileEntry("new.txt")]));
+    await Promise.all([route, mutation]);
+    expect(scope.fileTree).toEqual([fileEntry("new.txt")]);
+    expect(scope.treeStale).toBe(false);
+  });
+
+  it("batches reachable expanded siblings and preserves traversal of nested expansions", async () => {
+    const listFiles = vi.fn<WorkspaceFilesCapabilityV1["listFiles"]>((path) =>
+      Promise.resolve(treeResponse(path, path === "" ? [directoryEntry("src"), directoryEntry("docs")] : [fileEntry("src/lib/main.ts")])));
+    const listFilesBatch = vi.fn<NonNullable<WorkspaceFilesCapabilityV1["listFilesBatch"]>>(() =>
+      Promise.resolve({ results: [
+        { path: "docs", tree: treeResponse("docs", [fileEntry("docs/readme.md")]) },
+        { path: "src", tree: treeResponse("src", [directoryEntry("src/lib")]) },
+      ] }));
+    const context = createContext({ files: createFiles({ listFiles, listFilesBatch }) });
+    const runtime = new FilesRuntime();
+    const scope = runtime.snapshot(context);
+    scope.expandedPaths = ["src", "docs", "src/lib", "removed"];
+
+    await runtime.refreshFiles(context);
+
+    expect(listFiles.mock.calls.map(([path]) => path)).toEqual(["", "src/lib"]);
+    expect(listFilesBatch).toHaveBeenCalledExactlyOnceWith(["src", "docs"], { signal: listFiles.mock.calls[0]?.[1]?.signal });
+    expect(scope.expandedDirs).toEqual({
+      src: [directoryEntry("src/lib")], docs: [fileEntry("docs/readme.md")], "src/lib": [fileEntry("src/lib/main.ts")],
+    });
+  });
+
   it("aborts superseded refreshes and directory expansions before stale results can commit", async () => {
     const trees = deferredTrees();
     const context = createContext({ files: createFiles({ listFiles: trees.fn }) });

@@ -155,6 +155,7 @@
   "ui.sessionList.archiveDescendantCount": "连同后代归档（{count}）",
   "ui.sessionList.loadMoreCount": "加载更多（剩余 {count}）",
   "ui.workspaceFilesPanel.selectedFolderPath": "已选择文件夹：{path}",
+  "ui.workspaceFilesPanel.missingDirectoryListing": "文件树响应中缺少目录。",
   "ui.workspaceFilesPanel.imagePreviewLimit": "图片过大，无法预览：{size} · 上限 {limit}",
   "ui.toolExecutionView.lineCount": "{count} 行",
   "ui.toolExecutionView.showAllDiffLines": "显示全部 {count} 行 diff",

@@ -1,5 +1,5 @@
 import audioPlugin from "../../pi-web-plugins/audio/pi-web-plugin";
-import filesPlugin from "../../pi-web-plugins/files/pi-web-plugin";
+import filesPlugin, { loadFilesViewerDependencies } from "../../pi-web-plugins/files/pi-web-plugin";
 import { WorkspaceFileViewer } from "../../pi-web-plugins/files/FilesViewer";
 import { createFilesContent } from "../../pi-web-plugins/files/filesLocalization";
 import type { FileContentResponse, WorkspaceFilesCapabilityV1 } from "../../src/plugin-api";
@@ -20,6 +20,7 @@ const filesEntry: unknown = filesPlugin;
 await registry.register({ id: "pi-web.files", plugin: adaptPublicPlugin(filesEntry as InternalPlugin) });
 await registry.register({ id: "pi-web.audio", sourcePluginId: "pi-web.audio", backendRevision: "audio-fixture-r1", pairedResourceVersion: 1, plugin: adaptPublicPlugin(audioPlugin) });
 const viewer = new WorkspaceFileViewer();
+viewer.loadViewerDependencies = loadFilesViewerDependencies;
 viewer.content = createFilesContent(createPluginLocalization(service, "files", "fixture-files", lifetime.signal));
 viewer.machineId = "local";
 viewer.projectId = "p";

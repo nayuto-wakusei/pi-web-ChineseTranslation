@@ -124,6 +124,38 @@ it.each([false, true])("coalesces continuous chunks without postponing live Mark
   }
 });
 
+it("bounds long streaming work, formats the trailing update, and does not delay a replacement", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+  try {
+    const view = new FormattedText();
+    view.text = "**Live** " + "long prose ".repeat(500);
+    document.body.append(view);
+    await settleDeferredContent(view);
+    const format = vi.spyOn(markdown, "toSafeMarkdownHtml");
+
+    view.text += " first";
+    await advanceContentFrame(view);
+    await vi.advanceTimersByTimeAsync(40);
+    view.text += " final";
+    await advanceContentFrame(view);
+    expect(format).not.toHaveBeenCalled();
+    expect(view.renderRoot.querySelector("p")?.textContent).not.toContain(" final");
+    await vi.advanceTimersByTimeAsync(40);
+    await settleDeferredContent(view);
+    expect(format).toHaveBeenCalledExactlyOnceWith(view.text, undefined, undefined, true, view.codeBlocks);
+    expect(view.renderRoot.querySelector("p")?.textContent).toContain(" first final");
+
+    view.text += " discarded";
+    await advanceContentFrame(view);
+    view.text = "**Replacement**";
+    await settleDeferredContent(view);
+    expect(format).toHaveBeenCalledTimes(2);
+    expect(view.renderRoot.querySelector("strong")?.textContent).toBe("Replacement");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("shows replacement source immediately instead of stale formatted content", async () => {
   const view = new FormattedText();
   view.text = "**Original**";
