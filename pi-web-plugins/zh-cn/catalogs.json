@@ -972,6 +972,10 @@
     "forkFailed": "无法分叉会话历史：{error}",
     "characterCount": "{count, number} / {max, number}"
   },
+  "core.notices": {
+    "title": "通知",
+    "empty": "暂无通知"
+  },
   "core.serverNotices": {
     "workspaceRemovalCommandFailed": "工作区移除失败，请查看终端输出。",
     "workspaceRemovalFailed": "工作区移除失败：{detail}"
