@@ -2,7 +2,7 @@ import type { ReactiveController, ReactiveControllerHost } from "lit";
 
 /** Register a nonessential element only while its UI is requested. */
 export class DeferredElementController implements ReactiveController {
-  private loading = false;
+  private pending: Promise<boolean> | undefined;
   private loaded = false;
   private failed = false;
 
@@ -20,11 +20,27 @@ export class DeferredElementController implements ReactiveController {
       this.failed = false;
       return;
     }
-    if (this.loaded || this.loading || this.failed) return;
-    this.loading = true;
-    void this.load().then(() => { this.loaded = true; }).catch((error: unknown) => {
+    if (!this.loaded && !this.failed) void this.ensureLoaded();
+  }
+
+  get loadFailed(): boolean { return this.failed; }
+
+  ensureLoaded(): Promise<boolean> {
+    if (this.loaded) return Promise.resolve(true);
+    if (this.pending !== undefined) return this.pending;
+    if (this.failed) return Promise.resolve(false);
+    this.pending = this.load().then(() => {
+      this.loaded = true;
+      this.host.requestUpdate();
+      return true;
+    }, (error: unknown) => {
       this.failed = true;
-      if (this.host.isConnected) this.reportError(error);
-    }).finally(() => { this.loading = false; });
+      if (this.host.isConnected && this.requested()) {
+        this.reportError(error);
+        this.host.requestUpdate();
+      }
+      return false;
+    }).finally(() => { this.pending = undefined; });
+    return this.pending;
   }
 }

@@ -151,6 +151,14 @@ export interface FileTreeResponse {
   truncated: boolean;
 }
 
+export type WorkspaceTreeBatchResult =
+  | { path: string; tree: FileTreeResponse }
+  | { path: string; error: string };
+
+export interface WorkspaceTreeBatchResponse {
+  results: WorkspaceTreeBatchResult[];
+}
+
 export type FileContentMediaType = "image" | "html" | "pdf" | "markdown";
 
 export interface FileContentResponse {

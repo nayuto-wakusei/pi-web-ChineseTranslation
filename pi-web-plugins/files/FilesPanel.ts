@@ -14,6 +14,7 @@ import {
 } from "./FilesRuntime";
 import { FilesLocalizationController, formatFileSize, formatPercent, type FilesContent } from "./filesLocalization";
 import type { WorkspaceFilePreviewUrlBuilder } from "./FilesViewer";
+import type { FilesViewerLoader } from "./viewerLoader";
 import { createWorkspaceFileViewModeStore, type WorkspaceFileViewModeStore } from "./workspaceFileViewMode";
 import type { ManagedAgentsMenu } from "./ManagedAgentsMenu";
 import "./ManagedAgentsMenu";
@@ -77,6 +78,7 @@ export class WorkspaceFilesPanel extends LitElement {
   @property({ attribute: false }) context: WorkspacePanelContext | undefined;
   @property({ attribute: false }) runtime: FilesRuntime | undefined;
   @property({ attribute: false }) filePreviewing: FilePreviewingCapability | undefined;
+  @property({ attribute: false }) loadViewerDependencies: FilesViewerLoader | undefined;
   @query("#workspace-upload-input") private uploadInput?: HTMLInputElement;
   @query("dialog.upload-dialog") private uploadDialog?: HTMLDialogElement;
   @state() private pendingUpload: PendingWorkspaceUploadReview | undefined;
@@ -224,6 +226,7 @@ export class WorkspaceFilesPanel extends LitElement {
               .content=${this.content}
               .stylesheetIntegration=${this.stylesheetIntegration}
               .filePreviewing=${this.filePreviewing}
+              .loadViewerDependencies=${this.loadViewerDependencies}
               .files=${context.files}
               .machineId=${context.machine.id}
               .projectId=${context.workspace.projectId}

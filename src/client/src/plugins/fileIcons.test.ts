@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveFileIcon, snapshotFileIconTheme } from "./fileIcons";
+import { createFileIconResolver, snapshotFileIconTheme } from "./fileIcons";
 
 const asset = (name: string) => ({ url: `https://icons.test/${name}.svg` });
 const declaration = {
@@ -14,7 +14,7 @@ const declaration = {
 };
 
 describe("file icon resolution", () => {
-  const theme = snapshotFileIconTheme(declaration);
+  const resolveIcon = createFileIconResolver(snapshotFileIconTheme(declaration));
   it.each([
     ["/dir/SPECIAL.d.ts", "exact"],
     ["C:\\dir\\makeFILE", "exact"],
@@ -25,12 +25,19 @@ describe("file icon resolution", () => {
     ["/dir/unknown", "default"],
     ["/dir/foo.ts.txt", "default"],
   ])("resolves %s by filename, longest extension, then fallback", (path, name) => {
-    expect(resolveFileIcon(theme, path, "dark")).toBe(asset(name).url);
+    expect(resolveIcon(path, "dark")).toBe(asset(name).url);
   });
   it("uses light assets when available and falls back to the ordinary asset", () => {
-    expect(resolveFileIcon(theme, "special.d.ts", "light")).toBe("https://icons.test/exact-light.svg");
-    expect(resolveFileIcon(theme, "other", "light")).toBe("https://icons.test/default-light.svg");
-    expect(resolveFileIcon(theme, "code.ts", "light")).toBe(asset("ts").url);
+    expect(resolveIcon("special.d.ts", "light")).toBe("https://icons.test/exact-light.svg");
+    expect(resolveIcon("other", "light")).toBe("https://icons.test/default-light.svg");
+    expect(resolveIcon("code.ts", "light")).toBe(asset("ts").url);
+  });
+  it("keeps declaration order when different Unicode suffixes match at the same original length", () => {
+    const resolveUnicode = createFileIconResolver(snapshotFileIconTheme({ ...declaration, files: [
+      { extensions: [".i\u0307i\u0307"], icon: asset("shorter-normalized") },
+      { extensions: [".x.\u0130\u0130"], icon: asset("longer-normalized") },
+    ] }));
+    expect(resolveUnicode("file.x.\u0130\u0130", "dark")).toBe(asset("shorter-normalized").url);
   });
 });
 
@@ -43,7 +50,7 @@ describe("file icon snapshots", () => {
     if (rule?.extensions === undefined) throw new Error("Missing extension rule");
     rule.extensions[0] = ".changed";
     rule.icon.url = asset("changed").url;
-    expect(resolveFileIcon(snapshot, "code.ts", "dark")).toBe(asset("ts").url);
+    expect(createFileIconResolver(snapshot)("code.ts", "dark")).toBe(asset("ts").url);
     expect(snapshot.file.url).toBe(asset("default").url);
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(Object.isFrozen(snapshot.file)).toBe(true);

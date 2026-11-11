@@ -137,9 +137,8 @@ export class PiWebPluginService {
 
   /** Language bootstrap must work before sessiond or required plugins are ready. */
   async localizationManifest(): Promise<PiWebPluginManifest> {
-    const snapshot = await this.catalog.snapshot({ scope: "bundled" });
-    const plugin = snapshot.plugins.find((entry) => entry.id === "zh-cn" && entry.enabled);
-    if (plugin === undefined || await this.captureBrowserArtifact(plugin) === undefined) {
+    const plugin = await this.catalog.bundledPlugin("zh-cn");
+    if (plugin?.enabled !== true || await this.captureBrowserArtifact(plugin) === undefined) {
       return { lifecycleVersion: PI_WEB_PLUGIN_LIFECYCLE_VERSION, terminalMode: "recovery-disabled", plugins: [] };
     }
     return {

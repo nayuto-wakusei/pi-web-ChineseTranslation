@@ -106,6 +106,7 @@ interface ScopeRecord extends FilesScopeState {
   selectedNeedsRestore: boolean;
   treeRequestGeneration: number;
   treeAbort: AbortController | undefined;
+  treeRefresh: Promise<void> | undefined;
   expandedAborts: Map<string, AbortController>;
   initialized: boolean;
   suspended: boolean;
@@ -213,6 +214,16 @@ export class FilesRuntime {
 
   async refreshFiles(context: WorkspacePanelContext): Promise<void> {
     const scope = this.bindContext(context);
+    const refresh = this.loadTree(scope);
+    scope.treeRefresh = refresh;
+    try {
+      await refresh;
+    } finally {
+      if (scope.treeRefresh === refresh) scope.treeRefresh = undefined;
+    }
+  }
+
+  private async loadTree(scope: ScopeRecord): Promise<void> {
     const files = this.requireFiles(scope);
     if (files === undefined) return;
     scope.initialized = true;
@@ -480,8 +491,7 @@ export class FilesRuntime {
     this.evictInactiveScopes();
   }
 
-  async invalidate(context: WorkspacePanelContext, _invalidation?: WorkspaceInvalidation): Promise<void> {
-    void _invalidation;
+  async invalidate(context: WorkspacePanelContext, invalidation?: WorkspaceInvalidation): Promise<void> {
     const scope = this.bindContext(context);
     const treeGeneration = scope.treeRequestGeneration;
     const navigationRestore = this.synchronizeNavigation(scope);
@@ -496,8 +506,11 @@ export class FilesRuntime {
       await navigationRestore;
       return;
     }
-    // A changed file destination already started a coordinated tree reveal.
-    const treeRefresh = scope.treeRequestGeneration === treeGeneration ? this.refreshFiles(context) : Promise.resolve();
+    // Route finalization can arrive while mounting the same tree. A mutation
+    // or activity event instead requires a snapshot taken after the change.
+    const treeRefresh = scope.treeRequestGeneration !== treeGeneration || (invalidation === undefined && scope.treeRefresh !== undefined)
+      ? scope.treeRefresh
+      : this.refreshFiles(context);
     await Promise.all([navigationRestore, treeRefresh]);
   }
 
@@ -530,6 +543,7 @@ export class FilesRuntime {
         selectedNeedsRestore: lastSelection !== undefined,
         treeRequestGeneration: 0,
         treeAbort: undefined,
+        treeRefresh: undefined,
         expandedAborts: new Map(),
         initialized: false,
         suspended: false,
@@ -642,6 +656,7 @@ export class FilesRuntime {
     scope.treeRequestGeneration += 1;
     scope.treeAbort?.abort();
     scope.treeAbort = undefined;
+    scope.treeRefresh = undefined;
     for (const abort of scope.expandedAborts.values()) abort.abort();
     scope.expandedAborts.clear();
     if (!markForRestore) return;
@@ -655,6 +670,7 @@ export class FilesRuntime {
     scope.treeRequestGeneration += 1;
     scope.treeAbort.abort();
     scope.treeAbort = undefined;
+    scope.treeRefresh = undefined;
     scope.treeLoading = false;
     scope.treeStale = true;
   }
@@ -849,12 +865,20 @@ async function loadExpandedDirectories(
   expandedPaths: ReadonlySet<string>,
   signal: AbortSignal,
 ): Promise<Record<string, FileTreeEntry[]>> {
-  const branches = await Promise.all(entries.filter((entry) => entry.type === "directory" && expandedPaths.has(entry.path)).map(async (entry) => {
-    const response = await files.listFiles(entry.path, { signal });
-    const descendants = await loadExpandedDirectories(files, response.entries, expandedPaths, signal);
-    return { ...descendants, [entry.path]: response.entries };
+  const paths = entries.filter((entry) => entry.type === "directory" && expandedPaths.has(entry.path)).map((entry) => entry.path);
+  if (paths.length === 0) return {};
+  const batch = paths.length > 1 ? await files.listFilesBatch?.(paths, { signal }) : undefined;
+  const results = batch === undefined ? undefined : new Map(batch.results.map((result) => [result.path, result]));
+  const level = await Promise.all(paths.map(async (path) => {
+    if (results === undefined) return [path, (await files.listFiles(path, { signal })).entries] as const;
+    const result = results.get(path);
+    if (result === undefined) throw new Error(t("ui.workspaceFilesPanel.missingDirectoryListing", "The file tree response omitted a directory."));
+    if ("error" in result) throw new Error(result.error);
+    return [path, result.tree.entries] as const;
   }));
-  return Object.fromEntries(branches.flatMap((branch) => Object.entries(branch)));
+  signal.throwIfAborted();
+  const descendants = await loadExpandedDirectories(files, level.flatMap(([, children]) => children), expandedPaths, signal);
+  return { ...descendants, ...Object.fromEntries(level) };
 }
 
 function treeContainsFile(entries: readonly FileTreeEntry[], expanded: Record<string, FileTreeEntry[]>, path: string): boolean {

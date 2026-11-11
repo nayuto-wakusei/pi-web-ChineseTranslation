@@ -203,6 +203,17 @@ export class PiWebPluginCatalog {
     };
   }
 
+  /** Bundled packages can be resolved by their shipped directory without scanning other plugins. */
+  async bundledPlugin(pluginId: string): Promise<PiWebPluginCatalogEntry | undefined> {
+    if (!isPiWebPluginId(pluginId)) return undefined;
+    const config = await this.configProvider();
+    const report = this.reporter([]);
+    const records = new Map<string, PiWebPluginPackageEntry>();
+    for (const plugin of await this.discoverLocalPlugins(report, "bundled", pluginId)) addUnique(records, plugin, report);
+    const plugin = records.get(pluginId);
+    return plugin === undefined ? undefined : applyDesiredState(plugin, config);
+  }
+
   /**
    * Resolve the catalog winner for browser asset serving. A known local winner
    * remains readable even when active Pi-package discovery is unavailable.
@@ -264,11 +275,11 @@ export class PiWebPluginCatalog {
     throw new Error("Pi package plugin discovery requires an explicit active agent directory");
   }
 
-  private async discoverLocalPlugins(report: ReportDiagnostic, scope?: PiWebPluginScope): Promise<PiWebPluginPackageEntry[]> {
+  private async discoverLocalPlugins(report: ReportDiagnostic, scope?: PiWebPluginScope, packageDirectory?: string): Promise<PiWebPluginPackageEntry[]> {
     const plugins: PiWebPluginPackageEntry[] = [];
     for (const root of this.roots) {
       if (scope === undefined || root.scope === scope) {
-        plugins.push(...await discoverLocalRoot(root, report, this.directoryEntryNamesProvider));
+        plugins.push(...await discoverLocalRoot(root, report, this.directoryEntryNamesProvider, packageDirectory));
       }
     }
     return plugins;
@@ -324,11 +335,13 @@ async function discoverLocalRoot(
   root: LocalPluginRoot,
   report: ReportDiagnostic,
   directoryEntryNamesProvider: DirectoryEntryNamesProvider,
+  packageDirectory?: string,
 ): Promise<PiWebPluginPackageEntry[]> {
   if (!existsSync(root.path)) return [];
   const entries = await readdir(root.path, { withFileTypes: true }).catch(() => []);
   const plugins: PiWebPluginPackageEntry[] = [];
   for (const entry of entries) {
+    if (packageDirectory !== undefined && entry.name !== packageDirectory) continue;
     if (!isPiWebPluginId(entry.name)) continue;
     const pluginRoot = join(root.path, entry.name);
     const pluginStat = entry.isDirectory() ? undefined : entry.isSymbolicLink() ? await stat(pluginRoot).catch(() => undefined) : undefined;

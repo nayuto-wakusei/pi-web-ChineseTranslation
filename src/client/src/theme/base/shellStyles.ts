@@ -87,8 +87,10 @@ export const appStyles = css`
   conversation-layout { flex: 1 1 auto; min-width: 0; min-height: 0; }
   .composer-area { display: grid; min-width: 0; background: var(--pi-bg); }
   /* Share a grid cell instead of adding banner height; allow long notices to grow the area rather than clip their controls. */
-  .composer-area > prompt-editor, .composer-activity-notice { grid-area: 1 / 1; min-width: 0; }
-  .composer-area > prompt-editor[inert] { visibility: hidden; }
+  .composer-area > prompt-editor, .composer-activity-notice, .composer-load-state { grid-area: 1 / 1; min-width: 0; }
+  .composer-area > [inert] { visibility: hidden; }
+  .composer-load-state { display: grid; align-content: center; min-block-size: 6rem; padding: 12px 16px; color: var(--pi-muted); }
+  .composer-load-state[role="alert"] { color: var(--pi-danger); }
   .composer-activity-notice { z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--pi-warning-border); background: var(--pi-warning-surface); color: var(--pi-warning); }
   .composer-activity-notice-text { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
   .composer-activity-notice p { margin: 0; }

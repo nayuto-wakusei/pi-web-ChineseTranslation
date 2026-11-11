@@ -29,26 +29,36 @@ export function snapshotFileIconTheme(value: unknown): FileIconThemeContribution
   });
 }
 
-/** Exact basenames win before longest dot-prefixed suffix; ties keep the first declared rule.
- * This resolves files only: callers retain their directory indicators/arrows.
- */
-export function resolveFileIcon(theme: FileIconThemeContribution, path: string, colorScheme: ThemeColorScheme): string {
-  const basename = path.split(/[\\/]/u).at(-1)?.toLowerCase() ?? "";
-  const assetUrl = (asset: FileIconAsset) => colorScheme === "light" ? asset.lightUrl ?? asset.url : asset.url;
-  for (const rule of theme.files ?? []) {
-    if (rule.filenames?.some((name) => name.toLowerCase() === basename) === true) return assetUrl(rule.icon);
-  }
-  let icon = theme.file;
-  let longest = 0;
-  for (const rule of theme.files ?? []) {
+/** Index the selected theme once; each row only checks its basename and dot suffixes. */
+export function createFileIconResolver(theme: FileIconThemeContribution): (path: string, colorScheme: ThemeColorScheme) => string {
+  const filenames = new Map<string, FileIconAsset>();
+  const extensions = new Map<string, { icon: FileIconAsset; length: number; order: number }>();
+  for (const [order, rule] of (theme.files ?? []).entries()) {
+    for (const filename of rule.filenames ?? []) {
+      const key = filename.toLowerCase();
+      if (!filenames.has(key)) filenames.set(key, rule.icon);
+    }
     for (const extension of rule.extensions ?? []) {
-      if (extension.length > longest && basename.endsWith(extension.toLowerCase())) {
-        icon = rule.icon;
-        longest = extension.length;
-      }
+      const key = extension.toLowerCase();
+      const previous = extensions.get(key);
+      if (previous === undefined || extension.length > previous.length) extensions.set(key, { icon: rule.icon, length: extension.length, order });
     }
   }
-  return assetUrl(icon);
+
+  return (path, colorScheme) => {
+    const basename = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1).toLowerCase();
+    let icon = filenames.get(basename);
+    if (icon === undefined) {
+      let best: { icon: FileIconAsset; length: number; order: number } | undefined;
+      for (let dot = basename.indexOf("."); dot !== -1; dot = basename.indexOf(".", dot + 1)) {
+        const match = extensions.get(basename.slice(dot));
+        // Lowercasing can expand Unicode, so compare original lengths and declaration order.
+        if (match !== undefined && (best === undefined || match.length > best.length || (match.length === best.length && match.order < best.order))) best = match;
+      }
+      icon = best?.icon ?? theme.file;
+    }
+    return colorScheme === "light" ? icon.lightUrl ?? icon.url : icon.url;
+  };
 }
 
 function snapshotAsset(value: unknown): FileIconAsset {

@@ -9,6 +9,7 @@ import { createDocumentPreviewers } from "./documentPreviewers";
 import { WorkspaceFilesPanel } from "./FilesPanel";
 import { FilesRuntime } from "./FilesRuntime";
 import { WorkspaceFileViewer } from "./FilesViewer";
+import { loadFilesViewerDependencies } from "./viewerLoader";
 import filesIconUrl from "./files-icon.svg?url";
 import filesStyles from "./files.css?inline";
 
@@ -148,7 +149,7 @@ export function activateFilesPlugin(context: PluginActivationContextV5, filesRun
         invalidationResources: ["workspace.files"],
         fileOpenQuery: (_workspaceContext, path) => ({ file: path }),
         onInvalidate: (workspaceContext, invalidation) => filesRuntime.invalidate(workspaceContext, invalidation),
-        render: (workspaceContext) => context.html`<pi-web-files-panel .presentation=${presentation} .content=${content} .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${filesRuntime} .fileIcons=${fileIcons} .filePreviewing=${filePreviewing}></pi-web-files-panel>`,
+        render: (workspaceContext) => context.html`<pi-web-files-panel .presentation=${presentation} .content=${content} .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${filesRuntime} .fileIcons=${fileIcons} .filePreviewing=${filePreviewing} .loadViewerDependencies=${loadFilesViewerDependencies}></pi-web-files-panel>`,
       }],
       actions: [
         {

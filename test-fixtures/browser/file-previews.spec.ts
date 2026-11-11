@@ -1,5 +1,18 @@
 import { expect, test } from "@playwright/test";
 
+test("the source editor loads only when Raw is opened", async ({ page }) => {
+  const viewerRequests: string[] = [];
+  page.on("request", (request) => {
+    if (/\/viewerDependencies-[^/]+\.js$/u.test(new URL(request.url()).pathname)) viewerRequests.push(request.url());
+  });
+  await page.goto("/file-previews.html");
+  await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
+  expect(viewerRequests).toHaveLength(0);
+  await page.getByRole("button", { name: "Text file", exact: true }).click();
+  await expect(page.locator("pi-web-files-code-viewer .cm-content")).toHaveText("Original file source");
+  expect(viewerRequests).toHaveLength(1);
+});
+
 test("registered document previewers preserve native views, isolation, and Raw", async ({ page }) => {
   await page.route("**/fixture-files/preview?*", async (route) => {
     const path = new URL(route.request().url()).searchParams.get("path");
@@ -32,6 +45,7 @@ test("registered document previewers preserve native views, isolation, and Raw",
   await viewer.getByRole("button", { name: "Raw", exact: true }).click();
   await expect(viewer.locator("img")).toHaveCount(0);
   await expect(viewer.locator("pi-web-files-code-viewer")).toBeVisible();
+  await expect(viewer.locator("pi-web-files-code-viewer .cm-content")).toBeVisible();
   await page.getByRole("button", { name: "HTML file", exact: true }).click();
   await viewer.getByRole("button", { name: "Preview", exact: true }).click();
   await expect(viewer.locator("iframe")).toHaveAttribute("sandbox", "");

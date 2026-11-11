@@ -108,8 +108,8 @@ import "./ConversationSyncNotice";
 import "./ChatView";
 import "./ConversationLayout";
 import type { ChatView } from "./ChatView";
-import "./PromptEditor";
 import type { PromptEditor } from "./PromptEditor";
+import { loadDraft } from "../promptDraftStorage";
 import "./StatusBar";
 import "./CommandPicker";
 import "./ModelPicker";
@@ -282,6 +282,12 @@ export class PiWebApp extends LitElement {
   @state() private queuedMessageActionTarget: QueuedMessageActionTarget | undefined;
   @state() private messageRevertTarget: { machineId: string; sessionId: string; cwd: string; path: string } | undefined;
   @query("prompt-editor") private promptEditor?: PromptEditor;
+  private readonly promptEditorLoader = new DeferredElementController(
+    this,
+    () => !this.promptEditorRegistered() && this.wantsPromptEditor(),
+    () => import("./PromptEditor"),
+    (error) => { console.warn("Failed to load the prompt editor", error); },
+  );
   @query("app-navigation-panel") private navigationPanel?: AppNavigationPanel;
   @query("#navigation-panel") private navigationPanelFrame?: HTMLElement;
   @query("#workspace-panel") private workspacePanelFrame?: HTMLElement;
@@ -662,6 +668,30 @@ export class PiWebApp extends LitElement {
     return mainView === "chat" || (mainView === "navigation" && !this.appShell.isMobileNavigationLayout) || this.isDesktopSideBySideLayout();
   }
 
+  private promptEditorRegistered(): boolean {
+    return customElements.get("prompt-editor") !== undefined;
+  }
+
+  private wantsPromptEditor(): boolean {
+    return this.isConnected && (this.apiScope === "management" || this.normalAuthStatus?.authenticated === true)
+      && this.state.selectedSession !== undefined && this.isChatVisible() && this.contentError() === "";
+  }
+
+  private async promptEditorAfterLoad(): Promise<PromptEditor | undefined> {
+    if (this.promptEditor == null && this.wantsPromptEditor()) {
+      if (!this.promptEditorRegistered() && !await this.promptEditorLoader.ensureLoaded()) return undefined;
+      await this.updateComplete;
+    }
+    const editor = this.promptEditor ?? undefined;
+    await editor?.updateComplete;
+    return editor;
+  }
+
+  private currentComposerDraft(sessionId: string, machineId: string): string {
+    return this.promptEditor?.view?.state.doc.toString()
+      ?? (this.wantsPromptEditor() ? loadDraft(machineSessionKey(machineId, sessionId)) : "");
+  }
+
   private syncSessionActivityAcknowledgement(): void {
     if (this.dismissedActivityNotices.size === 0) return;
     const session = this.state.selectedSession;
@@ -692,14 +722,14 @@ export class PiWebApp extends LitElement {
     this.dismissedActivityNotices.add(sessionKey);
     this.requestUpdate();
     await this.updateComplete;
-    await this.promptEditor?.updateComplete;
+    const editor = await this.promptEditorAfterLoad();
     const session = this.state.selectedSession;
     if (session !== undefined
       && machineSessionKey(selectedMachineId(this.state), session.id) === sessionKey
       && this.unacknowledgedActivitySessionKey() === undefined
       && this.effectiveMainView() === "chat"
-      && this.promptEditor?.disabled === false
-      && !this.isRenderedModalOpen()) this.promptEditor.focusInput();
+      && editor?.disabled === false && editor === this.promptEditor
+      && !this.isRenderedModalOpen()) editor.focusInput();
   };
 
   private renderSessionActivityNotice(): TemplateResult | null {
@@ -994,6 +1024,11 @@ export class PiWebApp extends LitElement {
   private async loadProjectsAndRestoreRoute() {
     this.restoreSettingsRoute();
     const route = readRoute();
+    // An authenticated chat link can fetch the editor during hierarchy restore.
+    if (route.projectId !== undefined && route.workspaceId !== undefined && route.sessionId !== undefined
+      && (route.view === undefined || route.view === "chat") && !this.promptEditorRegistered()) {
+      void this.promptEditorLoader.ensureLoaded();
+    }
     if (!await this.machines.loadMachines(route.machineId)) {
       this.setContentError(route, this.state.error);
       return;
@@ -1644,7 +1679,14 @@ export class PiWebApp extends LitElement {
     await nextFrame();
     if (!shouldComplete()) return;
     this.chatView?.restoreScrollPosition();
-    if (this.shouldAutoFocusPrompt()) this.promptEditor?.focusInput();
+    if (this.shouldAutoFocusPrompt()) {
+      const editor = this.promptEditor;
+      if (editor != null) editor.focusInput();
+      else if (this.wantsPromptEditor()) {
+        const active = deepActiveElement(this.ownerDocument);
+        void this.focusChatComposer(() => shouldComplete() && this.shouldAutoFocusPrompt() && deepActiveElement(this.ownerDocument) === active);
+      }
+    }
   }
 
   private shouldAutoFocusPrompt(): boolean {
@@ -2802,7 +2844,8 @@ export class PiWebApp extends LitElement {
 
   private async focusChatComposer(shouldComplete: () => boolean = () => true): Promise<void> {
     const navigationSeq = this.navigationSelectionSeq;
-    const isCurrent = () => navigationSeq === this.navigationSelectionSeq && shouldComplete();
+    const identity = selectedChatIdentity(this.state);
+    const isCurrent = () => navigationSeq === this.navigationSelectionSeq && identity === selectedChatIdentity(this.state) && shouldComplete();
     if (!isCurrent() || !this.isChatVisible()) return;
     await this.updateComplete;
     if (!isCurrent()) return;
@@ -2810,13 +2853,14 @@ export class PiWebApp extends LitElement {
     if (!isCurrent()) return;
     if (this.sessions.isChatLoadDeferred) await nextFrame();
     await this.updateComplete;
-    await this.promptEditor?.updateComplete;
     if (!isCurrent() || !this.isChatVisible() || this.isRenderedModalOpen()) return;
     if (this.unacknowledgedActivitySessionKey() !== undefined) {
       this.renderRoot.querySelector<HTMLButtonElement>(".composer-activity-notice button")?.focus();
       return;
     }
-    this.promptEditor?.focusInput();
+    const editor = await this.promptEditorAfterLoad();
+    if (isCurrent() && this.isChatVisible() && !this.isRenderedModalOpen()
+      && this.unacknowledgedActivitySessionKey() === undefined && editor === this.promptEditor) editor?.focusInput();
   }
 
   private async navigateSessionTree(targetId: string, summaryChoice: SessionTreeSummaryChoice): Promise<SessionTreeNavigateResult> {
@@ -3424,20 +3468,34 @@ export class PiWebApp extends LitElement {
     const session = this.state.selectedSession;
     const target = session !== undefined && session.archived !== true && !isCreatingSessionId(session.id) && machineId === selectedMachineId(this.state)
       ? { machineId, sessionId: session.id, cwd: session.cwd } : undefined;
+    const targetIsCurrent = () => target?.machineId === selectedMachineId(this.state)
+      && target.sessionId === this.state.selectedSession?.id && target.cwd === this.state.selectedSession.cwd;
     return {
       ...this.plugins.promptChipMethods(pluginId, target),
       insertText: (text: string) => {
+        const insert = (editor: PromptEditor["view"]) => {
+          if (editor === undefined) return;
+          if (!editor.hasFocus) editor.focus();
+          const sel = editor.state.selection.main;
+          editor.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: text },
+            selection: { anchor: sel.from + text.length },
+          });
+        };
         const editor = this.promptEditor?.view;
-        if (!editor) return;
-        if (!editor.hasFocus) editor.focus();
-        const sel = editor.state.selection.main;
-        editor.dispatch({
-          changes: { from: sel.from, to: sel.to, insert: text },
-          selection: { anchor: sel.from + text.length },
-        });
+        if (editor !== undefined) insert(editor);
+        else if (targetIsCurrent() && this.wantsPromptEditor()) {
+          const identity = selectedChatIdentity(this.state);
+          const navigationSeq = this.navigationSelectionSeq;
+          void this.promptEditorAfterLoad().then((mounted) => {
+            if (this.wantsPromptEditor() && mounted === this.promptEditor && !this.isRenderedModalOpen()
+              && identity === selectedChatIdentity(this.state) && navigationSeq === this.navigationSelectionSeq) insert(mounted?.view);
+          });
+        }
       },
       getText: () => {
-        return this.promptEditor?.view?.state.doc.toString() ?? "";
+        return target !== undefined && targetIsCurrent() ? this.currentComposerDraft(target.sessionId, target.machineId)
+          : this.promptEditor?.view?.state.doc.toString() ?? "";
       },
       getSelection: () => {
         const editor = this.promptEditor?.view;
@@ -4098,7 +4156,7 @@ export class PiWebApp extends LitElement {
     if (target.action === "edit") {
       const confirmation = queuedMessageRecallConfirmation(target.expectedQueue, target.index);
       if (confirmation !== undefined && !window.confirm(confirmation)) return;
-      if ((editor?.view?.state.doc.toString() ?? "") !== "" && !window.confirm(chatActionMessages.t("recallDraft"))) return;
+      if (this.currentComposerDraft(session.id, target.machineId) !== "" && !window.confirm(chatActionMessages.t("recallDraft"))) return;
     }
     const navigationSeq = this.navigationSelectionSeq;
     this.queuedMessageActionTarget = target;
@@ -4144,7 +4202,7 @@ export class PiWebApp extends LitElement {
         if (action === "fork") return this.sessions.actOnMessage(input.message.entryId, action);
         if (this.messageRevertTarget !== undefined || this.queuedMessageActionTarget !== undefined || this.isReplacingPrompt(this.state)) throw new Error(t("ui.piWebApp.draftActionInProgress", "Another draft-replacing action is already in progress."));
         const editor = this.promptEditor ?? undefined;
-        const draft = editor?.view?.state.doc.toString() ?? "";
+        const draft = this.currentComposerDraft(input.session.id, input.machine.id);
         if (input.message.role === "user" && draft !== "" && !window.confirm(chatActionMessages.t("backDraft"))) return;
         const session = this.state.selectedSession;
         if (session === undefined) return;
@@ -4485,7 +4543,11 @@ export class PiWebApp extends LitElement {
             <conversation-layout .presentationRuntime=${this.plugins.uiPresentation} .presentationContext=${this.uiPresentationContext()} .status=${state.status} .activity=${state.activity} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .visualEffects=${this.chatBehaviors.visualEffects}>
             ${this.renderChatView(state, state.selectedSession)}
             <div class="composer-area" slot="composer">
+            ${this.promptEditorRegistered() ? html`
             <prompt-editor .chatNavigation=${this.chatNavigation} .defaultStreamingBehavior=${this.defaultStreamingBehavior} ?inert=${activityNoticeVisible || this.isReplacingPrompt(state)} .promptChips=${this.selectedPromptChips()} .onRemoveChip=${this.handleRemovePromptChip} .shortcuts=${this.shortcutConfig} .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .workspaceScopedFileSuggestions=${this.supportsWorkspaceFileSuggestions()} ?speechRecognition=${this.supportsSpeechRecognition()} .attachmentsFolder=${workspaceEffectiveAttachmentsFolder(state.selectedWorkspace?.effectiveConfig, this.workspaceAttachmentsDefaultFolder)} .disabled=${state.selectedSession.archived === true || activityNoticeVisible || this.isReplacingPrompt(state)} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
+            ` : html`<div class="composer-load-state" ?inert=${activityNoticeVisible} role=${this.promptEditorLoader.loadFailed ? "alert" : "status"}>
+              ${this.promptEditorLoader.loadFailed ? appFeedback.t("composerLoadFailed") : appFeedback.t("loadingComposer")}
+            </div>`}
               ${this.renderSessionActivityNotice()}
             </div>
             ${this.renderStatusBar(state)}
