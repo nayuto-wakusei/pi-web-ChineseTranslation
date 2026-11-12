@@ -80,6 +80,8 @@ import type { ActiveSession } from "./sessionRuntimeStore.js";
 import { requireInitialSessionName } from "./sessionNameGenerator.js";
 import type { PluginSessionSnapshot } from "../../shared/pluginCatalogTypes.js";
 import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
+import { checkManagementInput, checkManagementMaterial, checkManagementTool, createManagementGuardExtension, managementGuardrailFailure, managementGuardrailsEnabled, type GuardrailScope } from "../guardrails/managementGuardrails.js";
+import { bindExpandedPromptChecks, bindFinalToolResults, bindManagedShell, checkRestoredMaterials, inspectAttachments, managementMaterialEvents, withApprovedPrompt } from "./managementGuardedSession.js";
 import { attachmentsToInlineImages, saveAttachmentsToWorkspace } from "./attachmentService.js";
 import { loadEffectiveProjectAttachmentsConfig } from "../workspaces/projectPiWebConfig.js";
 import type { PiWebConfigService } from "../configRoutes.js";
@@ -98,7 +100,7 @@ import { createLocalOnlyModelRuntime, modelRuntimeAuthPath, type AuthChange } fr
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import { clearSessionFileParent, readSessionHeaderSummary } from "./sessionFileHeader.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
-import { assertManagedCwd, isManagedAgentsFile, workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
+import { assertManagedCwd, authorizedManagedProjects, isManagedAgentsFile, workbenchAccessHandle, type ManagementEmbedContext } from "../managementEmbed.js";
 import { managementPrivilegeRequested, managementPrivileges, managementUsesNormalPermissions } from "../managementPrivileges.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, piWebDataDir } from "../../config.js";
 import { createScopedSettingsManager, resolveSettingsScopeDirectory, type SessionSettingsMode } from "./projectSettingsScope.js";
@@ -1090,6 +1092,8 @@ function createDefaultRuntimeFactory(
   };
 }
 
+const runtimeGuardScopes = new WeakMap<PiAgentSession, GuardrailScope>();
+
 function createManagementRuntimeFactory(
   modelRuntime: ModelRuntime,
   resolveSettingsScope: ResolveSettingsScopeDirectory,
@@ -1114,6 +1118,22 @@ function createManagementRuntimeFactory(
     if (normalPermissions) await removeUnmodifiedManagedRelaySkills(cwd);
     else await ensureManagedRelaySkills(cwd);
     const auditIdentity = await resolveManagementAuditIdentity(cwd, managementContext, managementProjectIdForCwd, logger);
+    let guardrailScope: GuardrailScope | undefined;
+    if (managementGuardrailsEnabled()) {
+      const scope = { managementContext, cwd, sessionId: sessionManager.getSessionId() };
+      const authorized = authorizedManagedProjects(managementContext);
+      let projectId: string | undefined;
+      try {
+        projectId = managementProjectIdForCwd === undefined ? authorized[0]?.id
+          : await managementProjectIdForCwd(cwd, managementContext);
+      } catch { /* The general activity audit may fall back; tool authorization cannot. */ }
+      if (managementProjectIdForCwd === undefined && authorized.length > 1
+        || projectId === undefined || !authorized.some((project) => project.id === projectId)) {
+        throw managementGuardrailFailure(scope, "before_tool", "project_scope_unavailable");
+      }
+      guardrailScope = { ...scope, projectId, ...(!normalPermissions && { managedFilePaths: true }), scopedDelegation: true };
+    }
+    if (guardrailScope) await checkRestoredMaterials(sessionManager.getEntries(), guardrailScope);
     const accessHandle = workbenchAccessHandle(managementContext);
     const state = normalPermissions || workbench === undefined ? undefined : await workbench.accessStates.prepare(accessHandle, workbench.client);
     const receipt = state === undefined ? undefined : await workbench?.skills.synchronize(cwd, state, {
@@ -1123,6 +1143,8 @@ function createManagementRuntimeFactory(
       cwd,
     });
     const workbenchTools = state === undefined || workbench === undefined ? [] : createWorkbenchToolDefinitions({
+      bookstackJournal: sessionManager,
+      ...(guardrailScope && { guardrailScope }),
       getState: (signal) => workbench.accessStates.prepare(accessHandle, workbench.client, undefined, signal),
       workbench: workbench.client,
       mcp: workbench.mcp,
@@ -1155,6 +1177,7 @@ function createManagementRuntimeFactory(
           read: (parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string, toolCallId?: string) => subsessions.read(parentSessionId, sessionId, query, parentSessionFile, toolCallId, managementContext),
         };
     const managementFactories = [
+      ...(guardrailScope ? [createManagementGuardExtension(guardrailScope), managementMaterialEvents] : []),
       createExtensionSessionDispatch(cwd, {
         ...(scopedSpawn === undefined ? {} : { spawn: scopedSpawn }),
         isEnabled: () => resolvedDelegationToolsEnabled
@@ -1245,12 +1268,21 @@ function createManagementRuntimeFactory(
         ...(modelOptions.scopedModels.length === 0 ? {} : { scopedModels: modelOptions.scopedModels }),
       };
       const result = await createAgentSessionFromServices(options);
+      if (guardrailScope) {
+        runtimeGuardScopes.set(result.session, guardrailScope);
+        bindExpandedPromptChecks(result.session, guardrailScope);
+        bindFinalToolResults(result.session, guardrailScope);
+        bindManagedShell(result.session, guardrailScope);
+      }
       // SDK reload re-executes extensions, so it needs the same scoped environment as startup.
       const reload = result.session.reload.bind(result.session);
       result.session.reload = (options) => withRuntimeCreationEnvironment(resourceEnvironment, async () => {
         if (normalPermissions) await removeUnmodifiedManagedRelaySkills(cwd);
         else await ensureManagedRelaySkills(cwd);
-        return reload(options);
+        return reload(!guardrailScope ? options : { ...options, beforeSessionStart: async () => {
+          bindFinalToolResults(result.session, guardrailScope);
+          await options?.beforeSessionStart?.();
+        } });
       });
       return { ...result, services, diagnostics: [...projectTrustDiagnostics, ...services.diagnostics] };
     });
@@ -2373,6 +2405,8 @@ export class PiSessionService {
   async answerDialog(ref: PiSessionLookup, dialogId: string, value: ExtensionDialogAnswer, managementContext?: ManagementEmbedContext): Promise<ExtensionDialogCloseResponse> {
     await this.assertWritable(ref, managementContext);
     const session = await this.sessionForStatusOrDialogClose(ref, managementContext);
+    const scope = this.guardrailScope(session);
+    if (scope && typeof value === "string") await checkManagementInput(scope, value);
     const result = this.pendingExtensionDialogStore.answer(this.dialogSessionKey(session), dialogId, value);
     if (result.status === "stale") return { result: "stale", sessionStatus: this.statusFromSession(session) };
     const { outcome } = result;
@@ -2512,7 +2546,11 @@ export class PiSessionService {
     this.assertTreeNavigationInactive(child, "resume a subsession");
     if (this.hasActiveWork(child)) throw new Error("Subsession is already working");
     const text = requirePromptText(prompt ?? "Continue your previous task from the current conversation and workspace state. Check any interrupted work before repeating it.", this.t);
-    void this.beginPromptSubmission(child, text, undefined, [], true, { expandPromptTemplates: false }).catch(() => undefined);
+    const scope = this.guardrailScope(child);
+    if (scope) await checkManagementInput(scope, text);
+    if (this.hasActiveWork(child)) throw new Error("Subsession is already working");
+    const submit = () => this.beginPromptSubmission(child, text, undefined, [], true, { expandPromptTemplates: false });
+    void (scope ? withApprovedPrompt(scope, text, submit) : submit()).catch(() => undefined);
     return { sessionId, cwd, status: "working" };
   }
 
@@ -2545,6 +2583,8 @@ export class PiSessionService {
     await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     this.assertTreeNavigationInactive(session, "receive a session message");
+    const scope = this.guardrailScope(session);
+    const screened = scope ? (await checkManagementMaterial(scope, message)).text : message;
     const delivery = this.hasActiveWork(session) ? "queued" : "started";
     let agentStarted = false;
     const unsubscribe = session.subscribe((event) => {
@@ -2557,9 +2597,9 @@ export class PiSessionService {
       if (!this.isCurrentActiveSession(session)) throw new Error("Session was closed before message delivery");
       await session.sendCustomMessage({
         customType: "session.message",
-        content: `Message from session ${input.sendingSessionId}:\n\n${message}`,
+        content: `Message from session ${input.sendingSessionId}:\n\n${screened}`,
         display: true,
-        details: { sendingSessionId: input.sendingSessionId, body: message },
+        details: { sendingSessionId: input.sendingSessionId, body: screened },
       }, { triggerTurn: true, deliverAs: "steer" });
     }).catch((error: unknown) => {
       const detail = error instanceof Error ? error.message : String(error);
@@ -3293,6 +3333,12 @@ export class PiSessionService {
     return commands.sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  private guardrailScope(session: PiAgentSession): GuardrailScope | undefined {
+    const managementContext = this.sessionManagementContexts.get(session);
+    if (!managementContext || !managementGuardrailsEnabled()) return undefined;
+    return runtimeGuardScopes.get(session) ?? { managementContext, cwd: session.sessionManager.getCwd(), sessionId: session.sessionId };
+  }
+
   async prompt(ref: PiSessionLookup, text: unknown, streamingBehavior?: unknown, attachments?: unknown, options?: { echoUserMessage?: boolean; managementContext?: ManagementEmbedContext | undefined }): Promise<void> {
     const promptText = requirePromptText(text, this.t);
     // Command-forwarded prompts (e.g. /skill:*) are expanded by the agent, which
@@ -3302,9 +3348,13 @@ export class PiSessionService {
     const echoUserMessage = options?.echoUserMessage !== false;
     const requestedBehavior = parsePromptStreamingBehavior(streamingBehavior);
     const parsedAttachments = parsePromptAttachments(attachments, { enforceInlineSizeLimit: false });
-    const images = (await attachmentsToInlineImages(parsedAttachments)).map((entry) => entry.image);
     await this.assertWritable(ref, options?.managementContext);
     const session = await this.getOrOpen(ref, options?.managementContext);
+    const scope = this.guardrailScope(session);
+    if (scope) await checkManagementInput(scope, promptText);
+    const checked = scope ? await inspectAttachments(scope, parsedAttachments) : parsedAttachments;
+    const images = (await attachmentsToInlineImages(checked)).map((entry) => entry.image);
+    if (scope && !this.isCurrentActiveSession(session)) throw new UserFacingError("routing.sessionNotFound", "Session not found");
     this.assertTreeNavigationInactive(session, this.t("server.main.94306b2fc35c", "send a prompt"));
     const isQueued = session.isStreaming || session.isCompacting;
     const behavior = isQueued ? requestedBehavior ?? "followUp" : undefined;
@@ -3321,7 +3371,8 @@ export class PiSessionService {
       this.enqueuePromptDuringCompaction(session, promptText, behavior ?? "followUp", images, echoUserMessage);
       return;
     }
-    void this.submitPrompt(session, promptText, behavior, images, echoUserMessage);
+    const submit = () => this.submitPrompt(session, promptText, behavior, images, echoUserMessage);
+    void (scope ? withApprovedPrompt(scope, promptText, submit) : submit());
   }
 
   private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {
@@ -3336,7 +3387,9 @@ export class PiSessionService {
     const eventScope = this.eventScopeForSession(session);
     const echoes = this.pendingPromptEchoes.get(session) ?? [];
     const userCount = historyMessagesFromEntries(session.sessionManager.getBranch()).filter((message) => isRecord(message) && message["role"] === "user").length;
-    const echo = behavior === undefined && echoUserMessage
+    // Managed input handlers and templates may still change the actual instruction.
+    // The SDK will publish its checked canonical message once admission completes.
+    const echo = behavior === undefined && echoUserMessage && this.guardrailScope(session) === undefined
       ? { userIndex: Math.max(userCount, ...echoes.map((pending) => pending.userIndex + 1)), message: userMessage(text, images) }
       : undefined;
     if (echo !== undefined) {
@@ -3438,8 +3491,13 @@ export class PiSessionService {
     await this.assertWritable(ref, managementContext);
     const active = await this.getActive(ref, managementContext);
     const cwd = active.runtime.cwd;
+    const scope = this.guardrailScope(active.runtime.session);
+    const checked = scope ? await inspectAttachments(scope, parsed) : parsed;
     const effectiveFolder = folder ?? (await this.workspaceAttachmentsConfig(cwd)).defaultFolder;
-    return saveAttachmentsToWorkspace(cwd, parsed, effectiveFolder === undefined ? {} : { folder: effectiveFolder });
+    return saveAttachmentsToWorkspace(cwd, checked, {
+      ...(effectiveFolder === undefined ? {} : { folder: effectiveFolder }),
+      ...(scope && { authorizePath: (path: string) => checkManagementTool(scope, "write", { path }) }),
+    });
   }
 
   private async workspaceAttachmentsConfig(cwd: string): Promise<PiWebAttachmentsConfig> {
@@ -3457,6 +3515,8 @@ export class PiSessionService {
     if (!command) throw new Error(this.t("shell.usage", "Usage: !<shell command>"));
     if (session.isBashRunning) throw new Error(this.t("shell.alreadyRunning", "A bash command is already running"));
 
+    const scope = this.guardrailScope(session);
+    if (scope) await checkManagementTool(scope, "bash", { command });
     const eventScope = active.eventScope;
     this.publishActivity(session, { kind: "runningBash" }, "active", command);
     this.events.publish(session.sessionId, { type: "shell.start", command, excludeFromContext: isExcluded }, eventScope);
@@ -3487,12 +3547,16 @@ export class PiSessionService {
   async runCommand(ref: PiSessionLookup, text: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
     await this.assertWritable(ref, managementContext);
     const active = await this.getActive(ref, managementContext);
+    const scope = this.guardrailScope(active.runtime.session);
+    if (scope) await checkManagementInput(scope, text);
     return this.commandService.run(active.runtime.session.sessionId, text, active.eventScope);
   }
 
   async respondToCommand(ref: PiSessionLookup, requestId: string, value: string, managementContext?: ManagementEmbedContext): Promise<ClientCommandResult> {
     await this.assertWritable(ref, managementContext);
     const active = await this.getActive(ref, managementContext);
+    const scope = this.guardrailScope(active.runtime.session);
+    if (scope) await checkManagementInput(scope, value);
     return this.commandService.respond(active.runtime.session.sessionId, requestId, value, active.eventScope);
   }
 
@@ -3508,6 +3572,8 @@ export class PiSessionService {
     await this.assertWritable(ref, managementContext);
     const session = await this.getOrOpen(ref, managementContext);
     if (expectedSession !== undefined && session !== expectedSession) throw new Error(this.t("session.extensionUnavailable", "This extension command belongs to an unavailable session runtime"));
+    const scope = this.guardrailScope(session);
+    if (scope && options.customInstructions !== undefined) await checkManagementInput(scope, options.customInstructions);
     const navigateTree = session.navigateTree?.bind(session);
     if (navigateTree === undefined) throw new Error(this.t("session.treeUnsupported", "Session tree navigation is not supported by this Pi runtime"));
     if (this.hasActiveWork(session)) throw new Error(this.t("server.main.e39e6b98e072", "Stop current session activity before navigating the session tree"));
@@ -4463,10 +4529,15 @@ export class PiSessionService {
     return Promise.resolve(active);
   }
 
-  private submitCommandPrompt(sessionId: string, text: string, eventScope: string | undefined): Promise<void> {
+  private async submitCommandPrompt(sessionId: string, text: string, eventScope: string | undefined): Promise<void> {
     const active = this.activeForSessionIdAndScope(sessionId, eventScope);
     if (active === undefined) throw new Error(this.t("session.notActive", "Session not active: {sessionId}", { sessionId }));
-    return this.submitPrompt(active.runtime.session, text, undefined, [], false);
+    const session = active.runtime.session;
+    const scope = this.guardrailScope(session);
+    const submit = () => this.submitPrompt(session, text, undefined, [], false);
+    if (!scope) return submit();
+    await checkManagementInput(scope, text);
+    return withApprovedPrompt(scope, text, submit);
   }
 
   /**
@@ -4659,6 +4730,9 @@ export class PiSessionService {
     this.publishedSessionNames.set(session, { sessionId: session.sessionId, name: session.sessionName });
     const unsubscribe = session.subscribe((event) => {
       const eventType = getString(event, "type");
+      // Partial tool data can span several chunks and has no settled detector verdict.
+      // The SDK emits the checked final tool result before persisting its message.
+      if (eventType === "tool_execution_update" && this.guardrailScope(session)) return;
       if (eventType === "session_info_changed") this.publishSessionName(session);
       const message = getProperty(event, "message");
       const entry = getProperty(event, "entry");
@@ -6025,6 +6099,9 @@ private flushDeferredTreeNavigationWork(session: PiAgentSession): void {
   }
 
   private async deliverAskOutcome(session: PiAgentSession, outcome: AskUserOutcome): Promise<ClientSessionStatus> {
+    const content = renderAskUserAnswersText(outcome);
+    const scope = this.guardrailScope(session);
+    if (scope) await checkManagementInput(scope, content);
     // For an idle session Pi's delivery promise spans the whole agent run.
     // Acknowledge acceptance instead: message_start for this reply, or a resolved
     // delivery when Pi queues it. This is not a durable-persistence receipt.
@@ -6043,7 +6120,7 @@ private flushDeferredTreeNavigationWork(session: PiAgentSession): void {
     });
     // Keep entry-mutation protection for the full run, not just acknowledgment.
     const delivery = this.runSessionEntryMutation(session, this.t("server.main.07f784061918", "deliver answers to your questions"), () => session.sendCustomMessage(
-      { customType: ASK_USER_ANSWERS_CUSTOM_TYPE, content: renderAskUserAnswersText(outcome), display: true, details: outcome },
+      { customType: ASK_USER_ANSWERS_CUSTOM_TYPE, content, display: true, details: outcome },
       { triggerTurn: true, deliverAs: "followUp" },
     ));
     void delivery.catch((error: unknown) => {
@@ -6138,9 +6215,18 @@ private flushDeferredTreeNavigationWork(session: PiAgentSession): void {
     this.reconcileSubsessionCompletions(parentId, parentFile, scope);
     const completions = this.subsessionInbox(parentId, parentFile, scope).claim();
     if (completions.length === 0) return undefined;
+    const content = renderSubsessionCompletions(completions, this.workingSubsessionIds(parentId, scope));
+    const guard = this.guardrailScope(parent);
+    let screened = content;
+    try {
+      if (guard) screened = (await checkManagementMaterial(guard, content)).text;
+    } catch (error) {
+      this.subsessionInbox(parentId, parentFile, scope).release(completions.map(({ completionId }) => completionId));
+      throw error;
+    }
     return {
       type: "custom_message", customType: SUBSESSION_NOTIFICATION_CUSTOM_TYPE, display: true,
-      content: renderSubsessionCompletions(completions, this.workingSubsessionIds(parentId, scope)),
+      content: screened,
       details: { receiptOwner: this.subsessionReceiptOwner(parent), sessionId: completions[0]?.sessionId, completionIds: completions.map(({ completionId }) => completionId) },
     };
   }
@@ -6158,10 +6244,13 @@ private flushDeferredTreeNavigationWork(session: PiAgentSession): void {
     let delivered = false;
     let retryDelayMs: number | undefined;
     try {
+      const guard = this.guardrailScope(session);
+      const content = renderSubsessionCompletions(completions, this.workingSubsessionIds(session.sessionId, this.eventScopeForSession(session)));
+      const screened = guard ? (await checkManagementMaterial(guard, content)).text : content;
       await this.runSessionEntryMutation(session, this.t("session.action.deliverSubsessions", "deliver subsession results"), () => session.sendCustomMessage(
         {
           customType: SUBSESSION_NOTIFICATION_CUSTOM_TYPE, display: true,
-          content: renderSubsessionCompletions(completions, this.workingSubsessionIds(session.sessionId, this.eventScopeForSession(session))),
+          content: screened,
           details: { receiptOwner: this.subsessionReceiptOwner(session), sessionId: completions[0]?.sessionId, completionIds },
         },
         { triggerTurn: true },

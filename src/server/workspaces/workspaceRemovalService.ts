@@ -8,6 +8,7 @@ import {
 } from "../../shared/workspaceRemovalProtocol.js";
 import type { Project } from "../types.js";
 import type { ManagementEmbedContext } from "../managementEmbed.js";
+import { checkManagementTool } from "../guardrails/managementGuardrails.js";
 import { eventScopeFromManagementContext } from "../realtime/sessionEventScope.js";
 import type { RunTerminalCommandOptions as RequiredTerminalCommandOptions } from "../terminals/requiredTerminalService.js";
 import {
@@ -31,7 +32,7 @@ export interface WorkspaceRemovalProvider {
 
 export interface WorkspaceRemovalTerminalHost {
   closeForCwd(cwd: string, managementContext?: ManagementEmbedContext): void;
-  runCommand(options: RequiredTerminalCommandOptions & { managementContext?: ManagementEmbedContext }): TerminalCommandRun;
+  runCommand(options: RequiredTerminalCommandOptions & { managementContext?: ManagementEmbedContext }): TerminalCommandRun | Promise<TerminalCommandRun>;
 }
 
 export interface WorkspaceRemovalServiceOptions {
@@ -152,6 +153,11 @@ export class WorkspaceRemovalService {
   ): Promise<TerminalCommandRun> {
     try {
       return await runBoundedRemoval(this.timeoutMs, flightSignal, async (signal) => {
+        if (managementContext !== undefined) {
+          await checkManagementTool({ managementContext, cwd: project.path, projectId: project.id },
+            "workspace.delete", { projectId: project.id, workspaceId });
+          throwIfAborted(signal);
+        }
         const current = await this.providers.resolveRemoval(project, workspaceId, signal);
         throwIfAborted(signal);
         const { target, commandWorkspace } = validateCurrentRemoval(project, workspaceId, precondition, current);
@@ -188,7 +194,7 @@ export class WorkspaceRemovalService {
         throwIfAborted(signal);
 
         try {
-          return this.terminals.runCommand({
+          return await this.terminals.runCommand({
             origin: "core",
             projectId: project.id,
             workspaceId: commandWorkspace.id,

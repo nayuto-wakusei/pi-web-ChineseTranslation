@@ -106,6 +106,15 @@ iframe.src = entryUrl;
 
 全局功能开关启用时，管理会话可获得 `spawn_session`、以 `spawn_subsession` 为首的完整 tracked-subsession 工具集、`ask_user` 及由 `sessionMessages` 独立控制的 `send_session_message`。消息目标限同机器、同注册项目及相同管理作用域，不跨普通/管理边界。所有独立会话和子会话继承发起者管理 context。受限模式在 Pi permission policy 和 runtime `tools` 中注册完全相同的受控工具名称集合，并遵守显式管理 deny；完整特权在普通 SDK 工具之外保留这些有作用域的工具。
 
+### 工作台嵌入护栏
+
+开启机器的嵌入护栏后，受限、单特权与完整特权会话都执行同一组项目禁令和工具参数检查。普通密钥会话沿用原来的工具和模型设置，护栏调用数为零。每个管理会话从可信身份绑定自己的项目，恢复和委派沿用管理上下文。[配置参考](../config.md#management-embed-guardrails)
+
+1. 提交时先检查用户指令再进入业务队列。Qwen3Guard-Gen-4B 判断直接破甲等输入风险，模板展开或队列修改改变实际指令时重新检查。
+2. 文本附件、外部材料、工具返回与错误正文由 Horizon Small 检查。RAGFlow 的每个分片和 BookStack 的每页连同标题、链接、引用一起检查，强制模式只保留通过条目及命中项的隔离说明，最终组合结果再经 SDK 检查。跨会话消息由接收会话检查，模型可见正文和持久化详情的 `details.body` 使用同一份检查结果。为避免提前泄露内容，工具的进度预览缓冲到已检查的最终卡片。业务模型仍按原方式输出文本流。图片或不可解码附件需改用可检查的文字，超过 1 MiB 的会话 shell 输出按无法完整检查处理。若恢复的旧会话历史命中隔离，界面提示另开会话，原有 JSONL 保留。
+3. Pi 会话插件在 SDK `tool_call` 检查最终工具和参数。直接终端、会话 shell 和通用 MCP 最终分发处也调用共享硬规则，已有项目授权仍约束具体业务操作。拒绝发生在文件操作、进程启动或请求分发前。
+4. 当次发起操作的用户收到原因和事件号。sessiond 将脱敏事件持久化后异步发送工作台 PG。在专用“护栏”页签查询概览、详情和短证据均需平台管理员 `platform_admin`。工作台普通日志与既有 Pi ES 内容审计使用独立通道。普通放行只计入工作台的小时统计和去重回执。
+
 ## 能力、知识与 Skill
 
 受限代理先通过 `icnoc_search_capabilities` 查找授权能力，再用 `icnoc_call_capability` 调用，不能把资源名替换为未授权 ID。能力服务自身的授权不会因为 PI WEB 模式切换而消失。
@@ -119,7 +128,7 @@ iframe.src = entryUrl;
 
 PI WEB 不配置这些知识服务的后台账号，不接受任意 tenant/dataset ID 越过授权；短期知识票据由后端处理。知识来源 URL 是引用，不是连接配置。
 
-Workbench 请求默认超时为 30 秒，已有显式配置仍有效，配置与环境覆盖见 [Workbench 集成](../config.md#workbench-and-mcp-integration)。停止知识检索或 BookStack 定向读取工具时会取消其进行中的 HTTP 请求；写入超时仍需查询原操作回执，不自动重试。
+Workbench 请求默认超时为 30 秒，已有显式配置仍有效，配置与环境覆盖见 [Workbench 集成](../config.md#workbench-and-mcp-integration)。停止知识检索或 BookStack 定向读取工具时会取消其进行中的 HTTP 请求。在 BookStack 写请求发出前取消，PI WEB 不会发送该写请求。请求发出后若因取消、超时或断连而无法确认结果，应保留原幂等键并查询操作回执。
 
 受控 MCP 能力调用在单个 daemon 内共享有界队列，并按已验证用户限制并发，同一用户执行中与等待合计最多 8 个；总预算涵盖排队、授权检查、签票、握手、能力调用及受控重试。每次逻辑调用重新核对资源授权，取消会停止排队和进行中的 HTTP 请求；只对明确允许重试的失败最多重试一次，结果不明的能力调用不自动重放。已获得的 MCP 会话在调用结束后限时尽力释放；取消或释放会话均不保证底层数据库查询已经停止。精确限额、重试条件与生效范围见上述配置参考。
 
@@ -127,9 +136,9 @@ Workbench 请求默认超时为 30 秒，已有显式配置仍有效，配置与
 
 BookStack 编辑使用独立的 `workbench_read_bookstack` / `workbench_write_bookstack` 工具，由服务端 Agent Session 向 Workbench 后端发起。授权目录的 `actions` 缺省为 `read`；创建、修改、删除分别要求对应 action，不能由资源的 `L0` 标签推导写权限。授权以指定整本书为范围，创建仅限书内章节/页面，修改和删除可作用于书本身及其内容；整本书创建仍走工作台管理入口。受控 MCP 继续只允许已授权的 `L0` 能力，RAGFlow 仍走原检索路径。
 
-PI WEB 负责参数校验、传递版本与幂等键；省略键时按会话和工具调用 ID 生成稳定键。后端负责复核当前用户、书籍归属、有效授权及操作审计，每次授权校验通过 BookStack 原生聚合接口检查活动章节、页面的权限继承，不使用过期缓存；独立 ACL 会阻止继续操作。后端按整书串行执行工作台写入；该锁不协调原生编辑器。操作者来自已验证的 Agent Session，工具不接受模型填写的用户身份，也不增加 AI 或人工审批。现有管理工具 allow/deny 和子会话上下文继续有效，普通模式及完整特权模式的工具装配不变。
+PI WEB 负责参数校验、传递版本与幂等键；省略键时按会话和工具调用 ID 生成稳定键。后端负责复核当前用户、书籍归属、有效授权及操作审计，每次授权校验通过 BookStack 原生聚合接口检查活动章节、页面的权限继承，不使用过期缓存；独立 ACL 会阻止继续操作。部署配套的 BookStack v2 补丁后，工作台修改和删除在原生事务中复核目标手册与内容版本。原生页面编辑器保存时也锁定手册并校验版本，过期提交返回冲突。操作者来自已验证的 Agent Session，工具不接受模型填写的用户身份，也不增加 AI 或人工审批。现有管理工具 allow/deny 和子会话上下文继续有效，普通模式及完整特权模式的工具装配不变。
 
-修改/删除前读取当前实体并传回其 `baseVersion`，版本冲突须重新核对内容。独立草稿页读/改/删以及移动页面不由此入口处理；整书或整章删除则按原生规则级联，包括其下草稿。工具不会自动重试写入；`unknown` 或请求结果无法确认时，用 `workbench_get_bookstack_operation` 携带原幂等键或操作编号查询本人回执，不能换键重发或声称成功。有效账号可在删书或撤权后查询自己的历史元数据，不借此读取正文。未结案 `pending/unknown` 会阻塞同书新写入，工作台平台管理员核实后另存结案依据、保留原状态；结案不重放请求，也不是审批。启用前须部署匹配的后端与 BookStack 补丁并重启 PI WEB daemon；公开参数、结果及兼容要求见 [BookStack 读写契约](../config.md#bookstack-content-operations)。
+修改/删除前读取当前实体并传回其 `baseVersion`，版本冲突须重新核对内容。独立草稿页读/改/删以及移动页面不由此入口处理；整书或整章删除则按原生规则级联，包括其下草稿。工具不会自动重试写入；`unknown` 或请求结果无法确认时，用 `workbench_get_bookstack_operation` 携带原幂等键或操作编号查询本人回执，不能换键重发或声称成功。同一 PI WEB 会话中，只要这本书有写入待确认，即使恢复会话或更换幂等键，工具也只查原回执。改过标题或正文的请求会提示本轮未发送。确认原结果后，用户可在新一轮明确发起新的写入。有效账号可在删书或撤权后查询自己的历史元数据，不借此读取正文。未结案 `pending/unknown` 会阻塞同书新写入，工作台平台管理员核实后另存结案依据、保留原状态；结案不重放请求，也不是审批。启用前须部署匹配的后端与 BookStack 补丁并重启 PI WEB daemon；公开参数、结果及兼容要求见 [BookStack 读写契约](../config.md#bookstack-content-operations)。
 
 Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下载后同步到管理工作区 `.pi/skills/`。受限启动强制同步 `relay` 和 `relay-runner` 模板到 `.pi/skills/<name>/SKILL.md`，只替换所属工作区内的同名内容；因此不要把它们作为自定义内容的唯一副本。两个模板都必须纳入 npm 包和 Workbench Skill allowlist。普通与完整特权启动既不创建也不覆盖这些项目 Skill。
 
@@ -146,6 +155,7 @@ Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下
 | 普通工具调用 | 会话/cwd、工具与 call ID、状态、时间、耗时 | SQLite；不保存提示词、参数、结果、模型回复 |
 | 管理会话内容 | 用户文本、可见回复（排除 thinking）、工具参数/结果及身份 | 启用后的 Elasticsearch 周索引；`content` 存储但不索引 |
 | Workbench 专项事件 | 固定资源版本、授权修订、run/trace、状态等元数据 | 管理审计；同一次调用的工具正文仍按工具审计记录 |
+| 嵌入护栏决定 | 事件号、阶段、决策、原因、版本、关联伪名与耗时 | Pi 本地投递队列 → 工作台 PG，仅平台管理员查询 |
 | 服务日志 | 运维元数据与错误 | 不应额外输出认证令牌或正文副本 |
 
 普通 SQLite 默认开启，管理 Elasticsearch 需要配置开启。管理调用不混入普通 SQLite。审计中的会话正文可能天然包含用户粘贴的敏感数据，“不添加认证状态中的 token 字段”不等于正文已经自动脱敏，应限制 ES/Kibana 的访问权限。
@@ -154,7 +164,7 @@ Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下
 
 受限和完整特权管理会话都保留 user、root-user、project、session、Workbench Agent Session 身份，以及 `content` 中的用户文本、排除 `thinking` 的可见 assistant 消息和工具参数/结果。管理服务日志保持 metadata-only；专门的 Workbench capability、knowledge、Skill 审计事件也只记元数据。不得把认证状态中的 tokens、credentials、cookies、tickets 额外加入审计字段。
 
-审计失败记录错误但不停止工具/会话，因此“任务成功”不证明审计已送达；ES 有界队列、重试和优雅关闭刷写也不构成无丢失保证。存储位置、保留期、索引规则与 CLI 示例分别见[普通审计](../config.md#ordinary-mode-tool-audit)和[管理审计](../config.md#management-mode-elasticsearch-audit)。
+管理 ES 审计失败记录错误但不停止工具/会话，因此“任务成功”不证明记录已送达；ES 有界队列、重试和优雅关闭刷写也不构成无丢失保证。存储位置、保留期、索引规则与 CLI 示例分别见[普通审计](../config.md#ordinary-mode-tool-audit)和[管理审计](../config.md#management-mode-elasticsearch-audit)。
 
 队列 Recall/切换等重建操作不把已接收的保留消息重复记为新输入；浏览器 Markdown 派生显示也不替换审计原文。普通服务日志仍只记录运维元数据，不能将认证交互或聊天正文作为恢复诊断字段。
 
@@ -163,16 +173,18 @@ Skill bundle 按授权固定版本与 manifest 验证，从配置 MCP origin 下
 1. 对齐 Web/daemon 的管理、Workbench/MCP、审计配置并重启需要的进程。
 2. 用测试身份从平台进入，核对用户、项目及工作区；同 token 并发请求不应创建多份 Agent Session。确认换票重放返回 `401`、`HEAD` 不兑换，且部署前缀在 `entryPath` 解析后仍保留。
 3. 在受限 Linux 环境验证工作区外写入拒绝、默认网络隔离、显式 deny 和授权资源版本。
-4. 分别验证仅 bash、仅 network、双授权，特别确认完整特权不能靠 token tools.deny 继续限制。
+4. 分别验证仅 bash、仅 network、双授权。完整特权采用自身的工具加载规则。启用护栏时，这三种管理会话提交高危指令或终端命令仍应被拒绝。相同操作在普通密钥会话应产生零次护栏调用。
 5. 生成测试子会话，验证管理上下文与模型存储隔离；普通入口不能读取它。
 6. 发起无敏感内容的测试调用，在对应审计存储检查身份、工具状态及正文规则。
 7. 测试过期/撤销、上游暂时失败、Skill 校验失败，并检查错误不会泄漏票据。
+8. 用平台管理员按被拦用户提供的事件号查询工作台 PG 中的记录。以同项目的其他角色请求同一事件号应返回 403。
 
 以上需要真实 Linux/Bubblewrap、平台签名、Workbench/MCP 与 ES 测试环境。Windows 单元测试只能证明相应分支和契约，不能替代沙箱或端到端授权验收。
 
 ## 实现与回归入口
 
 - 入口与权限：[managementEmbed.ts](../../src/server/managementEmbed.ts)、[managementPrivileges.ts](../../src/server/managementPrivileges.ts)、[权限测试](../../src/server/managementPrivileges.test.ts)。
+- 嵌入护栏：[宿主适配器](../../src/server/guardrails/managementGuardrails.ts)、[会话材料检查](../../src/server/sessions/managementGuardedSession.ts)、[宿主测试](../../src/server/guardrails/managementGuardrails.test.ts)。
 - bootstrap：[gatewayIntegration.ts](../../src/server/workbench/gatewayIntegration.ts)、[并发测试](../../src/server/workbench/gatewayIntegration.test.ts)。
 - 资源与知识：[workbenchTools.ts](../../src/server/workbench/workbenchTools.ts)、[BookStack 读写工具](../../src/server/workbench/bookstackOperationTools.ts)、[skillSync.ts](../../src/server/workbench/skillSync.ts)。
 - 沙箱：[managementSandbox.ts](../../src/server/sessions/managementSandbox.ts)、[完整特权测试](../../src/server/sessions/piSessionService.privilegedManagement.test.ts)。

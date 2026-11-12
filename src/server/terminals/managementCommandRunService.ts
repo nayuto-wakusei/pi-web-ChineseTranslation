@@ -1,4 +1,5 @@
 import { UserFacingError } from "../../shared/i18n.js";
+import { checkManagementTool } from "../guardrails/managementGuardrails.js";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -73,12 +74,14 @@ export class ManagementCommandRunService {
     for (const terminal of [...this.terminals.values()].filter((candidate) => candidate.cwd === cwd && candidate.eventScope === scope)) this.close(terminal.id);
   }
 
-  runCommand(options: RunTerminalCommandOptions): TerminalCommandRun {
+  async runCommand(options: RunTerminalCommandOptions): Promise<TerminalCommandRun> {
     validateCommandRunOptions(options);
     if (options.managementContext === undefined) throw new Error("Management context is required");
     if (options.managementContext.tools?.deny?.includes("terminal-command-runs") === true || !managementToolAllowed(options.managementContext, "terminal-command-runs")) {
       throw new Error("Terminal command runs are disabled in management embed mode");
     }
+    await checkManagementTool({ managementContext: options.managementContext, cwd: options.cwd, projectId: options.projectId },
+      "terminal-command-runs", { command: options.command, projectId: options.projectId });
     const commandRunId = randomUUID();
     const terminalId = randomUUID();
     const createdAt = new Date().toISOString();

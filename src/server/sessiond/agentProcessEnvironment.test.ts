@@ -60,6 +60,8 @@ describe("agent process environment visibility", () => {
   it("hides only the app runtime keys that distort development tooling", () => {
     // NODE_ENV=production makes npm omit devDependencies and flips Node
     // package-export conditions; PORT is the web/API's listener config.
+    expect(isAgentVisibleEnvKey("PI_GUARDRAIL_TOKEN")).toBe(false);
+    expect(isAgentVisibleEnvKey("GUARDRAIL_AUDIT_TOKEN")).toBe(false);
     expect(isAgentVisibleEnvKey("NODE_ENV")).toBe(false);
     expect(isAgentVisibleEnvKey("PORT")).toBe(false);
   });

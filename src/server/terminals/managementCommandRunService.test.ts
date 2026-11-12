@@ -35,21 +35,21 @@ function fixture(allowPrivileged = false) {
 }
 
 describe("management command runs", () => {
-  it("rejects missing management ownership before spawning", () => {
+  it("rejects missing management ownership before spawning", async () => {
     const { service, spawner } = fixture();
     const runOptions = options();
     delete runOptions.managementContext;
-    expect(() => service.runCommand(runOptions)).toThrow("Management context is required");
+    await expect(service.runCommand(runOptions)).rejects.toThrow("Management context is required");
     expect(spawner).not.toHaveBeenCalled();
   });
-  it("keeps explicit tool deny authoritative", () => {
+  it("keeps explicit tool deny authoritative", async () => {
     const { service, spawner } = fixture(true);
-    expect(() => service.runCommand(options(context("first", { tools: { allow: ["terminal-command-runs"], deny: ["terminal-command-runs"] }, privileged: { bash: true, network: true } })))).toThrow("disabled");
+    await expect(service.runCommand(options(context("first", { tools: { allow: ["terminal-command-runs"], deny: ["terminal-command-runs"] }, privileged: { bash: true, network: true } })))).rejects.toThrow("disabled");
     expect(spawner).not.toHaveBeenCalled();
   });
-  it("runs only a Bubblewrap workspace-isolated command, never an interactive PTY", () => {
+  it("runs only a Bubblewrap workspace-isolated command, never an interactive PTY", async () => {
     const { service, spawner } = fixture();
-    service.runCommand(options());
+    await service.runCommand(options());
     expect(spawner.mock.calls[0]?.[0]).toBe("bwrap");
     const args = spawner.mock.calls[0]?.[1];
     expect(args).toEqual(expect.arrayContaining(["--unshare-net", "--bind", process.cwd(), "/workspace", "--chdir"]));
@@ -61,10 +61,10 @@ describe("management command runs", () => {
   it("allows a signed network grant only with the machine switch", () => {
     expect(managementCommandRunProcess(options(context("first", { privileged: { network: true } })), true).args).not.toContain("--unshare-net");
   });
-  it("closes only the matching management scope at the same cwd", () => {
+  it("closes only the matching management scope at the same cwd", async () => {
     const { service, kills } = fixture();
-    const first = service.runCommand(options(context("first")));
-    const second = service.runCommand(options(context("second")));
+    const first = await service.runCommand(options(context("first")));
+    const second = await service.runCommand(options(context("second")));
     service.closeForCwd(process.cwd(), context("first"));
     expect(service.get(first.terminalId)).toBeUndefined();
     expect(service.get(second.terminalId)).toBeDefined();
@@ -72,24 +72,24 @@ describe("management command runs", () => {
     expect(kills[1]).not.toHaveBeenCalled();
     expect(() => { service.closeForCwd(process.cwd()); }).toThrow("Management context is required");
   });
-  it("isolates list, get and cancellation by owner", () => {
+  it("isolates list, get and cancellation by owner", async () => {
     const { service, kills } = fixture();
-    const run = service.runCommand(options());
+    const run = await service.runCommand(options());
     expect(service.listCommandRuns({}, context("second"))).toEqual([]);
     expect(service.getCommandRun(run.id, context("second"))).toBeUndefined();
     expect(() => service.cancelCommandRun(run.id, context("second"))).toThrow("not found");
     expect(kills[0]).not.toHaveBeenCalled();
   });
-  it("tracks metadata filters and returns detached snapshots", () => {
+  it("tracks metadata filters and returns detached snapshots", async () => {
     const { service } = fixture();
-    const run = service.runCommand(options(context(), { metadata: { operation: "test" } }));
+    const run = await service.runCommand(options(context(), { metadata: { operation: "test" } }));
     run.metadata["operation"] = "changed";
     expect(service.listCommandRuns({ metadata: { operation: "test" }, projectId: "p1", workspaceId: "w1", statuses: ["running"] }, context())).toHaveLength(1);
     expect(service.listCommandRuns({ metadata: { operation: "changed" } }, context())).toEqual([]);
   });
-  it("publishes lifecycle and activity only in the management scope", () => {
+  it("publishes lifecycle and activity only in the management scope", async () => {
     const { service, children, publish, activity } = fixture();
-    const run = service.runCommand(options());
+    const run = await service.runCommand(options());
     expect(publish.mock.calls[0]).toEqual([{ type: "terminal.created", terminal: service.get(run.terminalId) }, eventScopeFromManagementContext(context())]);
     children[0]?.emit("close", 0);
     expect(service.getCommandRun(run.id, context())).toMatchObject({ status: "succeeded", exitCode: 0 });
@@ -99,9 +99,9 @@ describe("management command runs", () => {
     expect(activity.removeTerminal).toHaveBeenCalledWith(run.terminalId, process.cwd(), eventScopeFromManagementContext(context()));
     expect(publish.mock.calls[2]?.[0]).toEqual({ type: "terminal.closed", terminalId: run.terminalId, cwd: process.cwd() });
   });
-  it("captures stdout and stderr and replays bounded output", () => {
+  it("captures stdout and stderr and replays bounded output", async () => {
     const { service, children } = fixture();
-    const run = service.runCommand(options());
+    const run = await service.runCommand(options());
     children[0]?.stdout?.emit("data", Buffer.from("a".repeat(200010)));
     children[0]?.stderr?.emit("data", Buffer.from("stderr"));
     const output = vi.fn();
@@ -109,9 +109,9 @@ describe("management command runs", () => {
     expect(output).toHaveBeenCalledWith("a".repeat(199994) + "stderr", true);
   });
 
-  it("preserves split UTF-8 output independently for stdout and stderr", () => {
+  it("preserves split UTF-8 output independently for stdout and stderr", async () => {
     const { service, children } = fixture();
-    const run = service.runCommand(options(context()));
+    const run = await service.runCommand(options(context()));
     const encoded = Buffer.from("中文");
     children[0]?.stdout?.emit("data", encoded.subarray(0, 2));
     children[0]?.stderr?.emit("data", Buffer.from("error"));
@@ -120,9 +120,9 @@ describe("management command runs", () => {
     service.attach(run.terminalId, { output, exit: vi.fn() });
     expect(output).toHaveBeenCalledWith("error中文", true);
   });
-  it("marks nonzero exits as failed and delivers the exit once", () => {
+  it("marks nonzero exits as failed and delivers the exit once", async () => {
     const { service, children } = fixture();
-    const run = service.runCommand(options());
+    const run = await service.runCommand(options());
     const exit = vi.fn();
     service.attach(run.terminalId, { output: vi.fn(), exit });
     children[0]?.emit("close", 7);
@@ -130,24 +130,24 @@ describe("management command runs", () => {
     expect(service.getCommandRun(run.id, context())).toMatchObject({ status: "failed", exitCode: 7 });
     expect(exit).toHaveBeenCalledOnce();
   });
-  it("marks asynchronous process failures without orphaning active activity", () => {
+  it("marks asynchronous process failures without orphaning active activity", async () => {
     const { service, children, activity } = fixture();
-    const run = service.runCommand(options());
+    const run = await service.runCommand(options());
     children[0]?.emit("error", new Error("spawn failed"));
     children[0]?.emit("close", null);
     expect(service.getCommandRun(run.id, context())).toMatchObject({ status: "failed" });
     expect(activity.updateTerminal).toHaveBeenCalledTimes(2);
   });
-  it("rolls back synchronous startup errors", () => {
+  it("rolls back synchronous startup errors", async () => {
     const { service, spawner } = fixture();
     spawner.mockImplementationOnce(() => { throw new Error("spawn failed"); });
-    expect(() => service.runCommand(options())).toThrow("spawn failed");
+    await expect(service.runCommand(options())).rejects.toThrow("spawn failed");
     expect(service.listCommandRuns({}, context())).toEqual([]);
     expect(service.list(process.cwd())).toEqual([]);
   });
-  it("cancels active runs without interrupting completed runs", () => {
+  it("cancels active runs without interrupting completed runs", async () => {
     const { service, children, kills } = fixture();
-    const run = service.runCommand(options());
+    const run = await service.runCommand(options());
     service.cancelCommandRun(run.id, context());
     expect(kills[0]).toHaveBeenCalledWith("SIGINT");
     children[0]?.emit("close", 0);
@@ -155,27 +155,27 @@ describe("management command runs", () => {
     expect(kills[0]).toHaveBeenCalledOnce();
     expect(service.getCommandRun(run.id, context())).toMatchObject({ status: "failed", exitCode: 0 });
   });
-  it("disposes all processes without late activity resurrection", () => {
+  it("disposes all processes without late activity resurrection", async () => {
     const { service, children, activity } = fixture();
-    service.runCommand(options());
+    await service.runCommand(options());
     service.dispose();
     children[0]?.emit("close", 0);
     expect(service.list(process.cwd())).toEqual([]);
     expect(activity.updateTerminal).toHaveBeenCalledOnce();
     expect(activity.removeTerminal).toHaveBeenCalledOnce();
   });
-  it("detaches output observers", () => {
+  it("detaches output observers", async () => {
     const { service, children } = fixture();
-    const run = service.runCommand(options());
+    const run = await service.runCommand(options());
     const output = vi.fn();
     const detach = service.attach(run.terminalId, { output, exit: vi.fn() });
     detach();
     children[0]?.stdout?.emit("data", Buffer.from("late"));
     expect(output).not.toHaveBeenCalled();
   });
-  it("rejects invalid metadata before spawning", () => {
+  it("rejects invalid metadata before spawning", async () => {
     const { service, spawner } = fixture();
-    expect(() => service.runCommand(options(context(), { metadata: { invalid: 3 } }))).toThrow("metadata values must be strings");
+    await expect(service.runCommand(options(context(), { metadata: { invalid: 3 } }))).rejects.toThrow("metadata values must be strings");
     expect(spawner).not.toHaveBeenCalled();
   });
   it.skipIf(process.platform === "win32" || spawnSync("bwrap", ["--version"]).status !== 0)("cancels a real isolated Linux command and reaps its process", async () => {
@@ -185,7 +185,7 @@ describe("management command runs", () => {
       return child;
     });
     services.push(service);
-    const run = service.runCommand(options(context(), { command: "printf 'ready\\n'; sleep 60" }));
+    const run = await service.runCommand(options(context(), { command: "printf 'ready\\n'; sleep 60" }));
     let finish!: () => void;
     const ended = new Promise<void>((resolve) => { finish = resolve; });
     const ready = new Promise<void>((resolve, reject) => {

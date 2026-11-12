@@ -64,7 +64,7 @@ describe("managed agent tools", () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-managed-tools-"));
     const outside = await mkdtemp(join(tmpdir(), "pi-web-managed-outside-"));
     await mkdir(join(root, "links"));
-    await symlink(outside, join(root, "links", "outside"), "dir");
+    await symlink(outside, join(root, "links", "outside"), process.platform === "win32" ? "junction" : "dir");
     const options = createManagedAgentToolOptions(root);
 
     await expect(options.write.operations.writeFile(join(root, "links", "outside", "secret.txt"), "changed")).rejects.toThrow("path outside the managed project sandbox");

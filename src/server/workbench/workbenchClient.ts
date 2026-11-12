@@ -150,9 +150,9 @@ export class WorkbenchClient {
     return result;
   }
 
-  async writeBookstack(bearerToken: string, request: BookstackOperationRequest): Promise<BookstackOperationResult> {
+  async writeBookstack(bearerToken: string, request: BookstackOperationRequest, signal?: AbortSignal): Promise<BookstackOperationResult> {
     const value = record(await this.json("/api/agent-access/bookstack/operations", {
-      method: "POST", token: bearerToken, expectedStatus: 200, body: request,
+      method: "POST", token: bearerToken, expectedStatus: 200, body: request, signal,
     }), "BookStack operation response");
     const result: BookstackOperationResult = {
       operationId: stringField(value, "operationId"),
@@ -176,9 +176,9 @@ export class WorkbenchClient {
     });
   }
 
-  async getBookstackOperation(bearerToken: string, request: BookstackOperationReceiptRequest): Promise<BookstackOperationReceipt> {
+  async getBookstackOperation(bearerToken: string, request: BookstackOperationReceiptRequest, signal?: AbortSignal): Promise<BookstackOperationReceipt> {
     const value = record(await this.json("/api/agent-access/bookstack/operations/receipt", {
-      method: "POST", token: bearerToken, expectedStatus: 200, body: request,
+      method: "POST", token: bearerToken, expectedStatus: 200, body: request, signal,
     }), "BookStack operation receipt");
     const actor = record(value["actor"], "BookStack operation actor");
     const result: BookstackOperationReceipt = {

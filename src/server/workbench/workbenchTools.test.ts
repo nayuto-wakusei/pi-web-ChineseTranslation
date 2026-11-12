@@ -4,6 +4,7 @@ import { McpHttpError, McpTransportError, WorkbenchMcpClient } from "./mcpClient
 import type { AuthorizedResource, WorkbenchAgentAccessState } from "./types.js";
 import { WorkbenchClient, WorkbenchHttpError } from "./workbenchClient.js";
 import { createWorkbenchToolDefinitions } from "./workbenchTools.js";
+import * as guardrails from "../guardrails/managementGuardrails.js";
 
 describe("Workbench controlled tools", () => {
   it("rejects an unauthorized capability locally and writes a token-free audit event", async () => {
@@ -48,6 +49,30 @@ describe("Workbench controlled tools", () => {
       statusCode: "local_error",
     }));
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain("private-agent-token");
+  });
+
+  it("isolates a single injected knowledge chunk and keeps the other source usable", async () => {
+    const inspect = vi.spyOn(guardrails, "checkManagementMaterial").mockImplementation((_scope, text) =>
+      Promise.resolve(text.includes("PRIVATE_SENTINEL") ? {isolated:true, text:"material isolated (event)"} : {isolated:false, text}));
+    try {
+      const state = accessState([knowledge("knowledge.manual", { metadata: { provider: "ragflow" } })]);
+      const workbench = new WorkbenchClient({ baseUrl:"http://workbench", requestTimeoutMs:1000 });
+      vi.spyOn(workbench, "issueKnowledgeToken").mockResolvedValue("fixture");
+      const first = { id:"first", documentId:"d", documentName:"manual", content:"valid optical reading", similarity:.9,
+        position:[], source:"source", version:"1", citation:"knowledge://safe" };
+      vi.spyOn(workbench, "retrieveKnowledge").mockResolvedValue({total:2, resourceName:"knowledge.manual", resourceVersion:"r3",
+        chunks:[first, {...first, id:"second", documentName:"PRIVATE_SENTINEL", content:"untrusted body"}]});
+      const target = createWorkbenchToolDefinitions({ getState:() => state, workbench,
+        mcp:new WorkbenchMcpClient({mcpUrl:"http://mcp",timeoutMs:1000}),
+        guardrailScope:{cwd:"/workspace", managementContext:{ user:{id:"u",rootUserId:"u",roles:[],permissions:[]}, projects:[] } },
+      }).find(tool => tool.name === "workbench_retrieve_knowledge");
+      if (!target) throw new Error("Missing knowledge tool");
+      const output = await target.execute("t", {resource_name:"knowledge.manual", question:"signal"}, undefined, undefined, extensionContext());
+      const serialized = JSON.stringify(output);
+      expect(serialized).toContain("valid optical reading");
+      expect(serialized).toContain("material isolated (event)");
+      expect(serialized).not.toMatch(/PRIVATE_SENTINEL|untrusted body/u);
+    } finally { inspect.mockRestore(); }
   });
 
   it("retrieves authorized knowledge with a one-time token and records metadata-only audit", async () => {

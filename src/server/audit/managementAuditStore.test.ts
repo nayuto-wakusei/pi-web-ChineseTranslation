@@ -74,6 +74,18 @@ describe("ManagementAuditStore", () => {
     await store.close();
   });
 
+  it("keeps incident notices out of the shared Elasticsearch content index", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ errors: false }));
+    const store = new ManagementAuditStore({ baseUrl: "http://es", indexPrefix: "audit", retentionDays: 90, fetch: request });
+    const id = "ba6be8bb-0583-4994-a1c6-56e009f66447";
+    store.record({ ...toolEvent(), content: [{ text: "Safety notice: guardrail-event " + id + " (credential_disclosure)" }] });
+    await store.close();
+    const body = requestBody(request.mock.calls[0]?.[1]?.body);
+    expect(body).toContain("tool_execution");
+    expect(body).not.toContain(id);
+    expect(body).not.toContain("credential_disclosure");
+  });
+
   it("runs retention deletion once per Shanghai calendar month", async () => {
     let now = new Date("2026-08-06T00:00:00.000Z");
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ acknowledged: true, deleted: 0 }));

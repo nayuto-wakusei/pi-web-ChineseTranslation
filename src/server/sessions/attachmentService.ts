@@ -42,6 +42,7 @@ export interface SaveAttachmentsOptions {
   folder?: string;
   /** Clock injection for deterministic tests. */
   now?: () => Date;
+  authorizePath?: (path: string) => Promise<void>;
 }
 
 /**
@@ -56,6 +57,7 @@ export async function saveAttachmentsToWorkspace(
   const folder = options.folder ?? DEFAULT_ATTACHMENT_FOLDER;
   const now = options.now ?? (() => new Date());
   const { root, target: requestedFolderTarget, relativePath: normalizedFolder } = await resolveParentInsideWorkspace(cwd, folder);
+  await options.authorizePath?.(requestedFolderTarget);
   await mkdir(requestedFolderTarget, { recursive: true });
   const folderTarget = await realpath(requestedFolderTarget);
   ensureInside(root, folderTarget);
@@ -64,18 +66,20 @@ export async function saveAttachmentsToWorkspace(
   const saved: SavedPromptAttachment[] = [];
   for (const [index, attachment] of attachments.entries()) {
     const bytes = Buffer.from(attachment.data, "base64");
-    const filename = await writeUniqueAttachmentFile(folderTarget, attachmentFilename(attachment, stamp, index), bytes);
+    const filename = await writeUniqueAttachmentFile(folderTarget, attachmentFilename(attachment, stamp, index), bytes, options.authorizePath);
     const relativePath = normalizedFolder === "" ? filename : `${normalizedFolder}/${filename}`;
     saved.push({ path: relativePath, mimeType: attachment.mimeType, size: bytes.byteLength });
   }
   return saved;
 }
 
-async function writeUniqueAttachmentFile(folderTarget: string, filename: string, bytes: Buffer): Promise<string> {
+async function writeUniqueAttachmentFile(folderTarget: string, filename: string, bytes: Buffer, authorizePath?: (path: string) => Promise<void>): Promise<string> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const candidate = attempt === 0 ? filename : addCollisionSuffix(filename, attempt + 1);
+    const target = join(folderTarget, candidate);
+    await authorizePath?.(target);
     try {
-      await writeFile(join(folderTarget, candidate), bytes, { flag: "wx" });
+      await writeFile(target, bytes, { flag: "wx" });
       return candidate;
     } catch (error: unknown) {
       if (!isNodeErrorWithCode(error, "EEXIST")) throw error;

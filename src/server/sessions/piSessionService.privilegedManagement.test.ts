@@ -1,3 +1,5 @@
+import { createAssistantMessageEventStream, type AssistantMessage } from "../../piAi.js";
+import * as guardrails from "../guardrails/managementGuardrails.js";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -13,9 +15,30 @@ import { WorkbenchClient } from "../workbench/workbenchClient.js";
 import { PiSessionService } from "./piSessionService.js";
 import * as runtimeEnvironment from "./managementPermissionSystem.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
-import { CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, testManagementContext } from "./piSessionService.testSupport.js";
+import { CapturingSessionEventHub, createTestModelRuntime, emptyArchiveStore, testManagementContext, testModel } from "./piSessionService.testSupport.js";
 
 describe("privileged management session permissions", () => {
+  it("uses the screened session message in both model content and persisted details", async () => {
+    const h = await fixture(true, {}, "always", false, undefined, true);
+    const enabled = vi.spyOn(guardrails, "managementGuardrailsEnabled").mockReturnValue(true);
+    const material = vi.spyOn(guardrails, "checkManagementMaterial").mockResolvedValue({ text: "isolated", isolated: true });
+    try {
+      const sender = await h.start();
+      const target = await h.start();
+      const send = vi.spyOn(h.runtime().session, "sendCustomMessage").mockResolvedValue();
+      await h.service.sendSessionMessage({ sendingCwd: h.cwd, sendingSessionId: sender.id, sessionId: target.id, message: "untrusted-marker" }, h.context);
+      await vi.waitFor(() => { expect(send).toHaveBeenCalledOnce(); });
+      expect(send.mock.calls[0]?.[0]).toMatchObject({
+        content: `Message from session ${sender.id}:\n\nisolated`,
+        details: { sendingSessionId: sender.id, body: "isolated" },
+      });
+    } finally {
+      enabled.mockRestore();
+      material.mockRestore();
+      await h.dispose();
+    }
+  });
+
   it.each([false, true])("exposes scoped Relay dispatch in restricted management (denied=%s)", async (denied) => {
     const h = await fixture(false, {});
     try {
@@ -382,9 +405,158 @@ describe("privileged management session permissions", () => {
   });
 });
 
-async function fixture(enabled: boolean, grants: NonNullable<ManagementEmbedContext["privileged"]>, trust: "always" | "never" | "ask" = "always", withWorkbench = false, projectPathForCwd?: (cwd: string) => Promise<string>) {
+describe("embedded guardrail SDK boundaries", () => {
+  it("screens split shell output, thrown tool errors, attachment filenames and folder writes", async () => {
+    const h = await fixture(true, { bash: true, network: true });
+    const raw = "unsafe-material-sentinel";
+    const blocked = new guardrails.ManagementGuardrailError("protected_path", "write-event", 403);
+    const enabled = vi.spyOn(guardrails, "managementGuardrailsEnabled").mockReturnValue(true);
+    const material = vi.spyOn(guardrails, "checkManagementMaterial").mockImplementation((_scope, text) => Promise.resolve(
+      text.includes(raw) ? { isolated: true, text: "Isolated. Event content-event." } : { isolated: false, text },
+    ));
+    const tools = vi.spyOn(guardrails, "checkManagementTool").mockImplementation((_scope, _tool, args) => {
+      const path = args["path"];
+      return typeof path === "string" && path.includes("blocked-folder") ? Promise.reject(blocked) : Promise.resolve();
+    });
+    const uninspectable = vi.spyOn(guardrails, "checkManagementUninspectableMaterial").mockRejectedValue(
+      new guardrails.ManagementGuardrailError("material_requires_text", "image-event", 403));
+    const plugin = vi.spyOn(guardrails, "createManagementGuardExtension").mockReturnValue(() => undefined);
+    try {
+      const { id } = await h.start();
+      const ref = { id, cwd: h.cwd };
+      const session = h.runtime().session;
+      const previews: string[] = [];
+      const result = await session.executeBash("example", (chunk) => { previews.push(chunk); }, {
+        operations: { exec: (_command, _cwd, options) => {
+          options.onData(Buffer.from("unsafe-material-")); options.onData(Buffer.from("sentinel"));
+          return Promise.resolve({ exitCode: 0 });
+        } },
+      });
+      expect(result.output).toContain("content-event");
+      expect(previews.join("")).not.toContain(raw);
+      expect(JSON.stringify(session.sessionManager.getBranch())).not.toContain(raw);
+      const failure = await session.extensionRunner.emitToolResult({
+        type: "tool_result", toolName: "read", toolCallId: "failed-read", input: {}, isError: true,
+        content: [{ type: "text", text: "failure" }], details: { exception: raw }, structuredContent: { reason: raw },
+      });
+      expect(failure).toMatchObject({ content: [{ type: "text", text: "Isolated. Event content-event." }], isError: true, details: {} });
+      expect(JSON.stringify(failure)).not.toContain(raw);
+      const file = { kind: "file", mimeType: "text/plain", data: Buffer.from(raw).toString("base64"), name: raw + ".txt" };
+      const [saved] = await h.service.saveAttachments(ref, [file], "uploads", h.context);
+      if (!saved) throw new Error("Expected safe attachment");
+      expect(saved.path).not.toContain(raw);
+      expect(await readFile(join(h.cwd, saved.path), "utf8")).toContain("content-event");
+      await expect(h.service.saveAttachments(ref, [file], "blocked-folder", h.context)).rejects.toBe(blocked);
+      await expect(readdir(join(h.cwd, "blocked-folder"))).rejects.toMatchObject({ code: "ENOENT" });
+      const image = { kind: "image", mimeType: "image/png", data: "QUJD" };
+      await expect(h.service.saveAttachments(ref, [image], "uploads", h.context)).rejects.toThrow("image-event");
+      const abort = vi.spyOn(session.agent, "abort");
+      const unavailable = new guardrails.ManagementGuardrailError("detector_unavailable", "retry-event", 503);
+      material.mockRejectedValueOnce(unavailable);
+      const event = { type: "tool_result" as const, toolName: "read", toolCallId: "retry", input: {}, isError: false,
+        content: [{ type: "text" as const, text: raw }], details: { preview: raw } };
+      const paused = await session.extensionRunner.emitToolResult(event);
+      expect(JSON.stringify(paused)).toContain("retry-event");
+      expect(JSON.stringify(paused)).not.toContain(raw);
+      expect(abort).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(await session.extensionRunner.emitToolResult(event))).toContain("content-event");
+    } finally {
+      enabled.mockRestore(); material.mockRestore(); tools.mockRestore(); uninspectable.mockRestore(); plugin.mockRestore();
+      await h.dispose();
+    }
+  });
+
+  it.each([{}, { bash: true }, { bash: true, network: true }])("checks expanded input and actual tool results before history with grants %j", async (grants) => {
+    const h = await fixture(true, grants);
+    const secret = "external-injection-marker";
+    const denied = new guardrails.ManagementGuardrailError("test_denied", "test-event", 403);
+    const enabled = vi.spyOn(guardrails, "managementGuardrailsEnabled").mockReturnValue(true);
+    const input = vi.spyOn(guardrails, "checkManagementInput").mockImplementation((_scope, text) => {
+      return text.includes("forbidden-instruction") ? Promise.reject(denied) : Promise.resolve();
+    });
+    const material = vi.spyOn(guardrails, "checkManagementMaterial").mockImplementation((_scope, text) => Promise.resolve(
+      text.includes(secret) ? { text: "Isolated. Event material-event.", isolated: true } : { text, isolated: false }
+    ));
+    const calls = vi.fn();
+    const plugin = vi.spyOn(guardrails, "createManagementGuardExtension").mockImplementation(() => (pi) => {
+      pi.on("tool_call", (event) => {
+        calls(event.toolName);
+        return event.toolName === "write" ? { block: true, reason: denied.message } : undefined;
+      });
+    });
+    try {
+      const target = join(h.cwd, "effect.txt");
+      await mkdir(join(h.cwd, ".pi", "prompts"), { recursive: true });
+      await writeFile(join(h.cwd, ".pi", "prompts", "unsafe-template.md"), "forbidden-instruction-$1");
+      await writeFile(join(h.cwd, "material.txt"), secret);
+      h.context.tools = { allow: ["read", "write"] };
+      const { id } = await h.start();
+      const ref = { id, cwd: h.cwd };
+      const session = h.runtime().session;
+      await h.managedModelRuntime.setRuntimeApiKey("anthropic", "isolated-test-key");
+      await session.setModel(testModel());
+      const contexts: unknown[] = [];
+      session.agent.streamFunction = (_model, context) => {
+        contexts.push(structuredClone(context.messages));
+        const requests = contexts.length;
+        const content: AssistantMessage["content"] = requests === 1
+          ? [{ type: "toolCall", id: "read-call", name: "read", arguments: { path: "material.txt" } }]
+          : requests === 2 ? [{ type: "toolCall", id: "write-call", name: "write", arguments: { path: target, content: "blocked side effect" } }]
+            : [{ type: "text", text: "Finished." }];
+        const message: AssistantMessage = {
+          role: "assistant", api: "anthropic-messages", provider: "anthropic", model: testModel().id, content,
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+          stopReason: requests < 3 ? "toolUse" : "stop", timestamp: Date.now(),
+        };
+        const stream = createAssistantMessageEventStream();
+        stream.push({ type: "done", reason: requests < 3 ? "toolUse" : "stop", message });
+        stream.end(message);
+        return stream;
+      };
+      await expect(h.service.prompt(ref, "forbidden-instruction", undefined, undefined, { managementContext: h.context })).rejects.toBe(denied);
+      expect(JSON.stringify(h.events.sessionEvents)).not.toContain("forbidden-instruction");
+      const prior = session.agent.state.messages;
+      const nearlyFull: AssistantMessage = {
+        role: "assistant", api: "anthropic-messages", model: testModel().id, provider: "anthropic", content: [{ type: "text", text: "Old turn." }],
+        usage: { input: 250000, output: 2, totalTokens: 250002, cacheRead: 0, cacheWrite: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "stop", timestamp: Date.now(),
+      };
+      session.agent.state.messages = [...prior, nearlyFull];
+      await expect(session.prompt("/unsafe-template hello")).rejects.toBe(denied);
+      session.agent.state.messages = prior;
+      await expect(session.steer("/unsafe-template hello")).rejects.toBe(denied);
+      await expect(session.followUp("/unsafe-template hello")).rejects.toBe(denied);
+      expect(session.pendingMessageCount).toBe(0);
+      expect(contexts).toHaveLength(0);
+      await h.service.prompt(ref, "Inspect the current diagnostic.", undefined, undefined, { managementContext: h.context });
+      await vi.waitFor(() => { expect(contexts).toHaveLength(3); }, { timeout: 5000 });
+      await session.waitForIdle();
+      expect(calls.mock.calls.flat()).toEqual(["read", "write"]);
+      await expect(readFile(target)).rejects.toMatchObject({ code: "ENOENT" });
+      const history = await h.service.messages(ref, undefined, h.context);
+      expect(JSON.stringify([contexts, history, h.events.sessionEvents])).not.toContain(secret);
+      expect(JSON.stringify(history)).toContain("material-event");
+      expect(JSON.stringify(history)).toContain("test-event");
+      if (session.sessionFile === undefined) throw new Error("Expected durable SDK history");
+      expect(await readFile(session.sessionFile, "utf8")).not.toContain(secret);
+      expect(input.mock.calls.filter(([, text]) => text === "Inspect the current diagnostic.")).toHaveLength(1);
+      expect(material.mock.calls.some(([, text]) => text.includes(secret))).toBe(true);
+      // Simulate a pre-enforcement SDK file, then reopen through the actual service.
+      session.sessionManager.appendMessage({ role: "toolResult", toolName: "read", toolCallId: "legacy-read",
+        timestamp: Date.now(), content: [{ type: "text", text: secret }], isError: false });
+      await expect(h.service.reload(ref, h.context)).rejects.toThrow("material-event");
+      await expect(h.service.messages(ref, undefined, h.context)).rejects.toThrow("material-event");
+    } finally {
+      enabled.mockRestore(); input.mockRestore(); material.mockRestore(); plugin.mockRestore();
+      await h.dispose();
+    }
+  });
+});
+
+async function fixture(enabled: boolean, grants: NonNullable<ManagementEmbedContext["privileged"]>, trust: "always" | "never" | "ask" = "always", withWorkbench = false, projectPathForCwd?: (cwd: string) => Promise<string>, scopedMessaging = false) {
   const root = await mkdtemp(join(tmpdir(), "pi-web-privileged-managed-"));
-  const cwd = join(root, "project");
+  const cwd = scopedMessaging ? join(root, "root-user", "project-1") : join(root, "project");
   const agentDir = join(root, "agent");
   const outside = join(root, "outside.txt");
   await mkdir(join(agentDir, "skills", "global-probe"), { recursive: true });
@@ -416,7 +588,9 @@ async function fixture(enabled: boolean, grants: NonNullable<ManagementEmbedCont
     tools: { allow: ["read"], deny: ["bash", "write", "mcp", "spawn_session"] },
   };
   let runtime: AgentSessionRuntime | undefined;
-  const service = new PiSessionService(new CapturingSessionEventHub(), {
+  const events = new CapturingSessionEventHub();
+  const service = new PiSessionService(events, {
+    ...(scopedMessaging && { managementProjectRoot: root }),
     agentDir,
     dataDir: join(root, "data"),
     modelRuntime: await createTestModelRuntime(),
@@ -440,7 +614,7 @@ async function fixture(enabled: boolean, grants: NonNullable<ManagementEmbedCont
     },
   });
   return {
-    cwd, agentDir, outside, context, service, managedModelRuntime, prepare, synchronize,
+    cwd, agentDir, outside, context, service, events, managedModelRuntime, prepare, synchronize,
     cwdHash: createHash("sha256").update(cwd).digest("hex").slice(0, 16),
     start: () => service.start(cwd, { managementContext: context }),
     runtime: () => {

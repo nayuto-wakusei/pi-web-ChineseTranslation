@@ -238,6 +238,12 @@ export function managementAuditIndexName(prefix: string, date: Date): string {
   return `${prefix}-${String(isoYear)}-w${String(week).padStart(2, "0")}`;
 }
 
+// Tool failures and assistant replies can quote the user-facing incident notice.
+function containsGuardrailFeedback(content: unknown): boolean {
+  if (typeof content === "string") return /(?:guardrail[ -]event|护栏事件号)\s+[0-9a-f]{8}-[0-9a-f-]{27,}/iu.test(content);
+  return content !== null && typeof content === "object" && Object.values(content).some(containsGuardrailFeedback);
+}
+
 function managementAuditDocument(id: string, timestamp: Date, event: ManagementAuditEvent): Record<string, unknown> {
   return {
     "@timestamp": timestamp.toISOString(),
@@ -247,7 +253,7 @@ function managementAuditDocument(id: string, timestamp: Date, event: ManagementA
     session: { id: event.sessionId, ...(event.agentSessionId === undefined ? {} : { agent_session_id: event.agentSessionId }) },
     workspace: { cwd: event.cwd },
     ...((event.toolName === undefined && event.toolCallId === undefined) ? {} : { tool: { ...(event.toolName === undefined ? {} : { name: event.toolName }), ...(event.toolCallId === undefined ? {} : { call_id: event.toolCallId }) } }),
-    ...(event.content === undefined ? {} : { content: event.content }),
+    ...(event.content === undefined || containsGuardrailFeedback(event.content) ? {} : { content: event.content }),
     workbench: compact({
       authorization_revision: event.authorizationRevision,
       capability_name: event.capabilityName,

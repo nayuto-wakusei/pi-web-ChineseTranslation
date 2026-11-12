@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { attachWorkbenchAccessHandle, workbenchAccessHandle } from "../managementEmbed.js";
 import { eventScopeFromManagementContext, NORMAL_SESSION_EVENT_SCOPE } from "../realtime/sessionEventScope.js";
+import * as guardrails from "../guardrails/managementGuardrails.js";
 import { PiSessionService, type PiAgentSession } from "./piSessionService.js";
 import { createAskUserRequest } from "./askUserDomain.js";
 import { fakeRuntime, fakeSessionManager, ScopeCapturingSessionEventHub, sessionGateway, sessionRecord, sessionRef, testManagementContext, testModelRuntime, type RuntimeCreator } from "./piSessionService.testSupport.js";
@@ -100,6 +101,35 @@ async function trackedModeService() {
 afterEach(() => { vi.useRealTimers(); });
 
 describe("session mode ownership", () => {
+  it("checks managed input before queue, compaction and ask delivery, while the ordinary session bypasses every detector", async () => {
+    const { service, normal, managed, context, events, managedAsk } = await modeService();
+    const enabled = vi.spyOn(guardrails, "managementGuardrailsEnabled").mockReturnValue(true);
+    const blocked = new guardrails.ManagementGuardrailError("test_risk", "ref-abc", 403);
+    const input = vi.spyOn(guardrails, "checkManagementInput").mockRejectedValue(blocked);
+    const material = vi.spyOn(guardrails, "checkManagementMaterial");
+    try {
+      const text = "example-risk";
+      await service.prompt(sessionRef(id), text);
+      expect(normal.calls.prompt).toHaveLength(1);
+      expect(input).not.toHaveBeenCalled();
+      expect(material).not.toHaveBeenCalled();
+      const from = events.sessionEvents.length;
+      managed.emit({ type: "tool_execution_update", toolName: "edit", toolCallId: "call",
+        partialResult: { content: [{ type: "text", text }], details: { preview: text } } });
+      for (const active of ["isStreaming", "isCompacting"] as const) {
+        managed.session[active] = true;
+        await expect(service.prompt(sessionRef(id), text, "steer", undefined, { managementContext: context })).rejects.toBe(blocked);
+        managed.session[active] = false;
+      }
+      await expect(service.submitAsk(sessionRef(id), managedAsk.askId, { answers: [{ id: "choice", values: [], otherText: text }] }, context)).rejects.toBe(blocked);
+      expect(JSON.stringify(events.sessionEvents.slice(from))).not.toContain(text);
+      expect(managed.calls.prompt).toHaveLength(0);
+      expect(managed.calls.sendCustomMessage).toHaveLength(0);
+    } finally {
+      input.mockRestore(); material.mockRestore(); enabled.mockRestore(); await service.dispose();
+    }
+  });
+
   it("keeps durable requests and replies separate for the same normal and management session id", async () => {
     const { service, normal, managed, context, events, normalAsk, managedAsk } = await modeService();
     try {

@@ -29,7 +29,8 @@
  *   it is documented `pi` configuration, not daemon wiring, so a deployment
  *   that sets it wants every `pi` process — whether daemon-spawned or started
  *   by an agent — using the same session storage.
- * - `NODE_ENV` and `PORT` are app-runtime configuration and the only removals:
+ * - Guardrail service credentials remain private to the daemon.
+ * - `NODE_ENV` and `PORT` are app-runtime configuration:
  *   `NODE_ENV=production` makes npm skip devDependencies and flips Node
  *   package-export conditions, and `PORT` leaks into the listener
  *   configuration of tools agents run.
@@ -41,7 +42,7 @@
  * keys, which stay visible; a key only belongs here when it cannot carry the
  * prefix (deployment conventions like `NODE_ENV`).
  */
-const DAEMON_ONLY_ENV_KEYS = new Set(["NODE_ENV", "PORT"]);
+const DAEMON_ONLY_ENV_KEYS = new Set(["NODE_ENV", "PORT", "PI_GUARDRAIL_TOKEN", "GUARDRAIL_AUDIT_TOKEN"]);
 
 export function isAgentVisibleEnvKey(key: string): boolean {
   return !DAEMON_ONLY_ENV_KEYS.has(key);

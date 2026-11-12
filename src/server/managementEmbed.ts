@@ -467,7 +467,7 @@ function isExpiredManagementTokenError(error: unknown): boolean {
   return error instanceof Error && error.message === "Management embed token is expired";
 }
 
-function authorizedManagedProjects(context: ManagementEmbedContext, translate: Translator = createTranslator("en", {})): ManagementEmbedContext["projects"] {
+export function authorizedManagedProjects(context: ManagementEmbedContext, translate: Translator = createTranslator("en", {})): ManagementEmbedContext["projects"] {
   return context.projects.length === 0 ? [defaultManagedProject(context, translate)] : context.projects;
 }
 

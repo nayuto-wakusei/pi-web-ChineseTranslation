@@ -53,6 +53,7 @@ import { PI_WEB_CAPABILITIES } from "../shared/apiTypes.js";
 import { DEFAULT_MANAGEMENT_AUDIT_INDEX_PREFIX, DEFAULT_MANAGEMENT_AUDIT_RETENTION_DAYS, DEFAULT_NORMAL_TOOL_AUDIT_MAX_ROWS, DEFAULT_NORMAL_TOOL_AUDIT_RETENTION_DAYS, DEFAULT_WORKBENCH_REQUEST_TIMEOUT_MS, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV, agentSessionDirEnvKeys, agentSessionDirEnvOverride, effectivePiWebConfig, maxUploadBytes, offlineModeEnabled, piWebDataDir, sessionArchiveDirectory } from "../config.js";
 import { createActiveAgentProfileDescriptor, publicActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
 import { scrubNonAgentVisibleEnvKeys } from "./sessiond/agentProcessEnvironment.js";
+import { startManagementGuardrails } from "./guardrails/managementGuardrails.js";
 import { claimSessiondStateOwnership, type SessiondStateOwnership } from "./sessiond/sessiondStateOwnership.js";
 import { dockerEnvironmentPromptSections } from "./sessions/dockerEnvironmentFacts.js";
 import { PI_WEB_SESSION_ENV, sessionEnvironmentPromptSections } from "./sessions/sessionEnvironmentFacts.js";
@@ -179,6 +180,7 @@ await runSessionDaemonStartup({
   async createRuntime(registerCleanup) {
     stateOwnership = await claimSessiondStateOwnership({ env: daemonEnvironment, logger: app.log });
     registerCleanup(() => stateOwnership?.release());
+    registerCleanup(startManagementGuardrails(daemonEnvironment));
     registerCleanup(() => app.close());
     const appliedHttpIdleTimeout = applyAgentHttpIdleTimeout({ agentDir: activeAgentProfile.dir, cwd: process.cwd() });
     if (appliedHttpIdleTimeout.warning !== undefined) {

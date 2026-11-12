@@ -24,6 +24,7 @@ export const {
   createEventBus,
   createFindToolDefinition,
   createGrepToolDefinition,
+  createLocalBashOperations,
   createLsToolDefinition,
   createMcpExtension,
   createReadToolDefinition,

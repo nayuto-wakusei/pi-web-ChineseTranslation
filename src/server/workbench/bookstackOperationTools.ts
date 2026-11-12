@@ -6,6 +6,7 @@ import { requireAuthorizedBookstackAction } from "./knowledgeSearch.js";
 import type { BookstackOperationRequest } from "./types.js";
 import { WorkbenchHttpError } from "./workbenchClient.js";
 import type { WorkbenchToolDependencies } from "./workbenchTools.js";
+import { BookstackWriteIntents } from "./bookstackWriteIntents.js";
 
 const entityId = Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
 const ReadParams = Type.Object({
@@ -27,7 +28,7 @@ const WriteParams = Type.Object({
   html: Type.Optional(Type.String()),
   markdown: Type.Optional(Type.String()),
   base_version: Type.Optional(Type.String({ minLength: 1 })),
-  idempotency_key: Type.Optional(Type.String({ minLength: 1 })),
+  idempotency_key: Type.Optional(Type.String({ minLength: 1, maxLength: 160, pattern: "^[a-zA-Z0-9_.:-]+$" })),
 }, { additionalProperties: false });
 
 const ReceiptParams = Type.Object({
@@ -36,8 +37,10 @@ const ReceiptParams = Type.Object({
   idempotency_key: Type.Optional(Type.String({ minLength: 1 })),
 }, { additionalProperties: false });
 
-export function createBookstackOperationTools(deps: Pick<WorkbenchToolDependencies, "getState" | "workbench" | "translator" | "invalidate" | "auditContext">) {
+export function createBookstackOperationTools(deps: Pick<WorkbenchToolDependencies, "getState" | "workbench" | "translator" | "invalidate" | "auditContext" | "bookstackJournal">) {
   const t = deps.translator ?? loadNodeTranslator("server");
+  const intents = new BookstackWriteIntents(deps.bookstackJournal);
+  const uncertain = (idempotencyKey: string, cause: unknown) => new Error(t("workbench.bookstack.uncertainWrite", "The BookStack operation result could not be confirmed. Query its receipt using the original idempotency key; do not submit another write. Original key: {idempotencyKey}", { idempotencyKey }), { cause });
   return [
     defineTool<typeof ReadParams, undefined>({
       name: "workbench_read_bookstack",
@@ -81,8 +84,10 @@ export function createBookstackOperationTools(deps: Pick<WorkbenchToolDependenci
         t("workbench.bookstack.createGuideline", "New pages require nonempty HTML or Markdown. parent_chapter_id is only supported when creating a page; moving existing pages is not supported."),
       ],
       parameters: WriteParams,
-      async execute(toolCallId, params) {
-        const state = await deps.getState();
+      async execute(toolCallId, params, signal) {
+        signal?.throwIfAborted();
+        const state = await deps.getState(signal);
+        signal?.throwIfAborted();
         const action = params.action.endsWith(".create") ? "create" : params.action.endsWith(".update") ? "update" : "delete";
         const resource = requireAuthorizedBookstackAction(state.resources, params.resource_name, action, t);
         if (action !== "create" && (params.base_version?.trim() ?? "") === "") {
@@ -94,10 +99,9 @@ export function createBookstackOperationTools(deps: Pick<WorkbenchToolDependenci
         // Durable PI session identity keeps a recovered tool call stable across Agent Session renewal.
         const idempotencyKey = params.idempotency_key ?? `pi-${createHash("sha256")
           .update(JSON.stringify([deps.auditContext?.sessionId ?? state.sessionId, toolCallId])).digest("hex")}`;
-        const request: BookstackOperationRequest = {
+        const body: Omit<BookstackOperationRequest, "idempotencyKey"> = {
           resourceName: resource.resourceName,
           action: params.action,
-          idempotencyKey,
           ...(params.entity_id === undefined ? {} : { entityId: params.entity_id }),
           ...(params.parent_chapter_id === undefined ? {} : { parentChapterId: params.parent_chapter_id }),
           ...(params.name === undefined ? {} : { name: params.name }),
@@ -105,15 +109,54 @@ export function createBookstackOperationTools(deps: Pick<WorkbenchToolDependenci
           ...(params.markdown === undefined ? {} : { markdown: params.markdown }),
           ...(params.base_version === undefined ? {} : { baseVersion: params.base_version }),
         };
+        // Once dispatched, only the response or a receipt can establish the outcome.
+        signal?.throwIfAborted();
+        const fingerprint = createHash("sha256").update(JSON.stringify(body)).digest("hex");
+        const book = createHash("sha256").update(body.resourceName).digest("hex");
+        const turnId = intents.currentTurn(toolCallId);
+        const other = intents.requiresReview(book, fingerprint, turnId);
+        if (other) {
+          const review = t("workbench.bookstack.changedIntent", "This different BookStack write was not sent. Review the previous operation with its original key {idempotencyKey}. After confirmation, start a new user instruction for the changed content.", { idempotencyKey: other.key });
+          if (other.status === "pending") {
+            try {
+              const receipt = await deps.workbench.getBookstackOperation(state.bearerToken, { resourceName: body.resourceName, idempotencyKey: other.key }, signal);
+              intents.receipt(other.key, receipt, turnId, turnId);
+            } catch (error) {
+              if (error instanceof WorkbenchHttpError && (error.status === 401 || error.status === 403)) deps.invalidate?.();
+              throw new Error(review, { cause: error });
+            }
+          }
+          throw new Error(review);
+        }
+        const prior = intents.prior(fingerprint, turnId);
+        if (prior) {
+          try {
+            const receipt = await deps.workbench.getBookstackOperation(state.bearerToken, { resourceName: body.resourceName, idempotencyKey: prior.key }, signal);
+            intents.receipt(prior.key, receipt, turnId, turnId);
+            return { content: [{ type: "text" as const, text: JSON.stringify({ ...receipt, idempotencyKey: prior.key }) }], details: undefined };
+          } catch (error) {
+            if (error instanceof WorkbenchHttpError && (error.status === 401 || error.status === 403)) deps.invalidate?.();
+            throw uncertain(prior.key, error);
+          }
+        }
+        const row = { book, fingerprint, turnId, key: idempotencyKey };
+        signal?.throwIfAborted();
+        intents.record({ ...row, status: "pending" });
+        if (signal?.aborted === true) {
+          intents.record({ ...row, status: "failed" });
+          signal.throwIfAborted();
+        }
         try {
-          const result = await deps.workbench.writeBookstack(state.bearerToken, request);
+          const result = await deps.workbench.writeBookstack(state.bearerToken, { ...body, idempotencyKey }, signal);
+          intents.receipt(idempotencyKey, result);
           return { content: [{ type: "text" as const, text: JSON.stringify({ ...result, idempotencyKey }) }], details: undefined };
         } catch (error) {
           if (error instanceof WorkbenchHttpError && error.status < 500) {
+            intents.record({ ...row, status: "failed" });
             if (error.status === 401 || error.status === 403) deps.invalidate?.();
             throw error;
           }
-          throw new Error(t("workbench.bookstack.uncertainWrite", "The BookStack operation result could not be confirmed. Query its receipt using the original idempotency key; do not submit another write. Original key: {idempotencyKey}", { idempotencyKey }), { cause: error });
+          throw uncertain(idempotencyKey, error);
         }
       },
     }),
@@ -122,18 +165,21 @@ export function createBookstackOperationTools(deps: Pick<WorkbenchToolDependenci
       label: t("workbench.bookstack.receiptLabel", "Check a BookStack operation"),
       description: t("workbench.bookstack.receiptDescription", "Read your own historical BookStack operation receipt and actual actor, including after resource deletion or access revocation. Provide exactly one operation ID or original idempotency key. This tool never writes or retries content."),
       parameters: ReceiptParams,
-      async execute(_toolCallId, params) {
+      async execute(toolCallId, params, signal) {
         const selector = params.operation_id !== undefined ? { operationId: params.operation_id }
           : params.idempotency_key !== undefined ? { idempotencyKey: params.idempotency_key } : undefined;
         if (selector === undefined || (params.operation_id !== undefined && params.idempotency_key !== undefined)) {
           throw new Error(t("workbench.bookstack.receiptSelectorRequired", "Provide exactly one operation_id or idempotency_key."));
         }
-        const state = await deps.getState();
+        signal?.throwIfAborted();
+        const state = await deps.getState(signal);
         try {
           const result = await deps.workbench.getBookstackOperation(state.bearerToken, {
             resourceName: params.resource_name,
             ...selector,
-          });
+          }, signal);
+          const turnId = intents.currentTurn(toolCallId);
+          intents.receipt(params.idempotency_key, result, turnId, turnId);
           return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: undefined };
         } catch (error) {
           if (error instanceof WorkbenchHttpError && (error.status === 401 || error.status === 403)) deps.invalidate?.();

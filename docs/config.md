@@ -413,6 +413,25 @@ pi-web audit vacuum
 
 ES 错误记日志，不停止管理会话。有界内存队列重试，并在优雅关闭刷写；崩溃可能丢失尚未送达记录。正文及工具内容可能含敏感数据，须用 ES/Kibana 索引权限限制审计访问。共享跨进程配置保持 Web/API 与 daemon 一致；升级审计实现后需手动重启 `pi-web-sessiond.service`。
 
+<a id="management-embed-guardrails"></a>
+### 工作台嵌入护栏
+
+在 sessiond 的服务环境中配置以下变量，重启 sessiond 后生效。先为试点实例设置共享硬规则模块、模型服务和工作台审计写入地址。两个模型阶段可分别从旁路切到强制。工具调用始终执行已启用的硬规则。
+
+| 环境变量 | 值与作用 |
+| --- | --- |
+| `PI_GUARDRAIL_ENABLED` | 默认关闭。设为 `1` 或 `true` 后，对已验身的受限、单特权、双特权管理会话启用。普通密钥会话的护栏调用数为零。 |
+| `PI_GUARDRAIL_MODULE` | 管理员安装的 `gxz-guardrails/src/index.mjs` 绝对路径。规则在 daemon 进程内调用，缺失或不可用时暂停受保护操作。 |
+| `PI_GUARDRAIL_ENDPOINT` | 语义服务完整 URL，如 `http://127.0.0.1:18860/v1/decisions`。 |
+| `PI_GUARDRAIL_TOKEN` | 模型服务与 sessiond 共享的 Bearer Secret。 |
+| `PI_GUARDRAIL_INPUT_MODE` | 用户文本使用 Qwen3Guard-Gen-4B。默认 `shadow`，设为 `enforce` 后等待决定，命中时拒绝输入。 |
+| `PI_GUARDRAIL_MATERIAL_MODE` | 外部文本使用 Horizon Small。默认 `shadow`，设为 `enforce` 后等待决定，命中时隔离材料并提供事件号。 |
+| `PI_GUARDRAIL_TIMEOUT_MS` | 模型 HTTP 请求超时，范围 1–120000，默认 5000 毫秒，本机 CPU 联测使用 40000。 |
+| `PI_GUARDRAIL_AUDIT_URL` | 工作台后端完整写入 URL，路径为 `/api/internal/guardrails/events`。 |
+| `GUARDRAIL_AUDIT_TOKEN` | sessiond 与工作台后端共享的审计写入 Secret。轮换后需重启两端，使用它生成的项目、会话关联标识也会变化。 |
+
+旁路异步提交，单个 daemon 最多同时保留 8 个待处理的语义检查。达到上限记录 `shadow_capacity`。模型命中或需要复核时记录 `shadow_hit`，业务流程继续。强制模式下，Qwen 需要复核时提示补充用途，必需的检测器超时或返回无效结果时暂停当前操作。审计在 Pi 数据目录的 `guardrails/pending.sqlite` 排队，按原事件 ID 跨重启补投至工作台。若 Pi 本地队列也无法落盘，受保护操作暂停，这次反馈事件号可能无法在管理员页查到。存储恢复后新发起的操作取得新事件号。用户可将事件号反馈给平台管理员，只有 `platform_admin` 能读取工作台护栏日志。 [管理嵌入与审计](admin/management-audit.md#工作台嵌入护栏)
+
 <a id="workbench-and-mcp-integration"></a>
 ### Workbench 与 MCP 集成
 
@@ -440,7 +459,7 @@ Python 与受限 bash 默认无网络，只绑定管理工作区及必要的只�
 
 平台标记的管理 AGENTS 指令，以及与签名上下文明确匹配的旧平台指令，不加入完整特权代理的系统提示；原文件不删除，用户自行编写的项目或全局指令保留。操作者的普通权限策略配置继续生效，不安装“全允许”策略，也不清空其环境配置。此切换仅影响代理运行时，不改变浏览器交互终端端点的独立授权。
 
-完整特权不改变管理身份、独立模型认证及偏好存储、审计或子会话管理上下文，也不允许普通会话连接读取管理会话。Web/API 与 daemon 的特权配置须一致。仅向受信任的签名入口发放双授权；旧管理 allow/deny 不能限制这种完整特权会话。
+已启用的[嵌入护栏](#management-embed-guardrails)也约束完整特权的工具调用。完整特权不改变管理身份、独立模型认证及偏好存储、审计或子会话管理上下文，也不允许普通会话连接读取管理会话。Web/API 与 daemon 的特权配置须一致。仅向受信任的签名入口发放双授权；旧管理 allow/deny 不能限制这种完整特权会话。
 
 Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，写入管理项目 `.pi/skills/`；token/票据不离开服务端。受限管理会话只加载所属项目允许范围内的 Skills；SDK 按名称去重时，被全局同名技能遮蔽的授权项目副本仍会恢复加载。启动及 `/reload` 时同步所属工作区的 `relay`、`relay-runner`，使用当前安装包随 SDK 适配的模板。项目 `.pi/skills/relay/` 与 `.pi/skills/relay-runner/` 是平台保留目录，其中旧模板会更新；其他自定义 Skill 不覆盖。普通模式及完整特权管理模式保留普通 SDK 资源加载行为，不执行这项模板同步。
 
@@ -448,7 +467,7 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 
 `workbench_search_knowledge` 只搜索授权目录中的资源名称和元数据，不搜索正文，可用 provider=ragflow/bookstack。正文关键词没有匹配资源时，应省略 `keyword` 再列出授权目录，选取返回的精确 `resourceName` 后检索正文；目录无匹配不代表正文没有内容。RAGFlow 内容用 `workbench_retrieve_knowledge`，BookStack 关键词检索用 `workbench_retrieve_bookstack`，参数 `resource_name`、简洁 `question`、可选 `resource_version=live`、`top_k` 默认 8/最大 20。通过后端 `POST /api/knowledge-access/bookstack/retrieval` 读取独立授权的已发布书籍当前非草稿页；该检索工具只读，不提供语义检索。返回纯文本、修订、更新时间、源 URL 与 `knowledge://` 引用；`truncated` 表示搜索/文本限制，不保证包含所有匹配。上限五批各 100 候选、每页 8000 字符、总 40000。源链接仍需要读者自身浏览器权限，工具不授予 BookStack 登录。
 
-停止 `workbench_retrieve_knowledge`、`workbench_retrieve_bookstack` 或 `workbench_read_bookstack` 工具调用时，取消会传给正在进行的 HTTP 请求，取消与请求超时分别报告。写入超时表示结果未确认，应按下述回执流程核查，不能据此认定未写入或自动重试。
+停止 `workbench_retrieve_knowledge`、`workbench_retrieve_bookstack` 或 `workbench_read_bookstack` 工具调用时，取消会传给正在进行的 HTTP 请求，取消与请求超时分别报告。在 BookStack 写请求发出前取消，PI WEB 不会发送该写请求。请求发出后若因取消、超时或断连而无法确认结果，保留原 `idempotencyKey`，用 `workbench_get_bookstack_operation` 查询回执。
 
 签名 `projects[].agentsInstructions` 仅在项目 `AGENTS.md` 不存在时独占创建，`replace-managed` 策略为首次创建的文件保留托管标记；已有文件不因初始化自动覆盖。管理嵌入可在当前工作区的[指令确认菜单](plugins.md#managed-agents-review)中选择覆盖并备份或保留，无此字段仍兼容，普通项目不受影响。
 
@@ -467,9 +486,9 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 
 写入动作限 `book.update`、`book.delete`、`chapter.create/update/delete`、`page.create/update/delete`。`create` 仅在授权书内创建章节或页面；新增页面须提供非空 HTML 或 Markdown，整本书创建由工作台管理入口负责。`update`/`delete` 可作用于授权书本身及其章节、页面；`book.delete` 删除整本书，整书或整章删除会按原生规则级联删除其内容，包括子草稿。独立草稿页读/改/删以及移动页面不在此入口支持范围。工具参数不接受操作者身份，实际用户由后端 Agent Session 确定；后端负责授权与操作审计。PI WEB 不增加 AI 或人工审批步骤，已有工具 allow/deny 仍生效。
 
-修改或删除前先定向读取目标，将返回的 `baseVersion` 原样作为 `base_version`。版本冲突后重新读取并核对内容，再决定如何修改。后端按整书串行执行工作台写入，但这不构成与原生编辑器共享的原子版本锁。写入返回 `operationId` 和 `status`（`succeeded` 或 `unknown`）；`unknown`、网络超时或服务端错误表示结果未确认，PI WEB 不自动重试，也不能换新键重发。
+修改或删除前先定向读取目标，将返回的 `baseVersion` 原样作为 `base_version`。版本冲突后重新读取并核对内容，再决定如何修改。部署配套的 BookStack v2 补丁后，工作台修改和删除在原生事务中复核目标手册与内容版本。原生页面编辑器保存时也锁定手册并校验版本，过期提交返回冲突。写入返回 `operationId` 和 `status`（`succeeded` 或 `unknown`）；`unknown`、网络超时或服务端错误表示结果未确认，PI WEB 不自动重试，也不能换新键重发。
 
-保留原 `idempotencyKey` 和已返回的操作编号，调用 `workbench_get_bookstack_operation` 核查。回执状态为 `pending/succeeded/unknown/failed`，可能另带 `resolution`（实际核实者、时间、依据、`applied/not_applied` 结论）；核实不会改写原执行状态。手册已删除或当前授权已撤销时，有效账号仍可查本人历史回执。未结案的 `pending/unknown` 会冻结同书新写入，须由工作台平台管理员核对原生结果并结案；这是异常恢复流程，不是正常写入审批，PI WEB 工具不会替管理员解冻或重放。
+保留原 `idempotencyKey` 和已返回的操作编号，调用 `workbench_get_bookstack_operation` 核查。回执状态为 `pending/succeeded/unknown/failed`，可能另带 `resolution`（实际核实者、时间、依据、`applied/not_applied` 结论）；核实不会改写原执行状态。同一手册有写入待确认时，PI WEB 只用原幂等键查回执。恢复会话、更换工具调用编号或幂等键后仍按此处理。若请求改了标题或正文，工具会提示本次修改未发送，本轮也不会补发。原结果确认后，用户可在新一轮明确发起相同或修改后的操作，包括重新创建页面。各 PI WEB 会话分别保存自己的记录。手册已删除或当前授权已撤销时，有效账号仍可查本人历史回执。未结案的 `pending/unknown` 会冻结同书新写入，须由工作台平台管理员核对原生结果并结案；这是异常恢复流程，不是正常写入审批，PI WEB 工具不会替管理员解冻或重放。
 
 定向读取、写入及回执分别调用后端 `POST /api/agent-access/bookstack/read`、`POST /api/agent-access/bookstack/operations`、`POST /api/agent-access/bookstack/operations/receipt`，把工具的 snake_case 参数转换为 camelCase；成功响应均为 HTTP `200`，执行结果以正文 `status` 区分。RAGFlow 检索和受控 MCP 的 `L0` 只读能力边界保持不变。
 
@@ -489,7 +508,7 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 <a id="agent-process-environment"></a>
 ### 代理进程环境
 
-普通代理 shell、终端和子会话继承 daemon 环境；移除 `NODE_ENV`、`PORT`，避免 daemon 生产设置影响开发命令。PATH、HOME、代理变量和 `PI_WEB_*` 保留。daemon 导出已解析的 `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR`；运行时读取共享 agent 设置与会话路径，但模型认证仍遵循 owning-project registry，不能由子进程环境说明推断普通项目共享凭据。
+普通代理 shell、终端和子会话继承 daemon 环境；移除 `NODE_ENV`、`PORT`，避免 daemon 生产设置影响开发命令。模型服务令牌 `PI_GUARDRAIL_TOKEN` 和审计写令牌 `GUARDRAIL_AUDIT_TOKEN` 保留在 daemon 内。PATH、HOME、代理变量和 `PI_WEB_*` 保留。daemon 导出已解析的 `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR`；运行时读取共享 agent 设置与会话路径，但模型认证仍遵循 owning-project registry，不能由子进程环境说明推断普通项目共享凭据。
 
 会话启动的进程继承 `PI_WEB_SESSION=1`，表示处于现有 PI WEB 中。继承变量指向当前实例；误启动第二实例会因活跃数据目录所有权失败。刻意运行独立实例必须另设目录、endpoint 和端口。
 

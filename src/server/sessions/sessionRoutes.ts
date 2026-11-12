@@ -1,3 +1,5 @@
+import { IsolatedSessionHistoryError } from "./managementGuardedSession.js";
+import { ManagementGuardrailError } from "../guardrails/managementGuardrails.js";
 import { UserFacingError, userFacingErrorMessage, type Translator } from "../../shared/i18n.js";
 import { loadNodeTranslator } from "../../localization.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -906,7 +908,9 @@ function errorMessage(error: unknown, t: Translator = loadNodeTranslator("server
   return userFacingErrorMessage(error, t);
 }
 
-function mutationErrorStatus(error: unknown): 400 | 404 {
+function mutationErrorStatus(error: unknown): 400 | 403 | 404 | 503 {
+  if (error instanceof IsolatedSessionHistoryError) return 403;
+  if (error instanceof ManagementGuardrailError) return error.status === 503 ? 503 : 403;
   return isSessionNotFoundError(error) ? 404 : 400;
 }
 

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { checkManagementMaterial, checkManagementTool, type GuardrailScope } from "../guardrails/managementGuardrails.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { loadNodeTranslator } from "../../localization.js";
 import type { Translator } from "../../shared/i18n.js";
@@ -11,6 +12,7 @@ import type { BookstackRetrievalResult, KnowledgeRetrievalResult, WorkbenchAgent
 import { WorkbenchClient, WorkbenchHttpError, WorkbenchTimeoutError } from "./workbenchClient.js";
 import type { ManagementAuditIdentity, ManagementAuditRecorder, ManagementAuditStatus } from "../audit/managementAuditStore.js";
 import { createBookstackOperationTools } from "./bookstackOperationTools.js";
+import type { BookstackSessionJournal } from "./bookstackWriteIntents.js";
 
 const SearchCapabilitiesParams = Type.Object({
   keyword: Type.Optional(Type.String()),
@@ -50,6 +52,8 @@ const RetrieveBookstackParams = Type.Object({
 }, { additionalProperties: false });
 
 export interface WorkbenchToolDependencies {
+  guardrailScope?: GuardrailScope;
+  bookstackJournal?: BookstackSessionJournal;
   translator?: Translator;
   getState(signal?: AbortSignal): WorkbenchAgentAccessState | Promise<WorkbenchAgentAccessState>;
   workbench: WorkbenchClient;
@@ -240,13 +244,27 @@ async function executeKnowledgeRetrieval(
     };
     deps.logger?.info({ ...deps.auditContext, ...details }, "Workbench knowledge retrieval completed");
     recordKnowledgeAudit(deps, { status: "completed", ...details });
-    return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: undefined };
+    const text = deps.guardrailScope === undefined ? JSON.stringify(result)
+      : await guardedKnowledgeText(deps.guardrailScope, result, signal);
+    return { content: [{ type: "text" as const, text }], details: undefined };
   } catch (error) {
     const details = { ...auditBase, statusCode: errorStatus(error), durationMs: Date.now() - startedAt };
     deps.logger?.info({ ...deps.auditContext, ...details, errorCode: errorCode(error) }, "Workbench knowledge retrieval rejected or failed");
     recordKnowledgeAudit(deps, { status: "failed", ...details });
     throw error;
   }
+}
+
+async function guardedKnowledgeText(scope: GuardrailScope, result: KnowledgeRetrievalResult | BookstackRetrievalResult, signal?: AbortSignal): Promise<string> {
+  const entries = "pages" in result ? result.pages : result.chunks;
+  const safe = [];
+  for (const entry of entries) {
+    signal?.throwIfAborted();
+    // Inspect titles, links, and citations together with the source body. Never retain metadata from an isolated item.
+    const checked = await checkManagementMaterial(scope, JSON.stringify(entry));
+    safe.push(checked.isolated ? { isolated: true, content: checked.text } : entry);
+  }
+  return JSON.stringify({ ...result, ["pages" in result ? "pages" : "chunks"]: safe });
 }
 
 function recordKnowledgeAudit(
@@ -322,6 +340,11 @@ async function callWithOneTransientRetry(
     signal.throwIfAborted();
     let retryAfterMs: number | undefined;
     try {
+      if (deps.guardrailScope) {
+        await checkManagementTool(deps.guardrailScope, "icnoc_call_capability",
+          { capability_name: capabilityName, arguments: args }, [capabilityName]);
+        signal.throwIfAborted();
+      }
       const token = await deps.workbench.issueCapabilityToken(state.bearerToken, {
         capabilityName, capabilityVersion, runId, traceId, approvalCount: 0,
       }, signal);

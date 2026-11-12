@@ -1,10 +1,15 @@
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { SessionManager } from "../../piSdk.js";
 import { createManagementPermissionSystemPolicy, managementAgentToolNames } from "../sessions/managementPermissionSystem.js";
 import type { AuthorizedResource, BookstackOperationReceipt, BookstackOperationResult, BookstackReadResult, WorkbenchResourceAction } from "./types.js";
 import { WorkbenchMcpClient } from "./mcpClient.js";
 import { parseAuthorizedResources, WorkbenchClient, WorkbenchHttpError, WorkbenchTimeoutError } from "./workbenchClient.js";
 import { createWorkbenchToolDefinitions } from "./workbenchTools.js";
+import type { BookstackSessionJournal } from "./bookstackWriteIntents.js";
 
 describe("BookStack entity transport", () => {
   it("reads an exact entity with the Agent Session bearer and preserves version and actions", async () => {
@@ -120,7 +125,7 @@ describe("BookStack entity tools", () => {
     expect(idempotencyKey).toMatch(/^pi-[a-f0-9]{64}$/u);
     expect(h.write).toHaveBeenCalledExactlyOnceWith("agent-secret", {
       resourceName: "bookstack.gx.1", action: "page.update", entityId: 42, markdown: "Updated", baseVersion: "revision-3", idempotencyKey,
-    });
+    }, undefined);
     expect(JSON.stringify(output)).toContain(idempotencyKey);
     expect(h.issueToken).not.toHaveBeenCalled();
   });
@@ -129,7 +134,7 @@ describe("BookStack entity tools", () => {
     const h = harness(["read", "create"]);
     h.write.mockResolvedValue({ ...writeResult(), action: "page.create" });
     await h.writeTool.execute("call", { resource_name: "bookstack.gx.1", action: "page.create", parent_chapter_id: 5, name: "New page", html: "<p>New</p>", idempotency_key: "create-key" }, undefined, undefined, context());
-    expect(h.write).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", action: "page.create", parentChapterId: 5, name: "New page", html: "<p>New</p>", idempotencyKey: "create-key" });
+    expect(h.write).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", action: "page.create", parentChapterId: 5, name: "New page", html: "<p>New</p>", idempotencyKey: "create-key" }, undefined);
   });
 
   it("deletes an authorized book only with its current version", async () => {
@@ -138,7 +143,44 @@ describe("BookStack entity tools", () => {
     await expect(h.writeTool.execute("call", { resource_name: "bookstack.gx.1", action: "book.delete" }, undefined, undefined, context())).rejects.toThrow("baseVersion");
     expect(h.write).not.toHaveBeenCalled();
     await h.writeTool.execute("call", { resource_name: "bookstack.gx.1", action: "book.delete", base_version: "book-revision", idempotency_key: "delete-key" }, undefined, undefined, context());
-    expect(h.write).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", action: "book.delete", baseVersion: "book-revision", idempotencyKey: "delete-key" });
+    expect(h.write).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", action: "book.delete", baseVersion: "book-revision", idempotencyKey: "delete-key" }, undefined);
+  });
+
+  it("does not dispatch a stopped write before or during authorization", async () => {
+    const h = harness(["update"]);
+    const controller = new AbortController();
+    await expect(h.writeTool.execute("call", updateInput(), AbortSignal.abort(), undefined, context())).rejects.toMatchObject({ name: "AbortError" });
+    expect(h.getState).not.toHaveBeenCalled();
+    h.getState.mockImplementationOnce(async () => {
+      await Promise.resolve();
+      controller.abort();
+      return h.state;
+    });
+    await expect(h.writeTool.execute("call", updateInput(), controller.signal, undefined, context())).rejects.toMatchObject({ name: "AbortError" });
+    expect(h.getState).toHaveBeenCalledExactlyOnceWith(controller.signal);
+    expect(h.write).not.toHaveBeenCalled();
+  });
+
+  it("checks cancellation after constructing the authorized request and before POST", async () => {
+    const h = harness(["update"]);
+    const controller = new AbortController();
+    const input = { ...updateInput(), get markdown() { controller.abort(); return "Updated"; } };
+    await expect(h.writeTool.execute("call", input, controller.signal, undefined, context())).rejects.toMatchObject({ name: "AbortError" });
+    expect(h.getState).toHaveBeenCalledTimes(1);
+    expect(h.write).not.toHaveBeenCalled();
+  });
+
+  it("reports the original receipt key if the connection fails after dispatch and cancellation", async () => {
+    const h = harness(["update"]);
+    const controller = new AbortController();
+    h.write.mockImplementationOnce(() => {
+      controller.abort();
+      return Promise.reject(new TypeError("Connection closed"));
+    });
+    await expect(h.writeTool.execute("call", { ...updateInput(), idempotency_key: "original-key" }, controller.signal, undefined, context())).rejects.toThrow("original-key");
+    await h.receiptTool.execute("lookup", { resource_name: "bookstack.gx.1", idempotency_key: "original-key" }, undefined, undefined, context());
+    expect(h.receipt).toHaveBeenCalledTimes(1);
+    expect(h.write).toHaveBeenCalledTimes(1);
   });
 
   it.each([new TypeError("Network failed"), new WorkbenchTimeoutError()])("does not replay an uncertain mutation and reports the original key (%s)", async (error) => {
@@ -146,10 +188,87 @@ describe("BookStack entity tools", () => {
     h.write.mockRejectedValue(error);
     await expect(h.writeTool.execute("call", { ...updateInput(), idempotency_key: "keep-this-key" }, undefined, undefined, context())).rejects.toThrow("keep-this-key");
     expect(h.write).toHaveBeenCalledTimes(1);
-    h.write.mockResolvedValue({ ...writeResult(), status: "unknown" });
+    h.receipt.mockResolvedValue({ ...receiptResult(), status: "unknown" });
     const output = await h.writeTool.execute("call", { ...updateInput(), idempotency_key: "keep-this-key" }, undefined, undefined, context());
     expect(JSON.stringify(output)).toContain('\\"status\\":\\"unknown\\"');
     expect(JSON.stringify(output)).toContain("keep-this-key");
+    expect(h.write).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a pending HTTP response and recovers a committed write under its original key across daemon restore", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-bookstack-intent-"));
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
+    const journal = SessionManager.create(dir, dir);
+    journal.appendMessage({ role: "user", content: "Original instruction", timestamp: 1 });
+    const controller = new AbortController();
+    const fetchImpl = vi.fn<typeof fetch>((_url, init) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => { reject(new Error("aborted")); }, { once: true });
+      });
+    });
+    const transport = new WorkbenchClient({ baseUrl: "https://workbench", requestTimeoutMs: 60_000, fetch: fetchImpl });
+    const first = harness(["update"], undefined, journal);
+    first.write.mockImplementation(transport.writeBookstack.bind(transport));
+    const pending = first.writeTool.execute("first-tool", { ...updateInput(), idempotency_key: "original" }, controller.signal, undefined, context());
+    await vi.waitFor(() => { expect(fetchImpl).toHaveBeenCalledTimes(1); });
+    controller.abort();
+    await expect(pending).rejects.toThrow("original");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const file = journal.getSessionFile();
+    if (file === undefined) throw new Error("Session file was not persisted");
+    expect(await readFile(file, "utf8")).not.toMatch(/Updated|agent-secret|revision-3/u);
+    const reopened = SessionManager.open(file, dir);
+    reopened.appendMessage({ role: "user", content: "Check the interrupted turn", timestamp: 2 });
+    const restored = harness(["update"], undefined, reopened);
+    await restored.writeTool.execute("new-tool", { ...updateInput(), idempotency_key: "replacement" }, undefined, undefined, context());
+    expect(restored.receipt).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", idempotencyKey: "original" }, undefined);
+    await restored.writeTool.execute("third-tool", updateInput(), undefined, undefined, context());
+    expect(restored.write).not.toHaveBeenCalled();
+    reopened.appendMessage({ role: "user", content: "New instruction", timestamp: 3 });
+    await restored.writeTool.execute("fresh-tool", updateInput(), undefined, undefined, context());
+    expect(restored.write).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["applied", "not_applied"] as const)("recognizes the administrator's %s resolution and allows a later user turn", async (outcome) => {
+    const entries: unknown[] = [{ type: "message", id: "one", message: { role: "user" } }];
+    const h = harness(["update"], undefined, {
+      getBranch: () => entries,
+      appendCustomEntry: (customType, data) => { entries.push({ type: "custom", customType, data }); return String(entries.length); },
+    });
+    h.write.mockResolvedValueOnce({ ...writeResult(), status: "unknown" });
+    await h.writeTool.execute("first", updateInput(), undefined, undefined, context());
+    h.receipt.mockResolvedValue({ ...receiptResult(), status: "unknown", resolution: {
+      outcome, actorUserId: "auditor", reason: "Checked upstream", resolvedAt: "2026-11-11T00:00:00Z",
+    } });
+    await h.receiptTool.execute("resolve", { resource_name: "bookstack.gx.1", operation_id: "operation-1" }, undefined, undefined, context());
+    await h.writeTool.execute("repeat", updateInput(), undefined, undefined, context());
+    expect(h.write).toHaveBeenCalledTimes(1);
+    entries.push({ type: "message", id: "two", message: { role: "user" } });
+    await h.writeTool.execute("fresh", updateInput(), undefined, undefined, context());
+    expect(h.write).toHaveBeenCalledTimes(2);
+  });
+
+  it("reconciles a lost page creation before a reworded creation and waits for the next user instruction", async () => {
+    const entries: unknown[] = [{ type: "message", id: "initial", message: { role: "user" } }];
+    const journal: BookstackSessionJournal = {
+      getBranch: () => entries,
+      appendCustomEntry: (customType, data) => { entries.push({ type: "custom", customType, data }); return String(entries.length); },
+    };
+    const create = { resource_name: "bookstack.gx.1", action: "page.create" as const, name: "page", markdown: "first text", idempotency_key: "original-create" };
+    const first = harness(["create"], undefined, journal);
+    first.write.mockRejectedValueOnce(new TypeError("response lost"));
+    await expect(first.writeTool.execute("first", create, undefined, undefined, context())).rejects.toThrow("original-create");
+    const recovered = harness(["create"], undefined, journal);
+    recovered.receipt.mockResolvedValue({ ...receiptResult(), action: "page.create" });
+    const changed = { ...create, name: "revised page", markdown: "first text.", idempotency_key: "replacement" };
+    for (const callId of ["model-retry", "model-retry-again"]) {
+      await expect(recovered.writeTool.execute(callId, changed, undefined, undefined, context())).rejects.toThrow("写入未发送");
+    }
+    expect(recovered.receipt).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: create.resource_name, idempotencyKey: "original-create" }, undefined);
+    expect(recovered.write).not.toHaveBeenCalled();
+    entries.push({ type: "message", id: "next-instruction", message: { role: "user" } });
+    await recovered.writeTool.execute("fresh", changed, undefined, undefined, context());
+    expect(recovered.write).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a recovered PI tool call key stable across Agent Session replacement and separates different calls", async () => {
@@ -169,7 +288,7 @@ describe("BookStack entity tools", () => {
     const h = harness();
     h.state.resources = [];
     const result = await h.receiptTool.execute("query-call", { resource_name: "bookstack.gx.1", idempotency_key: "original-key" }, undefined, undefined, context());
-    expect(h.receipt).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", idempotencyKey: "original-key" });
+    expect(h.receipt).toHaveBeenCalledExactlyOnceWith("agent-secret", { resourceName: "bookstack.gx.1", idempotencyKey: "original-key" }, undefined);
     expect(JSON.stringify(result)).toContain("Actual User");
     expect(h.write).not.toHaveBeenCalled();
     expect(h.issueToken).not.toHaveBeenCalled();
@@ -236,7 +355,7 @@ function updateInput() {
   return { resource_name: "bookstack.gx.1", action: "page.update" as const, entity_id: 42, markdown: "Updated", base_version: "revision-3" };
 }
 
-function harness(actions?: WorkbenchResourceAction[], identity?: { piSessionId: string; agentSessionId: string }) {
+function harness(actions?: WorkbenchResourceAction[], identity?: { piSessionId: string; agentSessionId: string }, journal?: BookstackSessionJournal) {
   const workbench = new WorkbenchClient({ baseUrl: "https://workbench", requestTimeoutMs: 1_000 });
   const read = vi.spyOn(workbench, "readBookstack").mockResolvedValue(readResult());
   const write = vi.spyOn(workbench, "writeBookstack").mockResolvedValue(writeResult());
@@ -244,8 +363,10 @@ function harness(actions?: WorkbenchResourceAction[], identity?: { piSessionId: 
   const issueToken = vi.spyOn(workbench, "issueKnowledgeToken");
   const invalidate = vi.fn();
   const state = { sessionId: identity?.agentSessionId ?? "agent", bearerToken: "agent-secret", expiresAt: "2099-01-01T00:00:00Z", authorizationRevision: 1, resources: [resource(actions)] };
+  const getState = vi.fn<(_signal?: AbortSignal) => typeof state | Promise<typeof state>>(() => state);
   const tools = createWorkbenchToolDefinitions({
-    getState: () => state,
+    getState,
+    ...(journal ? { bookstackJournal: journal } : {}),
     workbench, mcp: new WorkbenchMcpClient({ mcpUrl: "https://mcp/mcp", timeoutMs: 1_000 }), invalidate,
     ...(identity === undefined ? {} : { auditContext: { sessionId: identity.piSessionId, userId: "actual-user", rootUserId: "actual-user", projectId: "project", cwd: "/work" } }),
   });
@@ -253,7 +374,7 @@ function harness(actions?: WorkbenchResourceAction[], identity?: { piSessionId: 
   const writeTool = tools.find((tool) => tool.name === "workbench_write_bookstack");
   const receiptTool = tools.find((tool) => tool.name === "workbench_get_bookstack_operation");
   if (readTool === undefined || writeTool === undefined || receiptTool === undefined) throw new Error("BookStack entity tools are missing");
-  return { tools, readTool, writeTool, receiptTool, read, write, receipt, state, issueToken, invalidate };
+  return { tools, readTool, writeTool, receiptTool, read, write, receipt, state, getState, issueToken, invalidate };
 }
 
 function json(value: unknown): Response {

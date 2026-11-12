@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
+import { ManagementGuardrailError } from "../guardrails/managementGuardrails.js";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunStatus } from "../../shared/apiTypes.js";
 import type { RunTerminalCommandOptions } from "./managementCommandRunService.js";
 import { decodeManagementContext, managementToolAllowed, MANAGEMENT_EMBED_CONTEXT_HEADER, type ManagementEmbedContext } from "../managementEmbed.js";
 
 export interface ManagementTerminalRouteService {
-  runCommand(options: RunTerminalCommandOptions): TerminalCommandRun;
+  runCommand(options: RunTerminalCommandOptions): TerminalCommandRun | Promise<TerminalCommandRun>;
   listCommandRuns(filter?: TerminalCommandRunFilter, managementContext?: ManagementEmbedContext): TerminalCommandRun[];
   getCommandRun(runId: string, managementContext?: ManagementEmbedContext): TerminalCommandRun | undefined;
   cancelCommandRun(runId: string, managementContext?: ManagementEmbedContext): TerminalCommandRun;
@@ -33,12 +34,12 @@ export function registerManagementTerminalRoutes(app: FastifyInstance, terminals
 }
 
 function registerCommandRunRoutes(app: FastifyInstance, terminals: ManagementTerminalRouteService): void {
-  app.post<{ Body: RunTerminalCommandOptions }>(`/terminal-command-runs`, (request, reply) => {
+  app.post<{ Body: RunTerminalCommandOptions }>(`/terminal-command-runs`, async (request, reply) => {
     try {
       const managementContext = managementContextFromHeaders(request.headers);
-      return terminals.runCommand({ ...request.body, cwd: normalizeRequestCwd(request.body.cwd), ...(managementContext === undefined ? {} : { managementContext }) });
+      return await terminals.runCommand({ ...request.body, cwd: normalizeRequestCwd(request.body.cwd), ...(managementContext === undefined ? {} : { managementContext }) });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(error instanceof ManagementGuardrailError ? error.status : 400).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 
