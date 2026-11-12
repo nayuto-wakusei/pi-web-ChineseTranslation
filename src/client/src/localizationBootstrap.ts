@@ -9,6 +9,10 @@ import { createPluginLocalization } from "./plugins/localization";
 let localizationLifetime: AbortController | undefined;
 let unsubscribeLegacyLocale: (() => void) | undefined;
 
+export function hasBootstrappedChineseLocalization(): boolean {
+  return localizationLifetime !== undefined && !localizationLifetime.signal.aborted;
+}
+
 export async function initializeClientLocalization(
   load: () => Promise<PiWebPluginRegistration[]> = async () => (await loadExternalPlugins(
     "pi-web-plugins/localization.json",
@@ -16,6 +20,7 @@ export async function initializeClientLocalization(
   )).registrations,
 ): Promise<void> {
   localizationLifetime?.abort();
+  localizationLifetime = undefined;
   unsubscribeLegacyLocale?.();
   unsubscribeLegacyLocale = undefined;
   setClientTranslations("en", {});
@@ -41,6 +46,8 @@ export async function initializeClientLocalization(
       }
     }
   } catch (error) {
+    localizationLifetime?.abort();
+    localizationLifetime = undefined;
     // An unavailable language pack must not prevent login or use of the application.
     console.warn("Could not initialize UI localization; using English", error);
   }

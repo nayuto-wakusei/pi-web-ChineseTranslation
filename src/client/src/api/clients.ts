@@ -175,14 +175,14 @@ export const configApi = {
 };
 
 export const normalAuthApi = {
-  status: () => request("api/normal-auth/status", parseNormalAuthStatusResponse),
+  status: (options?: { timeoutMs?: number }) => request("api/normal-auth/status", parseNormalAuthStatusResponse, options),
   setup: (password: string) => request("api/normal-auth/setup", parseAccepted, { method: "POST", body: JSON.stringify({ password }) }),
   login: (password: string) => request("api/normal-auth/login", parseAccepted, { method: "POST", body: JSON.stringify({ password }) }),
   changePassword: (currentPassword: string, newPassword: string) => request("api/normal-auth/change-password", parseAccepted, { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
 };
 
 export const pluginsApi = {
-  plugins: (machineId?: string) => request(pluginsPath(machineId), parsePiWebPluginsResponse),
+  plugins: (machineId?: string, options?: { timeoutMs?: number }) => request(pluginsPath(machineId), parsePiWebPluginsResponse, options),
 };
 
 function piPackagePath(endpoint = "", machineId?: string): string {

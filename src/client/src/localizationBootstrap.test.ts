@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clientLocale, setClientTranslations, t } from "./i18n";
-import { applyDocumentLocalization, initializeClientLocalization } from "./localizationBootstrap";
+import { applyDocumentLocalization, hasBootstrappedChineseLocalization, initializeClientLocalization } from "./localizationBootstrap";
 import type { PiWebPluginRegistration } from "./plugins/types";
 import chinesePlugin from "../../../pi-web-plugins/zh-cn/pi-web-plugin";
 import { localization } from "./localization/browser";
@@ -29,6 +29,7 @@ afterEach(() => {
 describe("gateway localization bootstrap", () => {
   it("initializes Chinese before consumers evaluate their labels", async () => {
     await initializeClientLocalization(() => Promise.resolve([{ id: "zh-cn", plugin: chinesePlugin }]));
+    expect(hasBootstrappedChineseLocalization()).toBe(true);
     expect(t("ui.common.close", "Close")).toBe("关闭");
     expect(clientLocale()).toBe("zh-CN");
     await localization.setPreferences({ language: "zh-CN", formatLocale: "zh-CN" });
@@ -44,6 +45,7 @@ describe("gateway localization bootstrap", () => {
   it("uses English when disabled and never adopts remote-machine translations", async () => {
     await initializeClientLocalization(() => Promise.resolve([languagePlugin()]));
     await initializeClientLocalization(() => Promise.resolve([]));
+    expect(hasBootstrappedChineseLocalization()).toBe(false);
     expect(t("hello", "Hello")).toBe("Hello");
     await initializeClientLocalization(() => Promise.resolve([languagePlugin("remote")]));
     expect(t("hello", "Hello")).toBe("Hello");
@@ -52,6 +54,7 @@ describe("gateway localization bootstrap", () => {
   it("keeps the app usable when loading the language pack fails", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await initializeClientLocalization(() => Promise.reject(new Error("offline")));
+    expect(hasBootstrappedChineseLocalization()).toBe(false);
     expect(clientLocale()).toBe("en");
   });
 

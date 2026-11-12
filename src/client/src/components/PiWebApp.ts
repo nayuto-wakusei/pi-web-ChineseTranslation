@@ -67,6 +67,7 @@ import { corePlugin } from "../plugins/core";
 import { localizeBuiltInThemeMetadata, themePackPlugin } from "../plugins/themes";
 import { cancelInitialTheme, claimStartupDocument, revealApplication, themeStartup } from "../themeStartup";
 import { bootstrapPreference, loadThemeBootstrap, mergeThemeCatalog, type BrowserThemeCatalog } from "../themeCatalog";
+import { hasBootstrappedChineseLocalization } from "../localizationBootstrap";
 import { FileIconService, fileIconsCapabilityToken } from "../fileIconService";
 import { NO_FILE_ICONS, readStoredFileIconPreference, writeStoredFileIconPreference } from "../fileIconPreferences";
 import { pluginStyles, PluginStyleRuntime, stylesheetIntegrationCapability } from "../plugins/styles";
@@ -510,10 +511,7 @@ export class PiWebApp extends LitElement {
   private remoteRouteRestoreInProgress = false;
   private readonly stylesheetRuntime = new PluginStyleRuntime(pluginStyles,
     (error) => { this.plugins.failUiPresentationStylesheetError(error); console.error("Failed to apply plugin stylesheets", error); },
-    (error) => {
-      console.error("Failed to apply theme stylesheets", error);
-      this.revealAfterRender();
-    },
+    (error) => { console.error("Failed to apply theme stylesheets", error); },
   );
   private readonly pluginLoadErrors = new Map<string, string>();
   private readonly requiredTerminalByMachine = new Map<string, RequiredTerminalBrowserComposition>();
@@ -548,7 +546,8 @@ export class PiWebApp extends LitElement {
   private readonly pluginLoads = new MachinePluginLoadCoordinator(
     (label, load, machineId) => this.registerExternalPlugins(label, load, machineId),
     (id, machineSpecific) => this.plugins.shouldLoadRemotePlugin(id, machineSpecific) && !(this.apiScope === "management" && id === "pi-web.terminal"),
-    (id) => !this.plugins.hasPlugin(id) || (id === REQUIRED_TERMINAL_PLUGIN_ID && !this.terminalAvailableForMachine("local")),
+    (id) => (id !== "zh-cn" || !hasBootstrappedChineseLocalization())
+      && (!this.plugins.hasPlugin(id) || (id === REQUIRED_TERMINAL_PLUGIN_ID && !this.terminalAvailableForMachine("local"))),
   );
   private declarativeThemes: BrowserThemeCatalog | undefined;
   private requestedThemeId: string | undefined;
@@ -852,8 +851,19 @@ export class PiWebApp extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.normalAuthInitSeq += 1;
+    const initSeq = this.normalAuthInitSeq;
     this.stylesheetRuntime.connect(this.ownerDocument);
     claimStartupDocument();
+    this.syncNavigationOrder();
+    this.unreadConnected = true;
+    window.addEventListener("popstate", this.onPopState);
+    this.browserResume.connect();
+    window.addEventListener("keydown", this.onKeyDown, GLOBAL_SHORTCUT_LISTENER_OPTIONS);
+    window.addEventListener("focusin", this.resetKeyboardSequence);
+    window.addEventListener("blur", this.resetKeyboardSequence);
+    this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
+    this.applyPreferredTheme(false);
+    const authReady = this.initializeNormalAuth(initSeq);
     void this.declarativeThemesReady.then(async (catalog) => {
       await themeStartup.ready;
       if (!this.isConnected || !themeStartup.started) return;
@@ -867,20 +877,12 @@ export class PiWebApp extends LitElement {
         this.syncFileIcons();
       }
       this.applyPreferredTheme(false);
-      // The delivered palette is usable now. A browser override or legacy
-      // activation can finish without keeping the rendered application hidden.
-      this.revealAfterRender();
+      // Do not expose the default shell while gateway presentation is settling.
+      // Device theme overrides and remote plugins are not part of this wait.
+      await authReady;
+      await this.updateComplete;
+      if (this.isCurrentAuthInitialization(initSeq)) revealApplication();
     });
-    this.syncNavigationOrder();
-    this.unreadConnected = true;
-    window.addEventListener("popstate", this.onPopState);
-    this.browserResume.connect();
-    window.addEventListener("keydown", this.onKeyDown, GLOBAL_SHORTCUT_LISTENER_OPTIONS);
-    window.addEventListener("focusin", this.resetKeyboardSequence);
-    window.addEventListener("blur", this.resetKeyboardSequence);
-    this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
-    this.applyPreferredTheme(false);
-    void this.initializeNormalAuth(this.normalAuthInitSeq);
   }
 
   private startAuthenticatedApp(): void {
@@ -897,7 +899,6 @@ export class PiWebApp extends LitElement {
     void this.refreshWorkspaceActivity();
     void this.refreshMachineStatusSnapshots();
     void this.loadClientConfig();
-    void this.ensureGatewayPluginsLoaded();
     void this.loadProjectsAndRestoreRoute().finally(() => { this.schedulePiWebStatusRefresh(); });
   }
 
@@ -907,20 +908,37 @@ export class PiWebApp extends LitElement {
       this.normalAuthStatus = { configured: true, authenticated: true };
       this.normalAuthLoading = false;
       this.startAuthenticatedApp();
+      await this.prepareInitialPresentation();
       return;
     }
     this.normalAuthLoading = true;
     this.normalAuthError = "";
     try {
-      const status = await normalAuthApi.status();
+      const status = await normalAuthApi.status({ timeoutMs: 10_000 });
       if (!this.isConnected || initSeq !== this.normalAuthInitSeq) return;
       this.normalAuthStatus = status;
-      if (status.authenticated) this.startAuthenticatedApp();
+      if (status.authenticated) {
+        this.startAuthenticatedApp();
+        await this.prepareInitialPresentation();
+      }
     } catch (error) {
       if (!this.isConnected || initSeq !== this.normalAuthInitSeq) return;
       this.normalAuthError = t("ui.piWebApp.failedToCheckNormalModePassword", "Failed to check normal-mode password: {errorMessageerror}", { errorMessageerror: errorMessage(error) });
     } finally {
       if (this.isConnected && initSeq === this.normalAuthInitSeq) this.normalAuthLoading = false;
+    }
+  }
+
+  private isCurrentAuthInitialization(initSeq: number): boolean {
+    return this.isConnected && initSeq === this.normalAuthInitSeq;
+  }
+
+  private async prepareInitialPresentation(): Promise<void> {
+    try {
+      await this.ensureGatewayPluginsLoaded();
+      if (this.isConnected) await this.stylesheetRuntime.whenSettled();
+    } catch (error) {
+      console.warn("Could not prepare gateway presentation; using the available interface", error);
     }
   }
 
@@ -1193,6 +1211,8 @@ export class PiWebApp extends LitElement {
   private async submitNormalAuth(form: NormalAuthPasswordForm): Promise<void> {
     const mode = this.normalAuthDialogMode ?? this.normalAuthGateMode();
     if (mode === undefined || this.normalAuthLoading) return;
+    const initSeq = this.normalAuthInitSeq;
+    const isCurrent = () => this.isCurrentAuthInitialization(initSeq);
     this.normalAuthLoading = true;
     this.normalAuthError = "";
     try {
@@ -1200,13 +1220,17 @@ export class PiWebApp extends LitElement {
       else if (mode === "change") await normalAuthApi.changePassword(form.currentPassword ?? "", form.password);
       else await normalAuthApi.login(form.password);
       const status = await normalAuthApi.status();
+      if (!isCurrent()) return;
+      // The login dialog stays in place until the authenticated shell is ready.
+      if (status.authenticated && !this.authenticatedAppRunning) await this.prepareInitialPresentation();
+      if (!isCurrent()) return;
       this.normalAuthStatus = status;
       this.normalAuthDialogMode = undefined;
       if (status.authenticated) this.startAuthenticatedApp();
     } catch (error) {
-      this.normalAuthError = errorMessage(error);
+      if (isCurrent()) this.normalAuthError = errorMessage(error);
     } finally {
-      this.normalAuthLoading = false;
+      if (isCurrent()) this.normalAuthLoading = false;
     }
   }
 
@@ -1449,11 +1473,15 @@ export class PiWebApp extends LitElement {
     return operation.scope.every((field) => this.navigationFieldGenerations[field] <= operation.generation);
   }
 
-  private syncNavigationFreshness(): void {
+  private syncNavigationFreshness(completingSelection = false): void {
     const route = readRoute();
     const previous = this.observedNavigationRoute;
     if (previous !== undefined) {
-      const changedFields = NAVIGATION_SCOPES.filter((field) => navigationRouteValue(previous, field) !== navigationRouteValue(route, field));
+      // Filling omitted IDs is part of the same navigation, even if Chat has
+      // already started joining the resolved session while a panel loads.
+      const completesSelection = completingSelection && completesNavigationSelection(previous, route);
+      const changedFields = NAVIGATION_SCOPES.filter((field) => navigationRouteValue(previous, field) !== navigationRouteValue(route, field)
+        && !(completesSelection && (field === "workspace" || field === "session")));
       if (changedFields.length > 0) {
         const generation = ++this.navigationGeneration;
         for (const field of changedFields) this.navigationFieldGenerations[field] = generation;
@@ -1705,7 +1733,7 @@ export class PiWebApp extends LitElement {
 
 
   private updateUrl(
-    options?: { replace?: boolean | undefined },
+    options?: { replace?: boolean | undefined; completingSelection?: boolean },
     contributionQuery: Readonly<ContributionQueryRecord> = this.currentContributionQueryForState(),
   ): void {
     this.commitMachineNavigationSnapshot(machineNavigationSnapshotFromState(this.state, contributionQuery), options);
@@ -3228,6 +3256,7 @@ export class PiWebApp extends LitElement {
     this.gatewayPluginLoadAttemptComplete = false;
     const load = Promise.all([this.builtInPluginsReady, this.declarativeThemesReady]).then(() => this.pluginLoads.ensureGatewayLoaded()).then((complete) => {
       this.gatewayPluginLoadAttemptComplete = true;
+      this.plugins.uiPresentation.notifyAvailabilityChanged();
       this.applyPreferredTheme(false);
       if (!complete && this.gatewayPluginLoadPromise === load) this.gatewayPluginLoadPromise = undefined;
     });
@@ -3984,7 +4013,6 @@ export class PiWebApp extends LitElement {
       this.activeThemeColorScheme = theme.colorScheme;
       applyPiWebTheme(theme);
       this.syncFileIcons();
-      this.revealAfterRender();
     });
   }
 
@@ -4014,10 +4042,6 @@ export class PiWebApp extends LitElement {
       // a different fallback or rewrite the browser's preference.
       pending: true,
     });
-  }
-
-  private revealAfterRender(): void {
-    void this.updateComplete.then(() => { if (this.isConnected) revealApplication(); });
   }
 
   private startupColorScheme(): "light" | "dark" {
@@ -4652,7 +4676,7 @@ export class PiWebApp extends LitElement {
         || (this.routeLocationMatchesUrl(options.requestedRoute)
           && (options.requestedRoute.workspaceId === undefined || this.navigationSurfaceMatchesUrl(surface))))) {
       const contributionQuery = this.restoredContributionQueryForSelectedWorkspace(surface, options.restoredWorkspaceIdentity);
-      this.updateUrl(undefined, contributionQuery);
+      this.updateUrl({ completingSelection: true }, contributionQuery);
     }
   }
 
@@ -4671,14 +4695,14 @@ export class PiWebApp extends LitElement {
   private replaceNavigationUrl(
     contributionQuery: Readonly<ContributionQueryRecord> = this.currentContributionQueryForState(),
   ): void {
-    this.replaceMachineNavigationSnapshot(machineNavigationSnapshotFromState(this.state, contributionQuery));
+    this.replaceMachineNavigationSnapshot(machineNavigationSnapshotFromState(this.state, contributionQuery), true);
   }
 
-  private commitMachineNavigationSnapshot(snapshot: MachineNavigationSnapshot, options?: { replace?: boolean | undefined }): void {
+  private commitMachineNavigationSnapshot(snapshot: MachineNavigationSnapshot, options?: { replace?: boolean | undefined; completingSelection?: boolean }): void {
     this.syncNavigationFreshness();
     this.machineNavigation.remember(snapshot);
-    writeRoute(routeFromMachineNavigationSnapshot(snapshot), { ...options, contributionQuery: snapshot.surface.contributionQuery ?? {} });
-    this.syncNavigationFreshness();
+    writeRoute(routeFromMachineNavigationSnapshot(snapshot), { replace: options?.replace, contributionQuery: snapshot.surface.contributionQuery ?? {} });
+    this.syncNavigationFreshness(options?.completingSelection);
   }
 
   private currentContributionQueryForState(): ContributionQueryRecord {
@@ -4695,14 +4719,14 @@ export class PiWebApp extends LitElement {
     return { machineId: machine.id, projectId: workspace.projectId, workspaceId: workspace.id };
   }
 
-  private replaceMachineNavigationSnapshot(snapshot: MachineNavigationSnapshot): void {
+  private replaceMachineNavigationSnapshot(snapshot: MachineNavigationSnapshot, completingSelection = false): void {
     this.syncNavigationFreshness();
     this.machineNavigation.remember(snapshot);
     const route = routeFromMachineNavigationSnapshot(snapshot);
     const routeMatches = this.navigationRouteMatchesUrl(route);
     if (!this.navigationSurfaceMatchesUrl(snapshot.surface)) this.writeWorkspaceRouteSurfaceToUrl(snapshot.surface);
     if (!routeMatches) writeRoute(route, { replace: true });
-    this.syncNavigationFreshness();
+    this.syncNavigationFreshness(completingSelection);
   }
 
   private navigationRouteMatchesUrl(route: AppRoute): boolean {
@@ -5102,6 +5126,13 @@ function isTerminalEvent(event: BrowserRealtimeEvent): event is TerminalUiEvent 
 
 function emptyWorkspaceRouteSurface(): WorkspaceRouteSurface {
   return {};
+}
+
+function completesNavigationSelection(previous: ParsedAppRoute, next: ParsedAppRoute): boolean {
+  return (previous.machineId ?? "local") === (next.machineId ?? "local")
+    && previous.projectId !== undefined && previous.projectId === next.projectId
+    && (previous.workspaceId === undefined || previous.workspaceId === next.workspaceId)
+    && (previous.sessionId === undefined || previous.sessionId === next.sessionId);
 }
 
 function navigationRouteValue(route: ParsedAppRoute, scope: NavigationScope): string | undefined {

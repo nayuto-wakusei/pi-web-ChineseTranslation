@@ -24,8 +24,6 @@ test("registered document previewers preserve native views, isolation, and Raw",
       await route.fulfill({ contentType: "application/pdf", body: "%PDF-1.4\n% fixture\n" });
     }
   });
-  // This test exercises document contributions; no audio request is needed.
-  await page.route("**/paired-plugin-backends/pi-web.audio/**", (route) => route.abort());
   await page.goto("/file-previews.html");
   await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
   const viewer = page.locator("pi-web-files-viewer");
@@ -62,37 +60,10 @@ test("registered document previewers preserve native views, isolation, and Raw",
   await expect(viewer.getByRole("link", { name: "Download", exact: true })).toBeVisible();
 });
 
-
-function silentWave(): Buffer {
-  const sampleRate = 8_000;
-  const sampleBytes = sampleRate * 4 * 2;
-  const bytes = Buffer.alloc(44 + sampleBytes);
-  bytes.write("RIFF", 0); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write("WAVEfmt ", 8);
-  bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
-  bytes.writeUInt32LE(sampleRate, 24); bytes.writeUInt32LE(sampleRate * 2, 28);
-  bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
-  bytes.write("data", 36); bytes.writeUInt32LE(sampleBytes, 40);
-  return bytes;
-}
-
 test("a contributed audio preview loads, seeks, and gives way to the original file view", async ({ page }) => {
-  const wave = silentWave();
-  const requests: string[] = [];
-  await page.route("**/paired-plugin-backends/pi-web.audio/**/resources/audio.read?*", async (route) => {
-    requests.push(route.request().url());
-    const range = route.request().headers()["range"];
-    const match = range === undefined ? null : /^bytes=(\d+)-(\d*)$/u.exec(range);
-    const start = match === null ? 0 : Number(match[1]);
-    const endText = match?.[2];
-    const end = endText === undefined || endText === "" ? wave.length - 1 : Number(endText);
-    await route.fulfill({
-      status: range === undefined ? 200 : 206,
-      headers: { "content-type": "audio/wav", "accept-ranges": "bytes", ...(range === undefined ? {} : { "content-range": `bytes ${String(start)}-${String(end)}/${String(wave.length)}` }) },
-      body: wave.subarray(start, end + 1),
-    });
-  });
   await page.goto("/file-previews.html");
   await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
+  await page.getByRole("button", { name: "Audio file", exact: true }).click();
   const viewer = page.locator("pi-web-files-viewer");
   const player = viewer.locator("audio");
   await expect(player).toBeVisible();
@@ -102,9 +73,8 @@ test("a contributed audio preview loads, seeks, and gives way to the original fi
   await expect(viewer.getByRole("link", { name: "Download", exact: true })).toBeVisible();
   await expect.poll(() => player.evaluate((element: HTMLAudioElement) => element.duration)).toBe(4);
   await player.evaluate((element: HTMLAudioElement) => { element.currentTime = 2; });
-  await expect.poll(() => player.evaluate((element: HTMLAudioElement) => !element.seeking && element.currentTime)).toBe(2);
-  expect(requests.length).toBeGreaterThan(0);
-  expect(new URL(requests[0] ?? "").searchParams.get("revision")).toBe("audio-fixture-r1");
+  await expect.poll(() => player.evaluate((element: HTMLAudioElement) => !element.seeking && Math.abs(element.currentTime - 2) < 0.05)).toBe(true);
+  expect(await player.evaluate((element: HTMLAudioElement) => new URL(element.src).searchParams.get("revision"))).toBe("audio-fixture-r1");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 800 });
     const box = await player.boundingBox();

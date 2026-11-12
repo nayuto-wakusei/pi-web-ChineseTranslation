@@ -57,7 +57,7 @@ export class MachinePluginLoadCoordinator {
 
 async function managementPluginManifest(): Promise<{ lifecycleVersion: number; terminalMode: "required" | "recovery-disabled"; plugins: readonly PluginManifestEntry[] } | undefined> {
   if (!isManagementEmbedMode()) return undefined;
-  const response = await pluginsApi.plugins();
+  const response = await pluginsApi.plugins(undefined, { timeoutMs: 10_000 });
   if (response.serverRuntime.status !== "available") throw new Error(response.serverRuntime.message ?? t("ui.main.78c257936052", "PI WEB plugin runtime unavailable"));
   const plugins = response.plugins.flatMap((plugin) => !plugin.enabled || plugin.module === undefined
     || (plugin.server !== undefined && (plugin.server.state !== "active" || plugin.server.staleRevision || plugin.server.health?.status === "unhealthy")) ? [] : [{

@@ -46,6 +46,7 @@ function isStylesheetIntegration(value: unknown): value is StylesheetIntegration
 /** Application-owned publication and error boundary; roots/sheets remain registry-owned. */
 export class PluginStyleRuntime {
   private signature: string | undefined;
+  private pending: Promise<void> = Promise.resolve();
   private revision = 0;
   private themeSignature: string | undefined;
   private themeRevision = 0;
@@ -67,7 +68,7 @@ export class PluginStyleRuntime {
     if (this.signature === signature) return;
     this.signature = signature;
     const revision = ++this.revision;
-    void this.registry.setContributions(contributions).catch((error: unknown) => {
+    this.pending = this.registry.setContributions(contributions).catch((error: unknown) => {
       // Removal/theme replacement intentionally aborts old files; only report
       // failures for the publication that still owns the active selection.
       if (revision === this.revision) {
@@ -77,6 +78,8 @@ export class PluginStyleRuntime {
       }
     });
   }
+
+  whenSettled(): Promise<void> { return this.pending; }
 
   /** Palette readiness is independent of unrelated plugin stylesheet loading. */
   updateTheme(theme: QualifiedThemeContribution, commit: () => void): void {
@@ -110,6 +113,7 @@ export class PluginStyleRuntime {
     this.themeRevision++;
     this.themeSignature = undefined;
     this.signature = undefined;
+    this.pending = Promise.resolve();
     this.releaseDocument?.();
     this.releaseDocument = undefined;
     this.registry.clear(commit);

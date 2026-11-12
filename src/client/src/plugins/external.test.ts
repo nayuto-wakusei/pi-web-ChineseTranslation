@@ -41,7 +41,7 @@ describe("external plugin manifests", () => {
 
     await expect(loadExternalPlugins()).rejects.toThrow("Failed to load plugin manifest (404 Not Found)");
 
-    expect(fetchMock).toHaveBeenCalledWith("https://pi.example.test/pi-web-plugins/manifest.json", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenCalledWith("https://pi.example.test/pi-web-plugins/manifest.json", expect.objectContaining({ cache: "no-store" }));
   });
 
   it("fails closed for network, parse, and required-entry manifest failures", async () => {
@@ -106,7 +106,7 @@ describe("external plugin manifests", () => {
 
     const result = await loadExternalPlugins(manifestUrl, { moduleLoader });
 
-    expect(fetchMock).toHaveBeenCalledWith(manifestUrl, { cache: "no-store" });
+    expect(fetchMock).toHaveBeenCalledWith(manifestUrl, expect.objectContaining({ cache: "no-store" }));
     expect(moduleLoader).toHaveBeenCalledWith("https://pi.example.test/test/ai/pi-web-plugins/info/pi-web-plugin.js?v=1");
     expect(result.failures).toEqual([]);
     expect(result.registrations).toMatchObject([{ id: "info", backendRevision: "server-r1", pairedRequestVersion: 1, pairedChannelVersion: 1, machineSpecific: false, plugin: { apiVersion: 4, name: "Info" } }]);
@@ -525,7 +525,7 @@ it("fetches the default manifest through the application base", async () => {
 
     await expect(loadExternalPlugins()).rejects.toThrow("404");
 
-    expect(fetchMock).toHaveBeenCalledWith("https://pi.example.test/pi-web-plugins/manifest.json", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenCalledWith("https://pi.example.test/pi-web-plugins/manifest.json", expect.objectContaining({ cache: "no-store" }));
   });
 
 it("keeps management plugin modules under a nested application base", () => {

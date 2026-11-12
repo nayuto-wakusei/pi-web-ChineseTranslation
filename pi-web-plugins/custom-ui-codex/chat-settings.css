@@ -58,6 +58,8 @@
 :host(prompt-editor) .editor-wrap, :host(prompt-editor) .editor-input { position: static; }
 :host(prompt-editor) .markdown-editor { border-radius: 8px 8px 0 0; }
 :host(prompt-editor) .markdown-editor:focus-within { outline: none; }
+:host(prompt-editor) footer:has(.cm-content:focus-visible) { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
+:host(prompt-editor) footer.shell-mode:has(.cm-content:focus-visible) { outline-color: var(--pi-success); }
 :host(prompt-editor) .markdown-editor .cm-editor { min-height: 66px; border-radius: 8px 8px 0 0; padding-block: 14px; background: transparent; }
 :host(prompt-editor) .markdown-editor .cm-content { padding-inline: 14px 64px; }
 :host(prompt-editor) .actions {

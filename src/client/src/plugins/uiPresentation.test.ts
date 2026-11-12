@@ -55,13 +55,13 @@ describe("gateway UI presentations", () => {
     active = false;
     await retained?.run();
     expect(run).toHaveBeenCalledOnce();
-    surface.requestUpdate();
+    runtime.notifyAvailabilityChanged();
     await surface.updateComplete;
     expect(surface.shadowRoot?.querySelector("main")).toBeNull();
     active = true;
     await retained?.run();
     expect(run).toHaveBeenCalledOnce();
-    surface.requestUpdate();
+    runtime.notifyAvailabilityChanged();
     await surface.updateComplete;
     await contexts.at(-1)?.actions?.[0]?.run();
     expect(run).toHaveBeenCalledTimes(2);

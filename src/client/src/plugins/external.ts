@@ -119,7 +119,7 @@ async function loadPluginModule(moduleUrl: string, loader: (url: string) => Prom
 
 async function fetchPluginManifest(manifestUrl: string, manifest: unknown): Promise<PluginManifest> {
   if (manifest !== undefined) return parseManifest(manifest);
-  const response = await fetch(manifestUrl, { cache: "no-store" });
+  const response = await fetch(manifestUrl, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(await pluginManifestResponseError(response));
   return parseManifest(await response.json());
 }

@@ -63,6 +63,9 @@ export class UiPresentationRuntime {
     return () => { this.listeners.delete(listener); };
   }
 
+  /** Host availability may change after the plugin batch has registered its regions. */
+  notifyAvailabilityChanged(): void { if (this.entries.size > 0) this.notify(); }
+
   render(context: UiPresentationRenderContextV1): TemplateResult | undefined {
     const entry = this.entries.get(context.region);
     if (entry === undefined || this.failed.has(entry.pluginId) || !entry.active()) return undefined;

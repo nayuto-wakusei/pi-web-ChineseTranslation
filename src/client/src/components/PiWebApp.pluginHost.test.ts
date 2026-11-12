@@ -1247,6 +1247,51 @@ describe("PiWebApp plugin host", () => {
     expect(browser.url.searchParams.get("browser-only.workspace.panel--file")).toBe("new.ts");
   });
 
+  it("keeps a deferred chat join alive when route restoration fills in the selected IDs", async () => {
+    const browser = installBrowserWindow(`http://localhost/app?project=${project.id}&tool=test%3Aworkspace.panel&view=chat`);
+    const app = createDetachedApp();
+    const session = runtimeRecoverySession(workspace);
+    const sessions = await installRuntimeRecoveryBoundaries(app, () => Promise.resolve([workspace]), session);
+    vi.spyOn(sessions, "selectSession").mockRestore();
+    const panelRefresh = deferred<undefined>();
+    const refreshPanel = vi.fn(() => panelRefresh.promise);
+    await appPluginRegistry(app).register({ id: "test", plugin: pluginWithPanel("Delayed panel", refreshPanel) });
+    setAppState(app, { ...initialAppState(), projects: [project], mainView: "chat", workspaceTool: "test:workspace.panel" });
+    const pendingSnapshot = deferred<Awaited<ReturnType<typeof defaultApi.transcriptSnapshot>>>();
+    const transcriptSnapshot = vi.fn(() => pendingSnapshot.promise);
+    Reflect.set(sessions, "api", { transcriptSnapshot, thinkingLevels: () => Promise.resolve({ levels: [] }) });
+    const close = vi.fn();
+    const socket: SessionEventSocket = { connect: () => undefined, setHandler: () => undefined, reconnect: () => undefined, close };
+    Reflect.set(sessions, "socket", socket);
+    const restoring = callAsyncAppMethod(app, "restoreRoute", true);
+    let joining: Promise<void> | undefined;
+    const snapshot = {
+      page: { messages: [{ role: "assistant", content: "Final reply" }], start: 0, total: 1 },
+      status: { sessionId: session.id, isStreaming: false, isCompacting: false, isBashRunning: false,
+        pendingMessageCount: 0, queuedMessages: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 },
+      seq: 1, partial: null,
+    };
+    try {
+      await vi.waitFor(() => { expect(refreshPanel).toHaveBeenCalled(); });
+      expect(sessions.isChatLoadDeferred).toBe(true);
+      joining = sessions.loadSelectedSession();
+      await vi.waitFor(() => { expect(transcriptSnapshot).toHaveBeenCalledOnce(); });
+      close.mockClear();
+      panelRefresh.resolve(undefined);
+      await restoring;
+      expect(browser.url.searchParams.get("session")).toBe(session.id);
+      pendingSnapshot.resolve(snapshot);
+      await joining;
+      expect(appState(app).messages).toMatchObject([{ parts: [{ type: "text", text: "Final reply" }] }]);
+      expect(close).not.toHaveBeenCalled();
+    } finally {
+      panelRefresh.resolve(undefined);
+      pendingSnapshot.resolve(snapshot);
+      await Promise.allSettled([restoring, joining]);
+      sessions.dispose();
+    }
+  });
+
   it.each([false, true])("loads session messages before plugins finish (tool route: %s)", async (withTool) => {
     const session = runtimeRecoverySession(workspace);
     const browser = installBrowserWindow(`http://localhost/app?project=${project.id}&workspace=${workspace.id}&session=${session.id}&view=chat${withTool ? "&tool=delayed%3Apanel" : ""}`);

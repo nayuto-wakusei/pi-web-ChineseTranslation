@@ -1,5 +1,26 @@
 import { expect, test } from "@playwright/test";
 
+test("custom UI shows keyboard focus around the composer without shifting it", async ({ page }) => {
+  await page.goto("/custom-ui.html");
+  await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
+  await page.evaluate(() => window.customUiFixture.setView("chat"));
+  const editor = page.locator("prompt-editor");
+  const footer = editor.locator("footer");
+  const before = await footer.boundingBox();
+  await page.keyboard.press("Tab");
+  await editor.locator(".cm-content").focus();
+  await expect(editor.locator(".cm-content")).toBeFocused();
+  await expect(footer).toHaveCSS("outline-style", "solid");
+  await expect(footer).toHaveCSS("outline-width", "2px");
+  expect(await footer.boundingBox()).toEqual(before);
+  await editor.locator(".cm-content").blur();
+  await expect(footer).toHaveCSS("outline-style", "none");
+  await page.evaluate(() => window.customUiFixture.setEnabled(false));
+  await editor.locator(".cm-content").focus();
+  await expect(editor.locator(".markdown-editor")).toHaveCSS("outline-style", "solid");
+  await expect(footer).toHaveCSS("outline-style", "none");
+});
+
 for (const scheme of ["light", "dark"] as const) {
   for (const width of [360, 1440]) {
     test(`custom UI ${scheme} keeps one send-stop primary action visible through activity at ${String(width)}px`, async ({ page }, testInfo) => {

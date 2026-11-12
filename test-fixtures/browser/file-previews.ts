@@ -53,7 +53,6 @@ for (const [label, file] of [["Audio file", audioFile], ["Text file", textFile],
 }
 document.body.style.cssText = "margin:0; padding:8px; box-sizing:border-box; font-family:sans-serif;";
 viewer.style.cssText = "display:flex; margin-top:8px; width:100%; min-width:0; height:500px;";
-show(audioFile);
 document.body.append(viewer);
 window.addEventListener("pagehide", () => { lifetime.abort(); void registry.dispose(); }, { once: true });
 await viewer.updateComplete;
