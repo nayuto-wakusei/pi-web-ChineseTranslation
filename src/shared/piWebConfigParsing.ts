@@ -2,6 +2,7 @@ import { requireDefaultThemePreference } from "./themePreference.js";
 import { requireDefaultStreamingBehavior } from "./streamingBehavior.js";
 import { requireDefaultLocalization } from "./defaultLocalization.js";
 import { requireInstallationName } from "./installationName.js";
+import { requireHostAccess } from "./hostAccess.js";
 import { UserFacingError, type TranslationParameters } from "./i18n.js";
 import type { PiWebConfigValues } from "./apiTypes.js";
 import { isPiWebPluginId, piWebPluginIdPattern } from "./pluginIds.js";
@@ -21,6 +22,7 @@ export function piWebConfigRecord(config: ParsedPiWebConfig): Record<string, unk
     ...(config.host !== undefined ? { host: config.host } : {}),
     ...(config.port !== undefined ? { port: config.port } : {}),
     ...(config.allowedHosts !== undefined ? { allowedHosts: config.allowedHosts } : {}),
+    ...(config.hostAccess !== undefined ? { hostAccess: config.hostAccess } : {}),
     ...(config.shortcuts !== undefined ? { shortcuts: config.shortcuts } : {}),
     ...(config.defaultTheme !== undefined ? { defaultTheme: config.defaultTheme } : {}),
     ...(config.defaultStreamingBehavior !== undefined ? { defaultStreamingBehavior: config.defaultStreamingBehavior } : {}),
@@ -75,6 +77,7 @@ function parsePiWebConfigFields(value: Record<string, unknown>, context: ParseCo
     ...(value["host"] !== undefined ? { host: parseString(value["host"], "host", context) } : {}),
     ...(value["port"] !== undefined ? { port: context.format === "request" ? parseRequestPort(value["port"]) : parsePort(value["port"], "port", context.path) } : {}),
     ...(value["allowedHosts"] !== undefined ? { allowedHosts: parseAllowedHosts(value["allowedHosts"], context) } : {}),
+    ...(value["hostAccess"] === undefined ? {} : { hostAccess: requireHostAccess(value["hostAccess"], "PI WEB config hostAccess") }),
     ...(value["shortcuts"] !== undefined ? { shortcuts: parseShortcuts(value["shortcuts"], context) } : {}),
     ...(value["defaultTheme"] !== undefined ? { defaultTheme: requireDefaultThemePreference(value["defaultTheme"], context.format === "file" ? context.path : "request") } : {}),
     ...(value["defaultStreamingBehavior"] !== undefined ? { defaultStreamingBehavior: requireDefaultStreamingBehavior(value["defaultStreamingBehavior"], context.format === "file" ? context.path : "request") } : {}),

@@ -85,6 +85,10 @@ export const appStyles = css`
   }
   status-bar { flex: 0 0 auto; }
   conversation-layout { flex: 1 1 auto; min-width: 0; min-height: 0; }
+  /* Keep the capped area's content height: transcript intrinsic height must not squeeze short notices away. */
+  notification-area { flex: 0 0 auto; min-block-size: 0; max-block-size: min(40%, 40dvh); overflow: hidden; }
+  /* Workspace mode gives main an auto-sized grid row; a viewport cap still bounds the pinned area. */
+  .shell.two-column-layout.workspace-view notification-area { max-block-size: 40dvh; }
   .composer-area { display: grid; min-width: 0; background: var(--pi-bg); }
   /* Share a grid cell instead of adding banner height; allow long notices to grow the area rather than clip their controls. */
   .composer-area > prompt-editor, .composer-activity-notice, .composer-load-state { grid-area: 1 / 1; min-width: 0; }
@@ -179,12 +183,6 @@ export const listStyles = css`
   .workspace-primary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .workspace-status { flex: 0 0 auto; color: var(--pi-warning); font-size: 12px; }
   .workspace-secondary { margin-top: 3px; }
-  .workspace-menu-actions { margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--pi-border-muted); }
-  .workspace-menu-details { display: grid; gap: 6px; margin: 0; padding: 0 9px 5px; }
-  .workspace-detail-row { display: grid; grid-template-columns: minmax(58px, max-content) minmax(0, 1fr); gap: 8px; align-items: baseline; }
-  .workspace-detail-row dt { color: var(--pi-muted); font-size: 12px; white-space: normal; }
-  .workspace-detail-row dd { min-width: 0; margin: 0; overflow-wrap: anywhere; white-space: normal; }
-  .detail-copy { margin-left: 6px; vertical-align: middle; }
   .tree-marker { color: var(--pi-dim); margin-right: 5px; }
   .badge { display: inline-block; margin-left: 5px; border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); padding: 0 5px; font-size: 11px; font-weight: 400; }
   .action-activity { position: absolute; top: 50%; inset-inline-start: calc(6px + var(--depth, 0) * 16px + var(--agent-offset, 0px)); transform: translateY(-50%); z-index: 1; display: grid; place-items: center; width: 10px; height: 10px; }

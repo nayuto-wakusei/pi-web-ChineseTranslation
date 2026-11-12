@@ -8,7 +8,8 @@ import type { ChatContentRendering } from "../formatting/contentRendering";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { writeClipboardText } from "../clipboard";
-import { toSafeMarkdownHtml } from "../formatting/markdown";
+import { parseChatMarkdown } from "../formatting/markdown";
+import type { MarkdownEngine, MarkdownParseResult } from "../formatting/markdownEngine";
 import { DEFAULT_CODE_BLOCK_POLICY, type CodeBlockPolicy } from "../formatting/codeBlockPolicy";
 import { rememberExternalMarkdownImageDimensions, restoreExternalMarkdownImageDimensions } from "../formatting/externalMarkdownImages";
 import type { MarkdownWorkspaceContext, WorkspaceFileOpenRequest } from "../formatting/workspaceLinks";
@@ -42,11 +43,12 @@ export class FormattedText extends LitElement {
   private appendOnly = false;
   private lastFormatStarted = -Infinity;
   private formatTimer: ReturnType<typeof setTimeout> | undefined;
-  private markup: string | undefined;
+  private parsed: MarkdownParseResult | undefined;
   private content: TemplateResult | undefined;
   private displayedText = "";
   private replacing = false;
   private layoutChanged = false;
+  private preserveDeferredLayout = false;
   private labelsDirty = true;
   private readonly copyStates = new WeakMap<HTMLButtonElement, "idle" | "copied" | "failed">();
 
@@ -60,10 +62,13 @@ export class FormattedText extends LitElement {
     if (!this.appendOnly) this.cancelFormatTimer();
     // Queued work reads the latest inputs; restarting it on each chunk can starve streaming Markdown.
     this.phase = "markdown";
-    this.markup = undefined;
+    this.parsed = undefined;
     // Retain stable source controls and completed previews while prose streams.
     // New identities/replacements must never show the previous content.
     this.replacing = !this.text.startsWith(this.displayedText) || changes.has("intentKey") || changes.has("machineId") || changes.has("workspaceContext");
+    // Initial source conversion can change wrapping dramatically. Ordinary
+    // streaming appends must not drag a reader toward the growing message tail.
+    this.preserveDeferredLayout = this.content === undefined || this.replacing || !changes.has("text");
     if (this.replacing) this.content = undefined;
   }
 
@@ -114,7 +119,11 @@ export class FormattedText extends LitElement {
     }
     if (this.layoutChanged) {
       this.layoutChanged = false;
-      this.dispatchEvent(new CustomEvent("content-layout-changed", { bubbles: true, composed: true }));
+      // Let newly mounted content hosts render their source before listeners
+      // measure the transcript; measuring empty child DOM can clamp scrolling.
+      queueMicrotask(() => {
+        if (this.isConnected) this.dispatchEvent(new CustomEvent("content-layout-changed", { bubbles: true, composed: true }));
+      });
     }
   }
 
@@ -166,9 +175,22 @@ export class FormattedText extends LitElement {
     for (const node of textNodes) highlightTextNode(node, query);
   }
 
+  private notifyDeferredLayoutChanging(): void {
+    if (this.preserveDeferredLayout) {
+      this.dispatchEvent(new CustomEvent("content-layout-changing", { detail: this, bubbles: true, composed: true }));
+    }
+  }
+
+  private get markdownEngine(): MarkdownEngine | undefined {
+    const machineId = this.workspaceContext?.machineId ?? this.machineId;
+    return this.contentRendering?.machineId === undefined || this.contentRendering.machineId === machineId
+      ? this.contentRendering?.markdown : undefined;
+  }
+
   private formatMarkdown(): void {
+    this.notifyDeferredLayoutChanging();
     try {
-      this.markup = toSafeMarkdownHtml(this.text, this.workspaceContext, this.intentKey, this.imagesEnabled, this.codeBlocks);
+      this.parsed = parseChatMarkdown(this.text, this.workspaceContext, this.intentKey, this.imagesEnabled, this.codeBlocks, this.markdownEngine);
       if (this.codeBlocks.previews && this.contentRendering !== undefined) {
         this.phase = "preview";
         if (this.content === undefined) this.showMarkdown();
@@ -187,20 +209,21 @@ export class FormattedText extends LitElement {
   private showMarkdown(): void {
     this.labelsDirty = true;
     this.layoutChanged = true;
-    this.content = html`${unsafeHTML(this.markup)}`;
+    this.content = html`${unsafeHTML(this.parsed?.html)}`;
     this.displayedText = this.text;
     this.replacing = false;
   }
 
   private enhanceMarkdown(): void {
+    this.notifyDeferredLayoutChanging();
     this.labelsDirty = true;
     try {
       this.layoutChanged = true;
       this.content = this.contentRendering?.renderMarkdown({
         text: this.text,
         machineId: this.workspaceContext?.machineId ?? this.machineId,
-        toSafeHtml: (text) => text === this.text && this.markup !== undefined ? this.markup
-          : toSafeMarkdownHtml(text, this.workspaceContext, this.intentKey, this.imagesEnabled, this.codeBlocks),
+        ...(this.parsed === undefined ? {} : { parsed: this.parsed }),
+        toSafeHtml: (text) => parseChatMarkdown(text, this.workspaceContext, this.intentKey, this.imagesEnabled, this.codeBlocks, this.markdownEngine).html,
       }, this.intentKey, this.codeBlocks);
       this.displayedText = this.text;
       this.replacing = false;

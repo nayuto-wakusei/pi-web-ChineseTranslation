@@ -46,12 +46,13 @@ async function fixture(prefix = "/api") {
     sessionManager: createPiSessionManagerGateway({ agentDir: directory, env: { PI_CODING_AGENT_SESSION_DIR: store } }),
     archiveStore: new SessionArchiveStore(join(directory, "archives.json")), heartbeatIntervalMs: 60_000,
   });
-  const catalogDependencies = {
-    projects: projectReader,
-    workspaces: { resolve: (project: typeof projects[number]) => Promise.resolve({
+  const resolveWorkspace = (project: typeof projects[number]) => Promise.resolve({
       projectId: project.id, status: "provider" as const, diagnostics: [],
       workspaces: [{ id: "main", projectId: project.id, path: project.path, label: "Main", isMain: true }],
-    }) },
+    });
+  const catalogDependencies = {
+    projects: projectReader,
+    workspaces: { resolve: resolveWorkspace, lookup: resolveWorkspace },
     sessions: service,
     pins: { pinnedSessionIds: () => Promise.resolve([]) },
   };

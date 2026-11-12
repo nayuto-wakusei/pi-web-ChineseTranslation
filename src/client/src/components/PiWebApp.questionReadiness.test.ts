@@ -45,7 +45,9 @@ describe("conversation-owned question readiness", () => {
 
     expect(chat(app).historyReady).toBe(true);
     expect(card(app).shadowRoot?.querySelector("form")).not.toBeNull();
-    expect(card(app).shadowRoot?.textContent).toContain("Send answers");
+    await vi.waitFor(() => {
+      expect(app.shadowRoot?.querySelector("conversation-layout")?.shadowRoot?.textContent).toContain("Send answers");
+    });
   });
 
   it("does not reuse readiness for the same session ID on another machine", async () => {

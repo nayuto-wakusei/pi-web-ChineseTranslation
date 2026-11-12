@@ -10,7 +10,7 @@ import { keyboardEventOriginatesFromNativeActivationControl } from "./keyboardEv
 import { defaultPin, defaultPinHelp, defaultPinStyles } from "./DefaultPin";
 import "./ModalSurface";
 import { scrollWhenSelected } from "./scrollWhenSelected";
-import { uiDialogStyles, uiSelectionStyles } from "./ui/dialogStyles";
+import { uiDialogStyles, uiFormStyles, uiSelectionStyles } from "./ui/dialogStyles";
 import { uiToolbarStyles } from "./ui/controlStyles";
 
 export type ModelPickerMode = "enabled" | "all";
@@ -59,15 +59,23 @@ export interface ModelCatalogToggleAllPlan {
   hasChanges: boolean;
 }
 
-export function modelCatalogToggleAllPlan(catalog: readonly SessionModelCatalogEntry[], currentValue: string | undefined): ModelCatalogToggleAllPlan {
+/** Toggle between every model and the smallest usable scope: the current model. */
+export function modelCatalogToggleAllPlan(
+  catalog: readonly SessionModelCatalogEntry[],
+  currentValue: string | undefined,
+  scope?: "all" | "manual",
+): ModelCatalogToggleAllPlan {
   const enabledEntries = catalog.filter((entry) => entry.enabled);
   const current = currentValue === undefined ? undefined : catalog.find((entry) => modelCatalogEntryValue(entry) === currentValue);
   const onlyCurrentEnabled = current?.enabled === true && enabledEntries.length === 1;
-  const mode: SessionModelScopeMode = enabledEntries.length === 0 || onlyCurrentEnabled ? "all" : "current";
+  const selectAll = enabledEntries.length === 0 || onlyCurrentEnabled;
+  const mode: SessionModelScopeMode = selectAll ? (scope === undefined ? "all" : "manual") : "current";
   return {
     mode,
-    canApply: mode === "all" || current !== undefined,
-    hasChanges: mode === "all" ? enabledEntries.length < catalog.length : current !== undefined && (!current.enabled || enabledEntries.some((entry) => entry !== current)),
+    canApply: selectAll || current !== undefined,
+    hasChanges: selectAll
+      ? enabledEntries.length < catalog.length
+      : current !== undefined && (!current.enabled || enabledEntries.some((entry) => entry !== current)),
   };
 }
 
@@ -88,6 +96,8 @@ export class ModelPicker extends LitElement {
   /** Enabled-mode rows: the session's pickable models, pre-labeled by the host. */
   @property({ attribute: false }) options: CommandOption[] = [];
   @property({ attribute: false }) catalog: SessionModelCatalogEntry[] = [];
+  /** Explicit server scope; absent on older servers, never inferred from row membership. */
+  @property({ attribute: false }) scope?: "all" | "manual";
   @property({ attribute: false }) selectedValue?: string;
   @property({ attribute: false }) defaultValue?: string;
   @property({ type: Boolean }) defaultsLoading = false;
@@ -131,6 +141,7 @@ export class ModelPicker extends LitElement {
           </div>
         ` : nothing}
         ${this.onSetDefault === undefined ? nothing : defaultPinHelp()}
+        ${this.mode === "all" ? this.renderAvailabilityScope() : nothing}
         <div class="search-row ui-dialog-search-row">
           <input class="search ui-dialog-search" aria-label=${messages.t("searchModels")} placeholder=${messages.t("search")} .value=${this.query} @input=${(event: Event) => { this.handleSearchInput(event); }}>
           ${this.mode === "all" ? this.renderToggleAllButton() : nothing}
@@ -184,13 +195,35 @@ export class ModelPicker extends LitElement {
     return html`<button class="ui-button" ?disabled=${this.membershipChangePending} aria-pressed=${this.mode === mode ? "true" : "false"} @click=${() => { this.selectMode(mode); }}>${label}</button>`;
   }
 
+  private renderAvailabilityScope(): TemplateResult {
+    if (this.scope === undefined) {
+      return html`<div class="availability-scope ui-selection-detail">${messages.t("scopeUnavailable")}</div>`;
+    }
+    return html`
+      <div class="availability-scope" aria-busy=${this.membershipChangePending ? "true" : "false"}>
+        <label class="ui-checkbox-field">
+          <input
+            type="checkbox"
+            .checked=${this.scope === "all"}
+            ?disabled=${!this.modelScopeEditable || !this.onSetScope || this.membershipChangePending}
+            aria-describedby="availability-scope-help availability-scope-status"
+            @change=${(event: Event) => { this.handleScopeChange(event); }}
+          />
+          <span>${messages.t("enableAllModels")}</span>
+        </label>
+        <div id="availability-scope-help" class="ui-selection-detail">${messages.t("enableAllModelsHelp")}</div>
+        <span id="availability-scope-status" class="scope-status" role="status">${this.membershipChangePending ? messages.t("updating") : nothing}</span>
+      </div>
+    `;
+  }
+
   private renderToggleAllButton(): TemplateResult {
-    const plan = modelCatalogToggleAllPlan(this.catalog, this.selectedValue);
-    const label = plan.mode === "all" ? messages.t("selectAll") : messages.t("deselectAll");
+    const plan = modelCatalogToggleAllPlan(this.catalog, this.selectedValue, this.scope);
+    const label = plan.mode !== "current" ? messages.t("selectAll") : messages.t("deselectAll");
     return html`
       <button
         class="toggle-all ui-button"
-        ?disabled=${!this.modelScopeEditable || !plan.canApply || !plan.hasChanges || this.toggleAllPending || this.pendingToggles.size > 0}
+        ?disabled=${this.scope === "all" || !this.modelScopeEditable || !plan.canApply || !plan.hasChanges || this.membershipChangePending}
         aria-describedby="model-scope-status"
         title=${!this.modelScopeEditable ? messages.t("workspaceControl") : !plan.canApply ? messages.t("unavailableCurrent") : nothing}
         @click=${() => { this.requestToggleAll(); }}
@@ -250,7 +283,7 @@ export class ModelPicker extends LitElement {
     const value = modelCatalogEntryValue(entry);
     const selected = index === this.selectedIndex;
     const protectsCurrentModel = value === this.selectedValue && entry.enabled;
-    const membershipDisabled = !this.modelScopeEditable || this.membershipChangePending || protectsCurrentModel;
+    const membershipDisabled = this.scope === "all" || !this.modelScopeEditable || this.membershipChangePending || protectsCurrentModel;
     const membershipLabel = !this.modelScopeEditable
       ? messages.t("controlledModel", { model: value })
       : protectsCurrentModel ? messages.t("protectedModel", { model: value }) : messages.t(entry.enabled ? "disableModel" : "enableModel", { model: value });
@@ -354,7 +387,7 @@ export class ModelPicker extends LitElement {
 
   private requestEnabledToggle(entry: SessionModelCatalogEntry, focusTarget?: HTMLElement): void {
     const value = modelCatalogEntryValue(entry);
-    if (!this.modelScopeEditable || (value === this.selectedValue && entry.enabled) || this.membershipChangePending) return;
+    if (this.scope === "all" || !this.modelScopeEditable || (value === this.selectedValue && entry.enabled) || this.membershipChangePending) return;
     if (focusTarget !== undefined && this.shadowRoot?.activeElement === focusTarget) this.focusAfterToggle = focusTarget;
     const pending = new Set(this.pendingToggles);
     pending.add(value);
@@ -362,9 +395,20 @@ export class ModelPicker extends LitElement {
     void this.settleEnabledToggle(value, entry);
   }
 
+  private handleScopeChange(event: Event): void {
+    if (!(event.currentTarget instanceof HTMLInputElement)) return;
+    const requestedScope = event.currentTarget.checked ? "all" : "manual";
+    // Stay on the confirmed server state while saving, including failed saves.
+    event.currentTarget.checked = this.scope === "all";
+    if (this.scope === undefined || !this.modelScopeEditable || !this.onSetScope || this.membershipChangePending) return;
+    if (this.shadowRoot?.activeElement === event.currentTarget) this.focusAfterToggle = event.currentTarget;
+    this.toggleAllPending = true;
+    void this.settleToggleAll(requestedScope);
+  }
+
   private requestToggleAll(): void {
-    if (!this.modelScopeEditable || this.toggleAllPending || this.pendingToggles.size > 0) return;
-    const plan = modelCatalogToggleAllPlan(this.catalog, this.selectedValue);
+    if (this.scope === "all" || !this.modelScopeEditable || this.membershipChangePending) return;
+    const plan = modelCatalogToggleAllPlan(this.catalog, this.selectedValue, this.scope);
     if (!plan.canApply || !plan.hasChanges) return;
     this.toggleAllPending = true;
     void this.settleToggleAll(plan.mode);
@@ -374,9 +418,10 @@ export class ModelPicker extends LitElement {
     try {
       await this.onSetScope?.(mode);
     } catch (error: unknown) {
-      console.warn(`Failed to ${mode === "all" ? "enable all models" : "keep only the current model"}`, error);
+      console.warn(`Failed to set model scope to ${mode}`, error);
     } finally {
       this.toggleAllPending = false;
+      await this.restoreFocusAfterToggle();
     }
   }
 
@@ -389,16 +434,22 @@ export class ModelPicker extends LitElement {
       const settled = new Set(this.pendingToggles);
       settled.delete(value);
       this.pendingToggles = settled;
-      const focusTarget = this.focusAfterToggle;
-      this.focusAfterToggle = undefined;
-      await this.updateComplete;
-      if (focusTarget?.isConnected === true && this.shadowRoot?.activeElement === null) focusTarget.focus({ preventScroll: true });
+      await this.restoreFocusAfterToggle();
     }
   }
 
-  static override styles = [uiDialogStyles, uiSelectionStyles, uiToolbarStyles, defaultPinStyles, css`
+  private async restoreFocusAfterToggle(): Promise<void> {
+    const focusTarget = this.focusAfterToggle;
+    this.focusAfterToggle = undefined;
+    await this.updateComplete;
+    if (focusTarget?.isConnected === true && this.shadowRoot?.activeElement === null) {
+      focusTarget.focus({ preventScroll: true });
+    }
+  }
+
+  static override styles = [uiDialogStyles, uiSelectionStyles, uiFormStyles, uiToolbarStyles, defaultPinStyles, css`
     @layer pi-web-base {
-    .scope-toggle { border-bottom: 1px solid var(--pi-border-muted); }
+    .availability-scope { padding: 8px 12px; border-bottom: 1px solid var(--pi-border-muted); }
     .scope-toggle button { flex: 1; }
     .scope-notice { display: grid; gap: 3px; margin: 10px 12px 0; padding: 8px 10px; border: 1px solid var(--pi-border); border-radius: 8px; color: var(--pi-muted); }
     .scope-notice strong { color: var(--pi-text); }

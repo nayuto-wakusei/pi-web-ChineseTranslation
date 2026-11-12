@@ -43,6 +43,10 @@
 
 样式类、内部选择器和视觉布局不是冻结的公共 API；共享能力版本描述集成方法，不保证外观不变。样式调整不能改变原有授权、发送、焦点或滚动语义，真实几何与命中区域应由浏览器验证。
 
+Navigation context panels use `ui-menu ui-menu--grouped` with direct `ui-menu-group` children, in this order: **actions**, **options**, **details**. Omit empty groups. The shared style adds 4px block padding per group and a single separator between adjacent groups, with no per-item dividers. Commands such as Close project and Remove workspace belong in actions, before checkbox options. Keep option help links, loading states, and errors with their checkbox. These grouping classes and `data-menu-group` markers are internal, not additional public theme hooks.
+
+Details use a native `dl.ui-menu-details` with `div.ui-menu-detail` rows, muted `dt` labels, and selectable `dd` values. Copy buttons align at the trailing edge of the value column. Keep **Copy … ID** as the last control in Details, after the definition list where present. Do not display the opaque ID value or create a separate Copy group. `DetailCopyController` supplies shared success/error feedback for paths, labels, and IDs; copying keeps the panel open. The mixed controls retain native button, checkbox, link, and definition-list semantics.
+
 `ui-menu` describes the surface, not an ARIA role. Do not add `role="menu"` unless the owner implements the corresponding keyboard behavior. The [popup/menu styling contract](theme-styling-contract.md#popups-and-menu-controls) adds `ui-popup-trigger` and `ui-popup-panel` to existing controls, separates native visibility/disabled/checked states from current destinations, and lists supported contexts. Completion lists and message-action strips share popup anatomy without adopting menu layout.
 
 ## Surface ownership
@@ -63,11 +67,15 @@ Local sticky headers, shadows, and decorations can still use small stacking valu
 
 `activityIndicatorStyles` in `src/client/src/theme/base/activityIndicatorStyles.ts` owns the shared activity, intervention, and unread marks used by navigation lists and the machine selector. `listStyles` includes it; the machine selector imports it directly. Consumers own placement and can retain a root-specific work-pulse variant, but the static intervention/unread treatments remain shared. These defaults use `pi-web-base`, so contributed theme rules can override them without `!important`. Indicator internals remain experimental; use the documented navigation state and anatomy hooks for supported theme contributions.
 
+Manual navigation ordering uses `ListReorderController` for projects, workspaces, and pinned session roots. Rows retain their existing menu and keyboard actions. Eligible rows carry internal `data-reorder-id` / `data-reorderable` markers; session descendants carry `data-reorder-group-id` so drop geometry includes the whole tree. The controller owns pointer capture, long-press arbitration, edge scrolling, cancellation, and a non-interactive manual-popover preview inside the component’s themed shadow root. `sidebarListStyles` owns the insertion line and drag states; these internal drag markers are not new public theme hooks. Each consumer owns eligibility and scope-change cancellation; its parent owns saved-order writes and errors. Disable selection and touch callouts only on draggable row content, including Safari’s prefixed selection property; keep action-menu content selectable. The grouped context-panel pattern above keeps menu details selectable and copyable without competing with row dragging.
+
 `sidebarListStyles` is the shared treatment for navigation lists. Projects, workspaces, and sessions expose supported context, anatomy, and state hooks through the [navigation-row styling contract](theme-styling-contract.md#sidebar-navigation-rows); those hooks reuse existing containers without changing row behavior. Grey section headers provide hierarchy above dark, continuous rows. Keep rows full-width and gapless; do not introduce inset card surfaces or visual gutters. Selected, hover, and keyboard-focus states remain on the entire row. Collapsed navigation sections keep the heading's 1px separator and omit the outer section border so adjacent borders do not double the line thickness.
 
 ## Dialog patterns
 
 Use the existing `ModalSurface` component for native modality, focus placement/restoration, Escape, backdrop dismissal, and dialog naming. The content patterns in `ui/dialogStyles.ts` compose with that surface; they do not add another modal controller or wrapper.
+
+For a simple yes/no decision, mount `ConfirmationDialog` and call `request({ title, message, confirmLabel, cancelLabel })`. Text may be a string or a function for live localization. It composes `ModalSurface`, focuses Cancel initially, and resolves `true` only on confirmation; cancellation, removal, and replacement resolve `false`. The caller owns the action, error handling, and validation that the pending action is still current. It does not execute work or queue requests.
 
 - `uiDialogStyles` provides common header, close button, search row, scrollable body, and footer treatment. It includes `uiButtonStyles`.
 - `uiSelectionStyles` provides gapless option rows, composite rows with separate pin/checkbox actions, descriptions, and empty states. Combine it with `uiDialogStyles` for selections such as models, thinking levels, and Actions.
@@ -91,6 +99,12 @@ Sections own their internal padding and a bottom separator. Do not surround them
 
 `SettingsPanelFrame` composes the section heading, refresh action, notices, and slotted content for settings panels. `uiNoticeStyles` from `ui/noticeStyles.ts` provides `ui-notice` with error, success, warning, and info tones. Consumers retain the appropriate live-region role and message content; styling does not announce a message by itself. These internal patterns are not yet part of the public plugin UI styles capability.
 
+### Navigating to a setting
+
+Settings actions can call `openSettings(section, target)` with a stable target name. `SettingsDialog.target` finds the matching `data-settings-target` inside the active panel, including nested shadow roots. Mark a subsection or field group, give it `tabindex="-1"` and an accessible name, and keep names unique within the section. The dialog waits for Lit rendering, scrolls the group into view, and focuses its first available control; a group with locked controls receives focus itself.
+
+Revealing is one-shot per destination. Missing targets are retried when dialog data rerenders; saves and unrelated updates do not reclaim focus after a successful reveal. Closing or navigating away cancels pending navigation, and a newer modal retains focus ownership. Keep target navigation in the dialog rather than adding per-setting scrolling handlers. These destinations are internal UI navigation, not URL bookmarks or public plugin API.
+
 ## Transcript hierarchy
 
 Chat uses flat transcript sections rather than nested card outlines. Put breathing room inside the section; use restrained role/state tones and labels to distinguish hierarchy. Successful tools stay neutral, while running and error states remain explicit. Nested sections do not need another enclosing border. Code/diff content may retain one useful boundary, and editable inputs retain their input affordance.
@@ -99,25 +113,47 @@ Chat uses flat transcript sections rather than nested card outlines. Put breathi
 
 Chat navigation arrows render as one bordered group anchored to the message input's top-right, with a divider between the arrows. The bottom-right attachment button matches an individual arrow's 28px size for every pointer type, and stays anchored as the input grows, without a separate row between transcript and composer. `ChatView` retains scroll ownership and supplies its controls through `onNavigationChange`; `PromptEditor.chatNavigation` renders them with shared `chatNavigationStyles`. The non-interactive activity indicator is 18px tall, centred horizontally and vertically across the chat/composer border, and disappears when idle. `ConversationLayout` positions the indicator over the shared border without adding padding or a separate row; neither the transcript nor composer is raised above the other to accommodate it.
 
-The statistics footer is non-interactive: it extends into the shell's reserved bottom safe area, has a minimum height of 32px or the bottom inset (whichever is larger), and vertically centres its text. The shell continues to reserve its bottom inset for every other surface, keeping interactive controls above it. Persistent session warnings belong to the ordinary Notices panel, not the composer or statistics footer; immediate event notifications remain in the chat notification tray.
+The statistics footer is non-interactive: it extends into the shell's reserved bottom safe area, has a minimum height of 32px or the bottom inset (whichever is larger), and vertically centres its text. The shell continues to reserve its bottom inset for every other surface, keeping interactive controls above it. Persistent application and session warnings belong to the ordinary Notices panel, not separate banners, the composer, or the statistics footer. Core Notices accepts a client-owned notice provider alongside selected-session warnings, so gateway conditions remain available without a workspace or session. Its existing row renderer supports optional action buttons; runtime warning payloads cannot supply executable actions. Availability and badges count both sources. Session dismissals remain session-scoped; application notices clear when their owning condition resolves. Browser errors, server event notices, and Pi session notifications share the application-shell notification area described below.
 
 Composer control purposes and default-action states have [supported hooks](theme-styling-contract.md#composer-controls) on the existing toolbar groups and native buttons; no extra wrapper is needed. The dictation button joins that toolbar group as a normal icon button, keeps the shared 18px icon size, and is disabled while a prompt is submitting or its own transcription is running. When the browser cannot access a microphone (insecure origin or missing MediaRecorder) the control is omitted and an inline note explains why, instead of rendering a dead button. The editor keeps a two-line text minimum even when empty or containing one line. Vertical padding belongs to the editor frame, outside the scroller, so long drafts retain top and bottom clearance at the 220px height cap.
+
+### Notification area
+
+`NotificationArea` is the shared presentation for browser-local failures, server notices, and selected-session notifications. It sits outside `ConversationLayout` and transcript scrolling, remains available without a selected session, and uses the shared toolbar and button styles. Severity icons and counts share one header row in both expanded and collapsed states, including narrow panes. Full severity labels remain available to screen readers and through tooltips; the heading can truncate to preserve the counts and controls. A new error occurrence reopens a collapsed area without taking keyboard focus; refreshed or restored copies of an already displayed error do not.
+
+Adapters supply source-qualified occurrence IDs, severity, localized display text, source/scope attribution, and owner callbacks. Browser errors stay browser-local; server and session items retain their existing daemon storage and dismissal APIs. Scope filtering happens before rendering. Re-reporting a browser error creates a new occurrence, while a language change preserves its identity.
+
+Dismiss and Retry call the item's owner. Clear captures only the displayed dismissible groups, preserving other contexts and later arrivals. Each owner retains failed items and reports action failures; one failed clear must not prevent the other captured groups from being cleared. Session overflow counts remain separate from retained severity counts. This is a unified presentation, not a merged notification store or a history panel.
+
+### Message frames
+
+`components/chat/MessageFrame.ts` provides the shared Lit rendering helper for message content, actions, and metadata. `theme/base/messageFrameStyles.ts` owns its layout. It introduces no shadow root or state: transcript templates supply the heading, action menu, body, and metadata region.
+
+Choose action placement explicitly:
+
+- `corner`: ordinary conversation messages and user/assistant messages inside activity groups. The accessible role label is visually hidden; actions overlay the content's bottom-inline-end corner without a separate header row.
+- `header`: messages with a visible label, including system notices and tool-image output. Source-only rows can omit the body; bundle headings can omit actions.
+
+Metadata follows the content area, outside the action anchor. Each content area isolates its local controls so they cannot paint over the activity group's sticky heading. Disabling visual effects does not change action placement. Headerless tool executions and question records retain their own surfaces without a message frame.
+
+System messages use the same header-placement frame with a neutral background, a visible label, and full-contrast body text. Standalone messages have a restrained leading edge; grouped messages retain their activity group's boundary. Session messages split the sender header from the body only when `customType: "session.message"` has string content, a nonempty `details.sendingSessionId`, and a string `details.body`. The sender link opens the session-only route on the message's machine, which resolves the sender's workspace on page load. The body is displayed verbatim from that metadata, without stripping a prefix from the original content. Legacy messages without body metadata, unknown types, and malformed metadata retain their original presentation under the default System heading. The persisted and agent-facing content still includes attribution; browser display text does not change history, original action text, or custom-renderer input. Message prose is never used to infer a sender, severity, or lifecycle state.
+
+The frame exposes the supported `.chat-message-*` content/header/body hooks only when rendering a conversation bubble; activity messages do not become conversation bubbles by sharing the layout. Consumers own content padding and may set `--message-frame-header-padding` and `--message-frame-meta-padding`. These frame details are internal, not plugin theme compatibility hooks.
 
 ### Activity-group layout contract
 
 Activity groups and their `.group-msg` wrappers have no padding. In `chatTranscriptTemplates.ts`, `renderGroupedParts` assigns each visible part one of two explicit layouts:
 
 - `.transcript-section`: thinking, tool executions, tool-call/result surfaces, and inline question forms/records. Sections fill the available width with no exterior padding or margin. Each surface owns its heading and internal body padding, including when collapsed.
-- `.transcript-content`: consecutive ordinary text, skill descriptions/disclosures, and images. A content run owns 8px vertical and 12px horizontal padding. Message headers use the same content inset; adjacent content wrappers do not double their vertical spacing.
+- `.transcript-content`: consecutive ordinary text, skill descriptions/disclosures, and images. A content run owns 8px vertical and 12px horizontal padding. Visible message headers use the same content inset; adjacent content wrappers do not double their vertical spacing.
 
-For mixed messages, alternate sections and content runs rather than padding the whole message and making sections escape it with negative margins. Empty displayed text does not create a content wrapper. Keep ordinary conversation-message layout separate from this activity-group contract.
+For mixed messages, alternate sections and content runs inside the message frame body (or directly inside a headerless message) rather than padding the whole message and making sections escape it with negative margins. Empty displayed text does not create a content wrapper. Keep ordinary conversation-message layout separate from this activity-group contract.
 
 ```html
-<section class="group-msg ui-transcript-surface">
-  <div class="transcript-section"><!-- full-width thinking/tool/form surface --></div>
-  <div class="transcript-content"><!-- inset ordinary content --></div>
-  <div class="transcript-section"><!-- next full-width surface --></div>
-</section>
+<!-- Inside a message frame body, or directly in a headerless group message: -->
+<div class="transcript-section"><!-- full-width thinking/tool/form surface --></div>
+<div class="transcript-content"><!-- inset ordinary content --></div>
+<div class="transcript-section"><!-- next full-width surface --></div>
 ```
 
 The chat consumer owns these layout classes and message separators; `uiTranscriptStyles` owns surface and disclosure styling. New activity parts must choose their layout in `renderGroupedParts`, not add message-type padding exceptions. Verify expanded and collapsed sections, section-to-section boundaries, and mixed content in a real browser.
@@ -125,6 +161,8 @@ The chat consumer owns these layout classes and message separators; `uiTranscrip
 ### Inline forms and records
 
 `uiTranscriptCardStyles` from `ui/transcriptCardStyles.ts` provides sticky header and status treatments for inline question forms and extension dialogs. Use `ui-transcript-card-header` and `ui-transcript-card-status`, with optional success or warning modifiers. Compose disclosure headings with a native `summary.ui-transcript-disclosure`; the disclosure primitive owns its indicator. Consumers retain heading semantics, form state, validation, draft persistence, countdowns, and submission behavior. Inline forms do not acquire modal focus trapping or Escape dismissal.
+
+For pending `ask_user` questions, `ConversationLayout` replaces the normal composer with the form's Send answers and Discard questions actions. Questions remain editable in the transcript; the action bar stays outside its scroller. Chat instead hides those actions and restores the existing composer without clearing either draft. Answer questions or an answer edit returns to answering mode. Discard questions sends an empty response; sending a normal chat message also continues the conversation and closes the question set. `AskUserCard` retains draft, validation, partial-confirmation, and submission ownership, passing its action template through `ChatView`; the layout owns only the mode and placement. Standalone cards keep their inline footer.
 
 ## Ownership and hierarchy
 
@@ -138,7 +176,7 @@ Also prefer consistent visibility and behavior across input types. Avoid pointer
 
 - Primitives own control sizing, padding, borders, hover, focus, selected, disabled, and danger treatments. Change those centrally rather than copying them into each screen.
 - Consumers own layout and domain content: labels, counts, tree indentation, popup placement, and callbacks. Preserve semantic classes used by controllers and tests alongside primitive classes.
-- Standalone buttons default to 44px targets. Secondary toolbars, popup items, and compact buttons use 32px targets. Small transcript actions use 28px targets with 14px icons, matching the chat corner arrows. Message headers use a single always-visible ellipsis trigger for every input type. Clicking it reveals a single-row icon strip to its left; overflow scrolls horizontally rather than wrapping. `pi-message-actions-menu` owns native popover dismissal and placement; consumers supply accessible icon buttons. Conversation controls overlay the bottom-right corner without reserving a text column or header row. The closed trigger has no background. Expanded controls use an opaque background matching the transcript surface and a subtle inset shadow for contrast; expanded message information follows the message body. Respect reduced-motion preferences when revealing the strip. Control dimensions do not change with pointer type. Compact file/tree rows remain 32px, with matching 16px indentation in Files and Git.
+- Standalone buttons default to 44px targets. Secondary toolbars, popup items, and compact buttons use 32px targets. Small transcript actions use 28px targets with 14px icons, matching the chat corner arrows. Message headers use a single always-visible ellipsis trigger for every input type. Clicking it reveals a single-row icon strip to its left; overflow scrolls horizontally rather than wrapping. `pi-message-actions-menu` owns native popover dismissal and placement; consumers supply accessible icon buttons. Corner-placement message frames overlay controls at the bottom-inline-end without reserving a text column or header row, both in ordinary conversations and inside activity groups. The closed trigger has no background. Expanded controls use an opaque background matching the transcript surface and a subtle inset shadow for contrast; expanded message information follows the message body. Respect reduced-motion preferences when revealing the strip. Control dimensions do not change with pointer type. Compact file/tree rows remain 32px, with matching 16px indentation in Files and Git.
 - Toolbars (`.ui-toolbar`) own a 1px bottom separator by default. Use `ui-toolbar--borderless` for embedded control strips or footer toolbars whose containing surface already owns the boundary. Tab strips (`.ui-tabs`) keep their existing consumer-owned boundaries.
 - Use shared separators, not repeated outlines or exterior gaps between related controls. A group followed by empty bar space needs a trailing boundary; use `ui-toolbar-group--bounded` rather than a one-off button border. Its separator shares the next group's leading border when the gap collapses. Do not add a trailing separator where the bar edge already bounds the group. Keep meaningful separation between unrelated groups.
 - Keep the subsession disclosure as a muted, specialized tree control (24px for every pointer type), not a toolbar button. Its size does not depend on touch capability. Expansion changes the chevron, not the text color; preserve hover and keyboard-focus feedback.

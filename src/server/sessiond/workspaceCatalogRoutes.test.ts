@@ -90,6 +90,9 @@ describe("ordinary package-backed route contracts", () => {
       expect(currentWorkspace).not.toHaveProperty("branch");
 
       listed = [providerWorkspace("root", hostPath("/repo"), true)];
+      const established = await app.inject({ method: "GET", url: `/workspace-catalog/projects/p1/workspaces/${linked.id}` });
+      expect(established.statusCode).toBe(200);
+      await registry.resolve(project);
       const stale = await app.inject({ method: "GET", url: `/workspace-catalog/projects/p1/workspaces/${linked.id}` });
       expect(stale.statusCode).toBe(404);
       expect(stale.json()).toEqual({ error: "Workspace not found" });
@@ -216,6 +219,7 @@ describe("local management route isolation", () => {
       providerRuntime: { protocolVersion: 2, terminalMode: "recovery-disabled", safeStart: "none", records: [], health: [], diagnostics: [] },
       workspaces: {
         reconcileProject: () => Promise.resolve(),
+        lookup: () => Promise.resolve(undefined),
         resolve: (project: Project): Promise<WorkspaceProviderAuthorityResolution> => {
           resolvedProject = project;
           return Promise.resolve({

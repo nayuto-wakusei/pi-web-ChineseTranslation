@@ -58,7 +58,7 @@ describe("session daemon paired plugin backend routes", () => {
   });
   it("routes a package peer against host-resolved workspace authority with an operation-scoped signal", async () => {
     let observedSignal: AbortSignal | undefined;
-    const backends = registryFor(({ operation, input, signal }) => {
+    const backends = await registryFor(({ operation, input, signal }) => {
       observedSignal = signal;
       return { operation, input };
     });
@@ -87,7 +87,7 @@ describe("session daemon paired plugin backend routes", () => {
       const projectResolution = deferred<Project>();
       const projects = { requireProject: vi.fn(() => projectResolution.promise) };
       const peerRequest = vi.fn(() => ({ shouldNotRun: true }));
-      const backends = registryFor(peerRequest);
+      const backends = await registryFor(peerRequest);
       const workspaceId = await folderWorkspaceId();
       registerPairedPluginBackendRoutes(app, { projects, backends, onWorkspacesMutated: vi.fn() });
       const response = app.inject({
@@ -121,7 +121,7 @@ describe("session daemon paired plugin backend routes", () => {
     });
 
     it("serializes invalid, stale, and thrown operation failures without a stack", async () => {
-      const backends = registryFor(() => Promise.reject(new Error("neutral handler failed")));
+      const backends = await registryFor(() => Promise.reject(new Error("neutral handler failed")));
       const workspaceId = await folderWorkspaceId();
       registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends, onWorkspacesMutated: vi.fn() });
       const base = `/paired-plugin-backends/board/projects/${encodeURIComponent(project.id)}/workspaces/${workspaceId}`;
@@ -200,9 +200,11 @@ describe("session daemon paired plugin backend routes", () => {
     return workspaceId;
   }
 
-  function registryFor(
+  async function registryFor(
     request: NonNullable<ServerPluginPairedBackendContribution["backend"]["request"]>,
-  ): PluginBackendRegistry {
+  ): Promise<PluginBackendRegistry> {
+    const workspaces = workspaceRegistry();
+    await workspaces.resolve(project);
     return new PluginBackendRegistry({
       contributions: [{
         pluginId: "board",
@@ -214,7 +216,7 @@ describe("session daemon paired plugin backend routes", () => {
         requires: [],
         backend: { request },
       }],
-      workspaces: workspaceRegistry(),
+      workspaces,
     });
   }
 

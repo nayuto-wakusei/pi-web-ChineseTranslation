@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setClientTranslations } from "../i18n";
-import { machineSessionKey } from "../machineKeys";
-import { chatScrollStorageKey } from "../chatScrollPosition";
+import { chatScrollScopeKey, chatScrollStorageKey } from "../chatScrollPosition";
 import type { ChatLine } from "../chatTypes";
 import { ChatView } from "./ChatView";
 import { controlledChatViewport, manualChatFrames } from "./chatScroll.testSupport";
@@ -58,7 +57,7 @@ describe("chat merge ownership boundaries", () => {
     if (article === null) throw new Error("Missing durable anchor");
     vi.spyOn(article, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 120, 600, 80));
     view.saveScrollPosition();
-    const firstKey = chatScrollStorageKey(machineSessionKey("first", "same"));
+    const firstKey = chatScrollStorageKey(chatScrollScopeKey("first", "same"));
     const saved = localStorage.getItem(firstKey);
     expect(saved).not.toBeNull();
     view.machineId = "second";
@@ -67,7 +66,7 @@ describe("chat merge ownership boundaries", () => {
     if (replacement === null) throw new Error("Missing new machine anchor");
     vi.spyOn(replacement, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 140, 600, 80));
     view.saveScrollPosition();
-    expect(localStorage.getItem(chatScrollStorageKey(machineSessionKey("second", "same")))).not.toBeNull();
+    expect(localStorage.getItem(chatScrollStorageKey(chatScrollScopeKey("second", "same")))).not.toBeNull();
     expect(localStorage.getItem(firstKey)).toBe(saved);
     expect(localStorage.getItem(chatScrollStorageKey("same"))).toBeNull();
   });

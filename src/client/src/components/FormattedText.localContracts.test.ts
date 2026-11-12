@@ -2,6 +2,7 @@
 import { expect, it, vi } from "vitest";
 import { html } from "lit";
 import { FormattedText } from "./FormattedText";
+import { defaultMarkdownEngine } from "../formatting/markdownEngine";
 import { settleDeferredContent, useDeferredContent } from "../formatting/deferredContent.testSupport";
 
 useDeferredContent();
@@ -25,7 +26,7 @@ it("refreshes renderer eligibility on the fork revision without changing text", 
   const view = new FormattedText();
   const renderMarkdown = vi.fn(() => html`<b>first renderer</b>`);
   view.text = "source";
-  view.contentRendering = { renderMarkdown };
+  view.contentRendering = { renderMarkdown, markdown: defaultMarkdownEngine };
   document.body.append(view);
   await settleDeferredContent(view);
   expect(renderMarkdown).toHaveBeenCalledOnce();
@@ -39,7 +40,7 @@ it("refreshes renderer eligibility on the fork revision without changing text", 
 it("drops previous machine preview DOM immediately even when the source is identical", async () => {
   const view = new FormattedText();
   view.text = "same source";
-  view.contentRendering = { renderMarkdown: () => html`<b>old machine preview</b>` };
+  view.contentRendering = { renderMarkdown: () => html`<b>old machine preview</b>`, markdown: defaultMarkdownEngine };
   document.body.append(view);
   await settleDeferredContent(view);
   expect(view.renderRoot.querySelector("b")).not.toBeNull();

@@ -57,15 +57,17 @@ export function parseNullDelimitedPaths(output) {
 
 export function createValidationPlan(stagedPaths, options = {}) {
   const pathExists = options.pathExists ?? existsSync;
+  // npm exec goes through cmd.exe on Windows; leave room under its 8191-character limit.
+  const scopedArgumentBudget = (options.platform ?? process.platform) === "win32" ? 6000 : 24_000;
   const paths = [...new Set(stagedPaths.map(normalizeRepoPath).filter((path) => path.length > 0))].sort();
 
   const lint = paths.some((path) => FULL_LINT_TRIGGERS.has(path))
     ? { mode: "full", files: [] }
-    : scopedValidation(paths.filter((path) => isLintablePath(path) && pathExists(path)), "scoped");
+    : scopedValidation(paths.filter((path) => isLintablePath(path) && pathExists(path)), "scoped", scopedArgumentBudget);
 
   const tests = paths.some((path) => FULL_TEST_TRIGGERS.has(path))
     ? { mode: "full", files: [] }
-    : scopedValidation(relatedTestInputs(paths), "related");
+    : scopedValidation(relatedTestInputs(paths), "related", scopedArgumentBudget);
 
   return { paths, lint, tests };
 }
@@ -162,9 +164,8 @@ function normalizeRepoPath(path) {
   return path.replaceAll("\\", "/").replace(/^\.\//u, "");
 }
 
-function scopedValidation(files, mode) {
-  // Leave room for executable paths and quoting below Windows' command-line limit.
-  if (JSON.stringify(files).length > 24_000) return { mode: "full", files: [] };
+function scopedValidation(files, mode, argumentBudget) {
+  if (JSON.stringify(files).length > argumentBudget) return { mode: "full", files: [] };
   return files.length > 0 ? { mode, files } : { mode: "skip", files: [] };
 }
 

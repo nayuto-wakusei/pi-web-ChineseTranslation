@@ -209,6 +209,7 @@ export function notificationTrayHeading(inbox: Pick<SelectedSessionNotificationV
   return messages.t("heading", { count: notificationInboxTotalCount(inbox) });
 }
 
+/** Localize only explicit host provenance; raw extension content stays untouched. */
 export function notificationMessage(notification: Pick<SessionNotification, "message" | "presentation">): string {
   return notification.presentation === undefined ? notification.message : messages.t(notification.presentation.kind);
 }
@@ -220,33 +221,6 @@ export function notificationDismissLabel(notification: Pick<SessionNotification,
   const characters = Array.from(message);
   const summary = characters.length <= maxCharacters ? message : `${characters.slice(0, maxCharacters - 1).join("").trimEnd()}…`;
   return messages.t("dismiss", { summary });
-}
-
-export type NotificationFocusTarget = { kind: "notification"; notificationId: string } | { kind: "header" };
-
-export function notificationFocusTargetAfterDismiss(notifications: readonly SessionNotification[], notificationId: string): NotificationFocusTarget {
-  const index = notifications.findIndex((notification) => notification.id === notificationId);
-  if (index === -1) return { kind: "header" };
-  const next = notifications[index + 1];
-  if (next !== undefined) return { kind: "notification", notificationId: next.id };
-  const previous = notifications[index - 1];
-  return previous === undefined ? { kind: "header" } : { kind: "notification", notificationId: previous.id };
-}
-
-export function notificationTargetKey(target: SessionNotificationTarget): string {
-  return JSON.stringify([target.machineId, target.cwd, target.sessionId]);
-}
-
-export function notificationTrayIsCollapsed(collapsedTargetKeys: ReadonlySet<string>, target: SessionNotificationTarget): boolean {
-  return collapsedTargetKeys.has(notificationTargetKey(target));
-}
-
-export function setNotificationTrayCollapsed(collapsedTargetKeys: ReadonlySet<string>, target: SessionNotificationTarget, collapsed: boolean): ReadonlySet<string> {
-  const next = new Set(collapsedTargetKeys);
-  const key = notificationTargetKey(target);
-  if (collapsed) next.add(key);
-  else next.delete(key);
-  return next;
 }
 
 export function notificationInboxOverflowLabel(discardedCount: number): string {

@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAssistantMessageEventStream, Type, type AssistantMessage } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
+import { Type } from "pi-web-typebox";
 import { createAgentSession, createEventBus, DefaultResourceLoader, defineTool, SessionManager, SettingsManager } from "../../piSdk.js";
 import { expect, it, vi } from "vitest";
 import type { PluginBackend, PluginPeer } from "../../plugin-api.js";
@@ -24,7 +25,7 @@ it("loads a companion tool that calls its v5 peer across native reload and inval
   }];
   const resolveWorkspace = vi.fn(() => { throw new Error("Machine scope must not resolve a workspace"); });
   const requireProject = vi.fn(() => { throw new Error("Machine scope must not resolve a project"); });
-  const registry = new PluginBackendRegistry({ contributions, workspaces: { resolve: resolveWorkspace } });
+  const registry = new PluginBackendRegistry({ contributions, workspaces: { lookup: resolveWorkspace } });
   const events = new PiSessionEventConnections((bus) => bindCompanionBackend(bus, {
     backends: registry, contributions, projects: { requireProject },
   }));

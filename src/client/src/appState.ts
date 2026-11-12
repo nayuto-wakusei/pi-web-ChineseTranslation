@@ -1,5 +1,5 @@
-import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionModelCatalogEntry, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
-import type { ChatLine } from "./components/shared";
+import type { AuthProviderOption, AuthRequestTarget, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionContentSearchResponse, SessionInfo, SessionModelCatalogEntry, SessionModelCatalogResponse, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceActivity } from "./api";
+import type { ChatLine } from "./chatTypes";
 import type { MachineStatusSnapshot } from "../../shared/machineStatus";
 import type { QualifiedContributionId } from "./plugins/ids";
 import type { SelectedSessionNotificationInbox } from "./sessionNotifications";
@@ -75,7 +75,7 @@ export interface AppState {
   commandDialog: Extract<CommandResult, { type: "select" }> | undefined;
   treeDialog: SessionTreeSnapshot | undefined;
   pendingTreeActions: readonly { machineId: string; sessionId: string }[];
-  modelDialog: { instanceId: number; origin: ModelDialogOrigin; title: string; options: CommandOption[]; catalog?: SessionModelCatalogEntry[]; selectedValue?: string; defaultValue?: string; defaultsLoading?: boolean } | undefined;
+  modelDialog: { instanceId: number; origin: ModelDialogOrigin; title: string; options: CommandOption[]; catalog?: SessionModelCatalogEntry[]; scope?: SessionModelCatalogResponse["scope"]; selectedValue?: string; defaultValue?: string; defaultsLoading?: boolean } | undefined;
   thinkingDialog: { instanceId: number; origin: ModelDialogOrigin; title: string; options: CommandOption[]; selectedValue?: string; defaultValue?: string; defaultsLoading?: boolean } | undefined;
   themeDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
   authDialog: AuthDialogState | undefined;

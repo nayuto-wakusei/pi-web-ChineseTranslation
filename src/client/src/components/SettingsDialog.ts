@@ -14,8 +14,12 @@ import { configApi, piPackagesApi, pluginsApi, type Machine, type MachineHealth,
 import type { McpAuthContext, McpAuthHandler } from "./settings/SettingsMcpPanel";
 import "./settings/SettingsMcpPanel";
 import type { SettingsSection } from "../settingsRoute";
+import { revealSettingsTarget } from "./settings/settingsTarget";
 import "./ModalSurface";
 import type { ModalSurface } from "./ModalSurface";
+import "./ConfirmationDialog";
+import type { ConfirmationDialog } from "./ConfirmationDialog";
+import { hostAccessChangeBlocksHostname } from "./settings/settingsHostAccess";
 import "./settings/SettingsGeneralPanel";
 import type { SettingsGeneralPanel } from "./settings/SettingsGeneralPanel";
 import "./settings/SettingsThemePanel";
@@ -53,6 +57,12 @@ export class SettingsDialog extends LitElement {
   @property({ attribute: false }) section: SettingsSection = "general";
   @property({ attribute: false }) presentationRuntime: UiPresentationRuntime | undefined;
   @property({ attribute: false }) presentationContext: UiPresentationContextV1 = { mode: "normal" };
+  /** Browser authority for gateway lockout warnings; independent of selected machine. */
+  @property({ attribute: false }) currentHostname = typeof location === "undefined" ? "" : location.hostname;
+  /** Optional data-settings-target destination within the active section. */
+  @property({ attribute: false }) target: string | undefined;
+  private revealedTarget: string | undefined;
+  private targetRequest = 0;
   @property({ attribute: false }) actions: AppAction[] = [];
   @property({ attribute: false }) themes: readonly QualifiedThemeContribution[] = [];
   @property({ attribute: false }) onThemeCatalogLoaded: (catalog: BrowserThemeCatalog) => void = () => undefined;
@@ -81,6 +91,10 @@ export class SettingsDialog extends LitElement {
   @property({ attribute: false }) onNavigate?: (section: SettingsSection) => void;
   @property({ attribute: false }) onClose?: () => void;
   @property({ attribute: false }) onMachineConfigSaved?: (machineId: string) => void;
+  @property({ attribute: false }) onGatewayConfigLoaded?: (response: PiWebConfigResponse) => void;
+  /** A completed write from a closed dialog requires an authoritative refresh. */
+  @property({ attribute: false }) onGatewayConfigInvalidated?: () => void;
+  private gatewayPublisherRetired = false;
   @property({ attribute: false }) onConfigSaved?: (config: PiWebConfigValues) => void;
   @property({ attribute: false }) onRefreshMachineRuntime?: (machineId: string) => void | Promise<void>;
   @state() private configResponse: PiWebConfigResponse | undefined;
@@ -99,6 +113,7 @@ export class SettingsDialog extends LitElement {
   @state() private pluginLoading = true;
   @state() private packageLoading = true;
   @state() private saving = false;
+  private gatewayConfirmationPending = false;
   @state() private packageOperation: PiPackageOperationState | undefined;
   @state() private errorPresentation: DisplayText = "";
   private get error(): string { return displayText(this.errorPresentation); }
@@ -131,6 +146,7 @@ export class SettingsDialog extends LitElement {
   private packageMutationSeq = 0;
 
   override connectedCallback(): void {
+    this.gatewayPublisherRetired = false;
     super.connectedCallback();
     this.loadThemeCatalogForGeneral();
     void this.loadConfig();
@@ -141,12 +157,17 @@ export class SettingsDialog extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.gatewayPublisherRetired = true;
+    // A closed dialog must not publish an old read over a newer dialog's save.
+    this.loadRequestSeq += 1;
     if (this.savedMessageTimer !== undefined) window.clearTimeout(this.savedMessageTimer);
     this.savedMessageTimer = undefined;
     super.disconnectedCallback();
   }
 
   protected override updated(changed: PropertyValues<this>): void {
+    if (changed.has("target") || changed.has("section")) this.revealedTarget = undefined;
+    void this.revealTarget();
     if (changed.has("section")) {
       this.loadThemeCatalogForGeneral();
       // The surface must render its slot before the mobile tab row has layout.
@@ -203,6 +224,16 @@ export class SettingsDialog extends LitElement {
     if (this.isConnected) void this.loadPackagesForTarget(currentTarget);
   }
 
+  private async revealTarget(): Promise<void> {
+    const request = ++this.targetRequest;
+    const target = this.target;
+    if (target === undefined || target === this.revealedTarget || !this.isConnected) return;
+    const isCurrent = () => this.isConnected && request === this.targetRequest && this.target === target;
+    if (await revealSettingsTarget(this.renderRoot, target, isCurrent)) this.revealedTarget = target;
+    // Missing targets can appear after a configuration load. The next render
+    // retries; a successful reveal is one-shot so saves do not steal focus.
+  }
+
   private loadThemeCatalogForGeneral(): void {
     if (this.isConnected && this.section === "general" && !this.themeCatalogRequested) void this.loadThemeInventory();
   }
@@ -248,6 +279,7 @@ export class SettingsDialog extends LitElement {
             </main>
           </div>
       </modal-surface>
+      <confirmation-dialog></confirmation-dialog>
     `;
   }
 
@@ -482,11 +514,25 @@ export class SettingsDialog extends LitElement {
   }
 
   private publishGatewayConfig(response: PiWebConfigResponse): void {
+    if (this.gatewayPublisherRetired) {
+      // The write still happened, but this dialog no longer owns the snapshot.
+      // In particular, a selected-machine save may have merged into old config.
+      this.onGatewayConfigInvalidated?.();
+      return;
+    }
+    // An accepted write also supersedes reads started while it was in flight.
+    this.loadRequestSeq += 1;
+    this.loading = false;
     configureThemePolicy(response);
     void configureLocalizationPolicy(response).catch((error: unknown) => {
       console.warn("Failed to apply gateway localization policy", error);
     });
+    this.onGatewayConfigLoaded?.(response);
     this.onConfigSaved?.(response.effectiveConfig);
+  }
+
+  reloadGatewayConfig(): Promise<void> {
+    return this.loadConfig();
   }
 
   private async loadConfig(): Promise<void> {
@@ -689,15 +735,34 @@ export class SettingsDialog extends LitElement {
   }
 
   private async saveConfig(config: PiWebConfigValues, unset: string[] = []): Promise<void> {
-    if (this.saving) return;
+    if (this.saving || this.gatewayConfirmationPending) return;
     const section = this.section === "shortcuts" ? "shortcuts" : "general";
     this.loadRequestSeq += 1;
     this.loading = false;
-    this.saving = true;
     this.error = "";
     this.savedMessage = "";
     try {
-      const response = await configApi.updateConfig({ ...explicitConfigUpdate(this.configResponse, config), ...resetConfigUpdate(this.configResponse, unset) });
+      const snapshot = this.configResponse;
+      const update = { ...explicitConfigUpdate(snapshot, config), ...resetConfigUpdate(snapshot, unset) };
+      if (hostAccessChangeBlocksHostname(update, snapshot?.defaultsConfig, this.currentHostname)) {
+        const confirmation = this.renderRoot.querySelector<ConfirmationDialog>("confirmation-dialog");
+        if (confirmation === null) throw new Error("Settings confirmation is unavailable");
+        const hostname = this.currentHostname;
+        // Keep the opener enabled until approval so Cancel can restore focus.
+        // This guard still rejects duplicate submissions while the modal is open.
+        this.gatewayConfirmationPending = true;
+        const accepted = await confirmation.request({
+          title: () => settingsDialogMessages.t("hostAccessConfirmTitle"),
+          message: () => settingsDialogMessages.t("hostAccessConfirmMessage", { hostname }),
+          confirmLabel: () => settingsDialogMessages.t("saveAnyway"),
+          cancelLabel: () => settingsDialogMessages.t("cancelSave"),
+        });
+        // Approval belongs to this write and snapshot, never a refreshed policy
+        // or a settings dialog that has since closed.
+        if (!accepted || !this.isConnected || this.configResponse !== snapshot) return;
+      }
+      this.saving = true;
+      const response = await configApi.updateConfig(update);
       this.configResponse = response;
       this.publishGatewayConfig(response);
       this.showSavedMessage(() => section === "shortcuts" ? settingsDialogMessages.t("shortcutsSaved")
@@ -708,6 +773,7 @@ export class SettingsDialog extends LitElement {
       const diagnostic = errorMessage(error);
       this.error = () => settingsDialogMessages.t("settingsFailure", { error: diagnostic });
     } finally {
+      this.gatewayConfirmationPending = false;
       this.saving = false;
     }
   }

@@ -1,5 +1,3 @@
-import type { SelectedSessionNotificationView } from "../sessionNotifications";
-import "./SessionNotificationTray";
 import { LocalizationController, localization } from "../localization/browser";
 
 import { chatChromeMessages as chrome } from "../chatChromeMessages";
@@ -18,6 +16,7 @@ import { keyed } from "lit/directives/keyed.js";
 import { ChatMessageActionController } from "./ChatMessageActionController";
 import * as transcript from "./chatTranscriptTemplates";
 import type { TranscriptRenderContext } from "./chatTranscriptTemplates";
+import type { QuestionActionsCallback } from "./questionActions";
 import { ChatDisclosureController } from "../chatDisclosure";
 import type { DisplayedMessageActionAvailabilityContext, MessageActionAvailabilityContext, MessageActionResult } from "../../../plugin-api";
 import type { RegisteredMessageAction } from "../plugins/messageActions";
@@ -25,6 +24,7 @@ import { machineSessionKey } from "../machineKeys";
 import { canonicalEntryActionHeaders, ChatMessageGrouper, groupConsecutiveImageOutputs, type ChatDisplayGroup, type ChatGroup } from "../chatGroups";
 import { openTranscriptQuestion, transcriptQuestionOutcomes } from "../chatQuestions";
 import { ChatScrollFlows } from "../ChatScrollFlows";
+import { chatScrollScopeKey } from "../chatScrollPosition";
 import { ChatRenderKeys } from "../chatRenderKeys";
 import { DEFAULT_CHAT_BEHAVIORS, type ChatBehaviors } from "../chatBehaviors";
 import type { AskUserSubmission, PendingExtensionDialog, QueuedSessionMessage, SessionActivity, SessionRef, SessionStatus } from "../api";
@@ -217,11 +217,14 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) status?: SessionStatus;
 
   @property({ attribute: false }) activity?: SessionActivity;
-
   @property({ attribute: false }) askDraftSessionId = "";
-
+  @property({ attribute: false }) onQuestionActionsChange: QuestionActionsCallback | undefined;
+  private readonly handleQuestionActionsChange: QuestionActionsCallback = (actions) => {
+    if (actions?.key === JSON.stringify([this.askDraftSessionId, this.openQuestion()?.askId])) {
+      this.onQuestionActionsChange?.(actions);
+    }
+  };
   @property({ attribute: false }) onSubmitAsk: ((askId: string, submission: AskUserSubmission) => void | Promise<void>) | undefined;
-
   @property({ attribute: false }) pendingDialogs: PendingExtensionDialog[] = [];
 
   @property({ attribute: false }) closedDialogs: ClosedExtensionDialog[] = [];
@@ -231,20 +234,12 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) onCancelDialog?: ExtensionDialogCancelCallback;
 
   @property({ attribute: false }) onDismissClosedDialog?: ExtensionDialogDismissCallback;
-
-  @property({ attribute: false }) notificationInbox?: SelectedSessionNotificationView;
-
   @property({ attribute: false }) onClearServerQueue?: () => void;
   @property({ attribute: false }) onQueuedMessageAction?: (target: QueuedMessageActionTarget) => Promise<void>;
   @property({ type: Boolean }) canMutateQueuedMessages = false;
   @property({ type: Boolean }) queuedMessageActionPending = false;
   @state() private queuedCopyFailed = false;
   private queuedCopyGeneration = 0;
-  @property({ attribute: false }) onDismissNotification?: (notificationId: string) => void;
-
-  @property({ attribute: false }) onDismissAllNotifications?: () => void;
-
-
   @property({ attribute: false }) onLoadMore?: () => void;
   @property({ attribute: false }) behaviors: ChatBehaviors = DEFAULT_CHAT_BEHAVIORS;
   /**
@@ -262,14 +257,12 @@ export class ChatView extends LitElement {
   @state() private expandedMetaKey: string | undefined;
 
   private readonly disclosures = new ChatDisclosureController();
-
   private readonly transientDisclosures = new Map<string, boolean>();
-
   private readonly scrollFlows = new ChatScrollFlows({
     getScroller: () => this.chat ?? undefined,
     onFollowingChange: (following) => { this.followingLive = following; },
     getAnchors: () => this.scrollAnchorElements(),
-    getSessionId: () => machineSessionKey(this.machineId, this.sessionId),
+    getScopeKey: () => chatScrollScopeKey(this.machineId, this.sessionId),
     getBehaviors: () => this.behaviors,
     hasMore: () => this.hasMore,
     isHistoryReady: () => this.historyReady,
@@ -281,13 +274,9 @@ export class ChatView extends LitElement {
       : kind === "ask" ? ".chat ask-user-card.open-question-card"
       : ".chat ask-user-card.open-question-card, .chat > extension-dialog-card.open-dialog-card") ?? undefined,
   });
-
   private lastOpenQuestionId: string | undefined;
-
   private questionOutcomes = transcriptQuestionOutcomes([]);
-
   private questionIds: ReadonlySet<string> = new Set();
-
   private groupedMessagesInput?: ChatLine[];
 
   private groupedMessagesStart = 0;
@@ -302,6 +291,9 @@ export class ChatView extends LitElement {
   private readonly onViewportResize = () => { this.scrollFlows.onViewportResize(); };
   // Formatting completes independently of message updates. Reuse the existing
   // layout/restore flow without making content loading wait for enhancement.
+  private readonly onContentLayoutChanging = (event: CustomEvent<HTMLElement>) => {
+    this.scrollFlows.onContentLayoutChanging(event.detail);
+  };
   private readonly onContentLayoutChanged = () => { this.scrollFlows.onViewportResize(); };
   private readonly handleScroll = () => { this.scrollFlows.onScroll(); };
   // Native details toggles do not bubble; capture layout changes independently
@@ -329,6 +321,20 @@ export class ChatView extends LitElement {
     this.touchY = y;
   };
   private readonly handleTouchEnd = () => { this.touchY = undefined; };
+  private readonly handlePointerDown = () => { this.scrollFlows.onInteraction(); };
+  private readonly handleScrollKeyDown = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    const space = event.key === " ";
+    const upward = ["ArrowUp", "PageUp", "Home"].includes(event.key) || (space && event.shiftKey);
+    if (!upward && !space && !["ArrowDown", "PageDown", "End"].includes(event.key)) return;
+    // Let editors and native controls own caret/selection and activation keys.
+    if (event.composedPath().some((node) => node instanceof HTMLElement && (
+      node.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(node.tagName)
+      || (space && (node.matches("button, a, summary, [role=button]")))
+    ))) return;
+    if (upward) this.scrollFlows.onUpIntent();
+    else this.scrollFlows.onInteraction();
+  };
   private readonly handleJumpTop = () => { this.scrollFlows.jumpToTop(); };
   private readonly handleJumpEnd = () => { this.scrollFlows.jumpToEnd(); };
   private readonly openImageZoom = (image: ImageOpenDetail): void => {
@@ -371,7 +377,7 @@ export class ChatView extends LitElement {
   }
 
   private prepareSessionUiState(): void {
-    if (this.behaviors.rememberDisclosures) this.disclosures.syncSession(machineSessionKey(this.machineId, this.sessionId));
+    if (this.behaviors.rememberDisclosures) this.disclosures.syncSession(this.sessionId, this.machineId);
     this.loadMoreRequested = false;
   }
 
@@ -401,17 +407,18 @@ export class ChatView extends LitElement {
     }
     if (changed.has("behaviors")) {
       this.scrollFlows.configure();
-      if (this.behaviors.rememberDisclosures) this.disclosures.syncSession(machineSessionKey(this.machineId, this.sessionId));
+      if (this.behaviors.rememberDisclosures) this.disclosures.syncSession(this.sessionId, this.machineId);
     }
   }
 
   protected override update(changed: Map<string, unknown>): void {
     const previousStart = changed.get("messageStart");
-    const previousMachineId = changed.get("machineId");
-    const previousSessionId = changed.get("sessionId");
+    const previousSessionId = changed.has("sessionId") ? changed.get("sessionId") : this.sessionId;
+    const previousMachineId = changed.has("machineId") ? changed.get("machineId") : this.machineId;
     this.scrollFlows.beforeRender({
       sessionChanged: changed.has("sessionId") || changed.has("machineId"),
-      previousSessionId: machineSessionKey(typeof previousMachineId === "string" ? previousMachineId : this.machineId, typeof previousSessionId === "string" ? previousSessionId : this.sessionId),
+      previousScopeKey: typeof previousSessionId === "string" && typeof previousMachineId === "string"
+        ? chatScrollScopeKey(previousMachineId, previousSessionId) : undefined,
       prepend: typeof previousStart === "number" && this.messageStart < previousStart,
       loadingBoundaryChanged: changed.has("loadingMore"),
     });
@@ -422,6 +429,9 @@ export class ChatView extends LitElement {
     if (changed.has("loadingMore") && !this.loadingMore) this.loadMoreRequested = false;
     if (changed.has("hasMore") && !this.hasMore) this.loadMoreRequested = false;
     const openQuestionId = this.openQuestion()?.askId;
+    if (openQuestionId === undefined || openQuestionId !== this.lastOpenQuestionId || changed.has("askDraftSessionId")) {
+      this.onQuestionActionsChange?.(undefined);
+    }
     this.scrollFlows.afterRender({
       sessionChanged: changed.has("sessionId") || changed.has("machineId"),
       contentChanged: this.scrollContentChanged(changed),
@@ -490,13 +500,15 @@ export class ChatView extends LitElement {
       };
     }));
     return html`
-      ${this.renderTopNotices()}
       <div class=${this.behaviors.visualEffects ? "chat-wrap" : "chat-wrap plain"}>
         <div class="chat" @image-open=${(event: CustomEvent<ImageOpenDetail>) => { this.openImageZoom(event.detail); }}
           @scroll=${this.behaviors.rememberPosition || this.behaviors.followTail || this.behaviors.automaticHistory ? this.handleScroll : undefined}
           @toggle=${this.behaviors.followTail ? this.handleDisclosureToggle : undefined}
+          @content-layout-changing=${this.onContentLayoutChanging}
           @content-layout-changed=${this.onContentLayoutChanged}
           @wheel=${this.handlesScrollIntent ? this.handleWheel : undefined}
+          @pointerdown=${this.handlesScrollIntent ? this.handlePointerDown : undefined}
+          @keydown=${this.handlesScrollIntent ? this.handleScrollKeyDown : undefined}
           @touchstart=${this.handlesScrollIntent ? this.handleTouchStart : undefined}
           @touchmove=${this.handlesScrollIntent ? this.handleTouchMove : undefined}
           @touchend=${this.handlesScrollIntent ? this.handleTouchEnd : undefined}
@@ -534,23 +546,13 @@ export class ChatView extends LitElement {
     </nav>`;
   }
 
-  private renderTopNotices() {
-    return html`<div class="top-notices">
-      <session-notification-tray
-        .sessionId=${this.sessionId}
-        .notificationInbox=${this.notificationInbox}
-        .onDismissNotification=${this.onDismissNotification}
-        .onDismissAllNotifications=${this.onDismissAllNotifications}
-      ></session-notification-tray>
-    </div>`;
-  }
   private groupedMessages(): ChatGroup[] {
     if (this.groupedMessagesInput === this.messages && this.groupedMessagesStart === this.messageStart && this.groupedRenderers === this.transcriptRenderers) return this.groupedMessagesCache;
     this.groupedMessagesInput = this.messages;
     this.groupedMessagesStart = this.messageStart;
     this.groupedRenderers = this.transcriptRenderers;
     this.groupedMessagesCache = this.messageGrouper.group(this.messages, this.messageStart,
-      (customType) => this.transcriptRenderers.some((renderer) => renderer.target === "custom-message" && renderer.customType === customType));
+      (customType) => customType === "session.message" || this.transcriptRenderers.some((renderer) => renderer.target === "custom-message" && renderer.customType === customType));
     return this.groupedMessagesCache;
   }
 
@@ -706,6 +708,7 @@ export class ChatView extends LitElement {
       questionIds: this.questionIds,
       askDraftSessionId: this.askDraftSessionId,
       onSubmitAsk: this.onSubmitAsk,
+      onQuestionActionsChange: this.onQuestionActionsChange === undefined ? undefined : this.handleQuestionActionsChange,
       openImageGallery: (images, index) => { this.openToolImageGallery(images, index); },
     };
   }
@@ -752,7 +755,7 @@ export class ChatView extends LitElement {
   }
 
   private get handlesScrollIntent(): boolean {
-    return this.behaviors.followTail || this.behaviors.rememberPosition;
+    return this.behaviors.followTail || this.behaviors.rememberPosition || this.behaviors.anchorPrepends || this.behaviors.anchorEnhancements;
   }
 
   private scrollContentChanged(changed: Map<string, unknown>): boolean {
@@ -782,12 +785,13 @@ export class ChatView extends LitElement {
     return typeof previousOldest !== "object" || previousOldest === null || Reflect.get(previousOldest, "dialogId") !== oldest.dialogId;
   }
 
+  /** Public navigation hooks delegate to the viewport owner. */
   restoreScrollPosition(): void {
     this.scrollFlows.restorePosition();
   }
 
   saveScrollPosition(sessionId = this.sessionId): void {
-    this.scrollFlows.savePosition(machineSessionKey(this.machineId, sessionId));
+    this.scrollFlows.savePosition(chatScrollScopeKey(this.machineId, sessionId));
   }
 
   private scrollAnchorElements(): HTMLElement[] {

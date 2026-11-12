@@ -293,7 +293,7 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     const ref = sessionRefFromQueryOr400(request.params.sessionId, request.query, reply, t);
     if (ref === undefined) return reply;
     try {
-      return { models: await sessions.modelCatalog(ref, managementContextFromHeaders(request.headers)) };
+      return await sessions.modelCatalog(ref, managementContextFromHeaders(request.headers));
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error, t) });
     }
@@ -302,13 +302,13 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; provider?: unknown; modelId?: unknown; enabled?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/models/enabled`, async (request, reply) => {
     try {
       const body = optionalRecord(request.body);
-      return { models: await sessions.setModelEnabled(
+      return await sessions.setModelEnabled(
         sessionLookupFromBody(request.params.sessionId, body),
         requireString(body, "provider"),
         requireString(body, "modelId"),
         requireBoolean(body, "enabled"),
         managementContextFromHeaders(request.headers),
-      ) };
+      );
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
@@ -318,12 +318,12 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionRou
     try {
       const body = optionalRecord(request.body);
       const mode = body["mode"];
-      if (!isSessionModelScopeMode(mode)) throw new Error(t("server.main.6a6ece1f173c", "mode field must be all or current"));
-      return { models: await sessions.setModelScope(
+      if (!isSessionModelScopeMode(mode)) throw new Error(t("server.main.6a6ece1f173c", "mode field must be all, manual, or current"));
+      return await sessions.setModelScope(
         sessionLookupFromBody(request.params.sessionId, body),
         mode,
         managementContextFromHeaders(request.headers),
-      ) };
+      );
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error, t) });
     }
@@ -899,7 +899,7 @@ function optionalNumber(value: string | undefined): number | undefined {
 }
 
 function isSessionModelScopeMode(value: unknown): value is SessionModelScopeMode {
-  return value === "all" || value === "current";
+  return value === "all" || value === "manual" || value === "current";
 }
 
 function errorMessage(error: unknown, t: Translator = loadNodeTranslator("server")): string {

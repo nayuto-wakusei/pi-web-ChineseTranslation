@@ -1,13 +1,11 @@
 import { html, type TemplateResult } from "lit";
-import { writeClipboardText } from "../clipboard";
 import { localization } from "../localization/browser";
 import definitions from "./copyId.messages";
+import type { DetailCopyController } from "./detailCopy";
 
 const messages = localization.registerMessages("core.copyId", definitions);
 
-export function renderCopyIdAction(kind: "session" | "workspace" | "project" | "machine", id: string, onCopied: () => void): TemplateResult {
-  return html`<button type="button" class="ui-button ui-menu-item" data-copy-id @click=${async () => {
-    if (await writeClipboardText(id)) onCopied();
-    else window.alert(messages.t("failed"));
-  }}>${messages.t(kind)}</button>`;
+/** Offer ID copying in Details without displaying the opaque value. */
+export function renderCopyIdAction(kind: "session" | "workspace" | "project" | "machine", id: string, copy: DetailCopyController): TemplateResult {
+  return html`<div data-id-detail>${copy.render(JSON.stringify([kind, id]), id, messages.t(kind), "menu-item")}</div>`;
 }

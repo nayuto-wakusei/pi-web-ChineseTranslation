@@ -62,7 +62,7 @@ function harness(options: {
       : Promise.reject(new Error("Project not found"))),
   };
   const workspaces = {
-    resolve: vi.fn((selectedProject: Project, signal?: AbortSignal) => {
+    checkCurrent: vi.fn((selectedProject: Project, signal?: AbortSignal) => {
       void selectedProject;
       void signal;
       return Promise.resolve({
@@ -193,9 +193,9 @@ describe("server plugin PI sessions capability", () => {
     expect(first.sessionId).toBe("session-1");
     expect(second.sessionId).toBe("session-2");
     expect(fixture.projects.requireProject).toHaveBeenCalledTimes(2);
-    expect(fixture.workspaces.resolve).toHaveBeenCalledTimes(2);
-    expect(fixture.workspaces.resolve.mock.calls.every(([selected]) => selected.id === project.id)).toBe(true);
-    expect(fixture.workspaces.resolve.mock.calls.every(([, signal]) => signal === fixture.lifetime.signal)).toBe(true);
+    expect(fixture.workspaces.checkCurrent).toHaveBeenCalledTimes(2);
+    expect(fixture.workspaces.checkCurrent.mock.calls.every(([selected]) => selected.id === project.id)).toBe(true);
+    expect(fixture.workspaces.checkCurrent.mock.calls.every(([, signal]) => signal === fixture.lifetime.signal)).toBe(true);
     expect(fixture.sessions.startOneShotRun).toHaveBeenNthCalledWith(
       1,
       resolve("/repo/worktree"),
@@ -297,7 +297,7 @@ describe("server plugin PI sessions capability", () => {
     const factory = createServerPluginPiSessionsCapabilityFactory({
       projects: { requireProject: () => Promise.resolve(project) },
       workspaces: {
-        resolve: () => Promise.resolve({
+        checkCurrent: () => Promise.resolve({
           status: "folder" as const,
           projectId: project.id,
           workspaces: [workspace()],
@@ -379,7 +379,7 @@ describe("server plugin PI sessions capability", () => {
     const lifetime = new AbortController();
     const instance = createServerPluginPiSessionsCapabilityFactory({
       projects: { requireProject: () => Promise.resolve(project) },
-      workspaces: { resolve: () => Promise.resolve({ status: "folder", projectId: project.id, workspaces: [workspace("/workspace")], diagnostics: [] }) },
+      workspaces: { checkCurrent: () => Promise.resolve({ status: "folder", projectId: project.id, workspaces: [workspace("/workspace")], diagnostics: [] }) },
       sessions,
     }).create({ pluginId: "run-consumer", packageRoot: "/plugins/run-consumer", lifetimeSignal: lifetime.signal });
     try {

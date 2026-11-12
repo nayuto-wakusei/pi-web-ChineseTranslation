@@ -25,7 +25,7 @@ export {
   requestPairedPluginBackend,
 } from "./api/pluginBackends";
 export type { JsonObject, JsonPrimitive, PiWebDeprecatedAgentInput, WorkspaceProviderCapabilities, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderMetadata, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier, WorkspaceRemovalPresentation, WorkspaceRemovalRequest } from "../../shared/apiTypes";
-export type { SessionTranscriptSnapshot } from "../../shared/apiTypes";
+export type { SessionLocation, SessionTranscriptSnapshot } from "../../shared/apiTypes";
 export type { McpAuthServerOption, McpAuthServersResponse } from "../../shared/apiTypes";
 export type { SessionQueueMessageMutation, SessionQueueMessageMutationRequest } from "../../shared/apiTypes";
 export type { AnyTerminalCommandRun, MaintenanceTerminalCommandRun } from "../../shared/apiTypes";

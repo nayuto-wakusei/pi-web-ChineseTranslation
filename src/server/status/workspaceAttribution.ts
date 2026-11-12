@@ -3,12 +3,23 @@ import type { Project } from "../types.js";
 import type { WorkspaceListing } from "../../shared/apiTypes.js";
 import { canonicalizeStoredCwd } from "../workingDirectory.js";
 import { NORMAL_SESSION_EVENT_SCOPE, type SessionEventScope } from "../realtime/sessionEventScope.js";
+import type { WorkspaceProviderRegistry } from "../workspaces/workspaceProviderRegistry.js";
 
 export interface CwdAttribution {
   projectId: string;
   workspaceId: string;
 }
 
+/** An established workspace of an open project. */
+export interface KnownWorkspace extends CwdAttribution {
+  path: string;
+}
+
+/**
+ * Resolves active working directories to the workspace and project that own
+ * them, so status roll-up happens where projects and workspaces are known.
+ * A cwd that matches no known workspace is simply absent from the result.
+ */
 export interface WorkspaceAttribution {
   attribute(cwds: Iterable<string>, scope?: SessionEventScope): Promise<ReadonlyMap<string, CwdAttribution>>;
   invalidate(): void;
@@ -20,7 +31,7 @@ interface AttributionLogger { warn(details: Record<string, unknown>, message: st
 
 export interface WorkspaceAttributionDependencies {
   projects: ProjectLister;
-  workspaces: WorkspaceLister;
+  workspaces: Partial<WorkspaceLister> & Pick<WorkspaceProviderRegistry, "lookup">;
   logger: AttributionLogger;
   topologyTtlMs?: number;
   now?: () => number;
@@ -39,6 +50,11 @@ interface TopologyCacheEntry {
   workspaces: Promise<readonly AttributedWorkspacePath[]>;
 }
 
+/**
+ * Caches established project/workspace records for status attribution. Reads
+ * never trigger provider discovery. One in-flight projection load is shared
+ * by concurrent callers and reused until invalidation or cache expiry.
+ */
 export class CachedWorkspaceAttribution implements WorkspaceAttribution {
   private readonly topologyTtlMs: number;
   private readonly now: () => number;
@@ -62,6 +78,11 @@ export class CachedWorkspaceAttribution implements WorkspaceAttribution {
     return attributions;
   }
 
+  /** Every established workspace with its canonical path, without starting discovery. */
+  async knownWorkspaces(): Promise<readonly KnownWorkspace[]> {
+    return (await this.topology(NORMAL_SESSION_EVENT_SCOPE)).map((workspace) => ({ path: workspace.path, ...workspace.attribution }));
+  }
+
   invalidate(): void { this.cache.clear(); }
 
   private topology(scope: SessionEventScope): Promise<readonly AttributedWorkspacePath[]> {
@@ -80,15 +101,25 @@ export class CachedWorkspaceAttribution implements WorkspaceAttribution {
       this.dependencies.logger.warn({ err: error }, "workspace attribution could not list projects");
       return [];
     }
-    const listed = await Promise.all(projects.map((project) => this.listWorkspaces(project)));
+
+    const listed = await Promise.all(projects.map((project) => this.lookupWorkspaces(project, scope)));
+    // Deepest first, so a cwd inside a nested workspace is attributed to that
+    // workspace rather than to the workspace containing it.
     return listed.flat().sort((left, right) => right.depth - left.depth);
   }
 
-  private async listWorkspaces(project: Project): Promise<AttributedWorkspacePath[]> {
+  private async lookupWorkspaces(project: Project, scope: SessionEventScope): Promise<AttributedWorkspacePath[]> {
     try {
-      return (await this.dependencies.workspaces.list(project)).map(attributedWorkspacePath);
+      if (scope !== NORMAL_SESSION_EVENT_SCOPE && this.dependencies.workspaces.list !== undefined) {
+        return (await this.dependencies.workspaces.list(project)).map(attributedWorkspacePath);
+      }
+      const resolution = await this.dependencies.workspaces.lookup(project);
+      return resolution?.workspaces.map((workspace) => attributedWorkspacePath(workspace)) ?? [];
     } catch (error) {
-      this.dependencies.logger.warn({ err: error, projectId: project.id }, "workspace attribution could not list workspaces for a project");
+      this.dependencies.logger.warn(
+        { err: error, projectId: project.id },
+        "workspace attribution could not look up workspaces for a project",
+      );
       return [];
     }
   }

@@ -1,4 +1,4 @@
-import type { FileIconsCapability, StylesheetIntegrationCapabilityV1, FilePreviewingCapability, ContentRenderingCapability, PluginCapability, PiWebPlugin, PluginActivationContextV5, PluginActivationResultV5 } from "@chainingintention/pi-web-cn/plugin-api";
+import type { FileIconsCapability, StylesheetIntegrationCapabilityV1, FilePreviewingCapability, MarkdownRenderingCapability, PluginCapability, PiWebPlugin, PluginActivationContextV5, PluginActivationResultV5 } from "@chainingintention/pi-web-cn/plugin-api";
 import { createFilesContent } from "./filesLocalization";
 import { setTranslator } from "./i18n.js";
 import type { UiPresentationCapabilityV1 } from "@chainingintention/pi-web-cn/plugin-api";
@@ -24,19 +24,17 @@ export const FILES_DOCUMENT_PREVIEW_ELEMENT = "pi-web-files-document-preview";
 
 const filesCustomElementOwnersKey = Symbol.for("pi-web.files.custom-element-owners.v1");
 
-const contentRenderingCapability: PluginCapability<ContentRenderingCapability> = {
-  pluginId: "pi-web", id: "content-rendering", version: 1,
+const markdownRenderingCapability: PluginCapability<MarkdownRenderingCapability> = {
+  pluginId: "pi-web", id: "markdown-rendering", version: 1,
   parse: (value) => {
-    if (!isContentRenderingCapability(value)) throw new Error("Files requires content rendering capability v1");
+    if (!isMarkdownRenderingCapability(value)) throw new Error("Files requires Markdown rendering capability v1");
     return value;
   },
 };
 
-function isContentRenderingCapability(value: unknown): value is ContentRenderingCapability {
+function isMarkdownRenderingCapability(value: unknown): value is MarkdownRenderingCapability {
   return typeof value === "object" && value !== null
-    && "listRenderers" in value && typeof value.listRenderers === "function"
-    && "renderText" in value && typeof value.renderText === "function"
-    && "renderMarkdown" in value && typeof value.renderMarkdown === "function";
+    && "render" in value && typeof value.render === "function";
 }
 
 function isFilePreviewingCapability(value: unknown): value is FilePreviewingCapability {
@@ -100,7 +98,7 @@ function isPresentationCapability(value: unknown): value is UiPresentationCapabi
 }
 
 const plugin = {
-  requires: [stylesheetIntegrationCapability, contentRenderingCapability, filePreviewingCapability, fileIconsCapability, presentationCapability],
+  requires: [stylesheetIntegrationCapability, markdownRenderingCapability, filePreviewingCapability, fileIconsCapability, presentationCapability],
   apiVersion: 5,
   name: "Files",
   activate: (context) => { setTranslator(context.translate); return activateFilesPlugin(context, new FilesRuntime()); },
@@ -113,7 +111,7 @@ export function activateFilesPlugin(context: PluginActivationContextV5, filesRun
   const content = createFilesContent(context.localization);
   filesRuntime.setLocalization(context.localization);
   defineFilesCustomElements();
-  let contentRendering: ContentRenderingCapability | undefined;
+  let markdownRendering: MarkdownRenderingCapability | undefined;
   let filePreviewing: FilePreviewingCapability | undefined;
   let fileIcons: FileIconsCapability | undefined;
   let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
@@ -126,7 +124,7 @@ export function activateFilesPlugin(context: PluginActivationContextV5, filesRun
   `;
   return {
     start: ({ capabilities }) => {
-      contentRendering = capabilities.resolve(contentRenderingCapability);
+      markdownRendering = capabilities.resolve(markdownRenderingCapability);
       filePreviewing = capabilities.resolve(filePreviewingCapability);
       fileIcons = capabilities.resolve(fileIconsCapability);
       stylesheetIntegration = capabilities.resolve(stylesheetIntegrationCapability);
@@ -136,7 +134,7 @@ export function activateFilesPlugin(context: PluginActivationContextV5, filesRun
       filePreviewers: createDocumentPreviewers({
         html: context.html,
         content,
-        getContentRendering: () => contentRendering,
+        getMarkdownRendering: () => markdownRendering,
         getStylesheetIntegration: () => stylesheetIntegration,
       }),
       workspacePanels: [{

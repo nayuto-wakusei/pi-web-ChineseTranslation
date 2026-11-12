@@ -2,12 +2,13 @@
 import { installPopoverFake } from "../anchoredPopup.testSupport";
 installPopoverFake();
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { html } from "lit";
 import { UiPresentationRuntime } from "../../plugins/uiPresentationRuntime";
 import type { UiPresentationSurface } from "../../plugins/uiPresentation";
 import type { UiPresentationRenderContextV1 } from "../../../../plugin-api";
 import type { Machine, Project, SessionInfo, Workspace } from "../../api";
+import { workspacesApi } from "../../api";
 import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
 import { machineStatusSnapshot } from "../../machineStatus.testSupport";
 import { SessionList } from "../SessionList";
@@ -19,6 +20,11 @@ import { ProjectList } from "../ProjectList";
 import { WorkspaceList } from "../WorkspaceList";
 import { AppNavigationPanel, shouldShowMachinesSection } from "./AppNavigationPanel";
 import { NavigationSectionsController } from "../../appShell/navigationState";
+
+beforeEach(() => {
+  vi.spyOn(workspacesApi, "workspaceResolution").mockImplementation((projectId) =>
+    Promise.resolve({ projectId, status: "provider", diagnostics: [], workspaces: [] }));
+});
 
 afterEach(() => {
   document.body.replaceChildren();

@@ -53,7 +53,8 @@ function retain(state: AppState, error: BrowserError): void {
 }
 
 it("opts browser-resume reads into recovery without dropping the other refresh owners", async () => {
-  const { app, selected, listed } = fixture();
+  const { app, listed } = fixture();
+  const resume = vi.spyOn(controller(app), "resumeSelectedSession").mockResolvedValue();
   const names = ["renegotiateUnreadMachines", "refreshMachineActivities", "refreshMachineStatusSnapshots", "refreshWorkspaceDeletionRuns", "refreshCurrentWorkspaceSurface"];
   const otherRefreshes = names.map((name) => {
     const refresh = vi.fn(() => Promise.resolve());
@@ -66,7 +67,7 @@ it("opts browser-resume reads into recovery without dropping the other refresh o
   Reflect.set(workspaces, "refreshSelectedProjectTopology", topology);
   Reflect.set(app, "navigationOrderScopes", () => []);
   await call(app, "refreshAfterBrowserResume");
-  expect(selected).toHaveBeenCalledExactlyOnceWith(undefined, { recoverNetwork: true });
+  expect(resume).toHaveBeenCalledExactlyOnceWith({ reconnect: false });
   expect(listed).toHaveBeenCalledExactlyOnceWith("local", { recoverNetwork: true });
   for (const refresh of [...otherRefreshes, topology]) expect(refresh).toHaveBeenCalledOnce();
 });

@@ -51,6 +51,7 @@ import {
   parseSessionCleanupPreviewResponse,
   parseSessionContentSearchResponse,
   parseSessionInfo,
+  parseSessionLocation,
   parseSessionNotificationInboxSnapshot,
   parseSessionStatus,
   parseSessionStreamSnapshot,
@@ -295,6 +296,15 @@ export const sessionsApi = {
   sessions: (cwd: string, machineId = "local", options?: { signal?: AbortSignal | undefined }) => request(`${machinePrefix(machineId)}/sessions?cwd=${encodeURIComponent(cwd)}`, arrayOf(parseSessionInfo), options?.signal === undefined ? undefined : { signal: options.signal }),
   search: (cwd: string, query: string, machineId = "local") => request(`${machinePrefix(machineId)}/sessions/search?${new URLSearchParams({ cwd, q: query }).toString()}`, arrayOf(parseSessionInfo)),
   searchContent: (cwd: string, query: string, machineId = "local", options?: { signal?: AbortSignal | undefined }) => request(`${machinePrefix(machineId)}/sessions/search-content?${new URLSearchParams({ cwd, q: query }).toString()}`, parseSessionContentSearchResponse, options?.signal === undefined ? undefined : { signal: options.signal }),
+  sessionLocation: (sessionId: string, machineId = "local", options?: { signal?: AbortSignal; timeoutMs?: number }) => request(
+    `${machinePrefix(machineId)}/sessions/${encodeURIComponent(sessionId)}/location`,
+    parseSessionLocation,
+    {
+      cache: "no-store",
+      ...(options?.signal === undefined ? {} : { signal: options.signal }),
+      ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    },
+  ),
   unreadCatalog: (machineId = "local") => request(`${machinePrefix(machineId)}/sessions/unread`, parseSessionUnreadCatalogSnapshot, { cache: "no-store" }),
   markUnread: (session: SessionRef, machineId = "local") => request(sessionPath(session, "unread", machineId), parseSessionUnreadCatalogSnapshot, { method: "POST", body: JSON.stringify({ cwd: session.cwd }) }),
   acknowledgeUnread: (session: SessionRef, catalogId: string, throughCompletionOrder: number, machineId = "local") => {

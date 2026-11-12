@@ -725,13 +725,22 @@ PI_WEB_PLUGINS=&#39;{&quot;git&quot;:{&quot;settings&quot;:{&quot;workspaceDisco
 <td>重启 Web/API</td>
 </tr>
 <tr>
-<th scope="row">开发主机<br><code>allowedHosts</code></th>
+<th scope="row">允许的主机名<br><code>hostAccess</code></th>
+<td>网关</td>
+<td>未设置</td>
+<td>生产网关和开发 UI 共用的主机名策略。</td>
+<td>重启 Web/API 和开发 UI</td>
+</tr>
+<tr>
+<th scope="row">旧版开发主机<br><code>allowedHosts</code></th>
 <td>网关开发服务</td>
 <td><code>[]</code> （Vite 内置值）</td>
-<td>开发 UI 额外信任的主机名。</td>
+<td>仅在未设置 <code>hostAccess</code> 时使用。</td>
 <td>重启开发 Web/UI</td>
 </tr>
 </tbody></table></div>
+<p>在 <strong>设置 → 常规 → 允许的主机名</strong> 配置 <code>hostAccess</code>。推荐显式列出反向代理使用的主机名，如 <code>{"mode":"restricted","hosts":["pi.example.com"]}</code>。<code>{"mode":"any"}</code> 关闭主机名限制；不设置时生产网关兼容旧行为。HTTP 和 WebSocket 的浏览器 Origin 检查不随主机名策略关闭。</p>
+<p><code>PI_WEB_HOST_ACCESS</code> 接受同样的 JSON 并强制覆盖。策略只属于当前网关，不写入项目或远端机器。修改后重启 Web/API 和正在运行的开发 UI，无需重启会话 daemon。</p>
 <p id="deployment-paths"><strong>部署在 URL 前缀下？</strong> 无需配置键。代理必须重定向到尾斜线，并剥离前缀转发 HTTP/WebSocket。 <a href="install#reverse-proxy-prefix">反向代理示例 →</a></p>
 <p>管理换票入口遵循同一前缀：<code>entryPath</code> 由平台用带尾斜线的外部应用 base URL 解析一次，不能相对 POST 地址解析。旧 <code>?embed=management&amp;token=</code> 长链接仍可能触发 nginx <code>414</code>；这是请求行限制，与 <code>client_max_body_size</code> 无关，推荐平台改接换票，单独升级不会自动改写旧链接（管理员可临时调高反向代理请求行限制缓解）。见<a href="https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/admin/management-audit.md#management-entry-tickets">短入口换票</a>。</p>
 <h3>daemon 传输（仅环境）</h3>

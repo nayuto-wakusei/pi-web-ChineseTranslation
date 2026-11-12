@@ -108,6 +108,18 @@ describe("staged validation planning", () => {
     expect(createValidationSteps(mergePlan).at(-1)?.npmArgs).toEqual(["test", "--", "--maxWorkers", "1"]);
   });
 
+  it("switches to full validation before Windows npm commands exceed the shell limit", () => {
+    const paths = Array.from({ length: 220 }, (_, index) => `src/client/src/components/merged-${String(index)}.ts`);
+    const pathExists = () => true;
+    const windowsPlan = createValidationPlan(paths, { pathExists, platform: "win32" });
+    expect(windowsPlan.lint.mode).toBe("full");
+    expect(windowsPlan.tests.mode).toBe("full");
+
+    const linuxPlan = createValidationPlan(paths, { pathExists, platform: "linux" });
+    expect(linuxPlan.lint.mode).toBe("scoped");
+    expect(linuxPlan.tests.mode).toBe("related");
+  });
+
   it("always includes cached typechecking and Knip before scoped checks", () => {
     const plan = createValidationPlan(["./src/path with spaces/example.ts"], { pathExists: () => true });
 

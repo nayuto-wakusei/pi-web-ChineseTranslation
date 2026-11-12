@@ -5,6 +5,8 @@ export type { ManagedAgentsStatus, ManagedAgentsDecision } from "./shared/plugin
 import type { LocalizationReader, LocalizedMessages, MessageDefinitions, TranslationContribution } from "./shared/localization.js";
 export type * from "./shared/localization.js";
 export type { TerminalTitlePresentation } from "./shared/terminalTitlePresentation.js";
+export type { MarkdownExtensionContribution, MarkdownExtensionToken, MarkdownRenderRequest, MarkdownRenderingCapability } from "./shared/markdownTypes.js";
+import type { MarkdownExtensionContribution } from "./shared/markdownTypes.js";
 
 /** Localization registrations and observers are released when this activation ends. */
 export interface PluginLocalization extends LocalizationReader {
@@ -124,6 +126,7 @@ export interface PluginContributionsV5 extends Omit<PluginContributions, "action
   uiPresentations?: UiPresentationContributionV1[];
   stylesheets?: StylesheetContribution[];
   syntaxHighlighters?: SyntaxHighlighterContribution[];
+  markdownExtensions?: MarkdownExtensionContribution[];
   filePreviewers?: FilePreviewerContribution[];
   contentRenderers?: ContentRendererContributionV5[];
   transcriptRenderers?: TranscriptRendererContribution[];

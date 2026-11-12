@@ -15,8 +15,17 @@ PI WEB 的中文本地化分支，保留上游功能，并将核心界面与内�
 
 上游网站与文档：<https://pi-web.dev/>。本分支的包名、项目认证与管理隔离等差异以仓库中的[配置参考](docs/config.md)和[插件指南](docs/plugins.md)为准。
 
-![PI WEB](docs/assets/pi-web-banner.png)
-![PI WEB 桌面截图](docs/assets/pi-web-desktop.png)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/pi-web-desktop-pi-web-dark.png" />
+    <img src="docs/assets/pi-web-desktop-pi-web-light.png" alt="PI WEB 桌面端：会话导航、聊天与源码预览" width="560" />
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/pi-web-mobile-pi-web-dark.png" />
+    <img src="docs/assets/pi-web-mobile-pi-web-light.png" alt="PI WEB 移动端：聊天与消息操作" width="162" />
+  </picture>
+</p>
+
 
 ## 为什么使用 PI WEB？
 

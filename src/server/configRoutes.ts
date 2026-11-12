@@ -2,7 +2,8 @@ import { UserFacingError, createTranslator, userFacingErrorMessage, type Transla
 import type { FastifyInstance } from "fastify";
 import { loadPiWebConfig, overlayPiWebConfig, piWebConfigEnforcedSettings, piWebConfigSources, parsePiWebConfig, resolveEffectivePiWebConfig, savePiWebConfig, type AgentPathHost, type LoadOptions, type PiWebConfig } from "../config.js";
 import { CONFIG_KEYS, parseConfigPointer, preserveEnforcedConfigOverrides, removeConfigOverrides, validateConfigUpdate, type PiWebConfigUpdate } from "./configUpdates.js";
-import type { PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebSpeechApiKeyPresence } from "../shared/apiTypes.js";
+import { requireHostAccess } from "../shared/hostAccess.js";
+import type { PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues, PiWebHostAccess, PiWebSpeechApiKeyPresence } from "../shared/apiTypes.js";
 import type { PiWebAgentDirEnvSource } from "../shared/apiTypes.js";
 import { agentDirEnvSource, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride } from "../config.js";
 import { parsePiWebConfigRequest } from "../shared/piWebConfigParsing.js";
@@ -77,11 +78,14 @@ export function currentPiWebConfigResponse(options: LoadOptions = {}): PiWebConf
   };
 }
 
-export function registerConfigRoutes(app: FastifyInstance, service: PiWebConfigService = createFilePiWebConfigService(), translate: Translator = createTranslator("en", {})): void {
+export function registerConfigRoutes(app: FastifyInstance, service: PiWebConfigService = createFilePiWebConfigService(), translate: Translator = createTranslator("en", {}), activeHostAccess?: PiWebHostAccess | null): void {
   registerSpeechApiKeyRoute(app, service, "/api/config/speech-api-key", translate);
+  const withRuntime = (response: PiWebConfigResponse): PiWebConfigResponse => redactPiWebConfigResponse(
+    activeHostAccess === undefined ? response : { ...response, activeHostAccess },
+  );
   app.get("/api/config", async (_request, reply) => {
     try {
-      return redactPiWebConfigResponse(await service.read());
+      return withRuntime(await service.read());
     } catch (error) {
       return reply.code(500).send({ error: userFacingErrorMessage(error, translate) });
     }
@@ -89,7 +93,7 @@ export function registerConfigRoutes(app: FastifyInstance, service: PiWebConfigS
 
   app.patch<{ Body: unknown }>("/api/config", async (request, reply) => {
     try {
-      return redactPiWebConfigResponse(await updateConfigService(service, parsePiWebConfigUpdate(request.body)));
+      return withRuntime(await updateConfigService(service, parsePiWebConfigUpdate(request.body)));
     } catch (error) {
       return reply.code(isConfigValidationError(error) ? 400 : 500).send({ error: errorMessage(error) });
     }
@@ -97,7 +101,7 @@ export function registerConfigRoutes(app: FastifyInstance, service: PiWebConfigS
 
   app.put<{ Body: { config?: unknown } | undefined }>("/api/config", async (request, reply) => {
     try {
-      return redactPiWebConfigResponse(await replaceConfigService(service, parseConfigRequest(request.body?.config)));
+      return withRuntime(await replaceConfigService(service, parseConfigRequest(request.body?.config)));
     } catch (error) {
       const status = isConfigValidationError(error) ? 400 : 500;
       return reply.code(status).send({ error: userFacingErrorMessage(error, translate) });
@@ -225,7 +229,7 @@ export function mergeSelectedMachineConfig(current: PiWebConfigValues, patch: Pi
 }
 
 export function selectedMachineConfigResponse(response: PiWebConfigResponse): PiWebConfigResponse {
-  return {
+  const selected: PiWebConfigResponse = {
     ...response,
     config: pickSelectedMachineConfig(response.config),
     effectiveConfig: pickSelectedMachineConfig(response.effectiveConfig),
@@ -233,6 +237,8 @@ export function selectedMachineConfigResponse(response: PiWebConfigResponse): Pi
     ...(response.enforcedSettings === undefined ? {} : { enforcedSettings: selectedMachineSources(response.enforcedSettings) }),
     ...(response.configSources === undefined ? {} : { configSources: selectedMachineSources(response.configSources) }),
   };
+  delete selected.activeHostAccess;
+  return selected;
 }
 
 export function parsePiWebConfigResponseBody(value: unknown, source = "PI WEB config response"): PiWebConfigResponse {
@@ -242,6 +248,7 @@ export function parsePiWebConfigResponseBody(value: unknown, source = "PI WEB co
     exists: requireResponseBoolean(record, "exists", source),
     config: parseConfigRequest(record["config"], "portable"),
     effectiveConfig: parseConfigRequest(record["effectiveConfig"], "portable"),
+    ...(record["activeHostAccess"] === undefined ? {} : { activeHostAccess: record["activeHostAccess"] === null ? null : requireHostAccess(record["activeHostAccess"], `${source} activeHostAccess`) }),
     envOverrides: parsePiWebConfigEnvOverridesResponse(record["envOverrides"], source),
     ...(record["enforcedSettings"] === undefined ? {} : { enforcedSettings: parseSourceMap(record["enforcedSettings"], source) }),
     ...(record["configSources"] === undefined ? {} : { configSources: parseSourceMap(record["configSources"], source) }),

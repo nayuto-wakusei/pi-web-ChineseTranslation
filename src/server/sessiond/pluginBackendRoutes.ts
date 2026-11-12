@@ -31,7 +31,7 @@ export interface PluginBackendRouteDependencies {
   projects: SessiondProjectReader;
   backends: PluginBackendDispatcher;
   managementProjectRoot?: string | undefined;
-  onWorkspacesMutated?: (scope: SessionEventScope) => void;
+  onWorkspacesMutated?: (scope: SessionEventScope, projectId?: string) => void;
 }
 
 export function registerPairedPluginBackendRoutes(app: FastifyInstance, dependencies: PluginBackendRouteDependencies): void {
@@ -103,7 +103,7 @@ export function registerPluginBackendRoutes(
         return await pluginBackendRequestFailed(reply, error, pluginId, operation);
       } finally {
         cancellation.dispose();
-        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContext));
+        dependencies.onWorkspacesMutated?.(eventScopeFromManagementContext(managementContext), project?.id);
       }
     },
   );

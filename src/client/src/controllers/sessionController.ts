@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { api as defaultApi, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type MessagePage, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSnapshot, type SessionTreeSummaryChoice, type Workspace } from "../api";
+import { api as defaultApi, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type MessagePage, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionContentSearchMatch, type SessionInfo, type SessionModelCatalogResponse, type SessionModelScopeMode, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSnapshot, type SessionTreeSummaryChoice, type Workspace } from "../api";
 import type { AppState, ClosedExtensionDialog } from "../appState";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { NetworkRequestError } from "../api/http";
@@ -87,6 +87,8 @@ export interface SessionControllerDependencies {
   isChatVisible?: () => boolean;
   isPendingSessionStartRouteCurrent?: (navigation: PendingSessionStartNavigation) => boolean;
   onPendingSessionStartCommitted?: (navigation: PendingSessionStartNavigation, session: SessionInfo) => void;
+  /** Authorize a fresh join only when the selected row belongs to the current route. */
+  canRejoinSelectedSession?: () => boolean;
   onModelScopeChanged?: (revision: number) => void;
   navigateToSession?: (session: SessionInfo | undefined, options?: NavigationDestinationOptions) => Promise<boolean>;
   captureNavigation?: () => NavigationSelection;
@@ -163,6 +165,7 @@ export class SessionController {
   private readonly onSelectedSessionReady: SessionControllerDependencies["onSelectedSessionReady"];
   private readonly observeSessionSnapshot: SessionControllerDependencies["observeSessionSnapshot"];
   private readonly isChatVisible: () => boolean;
+  private readonly canRejoinSelectedSession: () => boolean;
   private selectedSessionLoadDeferred = false;
   private readonly isPendingSessionStartRouteCurrent: SessionControllerDependencies["isPendingSessionStartRouteCurrent"];
   private readonly onPendingSessionStartCommitted: SessionControllerDependencies["onPendingSessionStartCommitted"];
@@ -177,6 +180,8 @@ export class SessionController {
   private selectedSessionJoinNavigation: NavigationFreshness | undefined;
   private readonly pendingTreeActions = new Set<{ machineId: string; sessionId: string }>();
   private disposed = false;
+  // Ownership survives transport reconnects, but not a terminal socket close.
+  private selectedSessionSubscriptionSeq: number | undefined;
   private sessionConnectionOpen = false;
   // Join-time stream watermark for the selected session. `seq` is the
   // `SessionEventHub` sequence captured together with the seeded partial by the
@@ -228,6 +233,7 @@ export class SessionController {
     this.isChatVisible = deps.isChatVisible ?? (() => true);
     this.isPendingSessionStartRouteCurrent = deps.isPendingSessionStartRouteCurrent;
     this.onPendingSessionStartCommitted = deps.onPendingSessionStartCommitted;
+    this.canRejoinSelectedSession = deps.canRejoinSelectedSession ?? (() => true);
     this.onModelScopeChanged = deps.onModelScopeChanged;
     this.navigateToSession = deps.navigateToSession;
     this.captureNavigation = deps.captureNavigation;
@@ -256,7 +262,7 @@ export class SessionController {
     if (this.searchTimer !== undefined) clearTimeout(this.searchTimer);
     this.searchTimer = undefined;
     this.selectedSessionJoinNavigation = undefined;
-    this.socket.close();
+    this.closeSessionSubscription();
     this.clearPendingUpdates();
   }
 
@@ -277,7 +283,7 @@ export class SessionController {
     this.selectedSessionLoadDeferred = false;
     this.selectionSeq += 1;
     this.selectedSessionJoinNavigation = undefined;
-    this.socket.close();
+    this.closeSessionSubscription();
     this.notifications?.clearSelectedSession();
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
@@ -429,8 +435,7 @@ export class SessionController {
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     const seq = ++this.selectionSeq;
     this.selectedSessionJoinNavigation = options?.navigation;
-    this.socket.close();
-    this.sessionConnectionOpen = false;
+    this.closeSessionSubscription();
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
     this.selectedSessionLoadDeferred = options?.deferChatLoading === true || !this.isChatVisible();
@@ -459,7 +464,6 @@ export class SessionController {
       if (options?.updateUrl !== false) this.updateUrl();
       return;
     }
-    let socketConnected = false;
     try {
       if (session.archived === true) {
         const recoveryError = this.browserErrors.captureRecovery(sessionBrowserErrorScope(machineId, session.id, errorOwner), "session-refresh");
@@ -491,7 +495,7 @@ export class SessionController {
           if (this.isCurrentSessionSelection(session.id, machineId, seq)) this.updateSubscriptionState(state);
         },
       );
-      socketConnected = true;
+      this.selectedSessionSubscriptionSeq = seq;
       const refreshTarget: SelectedSessionRefreshTarget = {
         session,
         machineId,
@@ -524,11 +528,13 @@ export class SessionController {
       const navigationCurrent = navigationIsCurrent(options?.navigation);
       if (seq === this.selectionSeq && navigationCurrent) this.selectedSessionJoinNavigation = undefined;
       // A newer URL selection can retire this join before its replacement has
-      // reached the controller. Release our socket in that gap, but
-      // never close a socket already owned by a newer controller selection.
-      if (socketConnected && !navigationIsCurrent(options?.navigation)
+      // reached the controller. Release our socket in that gap, but retain its
+      // stale token so restoration knows this selected row needs another join.
+      // Never close a socket already owned by a newer controller selection.
+      if (this.selectedSessionSubscriptionSeq === seq && !navigationCurrent
         && this.isCurrentSessionSelection(session.id, machineId, seq)) {
-        this.socket.close();
+        this.closeSessionSubscription();
+        this.updateSubscriptionState("connecting");
       }
     }
   }
@@ -1332,40 +1338,46 @@ export class SessionController {
     }
   }
 
-  async listModelCatalog(): Promise<SessionModelCatalogEntry[]> {
+  async listModelCatalog(): Promise<SessionModelCatalogResponse> {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return [];
+    if (!session || session.archived === true) return { models: [] };
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
-      return (await this.api.modelCatalog(session, machineId)).models;
+      return await this.api.modelCatalog(session, machineId);
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
-      return [];
+      return { models: [] };
     }
   }
 
-  async setModelEnabled(provider: string, modelId: string, enabled: boolean): Promise<SessionModelCatalogEntry[] | undefined> {
+  /**
+   * Toggle one model's membership in pi's enabled-models scope. Returns the
+   * updated catalog on success and `undefined` on failure, so the caller can
+   * leave (or revert) the row's control when the edit did not apply.
+   */
+  async setModelEnabled(provider: string, modelId: string, enabled: boolean): Promise<SessionModelCatalogResponse | undefined> {
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return undefined;
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
-      return (await this.api.setModelEnabled(session, provider, modelId, enabled, machineId)).models;
+      return await this.api.setModelEnabled(session, provider, modelId, enabled, machineId);
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
       return undefined;
     }
   }
 
-  async setModelScope(mode: SessionModelScopeMode): Promise<SessionModelCatalogEntry[] | undefined> {
+  /** Atomically change availability mode or apply a manual-selection preset. */
+  async setModelScope(mode: SessionModelScopeMode): Promise<SessionModelCatalogResponse | undefined> {
     const state = this.getState();
     const session = state.selectedSession;
     if (!session || session.archived === true) return undefined;
     const machineId = selectedMachineId(state);
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
-      return (await this.api.setModelScope(session, mode, machineId)).models;
+      return await this.api.setModelScope(session, mode, machineId);
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
       return undefined;
@@ -1635,6 +1647,16 @@ export class SessionController {
   }
 
   resumeSelectedSession(options?: { reconnect?: boolean }): Promise<void> {
+    const session = this.getState().selectedSession;
+    if (this.disposed || this.selectedSessionLoadDeferred || session === undefined
+      || session.archived === true || isClientPendingStartSessionInfo(session)) return Promise.resolve();
+    if (this.selectedSessionSubscriptionSeq !== this.selectionSeq) {
+      // close() is terminal: reconnect cannot revive an abandoned join. Start
+      // from the current selection, never from the retired join's captured row.
+      if (!this.isChatVisible() || !this.canRejoinSelectedSession()) return Promise.resolve();
+      const navigation = this.beginNavigationOperation?.(SESSION_RESTORE_SCOPE);
+      return this.selectSession(session, { updateUrl: false, navigation });
+    }
     if (options?.reconnect !== false) {
       const wasOpen = this.sessionConnectionOpen;
       this.socket.reconnect();
@@ -1643,6 +1665,12 @@ export class SessionController {
       if (wasOpen) return Promise.resolve();
     }
     return this.refreshSelectedSession(undefined, { recoverNetwork: true });
+  }
+
+  private closeSessionSubscription(): void {
+    this.selectedSessionSubscriptionSeq = undefined;
+    this.sessionConnectionOpen = false;
+    this.socket.close();
   }
 
   private updateSubscriptionState(state: SessionConnectionState): void {
@@ -2014,7 +2042,7 @@ export class SessionController {
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     this.selectionSeq += 1;
     this.selectedSessionJoinNavigation = undefined;
-    this.socket.close();
+    this.closeSessionSubscription();
     this.notifications?.clearSelectedSession();
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
@@ -2194,7 +2222,7 @@ export class SessionController {
     this.pendingSessionStarts.delete(tempId);
     const wasDiscarded = pending.discarded;
     pending.discarded = true;
-    if (this.getState().selectedSession?.id === tempId) this.socket.close();
+    if (this.getState().selectedSession?.id === tempId) this.closeSessionSubscription();
     const releasedCreatedSessions = this.takeSuppressedCreatedSessionsFor(pending.cwd, pending.machineId);
     const isCurrentPendingStart = this.isCurrentPendingStart(pending);
     if (wasDiscarded) {

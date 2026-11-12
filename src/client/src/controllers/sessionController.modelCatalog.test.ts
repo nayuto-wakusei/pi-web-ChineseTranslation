@@ -1,3 +1,4 @@
+import type { SessionModelScopeMode } from "../api";
 import { SessionController } from "./sessionController";
 import { FakeSocket } from "./sessionController.testSupport";
 import { describe, expect, it, vi } from "vitest";
@@ -71,7 +72,7 @@ describe("SessionController model catalog", () => {
     } satisfies Partial<typeof defaultApi>;
     const { controller } = createSessionControllerTestFixture({ initialState: state, api });
 
-    expect(await controller.listModelCatalog()).toEqual(catalogModels);
+    expect(await controller.listModelCatalog()).toEqual({ models: catalogModels });
     expect(calls).toEqual([{ sessionId: oldSession.id, machineId: "remote-a" }]);
   });
 
@@ -88,7 +89,7 @@ describe("SessionController model catalog", () => {
 
     const models = await controller.setModelEnabled("openai", "gpt-4o", true);
 
-    expect(models?.find((model) => model.id === "gpt-4o")?.enabled).toBe(true);
+    expect(models?.models.find((model) => model.id === "gpt-4o")?.enabled).toBe(true);
     expect(calls).toEqual([{ provider: "openai", modelId: "gpt-4o", enabled: true, machineId: "remote-a" }]);
   });
 
@@ -102,7 +103,7 @@ describe("SessionController model catalog", () => {
 
     const unusedApi = { modelCatalog: () => { throw new Error("must not be called"); } } satisfies Partial<typeof defaultApi>;
     const unused = createSessionControllerTestFixture({ initialState: initialAppState(), api: unusedApi });
-    expect(await unused.controller.listModelCatalog()).toEqual([]);
+    expect(await unused.controller.listModelCatalog()).toEqual({ models: [] });
   });
 });
 
@@ -148,7 +149,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
       ...defaultApi,
       modelCatalog: (session, machineId) => {
         calls.push({ sessionId: sessionLookupId(session), machineId: machineId ?? "local" });
-        return Promise.resolve({ models: catalogModels });
+        return Promise.resolve({ models: catalogModels, scope: "manual" });
       },
     };
     const controller = controllerWithApi(state, (patch) => { state = { ...state, ...patch }; }, api);
@@ -156,7 +157,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     const models = await controller.listModelCatalog();
 
     expect(calls).toEqual([{ sessionId: oldSession.id, machineId: "remote-a" }]);
-    expect(models).toEqual(catalogModels);
+    expect(models).toEqual({ models: catalogModels, scope: "manual" });
   });
 
   it("reports catalog listing failures through the application error state", async () => {
@@ -166,7 +167,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
 
     const models = await controller.listModelCatalog();
 
-    expect(models).toEqual([]);
+    expect(models).toEqual({ models: [] });
     expect(Object.values(state.browserErrors).map((error) => error.message)).toContain("catalog failed");
   });
 
@@ -185,25 +186,26 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     const models = await controller.setModelEnabled("openai", "gpt-4o", true);
 
     expect(calls).toEqual([{ provider: "openai", modelId: "gpt-4o", enabled: true, machineId: "remote-a" }]);
-    expect(models?.find((model) => model.id === "gpt-4o")?.enabled).toBe(true);
+    expect(models?.models.find((model) => model.id === "gpt-4o")?.enabled).toBe(true);
     expect(state.error).toBe("");
   });
 
   it("atomically sets the model scope preset on the selected machine", async () => {
-    const calls: { mode: "all" | "current"; machineId: string }[] = [];
+    const calls: { mode: SessionModelScopeMode; machineId: string }[] = [];
     let state: AppState = { ...initialAppState(), selectedMachine: machine("remote-a"), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
     const api: typeof defaultApi = {
       ...defaultApi,
       setModelScope: (_session, mode, machineId) => {
         calls.push({ mode, machineId: machineId ?? "local" });
-        return Promise.resolve({ models: catalogModels });
+        return Promise.resolve({ models: catalogModels, scope: "manual" });
       },
     };
     const controller = controllerWithApi(state, (patch) => { state = { ...state, ...patch }; }, api);
 
-    await expect(controller.setModelScope("current")).resolves.toEqual(catalogModels);
+    await expect(controller.setModelScope("current")).resolves.toEqual({ models: catalogModels, scope: "manual" });
+    await expect(controller.setModelScope("manual")).resolves.toEqual({ models: catalogModels, scope: "manual" });
 
-    expect(calls).toEqual([{ mode: "current", machineId: "remote-a" }]);
+    expect(calls).toEqual([{ mode: "current", machineId: "remote-a" }, { mode: "manual", machineId: "remote-a" }]);
   });
 
   it("returns undefined for a failed toggle so the dialog can keep the row's state", async () => {
@@ -236,7 +238,7 @@ describe("SessionController upstream navigation and runtime contracts", () => {
     };
     const controller = controllerWithApi(state, (patch) => { state = { ...state, ...patch }; }, api);
 
-    expect(await controller.listModelCatalog()).toEqual([]);
+    expect(await controller.listModelCatalog()).toEqual({ models: [] });
     expect(await controller.setModelEnabled("openai", "gpt-4o", true)).toBeUndefined();
     expect(await controller.setModelScope("current")).toBeUndefined();
     expect(state.error).toBe("");

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { marked } from "marked";
+import { Parser } from "marked";
 import { toSafeMarkdownHtml } from "./markdown";
 import { DEFAULT_CODE_BLOCK_POLICY, PLAIN_CODE_BLOCK_POLICY } from "./codeBlockPolicy";
 
@@ -86,7 +86,7 @@ describe("plain Markdown code blocks", () => {
   it("reuses HTML across overflow and preview choices but not presentation or copy choices", () => {
     const text = "```text\nindependent block policy cache\n```";
     const plain = toSafeMarkdownHtml(text, undefined, undefined, true, PLAIN_CODE_BLOCK_POLICY);
-    const parse = vi.spyOn(marked, "parse");
+    const parse = vi.spyOn(Parser, "parse");
     expect(toSafeMarkdownHtml(text, undefined, undefined, true, { ...PLAIN_CODE_BLOCK_POLICY, overflow: "scroll", previews: true })).toBe(plain);
     expect(parse).not.toHaveBeenCalled();
     expect(toSafeMarkdownHtml(text, undefined, undefined, true, { ...PLAIN_CODE_BLOCK_POLICY, presentation: "code" })).toContain("<pre><code");

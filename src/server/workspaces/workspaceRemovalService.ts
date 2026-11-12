@@ -38,6 +38,8 @@ export interface WorkspaceRemovalServiceOptions {
   timeoutMs?: number;
   preRemoveHook?: WorktreePreRemoveHookProbe;
   notices?: Pick<ServerNoticeCreator, "record">;
+  /** Requests discovery after admission and again when the command settles. */
+  onMutation?: (projectId: string) => void;
 }
 
 interface WorkspaceRemovalFlight {
@@ -65,6 +67,7 @@ export class WorkspaceRemovalService {
   private readonly timeoutMs: number;
   private readonly preRemoveHook: WorktreePreRemoveHookProbe;
   private readonly notices: Pick<ServerNoticeCreator, "record"> | undefined;
+  private readonly onMutation: ((projectId: string) => void) | undefined;
   private readonly flights = new Map<string, WorkspaceRemovalFlight>();
   private readonly shutdown = new AbortController();
   private closePromise: Promise<void> | undefined;
@@ -77,6 +80,7 @@ export class WorkspaceRemovalService {
     this.timeoutMs = positiveInteger(options.timeoutMs ?? WORKSPACE_REMOVAL_OPERATION_TIMEOUT_MS, "timeoutMs");
     this.preRemoveHook = options.preRemoveHook ?? realWorktreePreRemoveHookProbe;
     this.notices = options.notices;
+    this.onMutation = options.onMutation;
   }
 
   async remove(
@@ -193,6 +197,7 @@ export class WorkspaceRemovalService {
             ...(plan.titlePresentation === undefined ? {} : { titlePresentation: plan.titlePresentation }),
             command,
             metadata: workspaceDeletionMetadata(target),
+            ...(this.onMutation === undefined || managementContext !== undefined ? {} : { onSettled: () => { this.onMutation?.(project.id); } }),
             failureNotice: {
               message: "Workspace removal failed. See terminal output.",
               presentation: { kind: "workspaceRemovalCommandFailed" },
@@ -221,6 +226,10 @@ export class WorkspaceRemovalService {
         context: { targetWorkspaceId: workspaceId, projectId: project.id, workspaceId },
       });
       throw failure;
+    } finally {
+      // The command runs after this request returns. Refresh now, and again on
+      // settlement so discovery performed mid-command cannot leave stale state.
+      if (managementContext === undefined) this.onMutation?.(project.id);
     }
   }
 

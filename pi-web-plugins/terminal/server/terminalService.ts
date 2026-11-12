@@ -79,6 +79,8 @@ export type RunTerminalCommandOptions = TerminalScope & {
   metadata?: unknown;
   /** Private host-composition intent; never accepted from the paired browser protocol. */
   failureNotice?: TerminalCommandFailureNotice;
+  /** Private host-composition intent; never accepted from the paired browser protocol. */
+  onSettled?: () => void;
   cols?: number;
   rows?: number;
 }
@@ -122,6 +124,7 @@ export function snapshotMaintenanceExecutionContext(value: unknown): Maintenance
 export class TerminalService {
   private readonly terminals = new Map<string, TerminalRecord>();
   private readonly commandRuns = new Map<string, TerminalCommandRun>();
+  private readonly commandSettlements = new Map<string, () => void>();
   private activitySink: TerminalActivitySink | undefined;
   private disposed = false;
 
@@ -190,6 +193,12 @@ export class TerminalService {
     const createdAt = new Date().toISOString();
     const metadata = parseMetadata(options.metadata);
     const failureNotice = parseFailureNotice(options.failureNotice);
+    if (options.onSettled !== undefined && typeof options.onSettled !== "function") {
+      throw new Error("Terminal command settlement callback must be a function");
+    }
+    if (options.onSettled !== undefined && this.recordNotice === undefined) {
+      throw new Error("Terminal command settlement notices are unavailable");
+    }
     if (failureNotice !== undefined && this.recordNotice === undefined) {
       throw new Error(t("ui.main.e4f11dab9de6", "Terminal command failure notices are unavailable"));
     }
@@ -207,6 +216,7 @@ export class TerminalService {
     };
     const running: TerminalCommandRun = { ...queued, status: "running", startedAt: new Date().toISOString() };
     this.commandRuns.set(commandRunId, running);
+    if (options.onSettled !== undefined) this.commandSettlements.set(commandRunId, options.onSettled);
 
     try {
       this.createTerminal({
@@ -224,6 +234,7 @@ export class TerminalService {
       });
     } catch (error) {
       this.commandRuns.delete(commandRunId);
+      this.commandSettlements.delete(commandRunId);
       throw error;
     }
 
@@ -455,6 +466,18 @@ export class TerminalService {
       completedAt: new Date().toISOString(),
     };
     this.commandRuns.set(runId, completed);
+    const onSettled = this.commandSettlements.get(runId);
+    this.commandSettlements.delete(runId);
+    try {
+      onSettled?.();
+    } catch (error) {
+      this.recordNotice?.({
+        severity: "error",
+        message: "Terminal command follow-up failed. Refresh the workspace list.",
+        ...(completed.scope === "maintenance" ? {} : { scope: { projectId: completed.projectId } }),
+        context: { commandRunId: completed.id, detail: error instanceof Error ? error.message : String(error) },
+      });
+    }
     if (!this.disposed && !cancelled && completed.status === "failed" && failureNotice !== undefined) {
       this.recordNotice?.({
         severity: "error",

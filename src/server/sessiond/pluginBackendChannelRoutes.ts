@@ -80,7 +80,7 @@ export function registerPluginBackendChannelRoutes(
       },
     },
     (socket, request) => {
-      const controller = new PluginBackendChannelSocketController(socket, request.params, request.headers, dependencies, app.log);
+      const controller = new PluginBackendChannelSocketController(socket, request.params, request.headers, dependencies, request.log);
       controller.start();
     },
   );
@@ -127,6 +127,7 @@ class PluginBackendChannelSocketController {
       void this.onClosed(code, decodeCloseReason(reason));
     });
     this.socket.once("error", (error) => {
+      this.logger.error({ err: error, pluginId: this.params.pluginId, operation: this.params.operation, phase: this.state }, "plugin backend channel transport failed");
       void this.fail("transport-error", `Plugin backend channel transport failed: ${boundedErrorMessage(error)}`, 1011);
     });
 

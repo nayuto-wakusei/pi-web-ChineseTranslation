@@ -26,6 +26,9 @@ export function registerSessionProxyRoutes(app: FastifyInstance, daemon: Session
     try {
       return await withRequestCancellation(request, reply, async (signal) => {
         const managementContext = await managementContextForRequest(request, managementEmbed, reply);
+        if (managementContext !== undefined && /^\/sessions\/[^/]+\/location$/u.test(path)) {
+          return reply.code(403).send({ error: "Session location is unavailable in management mode" });
+        }
         const scoped = await sessionProjectScope(stripPrefix(request.url, prefix), request.method, request.body, managementContext, resolveManagementProjectCwds, resolveNormalProjectCwds);
         const daemonPath = scoped.url;
         const body = scoped.handled ? scoped.body : await managementBody(daemonPath, scoped.body, managementContext, managementEmbed, request.method);

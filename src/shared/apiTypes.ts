@@ -246,7 +246,10 @@ export interface PiWebConfigValues {
   quietMode?: boolean;
   host?: string;
   port?: number;
+  /** Legacy Vite-only fallback, ignored when hostAccess is supplied. */
   allowedHosts?: string[] | true;
+  /** Shared gateway/Vite Host policy; omission leaves the decision unset. */
+  hostAccess?: PiWebHostAccess;
   shortcuts?: PiWebShortcutConfig;
   plugins?: PiWebPluginConfigMap;
   normalAuth?: PiWebNormalAuthConfig;
@@ -475,11 +478,15 @@ export interface PiWebSpeechApiKeyResponse {
   apiKey: string;
 }
 
+export type PiWebHostAccess = { mode: "restricted"; hosts: string[] } | { mode: "any" };
+
 export interface PiWebConfigResponse {
   path: string;
   exists: boolean;
   config: PiWebConfigValues;
   effectiveConfig: PiWebConfigValues;
+  /** Gateway startup snapshot: null is undecided; omitted by older servers and selected-machine views. */
+  activeHostAccess?: PiWebHostAccess | null;
   envOverrides: PiWebConfigEnvOverrides;
   /** Present when a direct speech key exists in at least one layer. */
   speechApiKeyPresence?: PiWebSpeechApiKeyPresence;
@@ -575,6 +582,17 @@ export type WorkspaceProviderAuthorityResolution = Omit<WorkspaceProviderResolut
 export interface SessionRef {
   id: string;
   cwd: string;
+}
+
+/**
+ * The project and workspace that list a session, answered from its id alone so
+ * links that carry only `?session=<id>` can redirect to the full route. A
+ * session no open project lists is a 404 rather than a location.
+ */
+export interface SessionLocation {
+  sessionId: string;
+  projectId: string;
+  workspaceId: string;
 }
 
 export type ServerNoticeSeverity = "info" | "warning" | "error";
@@ -1235,10 +1253,12 @@ export interface SessionModelCatalogEntry {
  */
 export interface SessionModelCatalogResponse {
   models: SessionModelCatalogEntry[];
+  /** Canonical selection mode, independent of row membership. Optional for compatibility with older servers. */
+  scope?: "all" | "manual";
 }
 
-/** Canonical model-scope presets exposed by the model picker's bulk toggle. */
-export type SessionModelScopeMode = "all" | "current";
+/** All removes the selection; manual snapshots available models; current selects only the current model. */
+export type SessionModelScopeMode = "all" | "manual" | "current";
 
 // Domain type is owned by pi and re-exported from the shared thinking-levels
 // module. Wire/data fields below intentionally use `string` so an unknown level

@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setApiScope, type PromptAttachment, type SessionInfo, type SessionModel, type SessionStatus } from "../api";
+import { setApiScope, type PromptAttachment, type SessionInfo, type SessionModel, type SessionModelCatalogResponse, type SessionModelScopeMode, type SessionStatus } from "../api";
 import type { SessionDefaults } from "../../../shared/apiTypes";
 import { initialAppState, type AppState } from "../appState";
 import { SessionController } from "../controllers/sessionController";
 import { PiWebApp } from "./PiWebApp";
+
+const modelDialogOrigin = { machineId: "local", sessionId: "session-1", cwd: "/repo" } as const;
 
 beforeEach(() => {
   vi.spyOn(SessionController.prototype, "getSessionDefaults").mockResolvedValue(undefined);
@@ -28,7 +30,7 @@ describe("PiWebApp model dialog", () => {
     const selectedSession = session("session-1");
     setAppState(app, { selectedSession, sessions: [selectedSession] });
     vi.spyOn(SessionController.prototype, "listModels").mockResolvedValue([]);
-    vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue([]);
+    vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue({ models: [] });
     const pending = deferred<SessionDefaults | undefined>();
     vi.spyOn(SessionController.prototype, "getSessionDefaults")
       .mockReturnValueOnce(pending.promise)
@@ -81,7 +83,7 @@ describe("PiWebApp model dialog", () => {
     setAppState(app, { selectedSession, sessions: [selectedSession] });
     vi.spyOn(SessionController.prototype, "listModels").mockResolvedValue([]);
     const catalog = [{ provider: "openai", id: "gpt-5", enabled: true }];
-    vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue(catalog);
+    vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue({ models: catalog });
     const send = vi.spyOn(SessionController.prototype, "send").mockResolvedValue(false);
 
     callSendPrompt(app, ` ${command} `);
@@ -96,7 +98,7 @@ describe("PiWebApp model dialog", () => {
     const selectedSession = session("session-1");
     setAppState(app, { selectedSession, sessions: [selectedSession] });
     vi.spyOn(SessionController.prototype, "listModels").mockResolvedValue([]);
-    const catalog = vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue([]);
+    const catalog = vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue({ models: [] });
     vi.spyOn(SessionController.prototype, "send").mockResolvedValue(false);
 
     callSendPrompt(app, command);
@@ -134,25 +136,22 @@ describe("PiWebApp model dialog", () => {
       { provider: "anthropic", id: "claude-sonnet-4-5", enabled: true },
       { provider: "openai", id: "gpt-4o", enabled: false },
     ];
-    const listModelCatalog = vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue(catalog);
+    const listModelCatalog = vi.spyOn(SessionController.prototype, "listModelCatalog").mockResolvedValue({ models: catalog, scope: "manual" });
     vi.spyOn(SessionController.prototype, "getSessionDefaults").mockResolvedValue(undefined);
 
     await callOpenModelDialog(app);
     await vi.waitFor(() => { expect(appModelDialog(app)?.defaultsLoading).toBe(false); });
 
     expect(listModelCatalog).toHaveBeenCalledOnce();
-    expect(appModelDialog(app)).toEqual({
-      instanceId: 1,
-      origin: { machineId: "local", sessionId: selectedSession.id, cwd: selectedSession.cwd },
-      title: "Select Model",
-      selectedValue: "openai/gpt-5",
-      options: [
-        { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
-        { value: "anthropic/claude-sonnet-4-5", label: "claude-sonnet-4-5", description: "anthropic" },
-      ],
-      catalog,
-      defaultsLoading: false,
-    });
+    const dialog = appModelDialog(app);
+    expect(dialog?.title).toBe("Select Model");
+    expect(dialog?.selectedValue).toBe("openai/gpt-5");
+    expect(dialog?.options).toEqual([
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
+      { value: "anthropic/claude-sonnet-4-5", label: "claude-sonnet-4-5", description: "anthropic" },
+    ]);
+    expect(dialog?.catalog).toEqual(catalog);
+    expect(dialog?.scope).toBe("manual");
   });
 
   it("does not request or expose enabled-scope editing in management embed", async () => {
@@ -196,12 +195,122 @@ describe("PiWebApp model dialog", () => {
         catalog: [{ provider: "openai", id: "gpt-5", enabled: true }],
       },
     });
+    const listModels = vi.spyOn(SessionController.prototype, "listModels")
+      .mockResolvedValue([{ provider: "openai", id: "gpt-5" }, { provider: "openai", id: "gpt-4o" }]);
+    const listModelCatalog = vi.spyOn(SessionController.prototype, "listModelCatalog")
+      .mockResolvedValue({ models: [
+        { provider: "openai", id: "gpt-5", enabled: true },
+        { provider: "openai", id: "gpt-4o", enabled: true },
+      ], scope: "all" });
+    const sessions: unknown = Reflect.get(app, "sessions");
+    if (typeof sessions !== "object" || sessions === null) throw new Error("PiWebApp session controller was unavailable");
+    const applyGlobalEvent: unknown = Reflect.get(sessions, "applyGlobalEvent");
+    if (typeof applyGlobalEvent !== "function") throw new Error("SessionController global event handler was unavailable");
+
+    Reflect.apply(applyGlobalEvent, sessions, [{ type: "models.changed", revision: 2 }]);
+    await vi.waitFor(() => { expect(appModelDialog(app)?.options).toHaveLength(2); });
+
+    expect(listModels).toHaveBeenCalledOnce();
+    expect(listModelCatalog).toHaveBeenCalledOnce();
+    expect(appModelDialog(app)?.scope).toBe("all");
+    expect(appModelDialog(app)?.options).toEqual([
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
+      { value: "openai/gpt-4o", label: "gpt-4o", description: "openai" },
+    ]);
+    expect(appModelDialog(app)?.catalog).toEqual([
+      { provider: "openai", id: "gpt-5", enabled: true },
+      { provider: "openai", id: "gpt-4o", enabled: true },
+    ]);
+  });
+
+  it("retries dialog loading when a global scope change arrives while it is opening", async () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, {
+      selectedSession,
+      sessions: [selectedSession],
+      status: sessionStatus(selectedSession.id, { provider: "openai", id: "gpt-5" }),
+    });
+    let resolveInitialModels: ((models: SessionModel[]) => void) | undefined;
+    let resolveInitialCatalog: ((catalog: SessionModelCatalogResponse) => void) | undefined;
+    const listModels = vi.spyOn(SessionController.prototype, "listModels").mockImplementation(() => {
+      if (listModels.mock.calls.length > 1) return Promise.resolve([{ provider: "openai", id: "gpt-5" }, { provider: "openai", id: "gpt-4o" }]);
+      return new Promise((resolve) => { resolveInitialModels = resolve; });
+    });
+    const listModelCatalog = vi.spyOn(SessionController.prototype, "listModelCatalog").mockImplementation(() => {
+      if (listModelCatalog.mock.calls.length > 1) {
+        return Promise.resolve({ models: [
+          { provider: "openai", id: "gpt-5", enabled: true },
+          { provider: "openai", id: "gpt-4o", enabled: true },
+        ], scope: "all" });
+      }
+      return new Promise((resolve) => { resolveInitialCatalog = resolve; });
+    });
+
+    const pending = callOpenModelDialog(app);
+    await vi.waitFor(() => { expect(listModels).toHaveBeenCalledOnce(); });
+    const sessions: unknown = Reflect.get(app, "sessions");
+    if (typeof sessions !== "object" || sessions === null) throw new Error("PiWebApp session controller was unavailable");
+    const applyGlobalEvent: unknown = Reflect.get(sessions, "applyGlobalEvent");
+    if (typeof applyGlobalEvent !== "function") throw new Error("SessionController global event handler was unavailable");
+    Reflect.apply(applyGlobalEvent, sessions, [{ type: "models.changed", revision: 2 }]);
+    resolveInitialModels?.([{ provider: "openai", id: "gpt-5" }]);
+    resolveInitialCatalog?.({ models: [{ provider: "openai", id: "gpt-5", enabled: true }], scope: "manual" });
+    await pending;
+
+    expect(listModels).toHaveBeenCalledTimes(2);
+    expect(listModelCatalog).toHaveBeenCalledTimes(2);
+    expect(appModelDialog(app)?.scope).toBe("all");
+    expect(appModelDialog(app)?.options).toEqual([
+      { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
+      { value: "openai/gpt-4o", label: "gpt-4o", description: "openai" },
+    ]);
+  });
+
+  it("discards catalog results when selection changes while the dialog is opening", async () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, { selectedSession, sessions: [selectedSession] });
+    let resolveModels: ((models: SessionModel[]) => void) | undefined;
+    let resolveCatalog: ((catalog: SessionModelCatalogResponse) => void) | undefined;
+    vi.spyOn(SessionController.prototype, "listModels").mockImplementation(() => new Promise((resolve) => { resolveModels = resolve; }));
+    vi.spyOn(SessionController.prototype, "listModelCatalog").mockImplementation(() => new Promise((resolve) => { resolveCatalog = resolve; }));
+
+    const pending = callOpenModelDialog(app);
+    const replacement = session("session-2");
+    setAppState(app, { selectedSession: replacement, sessions: [replacement] });
+    resolveModels?.([{ provider: "openai", id: "gpt-5" }]);
+    resolveCatalog?.({ models: [{ provider: "openai", id: "gpt-5", enabled: true }], scope: "all" });
+    await pending;
+
+    expect(appModelDialog(app)).toBeUndefined();
+  });
+
+  it("rebuilds the dialog's enabled options and catalog from the fresh catalog after a toggle", async () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, {
+      selectedSession,
+      sessions: [selectedSession],
+      status: sessionStatus(selectedSession.id, { provider: "openai", id: "gpt-5" }),
+      modelDialog: {
+        instanceId: 1,
+        origin: modelDialogOrigin,
+        title: "Select Model",
+        selectedValue: "openai/gpt-5",
+        options: [{ value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" }],
+        catalog: [
+          { provider: "openai", id: "gpt-5", enabled: true },
+          { provider: "openai", id: "gpt-4o", enabled: false },
+        ],
+      },
+    });
     const freshCatalog = [
       { provider: "openai", id: "gpt-5", enabled: true },
       { provider: "openai", id: "gpt-4o", enabled: true },
       { provider: "anthropic", id: "claude-sonnet-4-5", enabled: false },
     ];
-    const setModelEnabled = vi.spyOn(SessionController.prototype, "setModelEnabled").mockResolvedValue(freshCatalog);
+    const setModelEnabled = vi.spyOn(SessionController.prototype, "setModelEnabled").mockResolvedValue({ models: freshCatalog, scope: "manual" });
 
     await callToggleHandler(app, "openai", "gpt-4o", true);
 
@@ -233,7 +342,7 @@ describe("PiWebApp model dialog", () => {
       { provider: "openai", id: "gpt-5", enabled: true },
       { provider: "openai", id: "gpt-4o", enabled: false },
     ];
-    const setModelScope = vi.spyOn(SessionController.prototype, "setModelScope").mockResolvedValue(freshCatalog);
+    const setModelScope = vi.spyOn(SessionController.prototype, "setModelScope").mockResolvedValue({ models: freshCatalog, scope: "manual" });
 
     await callScopeHandler(app, "current");
 
@@ -242,6 +351,118 @@ describe("PiWebApp model dialog", () => {
     expect(appModelDialog(app)?.options).toEqual([
       { value: "openai/gpt-5", label: "gpt-5 ✓ current", description: "openai" },
     ]);
+  });
+
+  it.each(["all", "manual"] as const)("keeps server-reported %s mode even when every row is enabled", async (scope) => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    const catalog = [{ provider: "openai", id: "gpt-5", enabled: true }];
+    setAppState(app, {
+      selectedSession,
+      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Model", options: [], catalog, scope: scope === "all" ? "manual" : "all" },
+    });
+    vi.spyOn(SessionController.prototype, "setModelScope").mockResolvedValue({ models: catalog, scope });
+
+    await callScopeHandler(app, scope);
+
+    expect(appModelDialog(app)?.scope).toBe(scope);
+    expect(appModelDialog(app)?.catalog).toEqual(catalog);
+  });
+
+  it("keeps the previous availability mode when changing it fails", async () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, {
+      selectedSession,
+      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Model", options: [], catalog: [], scope: "manual" },
+    });
+    const before = appModelDialog(app);
+    vi.spyOn(SessionController.prototype, "setModelScope").mockResolvedValue(undefined);
+
+    await callScopeHandler(app, "all");
+
+    expect(appModelDialog(app)).toBe(before);
+  });
+
+  it("leaves the dialog untouched when the toggle fails", async () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, {
+      selectedSession,
+      sessions: [selectedSession],
+      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] },
+    });
+    const before = appModelDialog(app);
+    vi.spyOn(SessionController.prototype, "setModelEnabled").mockResolvedValue(undefined);
+
+    await callToggleHandler(app, "openai", "gpt-4o", true);
+
+    expect(appModelDialog(app)).toBe(before);
+  });
+
+  it("does not restore the dialog when a toggle settles after it was closed", async () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, { selectedSession, sessions: [selectedSession], modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] } });
+    let resolveToggle: ((catalog: SessionModelCatalogResponse) => void) | undefined;
+    vi.spyOn(SessionController.prototype, "setModelEnabled").mockImplementation(() => new Promise((resolve) => { resolveToggle = resolve; }));
+
+    const pending = callToggleHandler(app, "openai", "gpt-5", true);
+    setAppState(app, { selectedSession, sessions: [selectedSession], modelDialog: undefined });
+    resolveToggle?.({ models: [{ provider: "openai", id: "gpt-5", enabled: true }], scope: "manual" });
+    await pending;
+
+    expect(appModelDialog(app)).toBeUndefined();
+  });
+
+  it("closes the dialog when the live current model changes", () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    setAppState(app, {
+      selectedSession,
+      sessions: [selectedSession],
+      status: sessionStatus(selectedSession.id, { provider: "openai", id: "gpt-5" }),
+      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] },
+    });
+
+    const setState: unknown = Reflect.get(app, "setState");
+    if (typeof setState !== "function") throw new Error("PiWebApp state updater was unavailable");
+    Reflect.apply(setState, app, [{ status: sessionStatus(selectedSession.id, { provider: "openai", id: "gpt-4o" }) }]);
+
+    expect(appModelDialog(app)).toBeUndefined();
+  });
+
+  it("refuses a scope mutation when the dialog no longer belongs to the selected session", async () => {
+    const app = new PiWebApp();
+    const replacement = session("session-2");
+    setAppState(app, {
+      selectedSession: replacement,
+      sessions: [replacement],
+      modelDialog: { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] },
+    });
+    const setModelScope = vi.spyOn(SessionController.prototype, "setModelScope");
+
+    await callScopeHandler(app, "all");
+
+    expect(setModelScope).not.toHaveBeenCalled();
+    expect(appModelDialog(app)).toBeUndefined();
+  });
+
+  it("does not apply a stale response to a replacement dialog", async () => {
+    const app = new PiWebApp();
+    const selectedSession = session("session-1");
+    const original = { instanceId: 1, origin: modelDialogOrigin, title: "Select Model", options: [], catalog: [] };
+    const replacement = { instanceId: 2, origin: modelDialogOrigin, title: "Replacement", options: [], catalog: [] };
+    setAppState(app, { selectedSession, sessions: [selectedSession], modelDialog: original });
+    let resolveScope: ((catalog: SessionModelCatalogResponse) => void) | undefined;
+    vi.spyOn(SessionController.prototype, "setModelScope").mockImplementation(() => new Promise((resolve) => { resolveScope = resolve; }));
+
+    const pending = callScopeHandler(app, "all");
+    setAppState(app, { selectedSession, sessions: [selectedSession], modelDialog: replacement });
+    resolveScope?.({ models: [{ provider: "openai", id: "gpt-5", enabled: true }], scope: "all" });
+    await pending;
+
+    expect(appModelDialog(app)).toBe(replacement);
   });
 });
 
@@ -276,7 +497,7 @@ async function callToggleHandler(app: PiWebApp, provider: string, modelId: strin
   await Reflect.apply(handler, app, [provider, modelId, enabled]);
 }
 
-async function callScopeHandler(app: PiWebApp, mode: "all" | "current"): Promise<void> {
+async function callScopeHandler(app: PiWebApp, mode: SessionModelScopeMode): Promise<void> {
   const handler: unknown = Reflect.get(app, "handleSetModelScope");
   if (typeof handler !== "function") throw new Error("PiWebApp model scope handler was unavailable");
   await Reflect.apply(handler, app, [mode]);

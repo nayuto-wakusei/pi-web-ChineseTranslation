@@ -298,10 +298,12 @@ describe("privileged management session permissions", () => {
       expect(h.runtime().session.systemPrompt).not.toContain("L0只读能力");
       const bash = h.runtime().session.agent.state.tools.find((tool) => tool.name === "bash");
       if (bash === undefined) throw new Error("Expected the ordinary bash tool");
-      const code = `require("node:fs").writeFileSync(${JSON.stringify(h.outside.replaceAll("\\", "/"))}, "FULL_BASH_SENTINEL")`;
-      const result = await bash.execute("outside-bash-write", { command: `node -e '${code}'` }, new AbortController().signal);
-      expect(result, JSON.stringify(result)).toMatchObject({ structuredContent: { exit_code: 0 } });
-      expect(await readFile(h.outside, "utf8")).toBe("FULL_BASH_SENTINEL");
+      if (process.platform !== "win32") {
+        const code = `require("node:fs").writeFileSync(${JSON.stringify(h.outside.replaceAll("\\", "/"))}, "FULL_BASH_SENTINEL")`;
+        const result = await bash.execute("outside-bash-write", { command: `node -e '${code}'` }, new AbortController().signal);
+        expect(result, JSON.stringify(result)).toMatchObject({ structuredContent: { exit_code: 0 } });
+        expect(await readFile(h.outside, "utf8")).toBe("FULL_BASH_SENTINEL");
+      }
       expect(h.prepare).not.toHaveBeenCalled();
       expect(h.synchronize).not.toHaveBeenCalled();
       expect(await readFile(relayPath, "utf8")).toBe(relay);

@@ -201,6 +201,8 @@ Use the existing [stylesheet integration](#styles-highlighting-and-display) for 
 
 ### 聊天与文件内容预览
 
+浏览器 API v5 的 `markdownExtensions` 为聊天和文档 Markdown 注册同步语法扩展。相同源码必须产生相同结果，按发现顺序使用首个匹配项；输出由宿主净化。扩展不处理字面代码，围栏预览继续使用 `contentRenderers`。插件面板可声明宿主 `markdown-rendering` v1 能力，按机器获得相同的文档渲染；该策略转义原始 HTML、略过图片，只允许安全的外部链接，失败仍显示源码。
+
 浏览器插件的 `contentRenderers` 提供 `id`、围栏 `languages` 或不含点的 `fileExtensions`，同步 `render(input)` 返回 Lit 模板。`renderMode` 默认为 `manual`，用户选择命名视图后才激活；`automatic` 可自动显示。v5 还可用 `title` 命名视图、同步 `supports(request)` 判断资格，并接收机器、语言和文件路径提示；旧 v4 输入不变。
 
 同一渲染器用于聊天围栏、文件 Markdown 围栏和独立文本文件，并遵循所属机器可用性。浏览器先发现 bundled 默认插件，再发现 installed 覆盖，各组内部顺序保持不变。匹配项保持插件发现顺序，最后一个匹配的 automatic 渲染器是默认；后来的 manual 渲染器不抢占自动默认。异步加载完成顺序不决定优先级，用户显式选择优先。每个渲染器与“源码”（Raw）是单行横向滚动的命名按钮，同时仅挂载所选预览，不使用选择器菜单。
@@ -342,14 +344,14 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin
 
 随包分发的接力（Relay）提供跨会话工作提示词和技能，并在只读“接力”标签展示 `.pi-web/relays/` 计划与进度，不从标签启动或编辑接力。缺少该目录表示当前工作区没有接力包，不是加载故障。协议标识与文件路径中的 `relay` 保持不变。
 
-普通模式在当前 agent 配置未安装时自动安装接力包；从 **设置 → Pi 包** 移除会被记忆，不静默重装，可从“可用包”恢复。单独禁用接力插件只隐藏标签，不移除代理资源。管理嵌入的 `relay` 与 `relay-runner` 模板同步继续限定在授权工作区，不改变普通启动的技能文件。
+普通模式为当前 agent profile 首次配置接力包；移除后可从 **设置 → Pi 包** 的“可用包”恢复。单独禁用接力插件只隐藏标签，不移除代理资源。管理嵌入的 `relay` 与 `relay-runner` 模板同步继续限定在授权工作区，不改变普通启动的技能文件。
 
 安装并启用接力包、且会话允许委派时，受限管理模式可通过 `dispatch_relay` 派发独立的后继会话；派发桥接继承发起者管理 context，并沿用同一项目的工作区授权。显式拒绝 `dispatch_relay` 或关闭委派仍会阻止派发；不以通用 `spawn` 替代，也不开放普通插件对管理会话的访问。
 
 <a id="workflows"></a>
 ### 工作流（Workflows）
 
-Workflows 随包提供 Pi 工作流提示词和工作树操作。普通 profile 缺少默认包时自动安装，用户移除会被记忆，可从“可用包”恢复；禁用浏览器插件不移除已安装的 Pi 提示词资源。
+Workflows 随包提供 Pi 工作流提示词和工作树操作。普通 profile 首次配置后，移除可从“可用包”恢复；禁用浏览器插件不移除已安装的 Pi 提示词资源。
 
 工作树操作选择 base 与用途后，由目标机器重验项目、工作区和 Git base 再派发；仅在普通模式及所需能力可用时提供。创建工作树、发布会话与打开页面是独立结果，派发结果不确定或导航失败时不自动重试，先查看目标机器已有结果，避免重复工作树。实现示例见 [Workflows 包](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/tree/main/pi-packages/workflows)。
 
@@ -522,7 +524,7 @@ Feature-detect the optional activation-context `localization` service. Register 
 
 ### Managed package sources
 
-Relays、Workflows 和 Session naming 随 PI WEB 分发及更新，daemon 启动时将已配置来源对齐到当前安装并保留资源过滤器。在“设置 → Pi 包”移除会持久记录；仅执行 `pi remove` 可能在下次 daemon 启动重新安装。
+Relays、Workflows 和 Session naming 随 PI WEB 分发及更新。daemon 对每个 agent profile 仅自动配置一次，失败会重试；已配置来源跟随当前安装并保留资源过滤器。通过设置、`pi remove` 或直接编辑包设置移除后不会自动重装。升级前没有配置记录的旧移除可能在迁移时重装一次。
 
 Bundled Relays, Workflows, and Session naming registrations follow the running installation's shipped package paths. Source migration preserves package resource filters and remembered explicit removals. Missing historical global-install sources from either `@jmfederico/pi-web` or `@chainingintention/pi-web-cn` can be repaired to the current installation; unrelated user package sources are not rewritten.
 

@@ -45,7 +45,7 @@
   "server.main.ab9910fde691": "无法导航空会话树。",
   "server.main.0678911a2580": "无法打开会话树： {arg0}",
   "server.main.53f693cde268": "会话树导航期间无法运行命令。请先停止或完成导航。",
-  "server.main.6a6ece1f173c": "mode 字段必须是 all 或 current",
+  "server.main.6a6ece1f173c": "mode 字段必须是 all、manual 或 current",
   "server.main.4b60afa8c1ba": "Pi 返回的会话树节点格式无效",
   "server.main.e6b6a590f7ed": "Pi 返回的会话树条目格式无效",
   "server.main.3857869ba727": "Pi 返回了重复的会话树条目 ID",

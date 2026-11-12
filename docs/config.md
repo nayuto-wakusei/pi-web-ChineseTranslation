@@ -104,6 +104,12 @@ Pi 包由目标机器的 `pi install`、`pi remove`、`pi update` 或 **设置 �
 
 专用认证仅支持所选 **Pi 1.3.0 或 1.4.0** 同一 SDK 的内部凭据适配，未知版本不保证兼容。普通项目与管理使用独立私有 MCP 凭据，不回退共享 agent 的 MCP OAuth 存储；完整特权仍是管理身份，受限管理不提供该流程。认证固定原机器、会话、cwd、项目和 scope，切换选择不会转移流程。注销删除对应保存凭据，影响使用该凭据的其他会话，但不禁用服务器或撤销提供方授权。详见[认证与模型](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/blob/main/docs/modules/auth-models.md#mcp-认证)。
 
+## 浏览器请求安全
+
+在 **设置 → 常规 → 允许的主机名** 配置网关 `hostAccess`。推荐显式列出反向代理对外使用的主机名：`{"mode":"restricted","hosts":["pi.example.com"]}`。`{"mode":"any"}` 关闭应用层主机名限制；不设置时生产网关兼容旧行为，开发 UI 继续使用旧的 `allowedHosts`。HTTP 与 WebSocket 的浏览器 Origin 检查不随主机名策略关闭。
+
+`PI_WEB_HOST_ACCESS` 可用同样的 JSON 强制覆盖。策略只属于当前网关，不写入工作项目或远端机器配置。修改后重启 Web/API 和正在运行的开发 UI，无需重启会话 daemon。
+
 <a id="reverse-proxy-deployment-paths"></a>
 ## 反向代理部署前缀
 
@@ -340,7 +346,8 @@ worktree_path="$1"
 | 安静模式 | `quietMode` | `PI_WEB_QUIET_MODE` | 网关 | 默认 false；保存/刷新 |
 | 监听地址 | `host` | `PI_WEB_HOST` | 网关 | 无项目键；重启 Web/API |
 | 监听端口 | `port` | `PI_WEB_PORT`、`PORT` | 网关 | 无项目键；重启 Web/API |
-| 开发允许主机 | `allowedHosts` | `PI_WEB_ALLOWED_HOSTS` | 网关开发服务 | 重启开发 Web/UI |
+| 允许的主机名 | `hostAccess` | `PI_WEB_HOST_ACCESS` | 网关 | 重启 Web/API 和开发 UI |
+| 旧版开发允许主机 | `allowedHosts` | `PI_WEB_ALLOWED_HOSTS` | 未设置 `hostAccess` 时的网关开发 UI | 重启开发 UI |
 | 外部路径根 | `pathAccess.allowedPaths` | `PI_WEB_PATH_ACCESS` | 机器 + 项目 | basePaths 后加全局/项目；环境替换添加项；下次文件请求 |
 | 上传目录 | `uploads.defaultFolder` | `PI_WEB_UPLOADS` | 机器 + 项目 | 项目覆盖；新对话框/拖放批次 |
 | 附件目录 | `attachments.defaultFolder` | `PI_WEB_ATTACHMENTS` | 机器 + 项目 | 项目覆盖；新附件保存 |

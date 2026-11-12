@@ -73,7 +73,7 @@ describe("session daemon shutdown", () => {
     const instance = createServerPluginPiSessionsCapabilityFactory({
       projects: { requireProject: () => Promise.resolve(project) },
       workspaces: {
-        resolve: () => Promise.resolve({
+        checkCurrent: () => Promise.resolve({
           status: "folder" as const,
           projectId: project.id,
           workspaces: [workspace],

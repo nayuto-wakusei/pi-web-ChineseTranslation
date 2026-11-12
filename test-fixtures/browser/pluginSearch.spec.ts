@@ -36,7 +36,7 @@ test("community plugins remain readable and usable across viewport sizes", async
   });
   await page.goto("https://docs.fixture.test/community-plugins.html");
   const search = page.locator("[data-plugin-search]");
-  await expect(search.getByRole("status")).toHaveText("已显示 3 个包。");
+  await expect(search.getByRole("status").filter({ hasText: "已显示" })).toHaveText("已显示 3 个包。");
   await expect(search.locator(".plugin-result")).toHaveCount(3);
   await expect(search.locator("img")).toHaveCount(0);
   await search.locator(".plugin-copy").first().click();

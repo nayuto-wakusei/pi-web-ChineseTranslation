@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "../../piSdk.js";
+import { ASK_USER_ANSWERS_CUSTOM_TYPE } from "../../shared/apiTypes.js";
 import { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { PiSessionService } from "./piSessionService.js";
 import { createRequestHumanInterventionToolDefinition } from "./requestHumanInterventionTool.js";
@@ -30,11 +31,11 @@ describe("generic human intervention", () => {
     const tool = createRequestHumanInterventionToolDefinition();
     const result = await tool.execute("call", { reason: "Approve the migration described above" }, undefined, undefined, stubExtensionToolContext());
     expect(result.terminate).toBe(true);
-    expect(result.details).toEqual({ interventionRequired: true });
+    expect(result.details).toEqual({ interventionRequired: true, reason: "Approve the migration described above" });
     await expect(tool.execute("call", { reason: "  " }, undefined, undefined, stubExtensionToolContext())).rejects.toThrow("must not be empty");
   });
 
-  it("persists explicit tool intent, ignores passive events, and clears on any new run before it settles", async () => {
+  it("persists explicit tool intent, ignores passive events, and clears when the conversation continues", async () => {
     const { manager, fake, service, events } = interventionService();
     try {
       await service.status(sessionRef(id));
@@ -45,14 +46,17 @@ describe("generic human intervention", () => {
       fake.emit({ type: "agent_settled" });
       fake.emit({ type: "session_tree" });
       fake.emit({ type: "entry_appended", entry: { type: "custom_message", customType: "background.notice", content: "FYI" } });
+      fake.emit({ type: "message_end", message: { role: "custom", customType: "background.notice", content: "FYI", display: true } });
+      fake.emit({ type: "message_end", message: { role: "bashExecution", command: "ls", output: "" } });
       expect((await service.status(sessionRef(id))).interventionRequired).toBe(true);
 
-      // Queueing input alone is not execution; only agent_start clears it,
-      // regardless of whether a human, another agent, or a system woke the run.
+      // Neither queued input nor a run woken by a notice continues the
+      // conversation; the agent's reply does.
       fake.session.pendingMessageCount = 1;
-      expect((await service.status(sessionRef(id))).interventionRequired).toBe(true);
       fake.session.isStreaming = true;
       fake.emit({ type: "agent_start" });
+      expect((await service.status(sessionRef(id))).interventionRequired).toBe(true);
+      fake.emit({ type: "message_end", message: { role: "assistant", content: [], stopReason: "stop" } });
       expect((await service.status(sessionRef(id))).interventionRequired).toBe(false);
       expect(sessionInterventionRequired(manager.getEntries())).toBe(false);
       expect(events.globalEvents.at(-1)).toMatchObject({ type: "status.update", status: { interventionRequired: false } });
@@ -62,7 +66,30 @@ describe("generic human intervention", () => {
     } finally { await service.dispose(); }
   });
 
-  it("recovers cold flags for rollup without opening runtimes, then clears the hosted state on resume", async () => {
+  it("clears when steering is delivered after the request in the same run", async () => {
+    const { manager, fake, service } = interventionService();
+    try {
+      await service.status(sessionRef(id));
+      fake.emit({ type: "message_end", message: { role: "toolResult", toolName: "ask_user", isError: false, details: { interventionRequired: true } } });
+      expect((await service.status(sessionRef(id))).interventionRequired).toBe(true);
+
+      // Steering queued before the request is delivered after it within the run.
+      fake.emit({ type: "message_end", message: { role: "user", content: [{ type: "text", text: "Proceed" }] } });
+      expect((await service.status(sessionRef(id))).interventionRequired).toBe(false);
+      expect(sessionInterventionRequired(manager.getEntries())).toBe(false);
+    } finally { await service.dispose(); }
+  });
+
+  it("clears when question answers are delivered", async () => {
+    const { fake, service } = interventionService(true);
+    try {
+      await service.status(sessionRef(id));
+      fake.emit({ type: "message_end", message: { role: "custom", customType: ASK_USER_ANSWERS_CUSTOM_TYPE, content: "answers", display: true } });
+      expect((await service.status(sessionRef(id))).interventionRequired).toBe(false);
+    } finally { await service.dispose(); }
+  });
+
+  it("recovers cold flags for rollup without opening runtimes, then clears the hosted state when the conversation continues", async () => {
     const { service, fake, workspaceActivity } = interventionService(true);
     try {
       await service.restoreInterventionState();
@@ -70,7 +97,7 @@ describe("generic human intervention", () => {
       expect(workspaceActivity.activeSnapshot().interventionSessions).toEqual([{ sessionId: id, cwd: "/workspace" }]);
       expect((await service.list("/workspace"))[0]?.interventionRequired).toBe(true);
       expect((await service.status(sessionRef(id))).interventionRequired).toBe(true);
-      fake.emit({ type: "agent_start" });
+      fake.emit({ type: "message_end", message: { role: "user", content: "Continue" } });
       expect((await service.status(sessionRef(id))).interventionRequired).toBe(false);
       expect(workspaceActivity.activeSnapshot().interventionSessions).toEqual([]);
     } finally { await service.dispose(); }

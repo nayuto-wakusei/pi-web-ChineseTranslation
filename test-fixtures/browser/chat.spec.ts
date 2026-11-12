@@ -154,11 +154,14 @@ test("native disclosures and changing image dimensions remain usable without hor
 test("a hidden conversation restores its reading position and still supports end navigation", async ({ page }, testInfo) => {
   await readMiddle(page);
   const before = await readingPosition(page);
+  const firstMessage = page.locator('chat-view article[data-index="40"]');
+  await expect(firstMessage).toBeAttached();
   await page.evaluate(() => window.chatFixture.hidden(true));
   await expect(page.locator("chat-view")).not.toBeVisible();
   await page.evaluate(() => window.chatFixture.append());
   await page.evaluate(() => window.chatFixture.hidden(false));
   await expect(page.locator("chat-view")).toBeVisible();
+  await expect(page.locator('chat-view article[data-index="39"]')).toHaveCount(0);
   await expect.poll(() => readingPosition(page)).toBeCloseTo(before, 0);
   await page.getByRole("button", { name: "Jump to end", exact: true }).click();
   await expect.poll(async () => await page.locator("chat-view .chat").evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(3);

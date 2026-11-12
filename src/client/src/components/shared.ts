@@ -29,7 +29,7 @@ export function renderSessionWarningIcon(severity: SessionWarningSeverity, class
   `;
 }
 
-export type { ChatLine, ChatPart } from "../chatTypes";
+export type { ChatLine } from "../chatTypes";
 
 export interface CompletionItem {
   kind: "command" | "file" | "model";

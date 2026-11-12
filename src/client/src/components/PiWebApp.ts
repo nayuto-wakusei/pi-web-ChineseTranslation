@@ -14,7 +14,7 @@ import { LitElement, html, type TemplateResult } from "lit";
 import { deprecatedAgentInputsBanner, deprecatedAgentInputsWarnings } from "./deprecatedAgentInputsBanner";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { guard } from "lit/directives/guard.js";
-import { configApi, projectsApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type AskUserSubmission, type CommandOption, type ExtensionDialogAnswer, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
+import { configApi, projectsApi, effectiveWorkspaceUploadFolder, normalAuthApi, sessionsApi, setApiScope, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type ApiScope, type AskUserSubmission, type CommandOption, type ExtensionDialogAnswer, type Machine, type MachineHealth, type NormalAuthStatusResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionContentSearchMatch, type SessionInfo, type SessionLocation, type SessionModel, type SessionModelCatalogResponse, type SessionModelScopeMode, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState, type ModelDialogOrigin } from "../appState";
 import { browserErrorContext, browserErrorScopeKey, BrowserErrorReporter, clearBrowserError, machineBrowserErrorScope, visibleBrowserErrors, workspaceBrowserErrorScope, type BrowserError, type BrowserErrorScope } from "../browserErrors";
@@ -47,13 +47,13 @@ import { markdownWorkspaceContext, type MarkdownWorkspaceContext, type Workspace
 import { machineSessionKey } from "../machineKeys";
 import { sessionCleanupRequestKey, sessionCleanupUnavailableMessage } from "../sessionCleanupUi";
 import { appendPromptChipText, samePromptChipTarget, type StagedPromptChip } from "../promptChips";
+import { HttpRequestError } from "../api/http";
+import { isSessionOnlyRoute, resolveSessionLink, sessionLinkMachineOrder, type SessionLinkResolution } from "../sessionLinkResolution";
 import { selectedNotificationView } from "../sessionNotifications";
 import { SessionUnreadController, type SessionUnreadCompletion } from "../sessionUnread";
 import { deriveUnreadPresence, EMPTY_UNREAD_PRESENCE, sameUnreadPresence, type UnreadPresence } from "../unreadPresence";
 import { RealtimeSocket, SessionSocket, type BrowserRealtimeEvent } from "../sessionSocket";
 import { ServerNoticesController, visibleServerNotices } from "../serverNotices";
-import type { ServerNotice } from "../../../shared/apiTypes";
-import { HttpRequestError } from "../api/http";
 import { isManagementEmbedMode } from "../api/managementEmbed";
 import { hasAuthoritativeSessionPersistence as runtimeHasAuthoritativeSessionPersistence } from "../sessionPersistence";
 import type { ApplicationPanelContext, MaintenanceTerminal, WorkspaceInvalidation, PluginMachine, PluginNavigationPatchDestination, PluginNavigationOptions, SessionLabelContext, SessionLabelItem, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFilesCapabilityV1, ContributionQueryValue, WorkspacePanelNavigationV1, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelTerminal, WorkspacePluginBinding, WorkspaceTerminalCommandInput, PiWebPluginRegistration } from "../plugins/types";
@@ -63,7 +63,9 @@ import { sessionCleanupMessages } from "../sessionCleanupMessages";
 import { serverNoticeMessage } from "../serverNoticeMessages";
 import { sessionNotices } from "../plugins/core/notices";
 import type { SessionNoticeDismissDetail } from "./SessionNoticesPanel";
-import { corePlugin } from "../plugins/core";
+import type { NotificationGroup, NotificationItem } from "../notificationArea";
+import { sessionNotificationGroup as adaptSessionNotifications } from "../notificationAdapters";
+import { createCorePlugin } from "../plugins/core";
 import { localizeBuiltInThemeMetadata, themePackPlugin } from "../plugins/themes";
 import { cancelInitialTheme, claimStartupDocument, revealApplication, themeStartup } from "../themeStartup";
 import { bootstrapPreference, loadThemeBootstrap, mergeThemeCatalog, type BrowserThemeCatalog } from "../themeCatalog";
@@ -103,8 +105,12 @@ import "./WorkspaceList";
 import { orderedPinnedSessionRootIds, pinnedSessionRootIds, sessionNavigationCandidates, unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./SessionSearchDialog";
+import "./RestartDialog";
+import type { RestartDialog } from "./RestartDialog";
 import "./SessionTreeNavigator";
 import "./ConversationLayout";
+import type { QuestionActions } from "./questionActions";
+import { openTranscriptQuestion } from "../chatQuestions";
 import "./ConversationSyncNotice";
 import "./ChatView";
 import "./ConversationLayout";
@@ -123,6 +129,7 @@ import "./MachineDialog";
 import type { MachineDialogSubmit } from "./MachineDialog";
 import { deepActiveElement, focusElement, hasRenderedModal } from "./modalLayerRegistry";
 import { DeferredElementController } from "./DeferredElementController";
+import type { SettingsDialog } from "./SettingsDialog";
 import "./WorkspacePanel";
 import type { WorkspacePanelEmptyState, WorkspaceToolPanel } from "./WorkspacePanel";
 import "./appShell/AppContextBar";
@@ -136,8 +143,8 @@ import { appFeedbackMessages as appFeedback } from "../appFeedbackMessages";
 import { PluginRecoveryError, pluginRecoveryMessages as pluginRecovery } from "../pluginRecoveryMessages";
 
 import "./appShell/AppRefreshControl";
-import { errorBanner } from "./errorBanner";
-
+import "./NotificationArea";
+import { hostAccessNotices } from "./hostAccessNotices";
 
 
 const PI_WEB_STATUS_REFRESH_MS = 15 * 60 * 1000;
@@ -276,8 +283,14 @@ export class PiWebApp extends LitElement {
   @property({ attribute: false }) chatBehaviors: ChatBehaviors = DEFAULT_CHAT_BEHAVIORS;
   @state() private state: AppState = initialAppState();
   private readonly browserErrors = new BrowserErrorReporter(() => this.state, (patch) => { this.setState(patch); });
+  private readonly notificationOccurrenceIds = new WeakMap<object, number>();
+  private nextNotificationOccurrenceId = 0;
+  private legacyErrorRevision = 0;
   @query("chat-view") private chatView?: ChatView;
   @state() private machineNameEditTarget: Machine | undefined;
+  @state() private questionActions: QuestionActions | undefined;
+  private readonly handleQuestionActionsChange = (actions: QuestionActions | undefined) => { this.questionActions = actions; };
+  private readonly handleChatMode = () => { this.promptEditor?.focusInput(); };
   @state() private chatNavigation: TemplateResult | undefined;
   private readonly handleChatNavigationChange = (controls: TemplateResult): void => { this.chatNavigation = controls; };
   @state() private queuedMessageActionTarget: QueuedMessageActionTarget | undefined;
@@ -342,6 +355,7 @@ export class PiWebApp extends LitElement {
       isChatVisible: () => this.isChatVisible(),
       automaticSessionCandidates: (sessions) => this.navigationPanel?.automaticSessionCandidates(sessions)
         ?? sessionNavigationCandidates(sessions, { collapsed: this.navigationSections.isCollapsed("sessions") }),
+      canRejoinSelectedSession: () => this.canRejoinSelectedSession(),
       observeSessionSnapshot: (machineId, sessionId) => {
         const observe = this.sessionWorkTransitions.snapshotObserver(machineId, sessionId);
         const discoveringWork = this.state.conversationRefreshedAt === undefined || !isSessionActive(this.state.status);
@@ -461,6 +475,9 @@ export class PiWebApp extends LitElement {
     },
     onBackgroundError: (operation, machineId, error) => {
       console.warn(`Failed to ${operation} server notices for ${machineId}`, error);
+      if (operation === "dismiss") {
+        this.browserErrors.reportLocalized(machineBrowserErrorScope(machineId), () => appFeedback.t("actionFailed", { detail: errorMessage(error) }));
+      }
     },
   });
   private readonly machineRealtimeSockets = new Map<string, RealtimeSocket>();
@@ -536,7 +553,7 @@ export class PiWebApp extends LitElement {
   });
   private readonly resetKeyboardSequence = () => { this.keyboard.reset(); };
   private readonly builtInPluginsReady = this.plugins.registerBatch([
-    { id: "core", plugin: corePlugin },
+    { id: "core", plugin: createCorePlugin(() => hostAccessNotices(this.gatewayConfig, () => { this.openSettings("general", "host-access"); }, () => { this.openRestart(); })) },
     { id: "themes", plugin: themePackPlugin },
   ]).then(({ failures }) => {
     if (failures.length > 0) throw failures[0]?.error;
@@ -569,6 +586,8 @@ export class PiWebApp extends LitElement {
   private themePolicyFromApplication = false;
   private activeThemeColorScheme: "light" | "dark" = this.startupColorScheme();
   @state() private localThemePreference: ThemePreference | undefined = readStoredThemePreference();
+  @state() private gatewayConfig: PiWebConfigResponse | undefined;
+  private clientConfigRequestSeq = 0;
   @state() private configuredThemePreference: ThemePreference | undefined;
   private get themePreference(): ThemePreference {
     return effectiveThemePreference(this.localThemePreference, this.configuredThemePreference);
@@ -585,6 +604,7 @@ export class PiWebApp extends LitElement {
   @state() private normalAuthLoading = true;
   @state() private normalAuthError = "";
   @state() private normalAuthDialogMode: NormalAuthDialogMode | undefined;
+  @state() private settingsTarget: string | undefined;
   @state() private shortcutConfig: PiWebShortcutConfig = {};
   @state() private defaultStreamingBehavior: "steer" | "followUp" = "steer";
   @state() private quietMode = false;
@@ -947,6 +967,7 @@ export class PiWebApp extends LitElement {
     this.normalAuthInitSeq += 1;
     this.authenticatedAppRunning = false;
     this.navigationOrder.reset();
+    this.clientConfigRequestSeq += 1;
     cancelInitialTheme();
     this.themeRequest?.abort();
     this.stylesheetRuntime.disconnect(() => {
@@ -991,6 +1012,10 @@ export class PiWebApp extends LitElement {
   }
 
   private setState(patch: Partial<AppState>) {
+    if (patch.error !== undefined) {
+      this.legacyErrorRevision += 1;
+      this.requestUpdate();
+    }
     if (!patchChangesState(this.state, patch)) return;
     const previous = this.state;
     this.state = { ...this.state, ...patch };
@@ -1041,16 +1066,18 @@ export class PiWebApp extends LitElement {
 
   private async loadProjectsAndRestoreRoute() {
     this.restoreSettingsRoute();
-    const route = readRoute();
+    const requestedRoute = readRoute();
     // An authenticated chat link can fetch the editor during hierarchy restore.
-    if (route.projectId !== undefined && route.workspaceId !== undefined && route.sessionId !== undefined
-      && (route.view === undefined || route.view === "chat") && !this.promptEditorRegistered()) {
+    if (requestedRoute.projectId !== undefined && requestedRoute.workspaceId !== undefined && requestedRoute.sessionId !== undefined
+      && (requestedRoute.view === undefined || requestedRoute.view === "chat") && !this.promptEditorRegistered()) {
       void this.promptEditorLoader.ensureLoaded();
     }
-    if (!await this.machines.loadMachines(route.machineId)) {
-      this.setContentError(route, this.state.error);
+    if (!await this.machines.loadMachines(requestedRoute.machineId)) {
+      this.setContentError(requestedRoute, this.state.error);
       return;
     }
+    const sessionLinkError = await this.expandSessionOnlyRoute(requestedRoute);
+    const route = readRoute();
     if (!this.routeLocationMatchesUrl(route)) {
       await this.projects.loadProjects();
       await this.withChatScrollTransition(async () => { await this.restoreRoute(false); });
@@ -1075,12 +1102,46 @@ export class PiWebApp extends LitElement {
     } else {
       await this.withChatScrollTransition(() => this.restoreRouteFor(route, false));
     }
+    if (sessionLinkError !== undefined && this.routeLocationMatchesUrl(route)) this.setContentError(route, sessionLinkError);
     if (this.shouldDeferRemoteRouteRestore(route, initialRouteMachineHealth)) this.deferRemoteRouteRestore(route);
     else {
       this.clearPendingRemoteRouteRestore();
       this.rememberCurrentMachineNavigation();
     }
     await this.refreshWorkspaceDeletionRuns();
+  }
+
+  /**
+   * Redirects a session-only link (`?session=<id>`) to the full route of the
+   * machine, project, and workspace that list the session, replacing the
+   * history entry before the normal route restore reads it. The short link is
+   * only an entry point; returns the explanation to show when no open project
+   * lists the session.
+   */
+  private async expandSessionOnlyRoute(route: ParsedAppRoute): Promise<WorkspaceSelectionError | undefined> {
+    if (this.apiScope !== "normal" || !isSessionOnlyRoute(route)) return undefined;
+    const sessionId = route.sessionId;
+    this.sessionLinkLookup = sessionId;
+    this.requestUpdate();
+    let resolution: SessionLinkResolution;
+    try {
+      resolution = await resolveSessionLink(sessionId, sessionLinkMachineOrder(this.state.machines, route.machineId), locateSessionOnMachine);
+    } finally {
+      this.sessionLinkLookup = undefined;
+      this.requestUpdate();
+    }
+    // The user may have navigated elsewhere while machines were asked.
+    if (!this.routeLocationMatchesUrl(route)) return undefined;
+    const machineName = (machineId: string) => this.state.machines.find((machine) => machine.id === machineId)?.name ?? machineId;
+    switch (resolution.kind) {
+      case "workspace":
+        writeRoute({ ...route, machineId: resolution.machineId, projectId: resolution.projectId, workspaceId: resolution.workspaceId }, { replace: true });
+        return undefined;
+      case "not-found": {
+        const machines = resolution.uncheckedMachineIds.map(machineName).join(", ");
+        return () => routeFeedback.t("sessionNotFound", { id: sessionId, machines, hasUnchecked: machines === "" ? "no" : "yes" });
+      }
+    }
   }
 
   private handleBrowserResumeSignal(): void {
@@ -1173,8 +1234,11 @@ export class PiWebApp extends LitElement {
 
   private async loadClientConfig(): Promise<void> {
     if (this.apiScope === "management") return;
+    const requestSeq = ++this.clientConfigRequestSeq;
     try {
       const response = await configApi.config();
+      if (requestSeq !== this.clientConfigRequestSeq) return;
+      this.gatewayConfig = response;
       configureThemePolicy(response);
       void configureLocalizationPolicy(response).catch((error: unknown) => {
         console.warn("Failed to apply gateway localization policy", error);
@@ -1183,9 +1247,41 @@ export class PiWebApp extends LitElement {
     } catch (error) {
       console.warn("Failed to load PI WEB config", error);
     } finally {
-      this.themeConfigReady = true;
-      this.applyPreferredTheme(false);
+      if (requestSeq === this.clientConfigRequestSeq) {
+        this.themeConfigReady = true;
+        this.applyPreferredTheme(false);
+      }
     }
+  }
+
+  private openRestart(): void {
+    this.renderRoot.querySelector<RestartDialog>("restart-dialog")?.show();
+  }
+
+  private async runRestartCommand(command: string, title: string): Promise<void> {
+    // Like Updates, use the existing maintenance terminal. Restart is gateway-scoped,
+    // so navigate there before obtaining its selection-bound terminal facade.
+    if (selectedMachineId(this.state) !== "local") {
+      const gateway = this.state.machines.find((machine) => machine.id === "local");
+      if (gateway === undefined || !await this.selectMachineWithMemory(gateway)) throw requiredTerminalUnavailableError("local");
+    }
+    const terminal = this.maintenanceTerminal("core", "local", this.beginNavigationOperation(WORKSPACE_SURFACE_SCOPE));
+    if (terminal === undefined) throw requiredTerminalUnavailableError("local");
+    await terminal.runCommand({ title, command, open: true });
+  }
+
+  private refreshGatewayConfig(): void {
+    if (!this.isConnected) return;
+    // Refresh the active owner too, retiring any read it began before the write.
+    const dialog = this.renderRoot.querySelector<SettingsDialog>("settings-dialog");
+    if (dialog !== null) void dialog.reloadGatewayConfig();
+    else void this.loadClientConfig();
+  }
+
+  private acceptSettingsGatewayConfig(response: PiWebConfigResponse): void {
+    // Settings may load or save while startup/refresh is still in flight.
+    this.clientConfigRequestSeq += 1;
+    this.gatewayConfig = response;
   }
 
   private applyThemeCatalogPolicy(catalog: BrowserThemeCatalog): void {
@@ -1676,6 +1772,18 @@ export class PiWebApp extends LitElement {
     return this.state.selectedMachine?.id === routeMachineId;
   }
 
+  private canRejoinSelectedSession(): boolean {
+    // A fresh token alone cannot authorize the old rendered row while a newer
+    // destination is still resolving. Let that restore own its replacement join.
+    if (this.routeRestoreInProgress) return false;
+    const route = readRoute();
+    return this.state.selectedWorkspace !== undefined && this.state.selectedSession !== undefined
+      && (route.machineId ?? "local") === selectedMachineId(this.state)
+      && route.projectId === this.state.selectedProject?.id
+      && (route.workspaceId === undefined || route.workspaceId === this.state.selectedWorkspace.id)
+      && (route.sessionId === undefined || route.sessionId === this.state.selectedSession.id);
+  }
+
   private routeMatchesCurrentSelection(route: Pick<AppRoute, "machineId" | "projectId" | "workspaceId" | "sessionId">): boolean {
     const workspace = this.state.selectedWorkspace;
     if ((route.machineId ?? "local") !== selectedMachineId(this.state)
@@ -2086,23 +2194,25 @@ export class PiWebApp extends LitElement {
     this.setState({ mainView: view });
   }
 
-  private openSettings(section: SettingsSection = "general"): void {
+  private openSettings(section: SettingsSection = "general", target?: string): void {
     writeSettingsSection(section);
     this.settingsSection = section;
+    this.settingsTarget = target;
   }
 
   private closeSettings(): void {
     this.settingsSection = undefined;
     writeSettingsSection(undefined);
+    this.settingsTarget = undefined;
   }
 
   private navigateSettings(section: SettingsSection): void {
-    this.settingsSection = section;
-    writeSettingsSection(section);
+    this.openSettings(section);
   }
 
   private restoreSettingsRoute(): void {
     this.settingsSection = readSettingsSection();
+    this.settingsTarget = undefined;
   }
 
   private handleWorkspaceChange(previous: AppState, next: AppState) {
@@ -2256,6 +2366,7 @@ export class PiWebApp extends LitElement {
     this.closeSessionCleanupDialog();
     this.setState({ piWebStatus: undefined });
     this.sessions.updatePolling();
+    localization.setMachine(selectedMachineId(next));
     void this.loadPluginsForSelectedMachine();
   }
 
@@ -2277,7 +2388,7 @@ export class PiWebApp extends LitElement {
     return [
       state.selectedMachine, state.selectedWorkspace, state.selectedSession,
       // Core Notices observes conditions, not per-token status churn.
-      JSON.stringify(sessionNotices(state)),
+      JSON.stringify(sessionNotices(state)), this.gatewayConfig,
       state.workspaceTool, state.mainView, state.piWebStatus, this.appShell.isMobileNavigationLayout,
       state.selectedProject, state.projects, state.workspaces,
       state.isLoadingProjects, state.isLoadingWorkspaces, this.workspaceContentError(),
@@ -2590,8 +2701,15 @@ export class PiWebApp extends LitElement {
     focusNavigationTarget: (target: NavigationFocusTarget) => { this.cancelAutomaticProjectNavigation(); void this.focusNavigationTarget(target); },
     cancelKeyboardNavigation: () => { this.cancelAutomaticProjectNavigation(); void this.openChatAndFocusComposer(); },
     moveProject: (project: Project, direction: -1 | 1) => { this.moveNavigationItem({ kind: "projects", machineId: selectedMachineId(this.state) }, project.id, direction); },
+    reorderProject: (project: Project, neighbor: Project, position: "before" | "after") => { this.reorderNavigationItem({ kind: "projects", machineId: selectedMachineId(this.state) }, project.id, neighbor.id, position); },
     moveWorkspace: (workspace: Workspace, direction: -1 | 1) => { this.moveNavigationItem({ kind: "workspaces", machineId: selectedMachineId(this.state), projectId: workspace.projectId }, workspace.id, direction); },
     moveSessionPin: (session: SessionInfo, direction: -1 | 1) => { this.moveSessionPin(session, direction); },
+    reorderWorkspace: (workspace: Workspace, neighbor: Workspace, position: "before" | "after") => { this.reorderNavigationItem({ kind: "workspaces", machineId: selectedMachineId(this.state), projectId: workspace.projectId }, workspace.id, neighbor.id, position); },
+    reorderSessionPin: (session: SessionInfo, neighbor: SessionInfo, position: "before" | "after") => {
+      const workspace = this.state.selectedWorkspace;
+      if (workspace === undefined) return;
+      this.reorderNavigationItem({ kind: "sessionPins", machineId: selectedMachineId(this.state), projectId: workspace.projectId, workspaceId: workspace.id }, session.id, neighbor.id, position);
+    },
   };
 
   private navigationOrderScopes(): NavigationOrderScope[] {
@@ -2621,6 +2739,24 @@ export class PiWebApp extends LitElement {
     }).catch(() => undefined);
   }
 
+  private reorderNavigationItem(scope: NavigationOrderScope, id: string, neighborId: string, placement: "before" | "after"): void {
+    if (scope.kind === "sessionPins") {
+      this.reorderSessionPin(scope, id, () => ({ id: neighborId, placement }));
+      return;
+    }
+    if (this.apiScope !== "normal") return;
+    const items = scope.kind === "projects" ? this.state.projects
+      : this.state.workspaces.filter((workspace) => workspace.projectId === scope.projectId);
+    const visibleIds = items.map((item) => item.id);
+    // Resolve against the preceding acknowledged order, preserving hidden entries.
+    // The controller reports persistence errors through the shared browser error surface.
+    void this.navigationOrder.mutate(scope, (ids) => {
+      const displayed = orderItems(visibleIds.map((visibleId) => ({ id: visibleId })), ids).map((item) => item.id);
+      if (!displayed.includes(id) || !displayed.includes(neighborId)) return ids;
+      return moveOrderedId(ids, displayed, id, neighborId, placement);
+    }).catch(() => undefined);
+  }
+
   private toggleSessionPin(session: SessionInfo): void {
     const workspace = this.state.selectedWorkspace;
     if (session.persisted === false || session.cwd !== workspace?.path) return;
@@ -2632,19 +2768,33 @@ export class PiWebApp extends LitElement {
     const workspace = this.state.selectedWorkspace;
     if (session.cwd !== workspace?.path) return;
     const scope: NavigationOrderScope = { kind: "sessionPins", machineId: selectedMachineId(this.state), projectId: workspace.projectId, workspaceId: workspace.id };
+    this.reorderSessionPin(scope, session.id, (displayed) => {
+      const id = displayed[displayed.indexOf(session.id) + direction];
+      return id === undefined ? undefined : { id, placement: direction < 0 ? "before" : "after" };
+    });
+  }
+
+  private reorderSessionPin(
+    scope: NavigationOrderScope,
+    sessionId: string,
+    resolveNeighbor: (displayed: readonly string[]) => { id: string; placement: "before" | "after" } | undefined,
+  ): void {
     const sessions = this.state.sessions;
     void this.navigationOrder.mutate(scope, (ids) => {
       const displayed = orderedPinnedSessionRootIds(sessions, ids);
-      const index = displayed.indexOf(session.id);
-      const neighbor = index < 0 ? undefined : displayed[index + direction];
-      if (neighbor === undefined) return ids;
-      const orderedRoots = moveOrderedId(displayed, displayed, session.id, neighbor, direction < 0 ? "before" : "after");
+      if (!displayed.includes(sessionId)) return ids;
+      const neighbor = resolveNeighbor(displayed);
+      if (neighbor === undefined || !displayed.includes(neighbor.id)) return ids;
+      const orderedRoots = moveOrderedId(displayed, displayed, sessionId, neighbor.id, neighbor.placement);
       const rank = (id: string) => {
         const root = pinnedSessionRootIds(sessions, [id])[0];
         const position = root === undefined ? -1 : orderedRoots.indexOf(root);
         return position < 0 ? orderedRoots.length : position;
       };
-      return [...ids].sort((left, right) => rank(left) - rank(right));
+      const ranks = new Map(ids.map((id) => [id, rank(id)]));
+      const isDisplayed = (id: string) => (ranks.get(id) ?? orderedRoots.length) < orderedRoots.length;
+      const orderedPins = ids.filter(isDisplayed).sort((left, right) => (ranks.get(left) ?? 0) - (ranks.get(right) ?? 0));
+      return ids.map((id) => isDisplayed(id) ? orderedPins.shift() ?? id : id);
     }).catch(() => undefined);
   }
 
@@ -2739,6 +2889,9 @@ export class PiWebApp extends LitElement {
         .onCloseProject=${this.navigationActions.closeProject}
         .onMoveProject=${this.apiScope === "normal" ? this.navigationActions.moveProject : undefined}
         .onMoveWorkspace=${this.apiScope === "normal" ? this.navigationActions.moveWorkspace : undefined}
+        .onReorderProject=${this.apiScope === "normal" ? this.navigationActions.reorderProject : undefined}
+        .onReorderWorkspace=${this.apiScope === "normal" ? this.navigationActions.reorderWorkspace : undefined}
+        .onReorderSessionPin=${this.navigationActions.reorderSessionPin}
         .onMoveSessionPin=${this.navigationActions.moveSessionPin}
         .onSelectWorkspace=${this.navigationActions.selectWorkspace}
         .onDeleteWorkspace=${this.navigationActions.deleteWorkspace}
@@ -2985,8 +3138,11 @@ export class PiWebApp extends LitElement {
     };
   }
 
+  private sessionLinkLookup: string | undefined;
   private sessionEmptyMessage(): string {
-    if (this.contentError() !== "") return this.contentError();
+    if (this.sessionLinkLookup !== undefined) return routeFeedback.t("findingSession", { id: this.sessionLinkLookup });
+    const error = this.contentError();
+    if (error !== "") return error;
     if (this.state.isLoadingProjects) return routeFeedback.t("loadingProjects");
     if (this.state.selectedWorkspace !== undefined) return routeFeedback.t("selectSession");
     if (this.state.selectedProject !== undefined) return routeFeedback.t("selectWorkspace");
@@ -3544,6 +3700,7 @@ export class PiWebApp extends LitElement {
       piWebUnstable: {
         terminalCommandRuns: this.terminalCommandRunsForOrigin(origin),
         openSettings: (section) => { this.openSettings(section); },
+        openRestart: () => { this.openRestart(); },
         openMcpAuth: (mode) => this.auth.openMcpAuth(mode),
       },
       openActionPalette: () => { this.setState({ actionPaletteOpen: true }); },
@@ -3870,14 +4027,14 @@ export class PiWebApp extends LitElement {
         get title() { return pickerMessages.t("selectModel"); },
         ...(selectedValue === undefined ? {} : { selectedValue }),
         options: this.modelDialogOptions(models),
-        ...(catalog === undefined ? {} : { catalog }),
+        ...(catalog === undefined ? {} : { catalog: catalog.models, scope: catalog.scope }),
         defaultsLoading: true,
       },
     });
     void this.loadSessionDefaultPins(origin, "model");
   }
 
-  private async loadModelDialogData(): Promise<{ models: SessionModel[]; catalog?: SessionModelCatalogEntry[] }> {
+  private async loadModelDialogData(): Promise<{ models: SessionModel[]; catalog?: SessionModelCatalogResponse }> {
     for (;;) {
       const invalidation = this.modelDialogScopeInvalidation;
       const [models, catalog] = await Promise.all([
@@ -3898,7 +4055,7 @@ export class PiWebApp extends LitElement {
     const { origin, instanceId } = dialog;
     const { models, catalog } = await this.loadModelDialogData();
     if (this.modelDialogMutationInFlight > 0 || this.state.modelDialog?.instanceId !== instanceId || !this.modelDialogOriginIsCurrent(origin)) return;
-    const refreshedDialog = { ...dialog, options: this.modelDialogOptions(models), ...(catalog === undefined ? {} : { catalog }) };
+    const refreshedDialog = { ...dialog, options: this.modelDialogOptions(models), ...(catalog === undefined ? {} : { catalog: catalog.models, scope: catalog.scope }) };
     const selectedValue = this.currentModelValue();
     if (selectedValue === undefined) delete refreshedDialog.selectedValue;
     else refreshedDialog.selectedValue = selectedValue;
@@ -4269,14 +4426,6 @@ export class PiWebApp extends LitElement {
     this.sessions.dismissClosedDialog(dialogId);
   };
 
-  private readonly handleDismissNotification = (notificationId: string): void => {
-    void this.notifications.dismissNotification(notificationId);
-  };
-
-  private readonly handleDismissAllNotifications = (): void => {
-    void this.notifications.dismissAll();
-  };
-
   private readonly handleSelectModel = (): void => {
     void this.openModelDialog();
   };
@@ -4327,9 +4476,12 @@ export class PiWebApp extends LitElement {
     return session !== undefined && origin.machineId === selectedMachineId(this.state) && origin.sessionId === session.id && origin.cwd === session.cwd;
   }
 
-  private applyModelDialogCatalog(dialog: NonNullable<AppState["modelDialog"]>, catalog: SessionModelCatalogEntry[] | undefined): void {
+  private applyModelDialogCatalog(dialog: NonNullable<AppState["modelDialog"]>, catalog: SessionModelCatalogResponse | undefined): void {
     if (catalog === undefined || this.state.modelDialog?.instanceId !== dialog.instanceId || !this.modelDialogOriginIsCurrent(dialog.origin)) return;
-    this.setState({ modelDialog: { ...dialog, catalog, options: this.modelDialogOptions(catalog.filter((entry) => entry.enabled)) } });
+    // The fresh catalog's enabled rows are the session's Enabled list in
+    // order, so rebuilding both data sets keeps the dialog's modes and pi's
+    // persisted scope consistent without another round trip.
+    this.setState({ modelDialog: { ...dialog, catalog: catalog.models, scope: catalog.scope, options: this.modelDialogOptions(catalog.models.filter((entry) => entry.enabled)) } });
   }
 
   private readonly handleSelectThinking = (): void => {
@@ -4343,12 +4495,8 @@ export class PiWebApp extends LitElement {
       this.chatWorkspaceContextKey = contextKey;
       this.chatWorkspaceContext = workspaceContext;
     }
-    if (this.notificationViewInput !== state.selectedNotificationInbox) {
-      this.notificationViewInput = state.selectedNotificationInbox;
-      this.notificationView = selectedNotificationView(state.selectedNotificationInbox);
-    }
     return html`
-      <chat-view .onNavigationChange=${this.handleChatNavigationChange} .quietMode=${this.quietMode} .behaviors=${this.chatBehaviors} .canMutateQueuedMessages=${this.canMutateQueueMessage(session, selectedMachineId(state))} .queuedMessageActionPending=${this.queuedMessageActionTarget !== undefined || this.messageRevertTarget !== undefined || this.isReplacingPrompt(state)} .onQueuedMessageAction=${session.archived === true ? undefined : this.handleQueuedMessageAction} .onUseSuggestedInput=${session.archived === true ? undefined : this.handleUseSuggestedInput} .sessionCwd=${session.cwd} .onTranscriptRendered=${this.handleTranscriptRendered} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .transcriptRenderers=${this.plugins.getTranscriptRenderers(selectedMachineId(state))} .contentRendererVersion=${this.plugins.contentRendererVersion} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .notificationInbox=${this.notificationView} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
+      <chat-view .onQuestionActionsChange=${this.handleQuestionActionsChange} .onNavigationChange=${this.handleChatNavigationChange} .quietMode=${this.quietMode} .behaviors=${this.chatBehaviors} .canMutateQueuedMessages=${this.canMutateQueueMessage(session, selectedMachineId(state))} .queuedMessageActionPending=${this.queuedMessageActionTarget !== undefined || this.messageRevertTarget !== undefined || this.isReplacingPrompt(state)} .onQueuedMessageAction=${session.archived === true ? undefined : this.handleQueuedMessageAction} .onUseSuggestedInput=${session.archived === true ? undefined : this.handleUseSuggestedInput} .sessionCwd=${session.cwd} .onTranscriptRendered=${this.handleTranscriptRendered} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .transcriptRenderers=${this.plugins.getTranscriptRenderers(selectedMachineId(state))} .contentRendererVersion=${this.plugins.contentRendererVersion} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .searchTarget=${state.sessionSearchTarget} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .canClearServerQueue=${this.canClearServerQueue()} .onClearServerQueue=${this.handleClearServerQueue} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
     `;
   }
 
@@ -4502,41 +4650,130 @@ export class PiWebApp extends LitElement {
     return html`<app-refresh-control .onReload=${this.handleReloadApp}></app-refresh-control>`;
   }
 
-  private renderServerNoticeBanners(): TemplateResult | null {
-    const machineId = selectedMachineId(this.state);
-    const projection = this.serverNotices.projection(machineId);
-    const notices = projection?.status === "fresh" ? visibleServerNotices(projection.notices, browserErrorContext(this.state)) : [];
-    if (notices.length === 0) return null;
-    return html`${notices.map((notice: ServerNotice) => errorBanner(serverNoticeMessage(notice), () => {
-      void this.serverNotices.dismiss(machineId, notice.id);
-    }, notice.severity))}`;
+  private notificationOccurrenceId(owner: object): number {
+    const existing = this.notificationOccurrenceIds.get(owner);
+    if (existing !== undefined) return existing;
+    const id = ++this.nextNotificationOccurrenceId;
+    this.notificationOccurrenceIds.set(owner, id);
+    return id;
   }
 
-  private renderBrowserErrorBanners(state: AppState): TemplateResult | null {
+  private notificationScopeLabel(scope: { machineId?: string; projectId?: string; workspaceId?: string; sessionId?: string }): string {
+    const state = this.state;
+    return [
+      scope.machineId === undefined ? undefined : state.machines.find((machine) => machine.id === scope.machineId)?.name ?? scope.machineId,
+      scope.projectId === undefined ? undefined : state.projects.find((project) => project.id === scope.projectId)?.name ?? scope.projectId,
+      scope.workspaceId === undefined ? undefined : state.workspaces.find((workspace) => workspace.id === scope.workspaceId)?.label ?? scope.workspaceId,
+      scope.sessionId === undefined ? undefined : state.sessions.find((session) => session.id === scope.sessionId)?.name ?? scope.sessionId,
+    ].filter((value) => value !== undefined).join(" / ");
+  }
+
+  private browserNotificationGroup(state: AppState): NotificationGroup {
     const errors = this.visibleBrowserErrorsForCurrentRoute(state);
-    if (errors.length === 0) return null;
-    return html`${errors.map((error) => errorBanner(
-      error.displayMessage?.() ?? error.message,
-      () => { this.dismissBrowserError(error); },
-      "error",
-      error.recovery === undefined ? undefined : () => { this.retryBrowserError(error); },
-    ))}`;
+    const items: NotificationItem[] = errors.map((error) => ({
+      id: JSON.stringify(["browser", browserErrorScopeKey(error.scope), this.notificationOccurrenceId(error)]),
+      source: "browser",
+      severity: "error",
+      message: error.displayMessage?.() ?? error.message,
+      ...(error.scope.kind === "global" ? {} : { scopeLabel: this.notificationScopeLabel(error.scope) }),
+      dismiss: () => { this.dismissBrowserError(error); },
+      ...(error.recovery === undefined ? {} : { retry: () => this.retryBrowserError(error) }),
+    }));
+    const message = this.displayedError();
+    if (message !== "") {
+      const machineId = selectedMachineId(state);
+      const legacyError = state.error;
+      const revision = this.legacyErrorRevision;
+      const failure = this.requiredPluginFailureByMachine.get(machineId);
+      items.push({
+        id: JSON.stringify(["browser", machineId, legacyError !== "" ? ["legacy", revision, legacyError] : ["plugin", failure === undefined ? 0 : this.notificationOccurrenceId(failure)]]),
+        source: "browser", severity: "error", message,
+        scopeLabel: this.notificationScopeLabel({ machineId }),
+        dismiss: () => {
+          if (selectedMachineId(this.state) !== machineId || this.state.error !== legacyError) return;
+          if (legacyError !== "" ? this.legacyErrorRevision !== revision : this.requiredPluginFailureByMachine.get(machineId) !== failure) return;
+          this.dismissDisplayedError();
+        },
+      });
+    }
+    return { id: "browser", items, clear: async () => { await Promise.all(items.map(async (item) => { await item.dismiss?.(); })); } };
   }
 
-  private retryBrowserError(error: BrowserError): void {
+  private serverNotificationGroup(state: AppState): NotificationGroup {
+    const machineId = selectedMachineId(state);
+    const projection = this.serverNotices.projection(machineId);
+    const notices = projection?.status === "fresh" ? visibleServerNotices(projection.notices, browserErrorContext(state)) : [];
+    const items: NotificationItem[] = notices.map((notice) => ({
+      id: JSON.stringify(["server", machineId, projection?.daemonInstanceId, notice.id]),
+      source: "server", severity: notice.severity, message: serverNoticeMessage(notice), receivedAt: notice.createdAt,
+      scopeLabel: [this.notificationScopeLabel({ machineId, ...notice.scope }), notice.source].filter(Boolean).join(" / "),
+      dismiss: () => {
+        const current = this.serverNotices.projection(machineId);
+        if (selectedMachineId(this.state) !== machineId || current?.status !== "fresh" || current.daemonInstanceId !== projection?.daemonInstanceId) return;
+        return this.serverNotices.dismiss(machineId, notice.id);
+      },
+    }));
+    return {
+      id: JSON.stringify(["server", machineId, projection?.daemonInstanceId]), items,
+      // Dispatch the captured IDs together: awaiting each would let refreshed snapshots change the clear target.
+      clear: async () => { await Promise.all(items.map(async (item) => { await item.dismiss?.(); })); },
+    };
+  }
+
+  private sessionNotificationGroup(state: AppState): NotificationGroup | undefined {
+    const inbox = state.selectedNotificationInbox;
+    const view = selectedNotificationView(inbox);
+    const session = state.selectedSession;
+    if (view === undefined || session === undefined || session.archived === true
+      || view.machineId !== selectedMachineId(state) || view.sessionId !== session.id || view.cwd !== session.cwd) return undefined;
+    const isCurrentTarget = () => {
+      const current = this.state;
+      return selectedMachineId(current) === view.machineId && current.selectedSession?.id === view.sessionId
+        && current.selectedSession.archived !== true && current.selectedSession.cwd === view.cwd
+        && current.selectedNotificationInbox?.status === "fresh" && current.selectedNotificationInbox.daemonInstanceId === view.daemonInstanceId
+        && current.selectedNotificationInbox.machineId === view.machineId && current.selectedNotificationInbox.sessionId === view.sessionId
+        && current.selectedNotificationInbox.cwd === view.cwd;
+    };
+    return adaptSessionNotifications(view, {
+      scopeLabel: this.notificationScopeLabel({ machineId: view.machineId, sessionId: view.sessionId }),
+      dismiss: (notificationId) => isCurrentTarget() ? this.notifications.dismissNotification(notificationId) : undefined,
+      clear: () => {
+        // dismissAll captures the controller's watermark, so do not invoke it on a newer projection.
+        return isCurrentTarget() && this.state.selectedNotificationInbox === inbox ? this.notifications.dismissAll() : undefined;
+      },
+    });
+  }
+
+  private renderNotificationArea(state: AppState) {
+    const session = this.sessionNotificationGroup(state);
+    const groups = [this.browserNotificationGroup(state), this.serverNotificationGroup(state), ...(session === undefined ? [] : [session])];
+    return html`<notification-area
+      .contextKey=${JSON.stringify(browserErrorContextForRoute(state, readRoute()))}
+      .groups=${groups}
+      .onActionError=${this.handleNotificationActionError}
+    ></notification-area>`;
+  }
+
+  private readonly handleNotificationActionError = (error: unknown): void => {
+    this.browserErrors.reportLocalized({ kind: "global" }, () => appFeedback.t("actionFailed", { detail: errorMessage(error) }));
+  };
+
+  private retryBrowserError(error: BrowserError): void | Promise<void> {
     if (!this.visibleBrowserErrorsForCurrentRoute(this.state).includes(error)) return;
     const scope = error.scope;
     if (scope.kind === "session" && error.recovery === "session-refresh" && scope.machineId === selectedMachineId(this.state)) {
-      void this.sessions.refreshSelectedSession(scope.sessionId, { recoverNetwork: true });
+      return this.sessions.refreshSelectedSession(scope.sessionId, { recoverNetwork: true });
     } else if (scope.kind === "workspace" && error.recovery === "workspace-sessions-refresh"
       && scope.machineId === selectedMachineId(this.state)
       && scope.workspaceId === this.state.selectedWorkspace?.id
       && scope.projectId === this.state.selectedWorkspace.projectId) {
-      void this.sessions.refreshCurrentWorkspaceSessions(scope.machineId, { recoverNetwork: true });
+      return this.sessions.refreshCurrentWorkspaceSessions(scope.machineId, { recoverNetwork: true });
     }
+    return undefined;
   }
 
   private dismissBrowserError(error: BrowserError): void {
+    if (this.state.browserErrors[browserErrorScopeKey(error.scope)] !== error) return;
     const browserErrors = clearBrowserError(this.state.browserErrors, error.scope, error.message);
     if (browserErrors !== this.state.browserErrors) this.setState({ browserErrors });
   }
@@ -4549,6 +4786,15 @@ export class PiWebApp extends LitElement {
       return this.renderNormalAuthDialog(gateMode ?? "login");
     }
     const activityNoticeVisible = this.unacknowledgedActivitySessionKey(state) !== undefined;
+    const openQuestion = openTranscriptQuestion(state.messages, {
+      historyReady: this.readyChatIdentity === selectedChatIdentity(state),
+      messageEnd: state.messagePageEnd,
+      messageTotal: state.messagePageTotal,
+      writable: state.selectedSession !== undefined && state.selectedSession.archived !== true,
+    });
+    const questionKey = state.selectedSession === undefined || openQuestion === undefined ? undefined
+      : JSON.stringify([machineSessionKey(selectedMachineId(state), state.selectedSession.id), openQuestion.askId]);
+    const questionActions = this.questionActions?.key === questionKey ? this.questionActions : undefined;
     return html`
       <div class=${`${this.panelCollapse.shellClass(mainView)}${this.isDesktopSideBySideLayout() ? "" : " two-column-layout"}`} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
         <aside id="navigation-panel">${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}</aside>
@@ -4557,14 +4803,12 @@ export class PiWebApp extends LitElement {
           ${this.renderContextBar()}
           ${guard([...this.workspaceSurfaceInputs(), state.sessions, this.unreadSessionIds, this.unreadPresence, this.panelCollapse.navigationPanelCollapsed, this.panelCollapse.workspacePanelCollapsed], () => this.renderMobileMainTabs())}
           ${this.unknownRouteView() === undefined ? null : html`<div class="error warning" role="alert"><span class="error-text">${routeFeedback.t("unknownView", { view: this.unknownRouteView() ?? "" })}</span></div>`}
-          ${this.renderServerNoticeBanners()}
+          ${this.renderNotificationArea(state)}
           ${this.apiScope === "management" ? null : deprecatedAgentInputsBanner(deprecatedAgentInputsWarnings(state.machines, state.machineRuntimes))}
-          ${errorBanner(this.displayedError(), () => { this.dismissDisplayedError(); })}
-          ${this.renderBrowserErrorBanners(state)}
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession && this.contentError() === "" && !this.sessions.isChatLoadDeferred && (this.isChatVisible() || this.displayedChatIdentity === selectedChatIdentity(state)) ? html`
             ${this.isChatVisible() ? html`<conversation-sync-notice .state=${state.conversationSync} .onRetry=${() => { void this.sessions.resumeSelectedSession({ reconnect: true }); }}></conversation-sync-notice>` : null}
-            <conversation-layout .presentationRuntime=${this.plugins.uiPresentation} .presentationContext=${this.uiPresentationContext()} .status=${state.status} .activity=${state.activity} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .visualEffects=${this.chatBehaviors.visualEffects}>
+            <conversation-layout .questionActions=${questionActions} .onChatMode=${this.handleChatMode} .presentationRuntime=${this.plugins.uiPresentation} .presentationContext=${this.uiPresentationContext()} .status=${state.status} .activity=${state.activity} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .visualEffects=${this.chatBehaviors.visualEffects}>
             ${this.renderChatView(state, state.selectedSession)}
             <div class="composer-area" slot="composer">
             ${this.promptEditorRegistered() ? html`
@@ -4579,7 +4823,7 @@ export class PiWebApp extends LitElement {
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
             ${state.modelDialog === undefined ? null : state.modelDialog.catalog === undefined
               ? html`<command-picker title=${state.modelDialog.title} .searchable=${true} .options=${state.modelDialog.options} .selectedValue=${state.modelDialog.selectedValue} .defaultValue=${state.modelDialog.defaultValue} .defaultsLoading=${state.modelDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickModel(value); }} .onSetDefault=${this.handleSetDefaultModel} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></command-picker>`
-              : html`<model-picker title=${state.modelDialog.title} .options=${state.modelDialog.options} .catalog=${state.modelDialog.catalog} .selectedValue=${state.modelDialog.selectedValue} .defaultValue=${state.modelDialog.defaultValue} .defaultsLoading=${state.modelDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickModel(value); }} .onSetDefault=${this.handleSetDefaultModel} .onToggleEnabled=${this.handleToggleModelEnabled} .onSetScope=${this.handleSetModelScope} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></model-picker>`}
+              : html`<model-picker title=${state.modelDialog.title} .options=${state.modelDialog.options} .catalog=${state.modelDialog.catalog} .scope=${state.modelDialog.scope} .selectedValue=${state.modelDialog.selectedValue} .defaultValue=${state.modelDialog.defaultValue} .defaultsLoading=${state.modelDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickModel(value); }} .onSetDefault=${this.handleSetDefaultModel} .onToggleEnabled=${this.handleToggleModelEnabled} .onSetScope=${this.handleSetModelScope} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></model-picker>`}
             ${state.thinkingDialog !== undefined ? html`<command-picker title=${state.thinkingDialog.title} .options=${state.thinkingDialog.options} .selectedValue=${state.thinkingDialog.selectedValue} .defaultValue=${state.thinkingDialog.defaultValue} .defaultsLoading=${state.thinkingDialog.defaultsLoading === true} .onPick=${(value: string) => { void this.pickThinking(value); }} .onSetDefault=${this.handleSetDefaultThinking} .onCancel=${() => { this.setState({ thinkingDialog: undefined }); }}></command-picker>` : null}
           ` : state.selectedSession !== undefined && this.contentError() === "" && this.isChatVisible() && this.sessions.isChatLoadDeferred
             ? html`<div class="empty" role="status">${appFeedback.t("loadingConversation")}</div>`
@@ -4601,9 +4845,12 @@ export class PiWebApp extends LitElement {
         ${this.renderSessionTreeNavigator(state)}
         ${state.projectDialogOpen ? html`<project-dialog .machineId=${selectedMachineId(state)} .managementMode=${this.apiScope === "management"} .onSubmit=${(path: string, create: boolean, trust: ProjectTrustChoice | undefined) => this.projects.addProject(path, create, trust)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
         ${state.machineDialogOpen ? html`<machine-dialog .machine=${this.machineNameEditTarget} .error=${state.error} .onSubmit=${(input: MachineDialogSubmit) => this.submitMachineDialog(input)} .onCancel=${() => { this.setState({ machineDialogOpen: false }); }}></machine-dialog>` : null}
+        ${this.apiScope === "normal" ? html`<restart-dialog
+          .activity=${state.machineStatusSnapshots["local"] === undefined ? "unknown" : state.machineStatusSnapshots["local"].machine["core:working"] === true || state.machineStatusSnapshots["local"].machine["core:terminal"] === true ? "active" : "idle"}
+          .onRun=${(command: string, title: string) => this.runRestartCommand(command, title)}></restart-dialog>` : null}
         ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .canCleanup=${this.canCleanupSessions()} .unavailableMessage=${this.sessionCleanupUnavailableMessage()} .preview=${this.sessionCleanupDialog.preview} .previewRequest=${this.sessionCleanupDialog.previewRequest} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${typeof this.sessionCleanupDialog.error === "string" ? this.sessionCleanupDialog.error : ""} .errorMessage=${typeof this.sessionCleanupDialog.error === "function" ? this.sessionCleanupDialog.error : undefined} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
         ${this.sessionSearchDialogOpen ? html`<session-search-dialog .query=${state.sessionSearchQuery} .response=${state.sessionSearchResults} .searching=${state.isSearchingSessions} .error=${state.sessionSearchError} .onSearch=${(query: string) => { this.sessions.searchSessions(query); }} .onSelect=${(session: SessionInfo, match: SessionContentSearchMatch) => { void this.selectSessionSearchMatch(session, match); }} .onClose=${() => { this.closeSessionSearchDialog(); }}></session-search-dialog>` : null}
-        ${this.settingsSection !== undefined ? html`<settings-dialog .presentationRuntime=${this.plugins.uiPresentation} .presentationContext=${this.uiPresentationContext()} .section=${this.settingsSection} .mcpContext=${state.selectedSession !== undefined && state.selectedSession.archived !== true ? { session: { id: state.selectedSession.id, cwd: state.selectedSession.cwd }, machineId: selectedMachineId(state) } : undefined} .onMcpAuth=${(mode: "login" | "logout", serverName: string, context: { session: { id: string; cwd: string }; machineId: string }) => { this.closeSettings(); void this.auth.openMcpAuth(mode, serverName, context); }} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .machines=${this.apiScope === "management" ? [] : state.machines} .machineStatuses=${state.machineStatuses} .machineRuntimes=${state.machineRuntimes} .actions=${this.getDefaultActions()} .themes=${this.plugins.getThemes()} .onThemeCatalogLoaded=${(catalog: BrowserThemeCatalog) => { this.registerThemeCatalog(catalog); }} .fileIconThemes=${this.plugins.getFileIconThemes()} .fileIconPreference=${this.fileIconPreference} .onSelectFileIconTheme=${(id: string) => { this.selectFileIconTheme(id); }} .onResetFileIconTheme=${() => { this.selectFileIconTheme(undefined); }} .themePreference=${this.themePreference} .activeThemeId=${this.activeThemeId} .hasLocalThemeOverride=${this.localThemePreference !== undefined} .onUseLocalTheme=${(preference: ThemePreference) => { this.pickTheme(preference); }} .onUseDefaultTheme=${() => { this.useDefaultTheme(); }} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onMachineConfigSaved=${(machineId: string) => { void this.machines.refreshMachineIdentity(machineId); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }} .onRefreshMachineRuntime=${async (machineId: string) => { await this.machines.refreshMachineRuntime(machineId); }}></settings-dialog>` : null}
+        ${this.settingsSection !== undefined ? html`<settings-dialog .presentationRuntime=${this.plugins.uiPresentation} .presentationContext=${this.uiPresentationContext()} .section=${this.settingsSection} .target=${this.settingsTarget} .mcpContext=${state.selectedSession !== undefined && state.selectedSession.archived !== true ? { session: { id: state.selectedSession.id, cwd: state.selectedSession.cwd }, machineId: selectedMachineId(state) } : undefined} .onMcpAuth=${(mode: "login" | "logout", serverName: string, context: { session: { id: string; cwd: string }; machineId: string }) => { this.closeSettings(); void this.auth.openMcpAuth(mode, serverName, context); }} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .machines=${this.apiScope === "management" ? [] : state.machines} .machineStatuses=${state.machineStatuses} .machineRuntimes=${state.machineRuntimes} .actions=${this.getDefaultActions()} .themes=${this.plugins.getThemes()} .onThemeCatalogLoaded=${(catalog: BrowserThemeCatalog) => { this.registerThemeCatalog(catalog); }} .fileIconThemes=${this.plugins.getFileIconThemes()} .fileIconPreference=${this.fileIconPreference} .onSelectFileIconTheme=${(id: string) => { this.selectFileIconTheme(id); }} .onResetFileIconTheme=${() => { this.selectFileIconTheme(undefined); }} .themePreference=${this.themePreference} .activeThemeId=${this.activeThemeId} .hasLocalThemeOverride=${this.localThemePreference !== undefined} .onUseLocalTheme=${(preference: ThemePreference) => { this.pickTheme(preference); }} .onUseDefaultTheme=${() => { this.useDefaultTheme(); }} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onMachineConfigSaved=${(machineId: string) => { void this.machines.refreshMachineIdentity(machineId); }} .onGatewayConfigLoaded=${(response: PiWebConfigResponse) => { this.acceptSettingsGatewayConfig(response); }} .onGatewayConfigInvalidated=${() => { this.refreshGatewayConfig(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }} .onRefreshMachineRuntime=${async (machineId: string) => { await this.machines.refreshMachineRuntime(machineId); }}></settings-dialog>` : null}
         ${this.normalAuthDialogMode === "change" ? this.renderNormalAuthDialog("change") : null}
       </div>
     `;
@@ -4975,9 +5222,6 @@ export class PiWebApp extends LitElement {
 
   private readonly handleLoadEarlierMessages = () => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages());
 
-  private notificationViewInput: AppState["selectedNotificationInbox"];
-
-  private notificationView: ReturnType<typeof selectedNotificationView>;
   private chatWorkspaceContext: MarkdownWorkspaceContext | undefined;
   private chatWorkspaceContextKey: string | undefined;
 
@@ -5154,6 +5398,19 @@ function workspaceDeletionScopeKey(state: Pick<AppState, "selectedMachine" | "se
   const projectId = state.selectedProject?.id;
   if (projectId === undefined) return undefined;
   return JSON.stringify([state.selectedMachine?.id ?? "local", projectId]);
+}
+
+/** Bounds how long one unreachable machine can delay a session-only link. */
+const SESSION_LINK_LOOKUP_TIMEOUT_MS = 10_000;
+
+/** A 404 means the machine does not know the session (or predates session lookups). */
+async function locateSessionOnMachine(sessionId: string, machineId: string, signal: AbortSignal): Promise<SessionLocation | undefined> {
+  try {
+    return await sessionsApi.sessionLocation(sessionId, machineId, { signal, timeoutMs: SESSION_LINK_LOOKUP_TIMEOUT_MS });
+  } catch (error) {
+    if (error instanceof HttpRequestError && error.status === 404) return undefined;
+    throw error;
+  }
 }
 
 function remoteRouteRestoreRetryDelay(attempt: number): number {

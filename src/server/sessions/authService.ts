@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { getAgentDir, ModelRuntime } from "../../piSdk.js";
+import { getAgentDir, ModelRuntime, SettingsManager } from "../../piSdk.js";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import type { AuthProvidersResponse, AuthType, ModelSelectionResponse, OAuthFlowState } from "../../shared/apiTypes.js";
 import { getLoginProviderOptions, getLogoutProviderOptions } from "./authProviderOptions.js";
@@ -77,9 +77,14 @@ export class AuthService {
   private readonly t: Translator;
   private readonly listeners = new Set<AuthChangeListener>();
 
+  private deviceSettings: SettingsManager | undefined;
+
+  private readonly agentDir: string | undefined;
+
   constructor(deps: AuthServiceDependencies & ({ runtime: ModelRuntime } | { modelRuntime: ModelRuntime })) {
     const runtime = deps.runtime ?? deps.modelRuntime;
     if (runtime === undefined) throw new Error("AuthService requires a model runtime");
+    this.agentDir = deps.agentDir;
     this.runtime = runtime;
     this.modelRuntime = this.runtime;
     this.logger = deps.logger ?? noopLogger;
@@ -92,7 +97,7 @@ export class AuthService {
     const logger = deps.logger ?? noopLogger;
     const translator = deps.translator ?? createTranslator("en", {});
     const authFlows = deps.authFlows ?? new OAuthLoginFlowService({ logger, translator });
-    return new AuthService({ runtime, authFlows, logger, translator });
+    return new AuthService({ runtime, authFlows, logger, translator, ...(deps.agentDir === undefined ? {} : { agentDir: deps.agentDir }) });
   }
 
   subscribe(listener: AuthChangeListener): () => void {
@@ -171,6 +176,7 @@ export class AuthService {
       providerName: provider.name,
       runtime: this.runtime,
       authType: "oauth",
+      loginOptions: { getDeviceId: () => this.getDeviceId() },
       onComplete: () => this.emit({}, { operation: "login", providerId, authType: "oauth" }),
     });
   }
@@ -185,6 +191,26 @@ export class AuthService {
 
   cancelOAuthFlow(flowId: string): OAuthFlowState {
     return this.authFlows.cancel(flowId);
+  }
+
+  private getDeviceId(): string {
+    if (this.deviceSettings === undefined) {
+      // Use Pi's installation identity, never project settings or a per-login UUID.
+      const settings = SettingsManager.create(process.cwd(), this.agentDir, { projectTrusted: false });
+      const loadError = settings.drainErrors()[0];
+      if (loadError !== undefined) throw loadError.error;
+      this.deviceSettings = settings;
+    }
+    const settings = this.deviceSettings;
+    const deviceId = settings.getOrCreateDeviceId();
+    // Pi queues settings writes; surface persistence failures rather than silently
+    // claiming that the generated identity will survive a daemon restart.
+    void settings.flush().then(() => {
+      for (const { error, path } of settings.drainErrors()) {
+        this.logErrorNoThrow({ err: error, path }, "login device ID persistence failed");
+      }
+    });
+    return deviceId;
   }
 
   private async emit(change: Omit<AuthChange, "modelRuntime">, context: AuthChangeContext): Promise<void> {

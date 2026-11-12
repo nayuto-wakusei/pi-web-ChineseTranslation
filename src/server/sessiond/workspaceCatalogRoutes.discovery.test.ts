@@ -16,7 +16,7 @@ it("reconciles ordinary catalog authority but never uses ordinary integrations f
   const resolve = vi.fn((project: Project): Promise<WorkspaceProviderAuthorityResolution> => Promise.resolve({ status: "folder", projectId: project.id, workspaces: [], diagnostics: [] }));
   const reconcileProject = vi.fn(() => Promise.resolve());
   registerWorkspaceCatalogRoutes(app, {
-    projects: { requireProject }, workspaces: { resolve, reconcileProject }, managementProjectRoot: root,
+    projects: { requireProject }, workspaces: { resolve, lookup: resolve, reconcileProject }, managementProjectRoot: root,
     providerRuntime: { protocolVersion: 2, terminalMode: "recovery-disabled", safeStart: "none", records: [], health: [], diagnostics: [] },
   });
   try {

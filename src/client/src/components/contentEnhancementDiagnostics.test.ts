@@ -4,6 +4,7 @@ import { ContentRenderingBoundary } from "./ContentRenderingBoundary";
 import { ContentRendererHost } from "./ContentRendererHost";
 import { FormattedText } from "./FormattedText";
 import * as markdown from "../formatting/markdown";
+import { defaultMarkdownEngine } from "../formatting/markdownEngine";
 import { settleDeferredContent, useDeferredContent } from "../formatting/deferredContent.testSupport";
 
 useDeferredContent();
@@ -20,7 +21,7 @@ it("logs only fixed failure categories while secret-bearing enhancement errors r
   await settleDeferredContent(boundary);
   expect(boundary.textContent).toContain(secret);
 
-  const formatting = vi.spyOn(markdown, "toSafeMarkdownHtml").mockImplementation(() => { throw error; });
+  const formatting = vi.spyOn(markdown, "parseChatMarkdown").mockImplementation(() => { throw error; });
   const raw = new FormattedText();
   raw.text = secret;
   document.body.append(raw);
@@ -30,7 +31,7 @@ it("logs only fixed failure categories while secret-bearing enhancement errors r
 
   const enhanced = new FormattedText();
   enhanced.text = secret;
-  enhanced.contentRendering = { renderMarkdown: () => { throw error; } };
+  enhanced.contentRendering = { renderMarkdown: () => { throw error; }, markdown: defaultMarkdownEngine };
   document.body.append(enhanced);
   await settleDeferredContent(enhanced);
   expect(enhanced.renderRoot.querySelector(".enhanced-content")?.textContent).toContain(secret);

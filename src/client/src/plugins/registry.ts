@@ -25,6 +25,9 @@ import { selectTranscriptRenderers, snapshotTranscriptRenderer, transcriptRender
 import { contentRendererMatches, snapshotContentRenderer, type ContentRendererChoice, type RegisteredContentRenderer } from "./contentRenderers";
 import { createSyntaxHighlightingCapability, runSyntaxHighlighter, snapshotSyntaxHighlighter, syntaxHighlightingCapabilityToken, type RegisteredSyntaxHighlighter } from "../formatting/syntaxHighlighting";
 import { createContentRenderingCapability, createContentRenderingService, contentRenderingCapabilityToken, type ChatContentRendering } from "../formatting/contentRendering";
+import { MarkdownRenderingService, markdownRenderingCapabilityToken } from "../formatting/markdownRendering";
+import type { MarkdownEngine } from "../formatting/markdownEngine";
+import { snapshotMarkdownExtension, type RegisteredMarkdownExtension } from "./markdownExtensions";
 import { requirePluginBackendRevision } from "../../../shared/pluginBackendProtocol";
 import type { ApplicationPanelContext, ApplicationPanelContribution, QualifiedApplicationPanelContribution, PiWebPluginRegistration, PiWebPluginRegistrationDeclaration, PluginAction, PluginActivationContext, PluginActivationResult, PluginCapability, PluginCapabilityProvision, PluginContributions, PluginRuntimeContext, PluginStartContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, QualifiedSessionLabelContribution, SessionLabelContext, SessionLabelContribution, SessionLabelItem, ThemeContribution, ThemePairContribution, WorkspaceInvalidation, WorkspaceLabelContext, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelContribution, WorkspacePluginBinding, WorkspaceResource } from "./types";
 
@@ -110,6 +113,7 @@ interface PreparedPluginContributions {
   readonly contentRenderers: readonly RegisteredContentRenderer[];
   readonly transcriptRenderers: readonly RegisteredTranscriptRenderer[];
   readonly syntaxHighlighters: readonly RegisteredSyntaxHighlighter[];
+  readonly markdownExtensions: readonly RegisteredMarkdownExtension[];
   readonly ids: ReadonlySet<QualifiedContributionId>;
   readonly actions: readonly RegisteredPluginAction[];
   readonly messageActions: readonly RegisteredMessageAction[];
@@ -181,6 +185,14 @@ export class PluginRegistry {
     .filter((previewer) => !previewer.lifetime.aborted && this.isContributionActive(previewer.pluginId, previewer.machineId, request.machineId, previewer.sourcePluginId))
     .sort((a, b) => this.compareDiscoveryOrder(a, b))
     .filter((previewer) => filePreviewerMatches(previewer, request)));
+  private readonly markdownExtensions: RegisteredMarkdownExtension[] = [];
+  private readonly markdownService = new MarkdownRenderingService(
+    (machineId) => this.markdownExtensions.filter((extension) => !extension.lifetime.aborted
+      && this.isContributionActive(extension.pluginId, extension.machineId, machineId, extension.sourcePluginId))
+      .sort((a, b) => this.compareDiscoveryOrder(a, b)),
+    (machineId) => this.getChatContentRendering(machineId),
+  );
+  readonly markdownRendering = this.markdownService.capability;
   private readonly contentRenderers: RegisteredContentRenderer[] = [];
   private readonly transcriptRenderers: RegisteredTranscriptRenderer[] = [];
   private readonly transcriptRendererViews = new Map<string, readonly RegisteredTranscriptRenderer[]>();
@@ -200,13 +212,18 @@ export class PluginRegistry {
   readonly chatContentRendering = createContentRenderingService((request) => this.matchContentRenderers(request), (request) => this.syntaxHighlightingRevision(request.machineId));
   private contentRendererRevision = 0;
   get contentRendererVersion(): number { return this.contentRendererRevision; }
-  private readonly syntaxHighlightingViews = new Map<string, readonly RegisteredSyntaxHighlighter[]>();
-  private readonly chatContentRenderingViews = new Map<string, { choices: readonly ContentRendererChoice[]; grammars: readonly RegisteredSyntaxHighlighter[]; rendering: ChatContentRendering }>();
 
   private compareDiscoveryOrder(a: { pluginId: string }, b: { pluginId: string }): number {
     const ids = [...this.declarationsById.keys()];
     return ids.indexOf(a.pluginId) - ids.indexOf(b.pluginId);
   }
+  private readonly syntaxHighlightingViews = new Map<string, readonly RegisteredSyntaxHighlighter[]>();
+  private readonly chatContentRenderingViews = new Map<string, {
+    choices: readonly ContentRendererChoice[];
+    grammars: readonly RegisteredSyntaxHighlighter[];
+    markdown: MarkdownEngine;
+    rendering: ChatContentRendering;
+  }>();
 
   private syntaxHighlightingRevision(machineId: string): readonly RegisteredSyntaxHighlighter[] {
     const active = this.syntaxHighlighters
@@ -224,13 +241,16 @@ export class PluginRegistry {
   getChatContentRendering(machineId: string): ChatContentRendering {
     const choices = this.activeContentRendererChoices(machineId);
     const grammars = this.syntaxHighlightingRevision(machineId);
+    const markdown = this.markdownService.getEngine(machineId);
     const previous = this.chatContentRenderingViews.get(machineId);
-    if (previous?.grammars === grammars && previous.choices.length === choices.length
+    if (previous?.markdown === markdown && previous.grammars === grammars && previous.choices.length === choices.length
       && choices.every((choice, index) => choice.renderer === previous.choices[index]?.renderer)) return previous.rendering;
-    const rendering = createContentRenderingService((request) => request.machineId === machineId
-      ? choices.filter(({ renderer }) => contentRendererMatches(renderer, request))
-      : [], () => grammars);
-    this.chatContentRenderingViews.set(machineId, { choices, grammars, rendering });
+    const rendering: ChatContentRendering = { ...createContentRenderingService(
+      (request) => request.machineId === machineId ? choices.filter(({ renderer }) => contentRendererMatches(renderer, request)) : [],
+      () => grammars,
+      markdown,
+    ), machineId };
+    this.chatContentRenderingViews.set(machineId, { choices, grammars, markdown, rendering });
     return rendering;
   }
 
@@ -325,6 +345,7 @@ export class PluginRegistry {
     for (const provision of snapshotCapabilityProvisions([
       { capability: filePreviewingCapabilityToken, value: this.filePreviewing },
       { capability: contentRenderingCapabilityToken, value: this.contentRendering },
+      { capability: markdownRenderingCapabilityToken, value: this.markdownRendering },
       { capability: transcriptRenderingCapabilityToken, value: transcriptRenderingCapability },
       { capability: syntaxHighlightingCapabilityToken, value: this.syntaxHighlighting },
       { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability },
@@ -342,6 +363,7 @@ export class PluginRegistry {
   /** Publish host selection changes independently of contribution rendering. */
   notifySelectionChanged(): void {
     this.selection.notifyChanged();
+    this.markdownService.notifyChanged();
   }
 
   /** Only attributed assets owned by a presentation plugin can disable its presentation. */
@@ -389,6 +411,7 @@ export class PluginRegistry {
     const reason = new DOMException("Browser plugin host is shutting down", "AbortError");
     for (const controller of this.activatingLifetimes) abortLifetime(controller, reason);
     for (const plugin of [...this.activePlugins, ...this.stagedPlugins]) abortLifetime(plugin.lifetimeController, reason);
+    this.markdownService.notifyChanged();
   }
 
   dispose(): Promise<void> {
@@ -414,6 +437,8 @@ export class PluginRegistry {
     this.transcriptRenderers.splice(0);
     this.transcriptRendererViews.clear();
     this.syntaxHighlighters.splice(0);
+    this.markdownExtensions.splice(0);
+    this.markdownService.clear();
     this.syntaxHighlightingViews.clear();
     this.chatContentRenderingViews.clear();
     this.workspacePanels.splice(0);
@@ -576,7 +601,12 @@ export class PluginRegistry {
           signal,
           lifetimeSignal: lifetimeController.signal,
           translate: t,
-          localization: createPluginLocalization(this.options.localization ?? localization, declaration.sourcePluginId, registration.id, lifetimeController.signal),
+          localization: createPluginLocalization(
+            this.options.localization ?? localization, declaration.sourcePluginId, registration.id, lifetimeController.signal,
+            // Catalogs register before the host verifies plugin availability and are not re-evaluated when it
+            // changes, so they follow machine ownership only.
+            (selectedMachineId) => this.belongsToMachine(registration.id, registration.machineId, selectedMachineId, registration.sourcePluginId),
+          ),
           selection: this.selection.forPlugin(registration.id, lifetimeController.signal),
         })),
       );
@@ -644,6 +674,14 @@ export class PluginRegistry {
         ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
         ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
       }));
+    });
+    const markdownExtensions = (contributions.markdownExtensions ?? []).map((value): RegisteredMarkdownExtension => {
+      const snapshot = snapshotMarkdownExtension(value);
+      return Object.freeze({ ...snapshot,
+        id: this.qualify(runtimePluginId, snapshot.id, contributionIds), pluginId: runtimePluginId, lifetime: lifetimeSignal,
+        ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
+        ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
+      });
     });
     const transcriptRenderers = (contributions.transcriptRenderers ?? []).map((renderer): RegisteredTranscriptRenderer => {
       const snapshot = snapshotTranscriptRenderer(renderer, lifetimeSignal);
@@ -718,7 +756,7 @@ export class PluginRegistry {
     const themePairs = registration.machineId === undefined
       ? (contributions.themePairs ?? []).map((pair) => this.qualifyThemePair(runtimePluginId, pair, contributionIds))
       : [];
-    return Object.freeze({ ids: contributionIds, uiPresentations, filePreviewers, contentRenderers, transcriptRenderers, syntaxHighlighters, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, fileIconThemes, themePairs });
+    return Object.freeze({ ids: contributionIds, uiPresentations, filePreviewers, contentRenderers, transcriptRenderers, syntaxHighlighters, markdownExtensions, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, fileIconThemes, themePairs });
   }
 
   private dependencyFailure(
@@ -826,6 +864,7 @@ export class PluginRegistry {
     this.contentRenderers.push(...staged.contributions.contentRenderers);
     this.transcriptRenderers.push(...staged.contributions.transcriptRenderers);
     this.syntaxHighlighters.push(...staged.contributions.syntaxHighlighters);
+    this.markdownExtensions.push(...staged.contributions.markdownExtensions);
     if (staged.contributions.contentRenderers.length > 0 || staged.contributions.syntaxHighlighters.length > 0) this.contentRendererRevision += 1;
     this.actions.push(...staged.contributions.actions);
     this.messageActions.push(...staged.contributions.messageActions);
@@ -855,6 +894,7 @@ export class PluginRegistry {
       this.gatewayPluginIds.add(staged.registration.id);
       if (staged.declaration.machineSpecific) this.gatewayMachineSpecificPluginIds.add(staged.registration.id);
     }
+    this.markdownService.notifyChanged();
   }
 
   private async failBeforeStart(
@@ -1315,6 +1355,11 @@ export class PluginRegistry {
     // Portable gateway registrations still use selected-machine helpers, so
     // their lifecycle gate follows that effective machine rather than local.
     if (!this.isContributionEnabled(pluginId, machineId ?? selectedMachineId)) return false;
+    return this.belongsToMachine(pluginId, machineId, selectedMachineId, sourcePluginId);
+  }
+
+  /** Machine ownership alone, without the host's asynchronous lifecycle gate. */
+  private belongsToMachine(pluginId: string, machineId: string | undefined, selectedMachineId: string, sourcePluginId: string | undefined): boolean {
     if (machineId === undefined) return !this.isGatewayPluginHiddenForMachine(pluginId, selectedMachineId);
     return machineId === selectedMachineId && !this.isRemotePluginHiddenByGateway(sourcePluginId, machineId);
   }
@@ -1904,7 +1949,7 @@ function stylesheetLoadFailures(error: unknown): PluginStylesheetLoadError[] {
   return [];
 }
 
-const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "fileIconThemes", "themePairs", "contentRenderers", "transcriptRenderers", "syntaxHighlighters", "filePreviewers", "messageActions", "uiPresentations"];
+const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "fileIconThemes", "themePairs", "contentRenderers", "transcriptRenderers", "syntaxHighlighters", "markdownExtensions", "filePreviewers", "messageActions", "uiPresentations"];
 
 function isPluginContributions(value: unknown): value is PluginContributions {
   if (!isRecord(value)) return false;
@@ -1924,7 +1969,7 @@ function contributionsForVersion(contributions: PluginContributions, apiVersion:
     return contributions;
   }
   if (contributions.themes?.some((theme) => !isRecord(theme.tokens) || Object.values(theme.tokens).some((value) => typeof value !== "string")) === true) throw new BrowserPluginIncompatibleError("Browser API v4 themes require string palette tokens");
-  if (Reflect.get(contributions, "transcriptRenderers") !== undefined || Reflect.get(contributions, "uiPresentations") !== undefined || Reflect.get(contributions, "stylesheets") !== undefined || Reflect.get(contributions, "syntaxHighlighters") !== undefined || contributions.fileIconThemes !== undefined || contributions.filePreviewers !== undefined
+  if (Reflect.get(contributions, "transcriptRenderers") !== undefined || Reflect.get(contributions, "uiPresentations") !== undefined || Reflect.get(contributions, "stylesheets") !== undefined || Reflect.get(contributions, "syntaxHighlighters") !== undefined || Reflect.get(contributions, "markdownExtensions") !== undefined || contributions.fileIconThemes !== undefined || contributions.filePreviewers !== undefined
     || contributions.contentRenderers?.some((renderer) => Reflect.get(renderer, "title") !== undefined || Reflect.get(renderer, "supports") !== undefined) === true
     || contributions.themes?.some((theme) => Reflect.get(theme, "stylesheets") !== undefined) === true) {
     throw new BrowserPluginIncompatibleError("Stylesheet, syntax-highlighter and extended renderer contributions require browser API v5");

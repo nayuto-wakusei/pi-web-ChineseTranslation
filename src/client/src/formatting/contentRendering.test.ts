@@ -1,6 +1,5 @@
-import { RenderIntentMemory } from "./renderIntentMemory";
-import { PLAIN_CODE_BLOCK_POLICY } from "./codeBlockPolicy";
 // @vitest-environment happy-dom
+import { RenderIntentMemory } from "./renderIntentMemory";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { html, render, type TemplateResult } from "lit";
 import type { ContentRendererContribution, ContentRendererInput } from "../../../plugin-api";
@@ -12,8 +11,10 @@ import { FormattedText } from "../components/FormattedText";
 import { ContentRendererHost } from "../components/ContentRendererHost";
 import { writeClipboardText } from "../clipboard";
 import { PluginRegistry } from "../plugins/registry";
-import { renderWorkspaceMarkdownHtml } from "../../../../pi-web-plugins/files/workspaceMarkdown";
+import { createDocumentMarkdownRenderer, sanitizeDocumentMarkdownHtml } from "./documentMarkdown";
+import { defaultMarkdownEngine } from "./markdownEngine";
 import { createContentRenderingCapability, MAX_CONTENT_RENDERER_LENGTH, isClosedFence } from "./contentRendering";
+import { PLAIN_CODE_BLOCK_POLICY } from "./codeBlockPolicy";
 
 vi.mock("../clipboard", () => ({ writeClipboardText: vi.fn().mockResolvedValue(true) }));
 
@@ -26,6 +27,10 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
+
+function renderWorkspaceMarkdownHtml(text: string): string {
+  return defaultMarkdownEngine.parse(text, createDocumentMarkdownRenderer(), sanitizeDocumentMarkdownHtml).html;
+}
 
 function renderer(callback: ContentRendererContribution["render"] = ({ text }) => html`<div class="diagram">${text}</div>`): ContentRendererContribution {
   return { id: "diagram", renderMode: "automatic", languages: ["diagram"], fileExtensions: ["diag"], render: callback };

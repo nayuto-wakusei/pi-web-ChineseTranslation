@@ -72,6 +72,7 @@ import { managementProjectIdForCwd, projectsFromManagedEmbedContext } from "./ma
 import { eventScopeFromManagementContext, managementContextFromEventScope, NORMAL_SESSION_EVENT_SCOPE } from "./realtime/sessionEventScope.js";
 import { PiWebPluginCatalog } from "./piWebPluginCatalog.js";
 import { PiPackageDismissalStore, piPackageDismissalStorePath } from "./storage/piPackageDismissalStore.js";
+import { PiPackageProvisioningStore, piPackageProvisioningStorePath } from "./storage/piPackageProvisioningStore.js";
 import { reconcileAutoInstallablePiPackages } from "./sessiond/autoInstallPiPackages.js";
 import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
 import { createServerPluginExecFile } from "./plugins/serverPluginExec.js";
@@ -95,6 +96,7 @@ import { PI_WEB_HOST_CATALOG_CAPABILITY } from "../shared/pluginCatalogTypes.js"
 import { registerPluginCatalogRoutes } from "./sessiond/pluginCatalogRoutes.js";
 import { PiSessionEventConnections } from "./sessions/piSessionEventConnections.js";
 import { bindCompanionBackend, type CompanionBackendBindingOptions } from "./sessions/companionBackend.js";
+import { registerSessionLocationRoutes } from "./sessiond/sessionLocationRoutes.js";
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
 import { registerPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
@@ -187,7 +189,8 @@ await runSessionDaemonStartup({
     await reconcileAutoInstallablePiPackages({
       profileDir: activeAgentProfile.dir,
       ...createAutoInstallPiPackageProfile(activeAgentProfile.dir),
-      dismissalChecker: new PiPackageDismissalStore(piPackageDismissalStorePath(daemonEnvironment)),
+      dismissalStore: new PiPackageDismissalStore(piPackageDismissalStorePath(daemonEnvironment)),
+      provisioningStore: new PiPackageProvisioningStore(piPackageProvisioningStorePath(daemonEnvironment)),
       logger: app.log,
     }).catch((error: unknown) => {
       app.log.warn({ err: error }, "Pi package auto-install reconciliation failed unexpectedly; continuing without it");
@@ -260,6 +263,12 @@ await runSessionDaemonStartup({
     const workspaceProviders = new WorkspaceProviderRegistry({
       contributions: eligibleWorkspaceProviderContributions(providerContributions, providerHealth),
       logger: app.log,
+      // Discovery starts only after composition. Publication invalidates status
+      // after the new record exists; status reads never request more discovery.
+      onPublished: () => {
+        statusAttribution.invalidate();
+        machineStatus.notifyChanged();
+      },
     });
     registerCleanup(() => workspaceProviders.closeAll());
     const projectAuth = new ProjectAuthService({ projects, workspaces: workspaceProviders, globalAgentDir: activeAgentProfile.dir, logger: app.log, offline: offlineModeEnabled(daemonEnvironment) });
@@ -379,6 +388,10 @@ await runSessionDaemonStartup({
         machineStatus.notifyChanged(scope);
         if (scope === NORMAL_SESSION_EVENT_SCOPE && hasNewCompletion) projectLifecycleRef.current?.scheduleCleanup();
       },
+      onSessionArchived: async (cwd) => {
+        const owner = (await statusAttribution.attribute([cwd])).get(cwd);
+        if (owner !== undefined) workspaceChanges.notify(owner.projectId);
+      },
       logger: app.log,
       ...(normalToolAudit === undefined ? {} : { normalToolAudit }),
       ...(managementAudit === undefined ? {} : {
@@ -405,7 +418,7 @@ await runSessionDaemonStartup({
     constructed.sessions = sessions;
     const statusAttribution = new CachedWorkspaceAttribution({
       projects: { list: projectsForScope },
-      workspaces: { list: (project) => workspaceProviders.list(project) },
+      workspaces: workspaceProviders,
       logger: app.log,
     });
     const machineStatus = new MachineStatusService({
@@ -418,6 +431,7 @@ await runSessionDaemonStartup({
     await sessions.restoreInterventionState();
     eventHub.setGlobalJoinFrame((scope) => ({ type: "machine.status", status: machineStatus.snapshot(scope) }));
     const workspaceChanges = new WorkspaceChangeNotifier({
+      requestRefresh: (projectId) => { workspaceProviders.requestRefresh(projectId); },
       attribution: statusAttribution,
       status: machineStatus,
       publish: (event) => { eventHub.publishRealtime(event, NORMAL_SESSION_EVENT_SCOPE); },
@@ -484,7 +498,7 @@ await runSessionDaemonStartup({
       runCommand: (options) => options.managementContext === undefined
         ? terminals.runCommand(options)
         : managementTerminals.runCommand(options),
-    }, { notices: serverNotices });
+    }, { notices: serverNotices, onMutation: (projectId) => { workspaceChanges.notify(projectId); } });
     registerCleanup(() => pluginBackends.closeAll());
     registerCleanup(() => workspaceRemovals.closeAll());
     const runtimeComponent = Object.freeze({
@@ -535,6 +549,7 @@ await runSessionDaemonStartup({
     registerAuthRoutes(app, { normal: projectAuth, management: managementAuth });
     registerMcpAuthRoutes(app, sessions);
     registerSessionRoutes(app, sessions, eventHub);
+    registerSessionLocationRoutes(app, { sessions, workspaces: statusAttribution });
     registerSpeechRoutes(app, { speech: speechTranscription }, "", translator);
     registerManagementTerminalRoutes(app, managementTerminals);
     registerWorkbenchAccessStateRoutes(app, accessStates);
@@ -546,7 +561,8 @@ await runSessionDaemonStartup({
     registerPluginBackendResourceRoutes(app, { projects, backends: pluginBackends, managementProjectRoot });
     registerTerminalStatusRoutes(app, serverPlugins);
     registerWorkspaceNotificationRoutes(app, { projects, workspaces: workspaceProviders, changes: workspaceChanges, translator });
-    registerPluginBackendRoutes(app, { projects, backends: pluginBackends, managementProjectRoot, onWorkspacesMutated: (scope) => {
+    registerPluginBackendRoutes(app, { projects, backends: pluginBackends, managementProjectRoot, onWorkspacesMutated: (scope, projectId) => {
+      if (scope === NORMAL_SESSION_EVENT_SCOPE && projectId !== undefined) workspaceChanges.notify(projectId);
       statusAttribution.invalidate();
       machineStatus.notifyChanged(scope);
       if (scope === NORMAL_SESSION_EVENT_SCOPE) projectLifecycle.scheduleCleanup();

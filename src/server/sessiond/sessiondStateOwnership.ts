@@ -213,7 +213,7 @@ async function lockOwnershipMutation(markerPath: string): Promise<() => Promise<
         released = true;
       };
     } catch (error) {
-      if (!isErrorCode(error, "EEXIST")) throw error;
+      if (!isErrorCode(error, "EEXIST") && !(process.platform === "win32" && isErrorCode(error, "EPERM"))) throw error;
       if (Date.now() >= deadline) {
         throw new Error(`Session daemon ownership update is locked: ${lockPath}. If a startup crashed, confirm no daemon is starting or stopping before removing this lock directory.`, { cause: error });
       }

@@ -13,6 +13,7 @@ const publicApiDeclarationPaths = [
   "shared/pluginCatalogTypes.d.ts",
   "shared/pluginSessionLifecycleTypes.d.ts",
   "shared/localization.d.ts",
+  "shared/markdownTypes.d.ts",
   "shared/serverNoticePresentation.d.ts",
   "shared/terminalTitlePresentation.d.ts",
   "shared/thinkingLevels.d.ts",

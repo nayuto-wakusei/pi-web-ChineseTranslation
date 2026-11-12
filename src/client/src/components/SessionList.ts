@@ -14,11 +14,14 @@ import { isSessionActive } from "../../../shared/activity";
 import { CORE_STATUS_FLAGS, type StatusFlags } from "../../../shared/machineStatus";
 import { AnchoredPopupController } from "./anchoredPopup";
 import { renderCopyIdAction } from "./copyIdAction";
+import { DetailCopyController } from "./detailCopy";
 import { interventionRequiredLabel, renderActionActivityIndicator, type ActivityIndicatorKind } from "./activityBadge";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles, scrollBoundaryShadow } from "./shared";
 import { sidebarListStyles } from "./sidebarListStyles";
+import { ListReorderController } from "./listReorderController";
+import type { DropPosition } from "./listReorder";
 import { localization, LocalizationController } from "../localization/browser";
 import definitions from "./sessionNavigation.messages";
 
@@ -68,9 +71,13 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) scopeKey = "";
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ attribute: false }) pinnedSessionIds: string[] = [];
+  @property({ attribute: false }) machineId = "local";
+  @property({ attribute: false }) projectId = "";
+  @property({ attribute: false }) workspaceId = "";
   @property({ type: Boolean }) loading = false;
   @property({ attribute: false }) pinnedRootIds: string[] = [];
   @property({ attribute: false }) onMovePin?: (session: SessionInfo, direction: -1 | 1) => void;
+  @property({ attribute: false }) onReorderPin?: ((session: SessionInfo, neighbor: SessionInfo, position: DropPosition) => void) | undefined;
   @property({ attribute: false }) statuses: Record<string, SessionStatus> = {};
   @property({ attribute: false }) activities: Record<string, SessionActivity> = {};
   // Undefined is an older daemon; an empty map is an authoritative idle snapshot.
@@ -115,6 +122,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) onReload?: (session: SessionInfo) => void;
   @property({ attribute: false }) onCleanup?: () => void;
 
+  private readonly detailCopy = new DetailCopyController(this);
   @state() private openMenuSessionId: string | undefined;
   private menuAnchor: HTMLElement | undefined;
   @state() private archivedExpanded = false;
@@ -125,6 +133,19 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @query(".list-body") private listBody?: HTMLElement;
   private loadMoreObserver: IntersectionObserver | undefined;
   @state() private expandedAgentParents: ReadonlySet<string> = new Set();
+
+  private readonly reorder: ListReorderController<SessionInfo> = new ListReorderController<SessionInfo>(this, {
+    items: () => this.visibleSessionTree().reorderablePins,
+    enabled: () => this.pinReorderingEnabled(),
+    onDrop: (session, neighbor, position) => { this.onReorderPin?.(session, neighbor, position); },
+    onStart: () => { this.openMenuSessionId = undefined; },
+    label: sessionLabel,
+  });
+  private reorderMembership = "";
+
+  private pinReorderingEnabled(): boolean {
+    return this.onReorderPin !== undefined && !this.collapsed && this.selectionScopes.size === 0;
+  }
 
   private agentAttentionCache?: {
     rows: readonly SessionRow[];
@@ -142,6 +163,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     pins: string[];
     pinnedRootIds: string[];
     pinnedRowCount: number;
+    pinnedGroupIds: ReadonlyMap<string, string>;
+    reorderablePins: SessionInfo[];
     currentAgentOffsets: ReadonlyMap<string, number>;
     archivedAgentOffsets: ReadonlyMap<string, number>;
     currentRows: SessionRow[];
@@ -188,10 +211,17 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       const order = [...this.pinnedRootIds.filter((id) => members.has(id)), ...members];
       const projection = pinnedSessionRows(visibleAgentSessionRows(tree.currentRows, this.expandedAgentParents, tree.currentAgentGroups), order);
       const currentRows = projection.rows;
+      const pinnedGroupIds = new Map<string, string>();
+      let groupId: string | undefined;
+      for (const row of currentRows.slice(0, projection.pinnedRowCount)) {
+        if (row.depth === 0) groupId = row.session.id;
+        if (groupId !== undefined) pinnedGroupIds.set(row.session.id, groupId);
+      }
       const archivedRows = visibleAgentSessionRows(tree.archivedRows, this.expandedAgentParents, tree.archivedAgentGroups);
       this.visibleTreeCache = {
         tree, expanded: this.expandedAgentParents, pins: this.pinnedRootIds,
-        pinnedRootIds: projection.pinnedRootIds, pinnedRowCount: projection.pinnedRowCount, currentRows, archivedRows,
+        pinnedRootIds: projection.pinnedRootIds, pinnedRowCount: projection.pinnedRowCount, pinnedGroupIds, currentRows, archivedRows,
+        reorderablePins: currentRows.slice(0, projection.pinnedRowCount).filter(isPinnableRoot).map((row) => row.session),
         currentAgentOffsets: agentChildOffsets(currentRows, tree.currentAgentGroups),
         archivedAgentOffsets: agentChildOffsets(archivedRows, tree.archivedAgentGroups),
         currentSelectableSessions: currentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current"),
@@ -331,6 +361,9 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       this.autoExpandedForSelection = true;
     }
     if (changed.has("selected") || changed.has("sessions") || changed.has("pinnedSessionIds")) this.expandVisibleLimitForSelected();
+    const membership = JSON.stringify(this.visibleSessionTree().reorderablePins.map(({ id }) => id));
+    if (membership !== this.reorderMembership || changed.has("scopeKey") || changed.has("workspaceId") || changed.has("projectId") || changed.has("machineId") || !this.pinReorderingEnabled()) this.reorder.cancel();
+    this.reorderMembership = membership;
   }
 
   protected override shouldUpdate(changed: PropertyValues<this>): boolean {
@@ -387,7 +420,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   override render() {
     const tree = this.sessionTree();
     const { currentSelectableSessions } = tree;
-    const { currentRows, archivedRows, currentAgentOffsets, archivedAgentOffsets, pinnedRowCount } = this.visibleSessionTree();
+    const { currentRows, archivedRows, currentAgentOffsets, archivedAgentOffsets, pinnedRowCount, pinnedGroupIds } = this.visibleSessionTree();
     const needsAgentAttention = !this.collapsed && tree.currentAgentGroups.countByParentId.size > 0 && currentRows.some(({ session }) =>
       tree.currentAgentGroups.countByParentId.has(session.id) && !this.expandedAgentParents.has(session.id));
     const agentAttention = needsAgentAttention ? this.agentGroupAttention(tree.currentRows, tree.currentAgentGroups) : undefined;
@@ -407,7 +440,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
             ${pinnedRowCount > 0 ? html`<h2 class="subheading pin-heading">${sessionNavigationMessages.t("pinned")}</h2>` : null}
             ${repeat(visibleCurrentRows, (row) => row.session.id, (row, index) => html`
               ${pinnedRowCount > 0 && index === pinnedRowCount ? html`<h2 class="subheading pin-heading">${sessionNavigationMessages.t("recent")}</h2>` : null}
-              ${this.renderSession(row, "current", tree.currentAgentGroups.countByParentId.get(row.session.id) ?? 0, currentAgentOffsets.get(row.session.id) ?? 0, agentAttention?.get(row.session.id))}
+              ${this.renderSession(row, "current", tree.currentAgentGroups.countByParentId.get(row.session.id) ?? 0, currentAgentOffsets.get(row.session.id) ?? 0, agentAttention?.get(row.session.id), pinnedGroupIds.get(row.session.id))}
             `)}
             ${pinnedRowCount > 0 && pinnedRowCount === visibleCurrentRows.length ? html`<h2 class="subheading pin-heading">${sessionNavigationMessages.t("recent")}</h2>` : null}
             ${this.renderLoadMoreSentinel("current", visibleCurrentRows.length, currentRows.length)}
@@ -421,6 +454,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
             ` : null}
           </div>
         `}
+        <div class="list-reorder-status" role="status">${this.reorder.announcement}</div>
       </section>
     `;
   }
@@ -550,8 +584,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     `;
   }
 
-  private renderSession(row: SessionRow, scope: SessionSelectionScope, agentChildCount = 0, agentOffset = 0, agentAttention?: AgentAttention) {
+  private renderSession(row: SessionRow, scope: SessionSelectionScope, agentChildCount = 0, agentOffset = 0, agentAttention?: AgentAttention, pinnedGroupId?: string) {
     const { session } = row;
+    const reorderGroupId = this.pinReorderingEnabled() ? pinnedGroupId : undefined;
+    const reorderable = reorderGroupId === session.id && isPinnableRoot(row);
     const linkedAgentChild = agentOffset > 0;
     const cappedDepth = Math.min(row.depth, 2);
     const canBulkSelect = sessionSelectionScope(session) === scope;
@@ -574,10 +610,15 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const labelItems = this.sessionLabelItems(session);
     return html`
       <div
-        class="action-row ui-nav-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${indicatorKind === "intervention-required" ? "intervention-required" : ""} ${pinned ? "pinned" : ""} ${this.openMenuSessionId === session.id ? "menu-open" : ""} ${agentChildCount > 0 ? "has-agent-subsessions" : ""} ${linkedAgentChild ? "linked-agent-child" : ""}"
+        class="action-row ui-nav-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${indicatorKind === "intervention-required" ? "intervention-required" : ""} ${pinned ? "pinned" : ""} ${this.openMenuSessionId === session.id ? "menu-open" : ""} ${agentChildCount > 0 ? "has-agent-subsessions" : ""} ${linkedAgentChild ? "linked-agent-child" : ""} ${this.reorder.rowClass(session.id)}"
         style=${`--depth:${String(cappedDepth)};--agent-offset:${String(agentOffset)}px`}
         tabindex="0"
         data-session-id=${session.id}
+        data-reorder-id=${reorderable ? session.id : nothing}
+        data-reorder-group-id=${reorderGroupId ?? nothing}
+        data-reorderable=${String(reorderable)}
+        @pointerdown=${(event: PointerEvent) => { if (reorderable) this.reorder.begin(event, session); }}
+        @lostpointercapture=${(event: PointerEvent) => { this.reorder.handleLostPointerCapture(event); }}
         data-current=${this.selected?.id === session.id}
         aria-current=${this.selected?.id === session.id ? "true" : nothing}
         data-activity=${indicatorKind ?? "idle"}
@@ -588,7 +629,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
         data-archived=${session.archived === true}
         data-expanded=${agentChildCount > 0 ? this.expandedAgentParents.has(session.id) : nothing}
         title=${session.path}
-        @click=${(event: MouseEvent) => { activateSelectableRow(event, () => { this.activateSessionRow(session, scope); }); }}
+        @click=${(event: MouseEvent) => {
+          if (this.reorder.consumeClick()) { event.preventDefault(); event.stopPropagation(); return; }
+          activateSelectableRow(event, () => { this.activateSessionRow(session, scope); });
+        }}
         @keydown=${(event: KeyboardEvent) => { this.handleSessionKeydown(event, session, scope); }}
       >
         <div class="action-main ui-nav-row-main ${selectionActive ? "selecting" : ""}">
@@ -600,9 +644,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
         <div class="action-menu ui-nav-row-actions">
           <button class="ui-button ui-button--icon action-menu-toggle ui-nav-row-action ui-popup-trigger" aria-expanded=${String(this.openMenuSessionId === session.id)} aria-controls=${sessionMenuId(session.id)} title="${sessionNavigationMessages.t("actions")}" @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(session.id, event.currentTarget); }}>⋯</button>
           ${this.openMenuSessionId === session.id ? html`
-            <div popover="auto" class="ui-menu action-menu-panel ui-nav-row-menu ui-popup-panel" data-ui-context="session-actions" id=${sessionMenuId(session.id)}
+            <div popover="auto" class="ui-menu ui-menu--grouped action-menu-panel ui-nav-row-menu ui-popup-panel" data-ui-context="session-actions" id=${sessionMenuId(session.id)}
               @focusin=${(event: FocusEvent) => { this.focusedMenuControl = event.target instanceof HTMLElement ? event.target : undefined; }}
               @focusout=${() => { this.focusedMenuControl = undefined; }}>
+              <div class="ui-menu-group" data-menu-group="actions">
               ${this.renderPinMoveActions(row)}
               ${session.archived === true
                 ? html`
@@ -623,12 +668,15 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
                     ${session.parentSessionPath !== undefined ? html`<button class="ui-button ui-menu-item" title="${sessionNavigationMessages.t("detach")}" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>${sessionNavigationMessages.t("detach")}</button>` : null}
                     ${canReloadSession ? html`<button class="ui-button ui-menu-item" title=${isWorking ? sessionNavigationMessages.t("stopBeforeReload") : t("ui.sessionList.reloadTheSessionFromDiskWithoutRefreshingPi", "Reload the session from disk without refreshing Pi runtime resources")} ?disabled=${isWorking} @click=${() => { this.openMenuSessionId = undefined; this.onReload?.(session); }}>${sessionNavigationMessages.t("reload")}</button>` : null}
                   `}
-              ${renderCopyIdAction("session", session.id, () => { this.openMenuSessionId = undefined; })}
+              </div>
+              <div class="ui-menu-group" data-menu-group="details">
+                ${renderCopyIdAction("session", session.id, this.detailCopy)}
+              </div>
             </div>
           ` : null}
         </div>
       </div>
-      ${agentChildCount > 0 ? html`<button class="agent-subsession-toggle ui-nav-row-disclosure" style=${`--depth:${String(cappedDepth)};--agent-offset:${String(agentOffset)}px`} aria-expanded=${String(this.expandedAgentParents.has(session.id))} @click=${() => { this.toggleAgentParent(session.id); }}><span class="agent-subsession-label">${this.expandedAgentParents.has(session.id) ? "▾" : "▸"} ${sessionNavigationMessages.t("agentSubsessions", { count: agentChildCount })}</span>${!this.expandedAgentParents.has(session.id) && agentAttention !== undefined ? renderActionActivityIndicator(agentAttention.kind, agentAttention.kind === "sending" ? sessionNavigationMessages.t("sendingSubsession") : sessionNavigationMessages.t("activeSubsessions"), agentAttention.unread ? sessionNavigationMessages.t("unreadSubsession") : undefined) : null}</button>` : null}
+      ${agentChildCount > 0 ? html`<button class="agent-subsession-toggle ui-nav-row-disclosure" data-reorder-group-id=${reorderGroupId ?? nothing} style=${`--depth:${String(cappedDepth)};--agent-offset:${String(agentOffset)}px`} aria-expanded=${String(this.expandedAgentParents.has(session.id))} @click=${() => { this.toggleAgentParent(session.id); }}><span class="agent-subsession-label">${this.expandedAgentParents.has(session.id) ? "▾" : "▸"} ${sessionNavigationMessages.t("agentSubsessions", { count: agentChildCount })}</span>${!this.expandedAgentParents.has(session.id) && agentAttention !== undefined ? renderActionActivityIndicator(agentAttention.kind, agentAttention.kind === "sending" ? sessionNavigationMessages.t("sendingSubsession") : sessionNavigationMessages.t("activeSubsessions"), agentAttention.unread ? sessionNavigationMessages.t("unreadSubsession") : undefined) : null}</button>` : null}
     `;
   }
 

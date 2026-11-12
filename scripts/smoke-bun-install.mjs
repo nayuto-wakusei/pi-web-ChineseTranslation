@@ -13,6 +13,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { WebSocket } from "ws";
+import { oversizedFrame } from "./smoke-channel-frame.mjs";
 
 const exec = promisify(execFile);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -195,13 +196,18 @@ try {
   // and directly on sessiond. Malformed-JSON rejection cannot satisfy these tests.
   const boundedTerminal = await json(`${webUrl}${basePath}/terminal.create`, { revision, input: {} });
   const protocol = await import(pathToFileURL(join(packageRoot, "dist", "shared", "pluginBackendProtocol.js")).href);
+  const directChannelUrl = `${unixDaemon ? `ws+unix:${env.PI_WEB_SESSIOND_SOCKET}:` : daemonUrl.replace("http:", "ws:")}${basePath.slice(4)}/channels/terminal.attach`;
   for (const url of [
     `${webUrl.replace("http:", "ws:")}${basePath}/channels/terminal.attach`,
-    `${unixDaemon ? `ws+unix:${env.PI_WEB_SESSIOND_SOCKET}:` : daemonUrl.replace("http:", "ws:")}${basePath.slice(4)}/channels/terminal.attach`,
+    directChannelUrl,
   ]) {
-    await oversizedFrame(url, revision, boundedTerminal.id, "open", protocol.PLUGIN_BACKEND_CHANNEL_OPEN_FRAME_MAX_BYTES);
-    await oversizedFrame(url, revision, boundedTerminal.id, "data", protocol.PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES);
+    // Only Node's direct receiver may reset a connection with unread payload.
+    // Proxied/Bun paths still have to deliver the size-specific close frame.
+    const receiver = daemonRuntime === "node" && url === directChannelUrl ? daemon : undefined;
+    await oversizedFrame(url, revision, boundedTerminal.id, "open", protocol.PLUGIN_BACKEND_CHANNEL_OPEN_FRAME_MAX_BYTES, receiver);
+    await oversizedFrame(url, revision, boundedTerminal.id, "data", protocol.PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES, receiver);
   }
+  await terminalRoundTrip(`${webUrl.replace("http:", "ws:")}${basePath}/channels/terminal.attach`, revision, boundedTerminal.id);
   await json(`${webUrl}${basePath}/terminal.close`, { revision, input: { terminalId: boundedTerminal.id } });
   // Keep a real shell alive while stopping sessiond. Snapshot descendants
   // before the signal so reparenting cannot conceal a leaked process.

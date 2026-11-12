@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { parsePiWebEnvBoolean } from "../shared/configResolution.js";
+import { requireHostAccess } from "../shared/hostAccess.js";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyServerOptions } from "fastify";
@@ -11,6 +12,7 @@ import { effectivePiWebConfig } from "../config.js";
 import { loadNodeTranslator } from "../localization.js";
 import { userFacingErrorMessage, type Translator } from "../shared/i18n.js";
 import { ProjectStore } from "./storage/projectStore.js";
+import { registerBrowserRequestGuard } from "./browserRequestGuard.js";
 import { NavigationPreferenceStore } from "./storage/navigationPreferenceStore.js";
 import { registerNavigationPreferenceRoutes } from "./navigationPreferenceRoutes.js";
 import { ProjectService } from "./projects/projectService.js";
@@ -257,7 +259,13 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const projects = deps.projects ?? new ProjectService(new ProjectStore());
   const configService = deps.config ?? createFilePiWebConfigService();
   const readConfig = () => readEffectiveConfig(configService);
-  const t = deps.translator ?? loadNodeTranslator("server", await readConfig());
+  const startupConfig = await readConfig();
+  const activeHostAccess = startupConfig.hostAccess === undefined ? null : requireHostAccess(startupConfig.hostAccess);
+  registerBrowserRequestGuard(app, activeHostAccess ?? undefined);
+  if (activeHostAccess === null) {
+    app.log.warn("Host access is undecided; the hostname allowlist is off. Choose a policy in Settings → General or set hostAccess in the gateway config. Origin checks remain active.");
+  }
+  const t = deps.translator ?? loadNodeTranslator("server", startupConfig);
   const readInstallationName = async () => installationDisplayName((await readConfig()).installationName);
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
   const runtimeConfig = effectivePiWebConfig().config;
@@ -363,7 +371,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerPiPackageRoutes(app, piPackages);
   registerPiPackageRoutes(app, piPackages, "/api/machines/local");
   const invalidatingConfigService = invalidatePiWebStatusOnWrite(configService, piWebStatusCache);
-  registerConfigRoutes(app, invalidatingConfigService, t);
+  registerConfigRoutes(app, invalidatingConfigService, t, activeHostAccess);
   registerLocalMachineConfigRoutes(app, invalidatingConfigService, t);
 
   const navigationPreferences = deps.navigationPreferences ?? new NavigationPreferenceStore();

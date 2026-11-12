@@ -18,7 +18,7 @@ npm run verify
 
 该命令包含类型检查、lint、未使用代码分析和普通测试。参考[测试政策](testing.md)选择能够证明行为的最小边界，使用[测试夹具](testing-harnesses.md)查具体机制。优先复用、精简或合并现有覆盖；只有确有保护缺口才新增，不为形式完整堆叠用例。
 
-按 import 选择相关测试不能覆盖所有运行时读取的文件。文档、Docker 资产、包清单和生成产物改动还需显式选择所属检查；空测试集不是通过。本地提交钩子仍使用 `verify:staged`，不以仅 whitespace 检查代替。
+按 import 选择相关测试不能覆盖所有运行时读取的文件。文档、Docker 资产、包清单和生成产物改动还需显式选择所属检查；空测试集不是通过。本地提交钩子仍使用 `verify:staged`，不以仅 whitespace 检查代替。暂存路径参数过长时改用全量检查，以免超过 Windows 等平台的命令行长度限制。
 
 大规模暂存路径超过安全命令行长度预算时，钩子自动改用全量 lint/test，并继续保留 typecheck 与 knip 门禁。
 
@@ -144,6 +144,13 @@ Node's receiver can enforce channel payload limits during assembly. Bun's native
 ## Shared Pi runtime
 
 PI WEB reuses the user's existing Pi installation. The `/pi-web` extension gets that installation through Pi's public `getPackageDir()` API and passes it to the CLI as `PI_WEB_PI_PACKAGE_DIR`. Native service definitions retain that selection. Without an explicit selection, ordinary npm SDK resolution takes precedence; if no peer is locally resolvable, standalone commands can find an existing npm-installed `pi` executable on `PATH`. An invalid explicit selection is an error, not permission to silently select a different Pi or install one.
+
+Pi's managed installer (`https://pi.dev/install.sh`) uses a different layout. Its `pi` command is a shell script at `<agent dir>/bin/pi`. It runs the release named in `<agent dir>/install/current-version`, from `install/releases/<version>/node_modules/@earendil-works/pi-coding-agent`. PI WEB depends on that installer layout, which Pi does not document as a public interface, and follows it with only the checks needed to build a safe path:
+
+- A `pi` script on `PATH` with an `install/current-version` beside its directory selects the release named there. Without that file, it is an unsupported `pi` as before. An empty version, a version that is not a single directory name, or a missing release fails with an error naming the file and the expected SDK path.
+- `PI_WEB_PI_PACKAGE_DIR` may name the managed install root (`<agent dir>/install`). Each start then reads `current-version`, like Pi's own launcher.
+- `getPackageDir()` in managed Pi returns one release, and `pi update` deletes old releases. When a service definition would keep a release path whose install root has `current-version`, it keeps the install root instead. Before changing config or services, `pi-web install` runs the same selection a service start will run with the kept value, fails on any error, and prints the value and the Pi it currently selects.
+- A kept release path that no longer exists is not replaced with the current release. The error names the release and the install root to use instead.
 
 Standalone application code imports SDK values through `src/piSdk.ts` and AI helpers through `src/piAi.ts`. Their shared loader, `src/piRuntime.ts`, resolves the selected installation's public package exports using `import-meta-resolve`. It does not register a Node loader hook, rewrite other modules' imports, or assume private SDK file paths. Pi's own dependencies and extension loader retain their ordinary resolution and module identity. Keep runtime imports behind this boundary; canonical type-only imports are safe because they disappear from emitted JavaScript. The fork retains its explicitly supported Pi SDK peers: `0.86.1`, `0.87.0`, `1.3.0`, and `1.4.0`; use the root package manifest as the supported-version contract. Development dependencies support the checkout's tests and typechecking rather than provisioning a published runtime.
 

@@ -101,7 +101,7 @@ describe("workspace provider shutdown", () => {
     });
     const shared = providers.resolve(project);
     const controller = new AbortController();
-    const cancelled = providers.resolve(project, controller.signal);
+    const cancelled = providers.checkCurrent(project, controller.signal);
     const rejected = expect(cancelled).rejects.toMatchObject({ name: "AbortError" });
     await started.promise;
     controller.abort(new DOMException("Caller left", "AbortError"));

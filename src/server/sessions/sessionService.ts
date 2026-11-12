@@ -12,6 +12,7 @@ import type {
   SessionNotificationInboxSnapshot,
   SessionDefaults,
   SessionDefaultsUpdate,
+  SessionModelCatalogResponse,
   SessionModelScopeMode,
   SessionQueueMessageMutation,
   SessionUnreadAcknowledgeRequest,
@@ -27,7 +28,6 @@ import type {
   ClientSessionCleanupExecuteResponse,
   ClientSessionCleanupPreviewResponse,
   ClientSessionModel,
-  ClientSessionModelCatalogEntry,
   ClientSessionRef,
   ClientSessionStatus,
   ClientSessionTreeForkRequest,
@@ -79,10 +79,10 @@ export interface SessionRouteService {
   getSessionDefaults(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionDefaults>;
   setSessionDefaults(ref: SessionRouteLookup, defaults: SessionDefaultsUpdate, managementContext?: ManagementEmbedContext): Promise<SessionDefaults>;
   availableModels(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModel[]>;
-  modelCatalog(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]>;
+  modelCatalog(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogResponse>;
   setModel(ref: SessionRouteLookup, provider: string, modelId: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
-  setModelEnabled(ref: SessionRouteLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]>;
-  setModelScope(ref: SessionRouteLookup, mode: SessionModelScopeMode, managementContext?: ManagementEmbedContext): Promise<ClientSessionModelCatalogEntry[]>;
+  setModelEnabled(ref: SessionRouteLookup, provider: string, modelId: string, enabled: boolean, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogResponse>;
+  setModelScope(ref: SessionRouteLookup, mode: SessionModelScopeMode, managementContext?: ManagementEmbedContext): Promise<SessionModelCatalogResponse>;
   cycleModel(ref: SessionRouteLookup, direction: "forward" | "backward", managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;
   availableThinkingLevels(ref: SessionRouteLookup, managementContext?: ManagementEmbedContext): Promise<ClientThinkingLevel[]>;
   setThinkingLevel(ref: SessionRouteLookup, level: string, managementContext?: ManagementEmbedContext): Promise<ClientSessionStatus>;

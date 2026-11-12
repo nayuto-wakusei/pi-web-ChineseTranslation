@@ -5,7 +5,7 @@ import type { PiWebSpeechApiKeyResponse } from "../../../shared/apiTypes";
 import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_ID_MAX_LENGTH, ASK_USER_OPTION_LIMIT, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, EXTENSION_DIALOG_OPTION_LIMIT, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH, SESSION_UNREAD_COMPLETED_AT_MAX_LENGTH, SESSION_UNREAD_CWD_MAX_LENGTH, SESSION_UNREAD_LIMIT, SESSION_UNREAD_SESSION_ID_MAX_LENGTH, type ArchiveSessionsResponse, type AskUserCloseReason, type AskUserOutcome, type AskUserQuestion, type AskUserQuestionOption, type AskUserQuestionRecord, type AskUserRequest, type PendingExtensionDialog, type AuthProviderOption, type AuthProviderStatus, type AuthProvidersResponse, type AuthStatusSource, type AuthType, type CommandOption, type CommandResult, type DeleteWorkspaceFileResponse, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogKind, type ExtensionDialogOutcome, type FileContentResponse, type FileSuggestion, type FileTreeEntry, type FileTreeResponse, type GitFileState, type GitStatusFile, type GitStatusResponse, type Machine, type MachineHealth, type MachineKind, type MachineRuntime, type MachineStatus, type MessagePage, type ModelSelectionResponse, type MoveWorkspaceFileResponse, type OAuthFlowState, type PiWebAgentDirEnvSource, type PiWebCapability, type PiWebComponentStatus, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues, type PiWebInstallationInfo, type PiWebPluginConfigMap, type PiWebPluginInfo, type PiWebPluginsResponse, type PiWebPluginScope, type PiWebReleaseStatus, type PiWebRuntimeComponent, type PiWebRuntimeResponse, type PiWebServiceComponent, type PiWebShortcutConfig, type PiWebStatusMessage, type PiWebSpeechApiKeyPresence, type PiWebStatusResponse, type PiWebStatusSeverity, type Project, type QueuedSessionMessage, type SavedPromptAttachment, type SessionBulkArchiveResponse, type SessionBulkDeleteArchivedResponse, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupProjectSummary, type SessionCleanupThresholds, type SessionCleanupTotals, type SessionInfo, type SessionModel, type SessionModelCatalogEntry, type SessionModelCatalogResponse, type SessionNotification, type SessionNotificationClearReason, type SessionNotificationDismissThrough, type SessionNotificationInboxDelta, type SessionNotificationInboxEvent, type SessionNotificationInboxSnapshot, type SessionNotificationSeverity, type SessionNotificationSummary, type SessionStatus, type SessionStreamSnapshot, type SessionUnreadCatalogSnapshot, type SessionUnreadEvent, type SessionUnreadSummary, type SessionWarning, type SessionWarningSeverity, type SlashCommand, type TerminalCommandRun, type TerminalCommandRunStatus, type TerminalInfo, type ThinkingLevelsResponse, type WriteWorkspaceFileResponse, type Workspace, type WorkspaceEffectiveConfig, type WorkspaceActivity, type WorkspaceActivityResponse } from "../../../shared/apiTypes";
 import type { GlobalSessionEvent, PiPackageInfo, PiPackageInstallableSuggestion, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, ServerNotice, ServerNoticeEvent, ServerNoticeSeverity, ServerNoticeSnapshot, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot } from "../../../shared/apiTypes";
 import type { NormalAuthStatusResponse, SessionContentSearchExcerpt, SessionContentSearchMatch, SessionContentSearchResponse, SessionContentSearchResult, WorkspaceDeleteResponse, WorkspacePathOperationResponse } from "../../../shared/apiTypes";
-import type { WorkspaceTreeBatchResponse } from "../../../shared/apiTypes";
+import type { SessionLocation, WorkspaceTreeBatchResponse } from "../../../shared/apiTypes";
 import type { JsonValue } from "../../../shared/apiTypes";
 import { parseActiveAgentProfileDescriptor } from "../../../shared/activeAgentProfile";
 import { parseServerNoticePresentation } from "../../../shared/serverNoticePresentation";
@@ -24,6 +24,7 @@ import { requireDefaultThemePreference } from "../../../shared/themePreference";
 import { requireDefaultLocalization } from "../../../shared/defaultLocalization";
 import { requireDefaultStreamingBehavior } from "../../../shared/streamingBehavior";
 import { requireInstallationName } from "../../../shared/installationName";
+import { requireHostAccess } from "../../../shared/hostAccess";
 import { parseRuntimeActivityPresentation } from "../../../shared/sessionActivityPresentation";
 import { redactPiWebConfigResponse } from "../../../shared/configSecrets";
 
@@ -299,6 +300,11 @@ function parseSessionUiMetadata(value: unknown): NonNullable<SessionInfo["metada
   ));
 }
 
+export function parseSessionLocation(value: unknown): SessionLocation {
+  const record = requireRecord(value);
+  return { sessionId: requireString(record, "sessionId"), projectId: requireString(record, "projectId"), workspaceId: requireString(record, "workspaceId") };
+}
+
 export function parseSessionInfo(value: unknown): SessionInfo {
   const record = requireRecord(value);
   const name = optionalString(record, "name");
@@ -312,7 +318,6 @@ export function parseSessionInfo(value: unknown): SessionInfo {
     cwd: requireString(record, "cwd"),
     ...(persisted === undefined ? {} : { persisted }),
     ...optionalField("interventionRequired", parseOptionalBoolean(record["interventionRequired"], "interventionRequired")),
-    ...optionalField("agentSubsession", parseOptionalBoolean(record["agentSubsession"], "agentSubsession")),
     ...(name === undefined ? {} : { name }),
     ...(metadata === undefined ? {} : { metadata }),
     created: requireString(record, "created"),
@@ -320,7 +325,7 @@ export function parseSessionInfo(value: unknown): SessionInfo {
     messageCount: requireNumber(record, "messageCount"),
     firstMessage: requireString(record, "firstMessage"),
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
-    ...optionalField("agentSubsession", optionalBoolean(record, "agentSubsession")),
+    ...(parseOptionalBoolean(record["agentSubsession"], "agentSubsession") === true ? { agentSubsession: true } : {}),
     ...(record["archived"] === true ? { archived: true } : {}),
     ...(archivedAt === undefined ? {} : { archivedAt }),
   };
@@ -1341,7 +1346,9 @@ function parseSessionModelCatalogEntry(value: unknown): SessionModelCatalogEntry
 
 export function parseSessionModelCatalogResponse(value: unknown): SessionModelCatalogResponse {
   const record = requireRecord(value);
-  return { models: arrayOf(parseSessionModelCatalogEntry)(record["models"]) };
+  const scope = record["scope"];
+  if (scope !== undefined && scope !== "all" && scope !== "manual") throw new Error("Invalid model catalog scope");
+  return { models: arrayOf(parseSessionModelCatalogEntry)(record["models"]), ...optionalField("scope", scope) };
 }
 
 function parseThinkingLevel(value: unknown): string {
@@ -1687,6 +1694,7 @@ export function parsePiWebConfigResponse(value: unknown): PiWebConfigResponse {
     config: parsePiWebConfigValues(record["config"]),
     effectiveConfig: parsePiWebConfigValues(record["effectiveConfig"]),
     envOverrides: parsePiWebConfigEnvOverrides(record["envOverrides"]),
+    ...optionalField("activeHostAccess", record["activeHostAccess"] === undefined ? undefined : record["activeHostAccess"] === null ? null : requireHostAccess(record["activeHostAccess"], "response activeHostAccess")),
     ...optionalField("enforcedSettings", optionalConfigSources(record["enforcedSettings"])),
     ...optionalField("configSources", optionalConfigSources(record["configSources"])),
     ...optionalField("defaultsConfig", record["defaultsConfig"] === undefined ? undefined : parsePiWebConfigValues(record["defaultsConfig"])),
@@ -1717,11 +1725,12 @@ function optionalConfigSources(value: unknown): Record<string, string> | undefin
 function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
   const record = requireRecord(value);
   if (Object.hasOwn(record, "sessionNaming")) throw new Error("Retired PI WEB sessionNaming config field");
-  return {
+  const config: PiWebConfigValues = {
     ...optionalField("host", optionalString(record, "host")),
     ...optionalField("port", optionalNumber(record, "port")),
     ...optionalField("installationName", record["installationName"] === undefined ? undefined : requireInstallationName(record["installationName"])),
     ...optionalField("allowedHosts", optionalAllowedHosts(record["allowedHosts"])),
+    ...optionalField("hostAccess", record["hostAccess"] === undefined ? undefined : requireHostAccess(record["hostAccess"], "response hostAccess")),
     ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
     ...optionalField("defaultTheme", record["defaultTheme"] === undefined ? undefined : requireDefaultThemePreference(record["defaultTheme"], "response")),
     ...optionalField("defaultStreamingBehavior", record["defaultStreamingBehavior"] === undefined ? undefined : requireDefaultStreamingBehavior(record["defaultStreamingBehavior"], "response")),
@@ -1743,6 +1752,7 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("extensionDialogsTimeoutMs", optionalNumber(record, "extensionDialogsTimeoutMs")),
     ...optionalField("sessionArchive", record["sessionArchive"] === undefined ? undefined : parseSessionArchiveConfig(record["sessionArchive"], "response")),
   };
+  return config;
 }
 function optionalAgent(value: unknown): PiWebConfigValues["agent"] | undefined {
   if (value === undefined) return undefined;

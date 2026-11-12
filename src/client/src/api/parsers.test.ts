@@ -130,6 +130,24 @@ describe("API parsers", () => {
     expect(() => parsePiWebConfigResponse({ ...response, defaultsConfig: { basePaths: [42] } })).toThrow();
   });
 
+  it("preserves explicit Host decisions and active runtime state without inventing choices for older servers", () => {
+    const response = { path: "config.json", exists: true, config: {}, effectiveConfig: {}, envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, sessionMessages: false, askUser: false } };
+    expect(parsePiWebConfigResponse(response)).not.toHaveProperty("activeHostAccess");
+    expect(parsePiWebConfigResponse({ ...response, activeHostAccess: null }).activeHostAccess).toBeNull();
+    for (const hostAccess of [{ mode: "restricted", hosts: [] }, { mode: "restricted", hosts: ["gateway.local"] }, { mode: "any" }]) {
+      for (const field of ["config", "effectiveConfig", "defaultsConfig"] as const) {
+        expect(parsePiWebConfigResponse({ ...response, [field]: { hostAccess, allowedHosts: true } })[field]).toEqual({ hostAccess, allowedHosts: true });
+      }
+      expect(parsePiWebConfigResponse({ ...response, activeHostAccess: hostAccess }).activeHostAccess).toEqual(hostAccess);
+    }
+    // The shared validator owns the schema matrix; prove each response boundary uses it.
+    for (const field of ["config", "effectiveConfig", "defaultsConfig"] as const) {
+      expect(() => parsePiWebConfigResponse({ ...response, [field]: { hostAccess: null } })).toThrow("hostAccess");
+      expect(() => parsePiWebConfigResponse({ ...response, [field]: { hostAccess: { mode: "restricted" } } })).toThrow("hostAccess");
+    }
+    expect(() => parsePiWebConfigResponse({ ...response, activeHostAccess: { mode: "any", hosts: [] } })).toThrow("activeHostAccess");
+  });
+
   it("parses and validates installation identity in config responses", () => {
     const response = { path: "config.json", exists: true, config: { installationName: " Build lab " }, effectiveConfig: {}, envOverrides: { host: false, port: false, allowedHosts: false, maxUploadBytes: false, spawnSessions: false, subsessions: false, sessionMessages: false, askUser: false } };
     expect(parsePiWebConfigResponse(response).config.installationName).toBe("Build lab");
@@ -612,6 +630,94 @@ describe("API parsers", () => {
 
     expect(parseSessionInfo(structuredClone(expected))).toEqual(expected);
     expect(() => parseSessionInfo({ id: "s1", path: "", cwd: "/repo", persisted: "yes", created: "now", modified: "now", messageCount: 0, firstMessage: "" })).toThrow("Expected optional boolean field: persisted");
+  });
+
+  it("preserves only positive agent subsession signals and rejects malformed flags", () => {
+    const session = { id: "s1", path: "", cwd: "/repo", created: "now", modified: "now", messageCount: 0, firstMessage: "" };
+    expect(parseSessionInfo({ ...session, agentSubsession: true }).agentSubsession).toBe(true);
+    expect(parseSessionInfo(session)).not.toHaveProperty("agentSubsession");
+    expect(parseSessionInfo({ ...session, agentSubsession: false })).not.toHaveProperty("agentSubsession");
+    expect(() => parseSessionInfo({ ...session, agentSubsession: "true" })).toThrow("Expected optional boolean field: agentSubsession");
+  });
+
+  describe("session UI metadata", () => {
+    const session = {
+      id: "s1", path: "/sessions/s1.jsonl", cwd: "/repo", name: "Relay X leg 3",
+      created: "now", modified: "now", messageCount: 13, firstMessage: "Continue Relay X",
+    };
+    const metadata = {
+      "@jmfederico/pi-relay": { version: 1, packetPath: ".pi-web/relays/X", relayName: "X", leg: "3" },
+      workflow: { labels: ["review", null, true, 2], nested: { complete: false } },
+    };
+
+    it("preserves a detached namespaced JSON snapshot for session-list plugins", () => {
+      const parsed = parseSessionInfo({ ...session, metadata });
+      expect(parsed).toEqual({ ...session, metadata });
+      expect(parsed.metadata).not.toBe(metadata);
+      expect(parsed.metadata?.["workflow"]).not.toBe(metadata.workflow);
+      expect(parsed.metadata?.["workflow"]?.["labels"]).not.toBe(metadata.workflow.labels);
+      expect(parsed.metadata?.["workflow"]?.["nested"]).not.toBe(metadata.workflow.nested);
+    });
+
+    it("supports older responses without metadata and explicit empty snapshots", () => {
+      expect(parseSessionInfo(session)).not.toHaveProperty("metadata");
+      expect(parseSessionInfo({ ...session, metadata: {} }).metadata).toEqual({});
+    });
+
+    it.each([parseSessionStreamEvent, parseRealtimeStreamEvent])("preserves metadata on session.created events (%#)", (parse) => {
+      expect(parse({ type: "session.created", session: { ...session, metadata } })).toEqual({
+        type: "session.created", session: { ...session, metadata },
+      });
+    });
+
+    it.each([
+      { label: "null", value: null },
+      { label: "array", value: [] },
+      { label: "string", value: "metadata" },
+      { label: "null namespace", value: { workflow: null } },
+      { label: "array namespace", value: { workflow: [] } },
+      { label: "primitive namespace", value: { workflow: "private" } },
+      { label: "non-JSON value", value: { workflow: { value: undefined } } },
+      { label: "non-finite number", value: { workflow: { value: Number.NaN } } },
+    ])("rejects malformed metadata instead of passing it to plugins: $label", ({ value }) => {
+      expect(() => parseSessionInfo({ ...session, metadata: value })).toThrow("Invalid session metadata");
+    });
+  });
+
+  it("parses the model catalog with enabled state and natural catalog positions", () => {
+    expect(parseSessionModelCatalogResponse({
+      models: [
+        { provider: "anthropic", id: "claude-opus-4-6", name: "Claude Opus", contextWindow: 200_000, reasoning: { effort: "high" }, enabled: true, catalogIndex: 1 },
+        { provider: "anthropic", id: "claude-sonnet-4-5", enabled: false, editable: false, catalogIndex: 0 },
+      ],
+    })).toEqual({
+      models: [
+        { provider: "anthropic", id: "claude-opus-4-6", name: "Claude Opus", contextWindow: 200_000, reasoning: { effort: "high" }, enabled: true, catalogIndex: 1 },
+        { provider: "anthropic", id: "claude-sonnet-4-5", enabled: false, editable: false, catalogIndex: 0 },
+      ],
+    });
+  });
+
+  it.each(["all", "manual"] as const)("preserves the catalog's explicit %s scope independently of row membership", (scope) => {
+    const models = [{ provider: "p", id: "m", enabled: true }];
+    expect(parseSessionModelCatalogResponse({ models, scope })).toEqual({ models, scope });
+    expect(parseSessionModelCatalogResponse({ models: [], scope })).toEqual({ models: [], scope });
+  });
+
+  it("leaves an older server's availability mode unknown instead of inferring it from checked rows", () => {
+    const models = [{ provider: "p", id: "m", enabled: true }];
+    expect(parseSessionModelCatalogResponse({ models })).toEqual({ models });
+  });
+
+  it("rejects malformed model catalog entries", () => {
+    expect(() => parseSessionModelCatalogResponse({ models: [], scope: true })).toThrow("Invalid model catalog scope");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ id: "m", enabled: true }] })).toThrow("Expected string field: provider");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", enabled: true }] })).toThrow("Expected string field: id");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", id: "m", enabled: "yes" }] })).toThrow("Expected boolean field: enabled");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", id: "m", name: 4, enabled: true }] })).toThrow("Expected optional string field: name");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", id: "m", enabled: true, editable: "yes" }] })).toThrow("Invalid PI WEB editable field");
+    expect(() => parseSessionModelCatalogResponse({ models: [{ provider: "p", id: "m", enabled: true, catalogIndex: -1 }] })).toThrow("Expected non-negative safe integer field: catalogIndex");
+    expect(() => parseSessionModelCatalogResponse({})).toThrow("Expected array response");
   });
 
   it("validates session status including optional model and nullable context usage", () => {

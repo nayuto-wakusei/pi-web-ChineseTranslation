@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { defaultPiWebConfigPath, defaultPiWebDataDir, examplePiWebConfig } from "./config.js";
 import { piWebDockerCommand, type PiWebDockerMode } from "./docker/piWebDockerCommandPlan.js";
 import { ownEnvironmentValue } from "./environment.js";
-import { PI_WEB_PI_PACKAGE_DIR_ENV } from "./piRuntime.js";
+import { PI_WEB_PI_PACKAGE_DIR_ENV, selectPiRuntimePackageDir, stablePiPackageSelection } from "./piRuntime.js";
 import { runPluginRecoveryCli, type SessionDaemonRestartPlan } from "./pluginRecoveryCli.js";
 import {
   packageVersion,
@@ -309,7 +309,9 @@ function describeServiceShell(): string {
 export function nativeServiceEnvironment(configPath: string | undefined, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const environment: Record<string, string> = configPath === undefined ? {} : { PI_WEB_CONFIG: configPath };
   const piPackageDir = ownEnvironmentValue(env, PI_WEB_PI_PACKAGE_DIR_ENV);
-  if (piPackageDir !== undefined && piPackageDir !== "") environment[PI_WEB_PI_PACKAGE_DIR_ENV] = piPackageDir;
+  if (piPackageDir !== undefined && piPackageDir !== "") {
+    environment[PI_WEB_PI_PACKAGE_DIR_ENV] = stablePiPackageSelection(piPackageDir);
+  }
   const runtime = ownEnvironmentValue(env, "PI_WEB_RUNTIME");
   if (runtime !== undefined && runtime !== "") environment["PI_WEB_RUNTIME"] = runtime;
   return environment;
@@ -700,6 +702,26 @@ function printNativeServiceInstallFailure(failure: NativeServiceInstallFailure, 
   }
 }
 
+/**
+ * Run the same Pi selection each service start will run with the kept value,
+ * so an unusable value fails here, before config or services change.
+ */
+async function describeServicePiSelection(environment: Readonly<Record<string, string>>): Promise<string> {
+  const kept = ownEnvironmentValue(environment, PI_WEB_PI_PACKAGE_DIR_ENV);
+  if (kept === undefined) {
+    return `Pi: ${PI_WEB_PI_PACKAGE_DIR_ENV} not set; each service start selects Pi (npm resolution, then pi on the service PATH)`;
+  }
+  let selected: string;
+  try {
+    selected = await selectPiRuntimePackageDir({ env: { [PI_WEB_PI_PACKAGE_DIR_ENV]: kept } });
+  } catch (cause) {
+    throw new Error(`Install preflight failed without changing config or services: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+  }
+  return selected === kept
+    ? `Pi: ${PI_WEB_PI_PACKAGE_DIR_ENV}=${kept}`
+    : `Pi: ${PI_WEB_PI_PACKAGE_DIR_ENV}=${kept} (currently ${selected}; each service start reads it again)`;
+}
+
 async function install(args: string[], t: Translator = createTranslator("en", {})): Promise<void> {
   const backend = requireServiceBackend("pi-web install", t);
   const options = parseInstallOptions(args, t);
@@ -716,6 +738,8 @@ async function install(args: string[], t: Translator = createTranslator("en", {}
   if (!terminalPrerequisites.ok) {
     throw new Error(t("install.preflightFailed", "Install preflight checks failed without changing config or services. Fix the failure above, then run `pi-web doctor` for more detail."));
   }
+  const piSelection = await describeServicePiSelection(candidate.input.environment);
+  console.log(piSelection);
   const result = await installNativeServiceCandidate(candidate, {
     probe: createNativeServiceAuthoritativeProbe(),
     fileExists: regularFileExists,
@@ -733,6 +757,7 @@ async function install(args: string[], t: Translator = createTranslator("en", {}
 
   console.log(t("install.started", "\nPI WEB {mode} services are installed and starting.", { mode: options.mode }));
   console.log(t("install.config", "Config: {configPath}", { configPath: configPath }));
+  console.log(piSelection);
   if (options.mode === "dev") {
     console.log(t("install.open", "Open: {url}", { url: "http://127.0.0.1:8505" }));
   } else {

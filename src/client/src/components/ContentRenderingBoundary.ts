@@ -8,6 +8,9 @@ export class ContentRenderingBoundary extends LitElement {
   @property() source = "";
   @property() identity: string | undefined;
   @property({ attribute: false }) renderContent: (() => TemplateResult) | undefined;
+  @property({ attribute: false }) observe: ((listener: () => void) => () => void) | undefined;
+  private releaseObserver: (() => void) | undefined;
+  private boundObserver: typeof this.observe;
   private content: TemplateResult | undefined;
   private displayedSource = "";
   private dirty = true;
@@ -21,15 +24,24 @@ export class ContentRenderingBoundary extends LitElement {
   }
 
   protected override willUpdate(changes: PropertyValues<this>): void {
-    if (!changes.has("source") && !changes.has("renderContent") && !changes.has("identity")) return;
+    if (this.isConnected && this.boundObserver !== this.observe) {
+      this.releaseObserver?.();
+      this.boundObserver = this.observe;
+      this.releaseObserver = this.observe?.(this.invalidate);
+    }
     if (changes.has("identity")) {
       this.content = undefined;
       this.displayedSource = "";
     }
+    if (changes.has("source") || changes.has("renderContent") || changes.has("identity")) this.invalidate();
+  }
+
+  private readonly invalidate = (): void => {
     this.enhancement.cancel();
     this.scheduled = false;
     this.dirty = true;
-  }
+    this.requestUpdate();
+  };
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -38,7 +50,11 @@ export class ContentRenderingBoundary extends LitElement {
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
+    this.releaseObserver?.();
+    this.releaseObserver = undefined;
+    this.boundObserver = undefined;
     this.scheduled = false;
+    this.dirty = true;
   }
 
   protected override updated(): void {
@@ -50,6 +66,8 @@ export class ContentRenderingBoundary extends LitElement {
         this.displayedSource = this.source;
       } catch {
         console.warn("Markdown content enhancement failed; source remains available");
+        this.content = undefined;
+        this.displayedSource = "";
       }
       // Do not retry a failing contribution on every unrelated host update.
       this.scheduled = false;
