@@ -22,9 +22,10 @@ function rejection(url, { reqId = "probe-request", code = "WS_ERR_UNSUPPORTED_ME
   ].join("\n");
 }
 
-it("accepts a size-specific close without receiver diagnostics", async () => {
+it("authenticates the gateway probe and requires a size-specific close", async () => {
+  server.options.verifyClient = ({ req }) => req.headers.cookie === "session=fixture";
   server.on("connection", socket => socket.once("message", () => socket.close(1009)));
-  await oversizedFrame(url, "revision", "terminal", "open", 128);
+  await oversizedFrame(url, "revision", "terminal", "open", 128, { headers: { cookie: "session=fixture" } });
 });
 
 it("accepts an attributed error envelope after data admission followed by size rejection", async () => {
@@ -60,7 +61,7 @@ it.each(["open", "data"])("accepts a reset only with matching %s receiver eviden
       socket.terminate();
     });
   });
-  await oversizedFrame(url, "revision", "terminal", phase, 128, receiver);
+  await oversizedFrame(url, "revision", "terminal", phase, 128, { receiver });
 });
 
 it.each(["different probe", "different request", "wrong error", "wrong phase", "missing evidence"])("does not accept a reset with %s", async scenario => {
@@ -78,7 +79,7 @@ it.each(["different probe", "different request", "wrong error", "wrong phase", "
     );
     socket.terminate();
   }));
-  await expect(oversizedFrame(url, "revision", "terminal", "open", 128, receiver, 100)).rejects.toThrow("timed out");
+  await expect(oversizedFrame(url, "revision", "terminal", "open", 128, { receiver, timeoutMs: 100 })).rejects.toThrow("timed out");
   const readsAtTimeout = readOutput.mock.calls.length;
   // Let canceled asynchronous continuations run; no evidence poll may survive.
   await new Promise(resolve => setImmediate(resolve));

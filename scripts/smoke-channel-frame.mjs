@@ -3,10 +3,10 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { WebSocket } from "ws";
 
-export async function oversizedFrame(url, revision, terminalId, phase, limit, receiver, timeoutMs = 5_000) {
+export async function oversizedFrame(url, revision, terminalId, phase, limit, { receiver, headers, timeoutMs = 5_000 } = {}) {
   // Correlate receiver evidence to this connection, never a preceding probe.
   const probe = `smokeProbe=${randomUUID()}`;
-  const socket = new WebSocket(`${url}?${probe}`);
+  const socket = new WebSocket(`${url}?${probe}`, { headers });
   const cancellation = new AbortController();
   let timeout;
   let readyReceived = false;

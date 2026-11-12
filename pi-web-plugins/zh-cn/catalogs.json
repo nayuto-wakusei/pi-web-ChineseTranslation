@@ -246,7 +246,9 @@
     "workspaceSummary": "{label} · {path}",
     "workspaceActions": "工作区操作与详情",
     "removeWorkspace": "移除工作区",
-    "trustedBusy": "已信任…"
+    "trustedBusy": "已信任…",
+    "trustRoot": "信任根文件夹",
+    "trustRootBusy": "信任根文件夹…"
   },
   "core.images": {
     "show": "显示图片",

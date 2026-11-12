@@ -18,22 +18,28 @@ async function prepareReading(page: Page): Promise<void> {
 }
 
 async function recordEntry(page: Page) {
-  // Retarget the next native gesture after programmatic setup; Chromium can
-  // otherwise retain the previous wheel target after the transcript moves.
   await page.mouse.move(0, 500);
   await page.evaluate(() => window.codeScrollFixture.exitBelow());
   await page.evaluate(() => window.codeScrollFixture.frames());
   await page.locator("chat-view .chat").hover();
   const before = await page.evaluate(() => window.codeScrollFixture.enterFromBelow());
   const viewport = page.locator("chat-view .chat");
-  const animatedWheel = page.context().browser()?.browserType().name() === "webkit";
+  const engine = page.context().browser()?.browserType().name();
+  const animatedWheel = engine === "webkit";
   if (animatedWheel) {
     await viewport.evaluate((element) => {
       element.removeAttribute("data-wheel-ended");
       element.addEventListener("scrollend", () => { element.setAttribute("data-wheel-ended", "true"); }, { once: true });
     });
   }
-  await page.mouse.wheel(0, -360);
+  if (engine === "chromium") {
+    // After the fixture repositions the transcript, Chromium can deliver a
+    // wheel event without moving it. Set the measured travel on the scroller.
+    // prepareReading already exercised native wheel intent and left tail-follow.
+    await viewport.evaluate((element) => { element.scrollBy({ top: -360, behavior: "instant" }); });
+  } else {
+    await page.mouse.wheel(0, -360);
+  }
   if (animatedWheel) await expect(viewport).toHaveAttribute("data-wheel-ended", "true");
   await expect(page.locator(highlighted).first()).toBeAttached();
   const samples = await page.evaluate(() => window.codeScrollFixture.stopRecording());

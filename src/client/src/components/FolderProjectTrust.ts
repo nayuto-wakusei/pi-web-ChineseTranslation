@@ -4,6 +4,8 @@ import { live } from "lit/directives/live.js";
 import type { Project, Workspace } from "../api";
 import { trustApi, workspacesApi } from "../api/clients";
 import { t } from "../i18n";
+import { LocalizationController } from "../localization/browser";
+import { projectWorkspaceMessages as messages } from "../projectWorkspaceMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 
 /** Project-menu trust entry for folders whose workspace list is hidden. */
@@ -11,6 +13,7 @@ import { stylesheetIntegrationCapability } from "../plugins/styles";
 export class FolderProjectTrust extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
@@ -80,10 +83,11 @@ export class FolderProjectTrust extends LitElement {
       ${this.workspace === undefined ? null : html`
         <label>
           <input type="checkbox" .checked=${live(this.trusted === true)} ?disabled=${this.busy || this.trusted === undefined}
-            aria-describedby=${this.error === undefined ? "trust-help" : "trust-help trust-error"}
+            aria-describedby=${this.error === undefined ? "trust-path trust-help" : "trust-path trust-help trust-error"}
             @change=${(event: Event) => { if (event.target instanceof HTMLInputElement) void this.setTrust(event.target.checked); }} />
-          <span>${t("ui.main.28dc9ba9fe2f", "Trusted")}${this.busy ? "…" : ""}</span>
+          <span>${messages.t(this.busy ? "trustRootBusy" : "trustRoot")}</span>
         </label>
+        <bdi id="trust-path" hidden>${this.workspace.path}</bdi>
         <a id="trust-help" href="https://pi.dev/docs/latest/security" target="_blank" rel="noreferrer">${t("ui.main.4a0d54a22e9b", "Learn about project trust")}</a>
       `}
       ${this.error === undefined ? null : html`<small id="trust-error" role="alert">${this.error}</small>`}

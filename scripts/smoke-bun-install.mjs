@@ -204,8 +204,9 @@ try {
     // Only Node's direct receiver may reset a connection with unread payload.
     // Proxied/Bun paths still have to deliver the size-specific close frame.
     const receiver = daemonRuntime === "node" && url === directChannelUrl ? daemon : undefined;
-    await oversizedFrame(url, revision, boundedTerminal.id, "open", protocol.PLUGIN_BACKEND_CHANNEL_OPEN_FRAME_MAX_BYTES, receiver);
-    await oversizedFrame(url, revision, boundedTerminal.id, "data", protocol.PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES, receiver);
+    const options = { receiver, headers: authenticationHeaders(url) };
+    await oversizedFrame(url, revision, boundedTerminal.id, "open", protocol.PLUGIN_BACKEND_CHANNEL_OPEN_FRAME_MAX_BYTES, options);
+    await oversizedFrame(url, revision, boundedTerminal.id, "data", protocol.PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES, options);
   }
   await terminalRoundTrip(`${webUrl.replace("http:", "ws:")}${basePath}/channels/terminal.attach`, revision, boundedTerminal.id);
   await json(`${webUrl}${basePath}/terminal.close`, { revision, input: { terminalId: boundedTerminal.id } });
@@ -365,30 +366,4 @@ async function snapshotDescendants(parent) {
     }
   } while (added);
   return descendants;
-}
-async function oversizedFrame(url, revision, terminalId, phase, limit) {
-  const socket = new WebSocket(url, { headers: authenticationHeaders(url) });
-  let timeout;
-  let readyReceived = false;
-  try {
-    const ready = new Promise((resolve, reject) => socket.on("message", bytes => {
-      const frame = JSON.parse(bytes.toString());
-      if (frame.kind === "ready") { readyReceived = true; resolve(); }
-      if (frame.kind === "error" && phase === "data") reject(new Error(`Channel admission failed at ${url}: ${JSON.stringify(frame)}`));
-    }));
-    const closed = once(socket, "close");
-    const deadline = new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error(`Oversized ${phase} frame test timed out (${readyReceived ? "waiting for close" : "waiting for ready"}) at ${url}`)), 5_000); });
-    await once(socket, "open");
-    const open = { version: 1, kind: "open", revision, input: { terminalId } };
-    if (phase === "open") {
-      open.input.padding = "x".repeat(limit);
-      socket.send(JSON.stringify(open));
-    } else {
-      socket.send(JSON.stringify(open));
-      await Promise.race([ready, deadline]);
-      socket.send(JSON.stringify({ version: 1, kind: "data", data: { type: "input", data: "x".repeat(limit) } }));
-    }
-    const [code] = await Promise.race([closed, deadline]);
-    assert.equal(code, 1009, `Oversized ${phase} frame must receive size-specific rejection`);
-  } finally { clearTimeout(timeout); socket.terminate(); }
 }

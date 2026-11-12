@@ -17,7 +17,6 @@ if (folderTrust || parameters.has("menu-alignment") || parameters.has("menus")) 
 }
 
 // Real components and deterministic local data; no app runtime or session daemon.
-if (!folderTrust) trustApi.workspaceTrust = () => Promise.resolve({ path: "/repo", decision: false, trusted: false });
 const style = document.createElement("style");
 style.textContent = `
   :root { --pi-bg: #161616; --pi-surface: #252525; --pi-surface-hover: #303030; --pi-text: #eee; --pi-text-bright: #fff; --pi-border: #555; --pi-border-muted: #444; --pi-muted: #aaa; --pi-success: #8cbd9b; --pi-warning: #d1b571; --pi-accent: #aaf; --pi-selection-bg: #303044; }
@@ -40,10 +39,15 @@ projects.projects = [
   { id: "p1", name: longName, path: "/repo/very-long-project-path", createdAt: "2026-10-01" },
   { id: "p2", name: "Second project", path: "/repo/second", createdAt: "2026-10-01" },
 ];
-workspacesApi.workspaces = (projectId) => Promise.resolve(projects.projects
-  .filter((project) => project.id === projectId)
-  .map((project) => ({ id: `${projectId}-root`, projectId, path: project.path, label: "Root", isMain: true, effectiveConfig: {} })));
-trustApi.setWorkspaceTrust = (_projectId, _workspaceId, trusted) => Promise.resolve({ path: "/repo", decision: trusted, trusted });
+if (!folderTrust) {
+  workspacesApi.workspaceResolution = (projectId) => Promise.resolve({
+    status: "folder", projectId, diagnostics: [],
+    workspaces: projects.projects.filter((project) => project.id === projectId)
+      .map((project) => ({ id: `${projectId}-root`, projectId, path: project.path, label: "Root", isMain: true, effectiveConfig: {} })),
+  });
+  trustApi.workspaceTrust = () => Promise.resolve({ path: "/repo", decision: false, trusted: false });
+  trustApi.setWorkspaceTrust = (_projectId, _workspaceId, trusted) => Promise.resolve({ path: "/repo", decision: trusted, trusted });
+}
 const selectedProject = projects.projects[0];
 if (selectedProject === undefined) throw new Error("Missing project fixture");
 projects.selected = selectedProject;

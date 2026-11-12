@@ -20,7 +20,7 @@ test("folder project trust is reachable without a workspace section", async ({ p
   await page.goto("/navigation.html?folder-trust");
   const projects = page.locator("project-list");
   await projects.locator(".action-menu-toggle").click();
-  const checkbox = projects.getByRole("checkbox", { name: "已信任", exact: true });
+  const checkbox = projects.getByRole("checkbox", { name: "信任根文件夹", exact: true });
   await expect(checkbox).toBeEnabled();
   await expect(page.locator("workspace-list")).toHaveCount(0);
   await expect(checkbox).not.toBeChecked();
