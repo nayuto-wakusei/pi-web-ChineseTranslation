@@ -6,7 +6,7 @@ import { requireAuthorizedBookstackAction } from "./knowledgeSearch.js";
 import type { BookstackOperationRequest } from "./types.js";
 import { WorkbenchHttpError } from "./workbenchClient.js";
 import type { WorkbenchToolDependencies } from "./workbenchTools.js";
-import { BookstackWriteIntents } from "./bookstackWriteIntents.js";
+import { BookstackWriteIntents, bookstackBookFingerprint } from "./bookstackWriteIntents.js";
 
 const entityId = Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
 const ReadParams = Type.Object({
@@ -112,7 +112,7 @@ export function createBookstackOperationTools(deps: Pick<WorkbenchToolDependenci
         // Once dispatched, only the response or a receipt can establish the outcome.
         signal?.throwIfAborted();
         const fingerprint = createHash("sha256").update(JSON.stringify(body)).digest("hex");
-        const book = createHash("sha256").update(body.resourceName).digest("hex");
+        const book = bookstackBookFingerprint(body.resourceName);
         const turnId = intents.currentTurn(toolCallId);
         const other = intents.requiresReview(book, fingerprint, turnId);
         if (other) {

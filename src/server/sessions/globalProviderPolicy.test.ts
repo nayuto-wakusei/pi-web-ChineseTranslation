@@ -281,14 +281,13 @@ describe("bootstrapAndFreezeGlobalExtensionProviders", () => {
     expect(baselineRegisteredIds).toEqual(["global-config", "global-native"]);
     expect(baselineProviderIds).toEqual(expect.arrayContaining(["global-config", "global-native", TEST_MODEL_PROVIDER]));
 
-    // Pi 0.82 rebuilds every provider inside refresh(), and PI WEB's background
-    // refresher calls it hourly, so ignored mutations must stay ignored across it.
+    // Exercise the real provider rebuild without relying on the external catalog.
     registerProjectConfigProvider(runtime);
     runtime.registerNativeProvider(nativeProvider("project-native"));
     runtime.unregisterProvider("global-config");
     runtime.unregisterProvider("global-native");
-    await runtime.refresh();
-    await runtime.refresh();
+    await runtime.refresh({ allowNetwork: false });
+    await runtime.refresh({ allowNetwork: false });
 
     expect([...runtime.getRegisteredProviderIds()].sort()).toEqual(baselineRegisteredIds);
     expect(runtime.getProviders().map((provider) => provider.id).sort()).toEqual(baselineProviderIds);

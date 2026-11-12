@@ -16,7 +16,12 @@ await registry.register({ id: "code-highlight", plugin: adaptPublicPlugin(plugin
 const chat = new ChatView();
 chat.sessionId = "code-scroll";
 chat.machineId = "local";
-chat.behaviors = { ...DEFAULT_CHAT_BEHAVIORS, automaticHistory: false, loadImages: false, rememberDisclosures: false, visualEffects: false };
+chat.behaviors = {
+  ...DEFAULT_CHAT_BEHAVIORS,
+  // Isolate deferred-layout anchoring from the independent startup scroll flows.
+  followTail: false, rememberPosition: false, automaticHistory: false,
+  loadImages: false, rememberDisclosures: false, visualEffects: false,
+};
 chat.historyReady = true;
 chat.contentRendering = registry.getChatContentRendering("local");
 const filler = (index: number) => ({ entryId: `filler-${String(index)}`, role: "user" as const, parts: [{ type: "text" as const, text: "Readable surrounding transcript. ".repeat(30) }] });
@@ -61,32 +66,26 @@ async function frames(count = 2) {
   return samples;
 }
 let samples: ReturnType<typeof geometry>[] = [];
-let recording = false;
-function recordFrame(): void {
-  if (!recording) return;
-  // Sample after the frame's layout/scroll RAFs, not halfway through the
-  // production viewport transaction before the browser has painted it.
-  setTimeout(() => {
-    if (!recording) return;
-    samples.push(geometry());
-    requestAnimationFrame(recordFrame);
-  }, 0);
-}
-function startRecording(): void {
-  samples = [geometry()];
-  recording = true;
-  requestAnimationFrame(recordFrame);
-}
+// ResizeObserver reports layout changes after animation-frame callbacks.
+// A timer can read geometry between a DOM update and the next frame's anchoring.
+const observer = new ResizeObserver(() => { samples.push(geometry()); });
 async function stopRecording() {
   await frames();
-  recording = false;
+  observer.disconnect();
+  samples.push(geometry());
   return samples;
 }
 function enterFromBelow() {
-  startRecording();
-  return geometry();
+  const before = geometry();
+  samples = [before];
+  observer.observe(wrapper);
+  // Retire pending layout work as a scrollbar drag would, then apply exact travel.
+  viewport.dispatchEvent(new PointerEvent("pointerdown"));
+  viewport.scrollTop -= 360;
+  return before;
 }
 function exitBelow() {
+  viewport.dispatchEvent(new PointerEvent("pointerdown"));
   viewport.scrollTop += wrapper.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top + 200;
   return geometry();
 }
@@ -96,4 +95,5 @@ declare global {
   }
 }
 window.codeScrollFixture = { geometry, frames, enterFromBelow, exitBelow, stopRecording };
+viewport.scrollTop = viewport.scrollHeight;
 document.body.dataset["ready"] = "true";

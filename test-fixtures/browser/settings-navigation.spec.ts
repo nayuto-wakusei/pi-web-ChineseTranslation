@@ -17,7 +17,7 @@ async function isolateRequests(page: Page) {
 async function openSettings(page: Page, query = "") {
   await isolateRequests(page);
   await page.goto(`/settings-navigation.html${query}`);
-  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("button", { name: "Open settings" }).press("Enter");
   await expect(page.locator("body")).toHaveAttribute("data-opened", "true");
   const modal = page.getByRole("dialog", { name: "PI WEB settings", exact: true });
   await expect(modal).toBeVisible();
@@ -65,7 +65,7 @@ test("routes the gateway warning through existing Notices without a session or w
   const action = notice.getByRole("button", { name: "Open General settings" });
   await expect(action).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: testInfo.outputPath("gateway-notices.png") });
-  await action.click();
+  await action.press("Enter");
   const modal = page.getByRole("dialog", { name: "PI WEB settings", exact: true });
   await expect(modal).toBeVisible();
   const selector = page.locator('[data-settings-target="host-access"]').getByRole("combobox");
@@ -168,7 +168,7 @@ test("confirms a hostname lockout without losing the draft or closing Settings",
   await hosts.fill(draft);
 
   for (const dismiss of ["cancel", "escape"]) {
-    await save.click();
+    await save.press("Enter");
     await expect(prompt).toBeVisible();
     await expect(confirmation.locator("#confirmation-cancel")).toBeFocused();
     expect(await page.evaluate(() => window.settingsNavigationFixture.configUpdates())).toEqual([]);

@@ -1,6 +1,6 @@
 {
   "name": "@chainingintention/pi-web-cn",
-  "version": "2.202611.9",
+  "version": "2.202611.10",
   "description": "Web UI for persistent Pi Coding Agent sessions in real workspaces.",
   "license": "MIT",
   "author": "Federico Jaramillo Martinez",
@@ -161,6 +161,11 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "overrides": {
+    "@earendil-works/pi-coding-agent@1.4.0": {
+      "undici": "$undici"
+    }
   },
   "engines": {
     "node": ">=22.19.0"

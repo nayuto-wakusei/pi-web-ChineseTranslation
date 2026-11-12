@@ -1,5 +1,25 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.10
+
+### Patch Changes
+
+- 546a8d5: Stop cancelled BookStack writes before dispatch. If a submitted write loses its response, recover its original receipt across session restarts and repeated tool calls.
+- Keep the conversation at its current reading position when it is hidden and new messages arrive.
+- 77a07ba: Identify the root folder in the project trust menu and announce its path to screen readers before changing trust.
+- 926a7a5: Make the Chinese interface ready sooner by skipping unrelated plugin scans while loading the bundled language pack.
+- 1dc1aee: Fix missing Chinese translations for the Notices panel title and empty state.
+- 926a7a5: Open large workspaces faster by loading the Files source viewer only when needed and speeding up file icon lookup. Keep plain-text source and Download available if the viewer fails to load.
+- 926a7a5: Load the message editor only when opening a conversation, reducing startup downloads on the login page and in empty workspaces.
+- 546a8d5: Add input, external material and tool safety checks to management embed sessions, including controlled terminal and workbench capability calls. Blocked operations return a feedback event ID.
+- fb35fe8: Drag projects, workspaces, and pinned session trees to reorder them in the sidebar. Insertion feedback, edge scrolling, and press-and-hold dragging on touch screens complement the existing Move up and Move down menus. All paths share the saved order across devices. Prevent text selection from competing with row dragging on Safari, and add a copyable project path to the project menu. Unify project, workspace, session, and machine menus into actions, options, and details groups. Keep Copy ID last in Details without displaying the ID value, keep menus open after copying, and label the project action Close project.
+- 9271b42: Provision shipped automatic Pi packages once per agent profile so removals through `pi remove` or manual package-settings edits persist across daemon restarts. Preserve existing Settings dismissals, retry failed initial installs, and keep configured copies aligned with the running PI WEB version without changing resource filters. Explicit reinstall remains available. Older CLI or manual removals without a provisioning record may receive one final automatic reinstall during rollout.
+- 926a7a5: Avoid duplicate file tree loads when opening a workspace and batch expanded directory listings. Keep long streaming replies more responsive by formatting at a bounded rate while preserving the final Markdown.
+- Keep uncertain BookStack writes pending until a receipt for the same book and operation is confirmed, even if two books were given the same idempotency key.
+- 5a1ce46: 首次打开或登录 PI WEB 时直接显示已启用的定制界面，不再先闪现默认布局。保留地址补全期间正在加载的聊天，并恢复 Codex 输入区的键盘焦点提示。
+- 7cf9a20: Clarify the Swedish retry label when checking whether a project is trusted.
+- 791bc03: Support stateless Workbench MCP endpoints alongside existing session-based endpoints, and send the negotiated protocol version on subsequent requests.
+
 ## 2.202611.9
 
 ### Patch Changes

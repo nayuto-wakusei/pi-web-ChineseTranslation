@@ -3,7 +3,7 @@ import { expect, test, type CDPSession, type Page } from "@playwright/test";
 test.beforeEach(async ({ page }) => {
   await page.goto("/image-gallery.html");
   await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
-  await page.getByRole("button", { name: "Open images", exact: true }).click();
+  await page.getByRole("button", { name: "Open images", exact: true }).press("Enter");
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("img", { name: "Second", exact: true })).toBeVisible();
 });

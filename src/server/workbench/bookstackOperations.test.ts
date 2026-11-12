@@ -284,6 +284,23 @@ describe("BookStack entity tools", () => {
     expect(another.write.mock.calls[0]?.[1].idempotencyKey).not.toBe(restarted.write.mock.calls[0]?.[1].idempotencyKey);
   });
 
+  it("does not resolve another book's pending write when a receipt uses the same key", async () => {
+    const h = harness(["update"]);
+    const otherBook = "bookstack.gx.2";
+    h.state.resources.push({ ...resource(["update"]), resourceName: otherBook });
+    const original = { ...updateInput(), idempotency_key: "reused-key" };
+    const other = { ...original, resource_name: otherBook };
+    h.write.mockRejectedValue(new TypeError("response lost"));
+    await expect(h.writeTool.execute("first", original, undefined, undefined, context())).rejects.toThrow("reused-key");
+    await expect(h.writeTool.execute("second", other, undefined, undefined, context())).rejects.toThrow("reused-key");
+
+    await h.receiptTool.execute("receipt", { resource_name: original.resource_name, idempotency_key: "reused-key" }, undefined, undefined, context());
+    h.receipt.mockRejectedValueOnce(new WorkbenchHttpError(404, "Receipt unavailable for this book"));
+    await expect(h.writeTool.execute("changed", { ...other, markdown: "New text", idempotency_key: "new-key" }, undefined, undefined, context())).rejects.toThrow("reused-key");
+    expect(h.receipt).toHaveBeenLastCalledWith("agent-secret", { resourceName: otherBook, idempotencyKey: "reused-key" }, undefined);
+    expect(h.write).toHaveBeenCalledTimes(2);
+  });
+
   it("queries own historical receipts after resource removal without obtaining a write grant or sending a write", async () => {
     const h = harness();
     h.state.resources = [];

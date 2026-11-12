@@ -5,42 +5,13 @@ const highlighted = "pi-web-highlighted-code .hljs-keyword";
 async function prepareReading(page: Page): Promise<void> {
   await page.goto("/code-scroll.html");
   await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
-  await page.evaluate(() => window.codeScrollFixture.frames());
-  // Real wheel intent retires ChatView's initial follow/restore state. Geometry
-  // setup below then isolates deferred layout from the wheel's own animation.
-  await page.locator("chat-view .chat").hover();
-  await page.mouse.wheel(0, -40);
-  await expect.poll(() => page.evaluate(() => {
-    const scroller = document.querySelector("chat-view")?.shadowRoot?.querySelector(".chat");
-    return scroller !== null && scroller !== undefined && scroller.scrollTop < scroller.scrollHeight - scroller.clientHeight - 10;
-  })).toBe(true);
-  await page.evaluate(() => window.codeScrollFixture.frames());
 }
 
 async function recordEntry(page: Page) {
-  await page.mouse.move(0, 500);
   await page.evaluate(() => window.codeScrollFixture.exitBelow());
   await page.evaluate(() => window.codeScrollFixture.frames());
-  await page.locator("chat-view .chat").hover();
   const before = await page.evaluate(() => window.codeScrollFixture.enterFromBelow());
-  const viewport = page.locator("chat-view .chat");
-  const engine = page.context().browser()?.browserType().name();
-  const animatedWheel = engine === "webkit";
-  if (animatedWheel) {
-    await viewport.evaluate((element) => {
-      element.removeAttribute("data-wheel-ended");
-      element.addEventListener("scrollend", () => { element.setAttribute("data-wheel-ended", "true"); }, { once: true });
-    });
-  }
-  if (engine === "chromium") {
-    // After the fixture repositions the transcript, Chromium can deliver a
-    // wheel event without moving it. Set the measured travel on the scroller.
-    // prepareReading already exercised native wheel intent and left tail-follow.
-    await viewport.evaluate((element) => { element.scrollBy({ top: -360, behavior: "instant" }); });
-  } else {
-    await page.mouse.wheel(0, -360);
-  }
-  if (animatedWheel) await expect(viewport).toHaveAttribute("data-wheel-ended", "true");
+  expect(before.blockBottom).toBeLessThan(0);
   await expect(page.locator(highlighted).first()).toBeAttached();
   const samples = await page.evaluate(() => window.codeScrollFixture.stopRecording());
   const after = samples.at(-1);
@@ -51,14 +22,8 @@ async function recordEntry(page: Page) {
 async function expectStableEntry(page: Page): Promise<void> {
   const { before, after, samples } = await recordEntry(page);
   // Deferred layout may change the scroll offset by the block's height delta;
-  // the visible bottom edge should move only by the user's wheel travel.
-  if (page.context().browser()?.browserType().name() === "webkit") {
-    // WebKit may finish its animated wheel early when layout compensation
-    // changes scrollTop. The same bottom portion must still remain visible.
-    expect(after.blockBottom).toBeGreaterThan(0);
-  } else {
-    expect(Math.abs(after.blockBottom - before.blockBottom - 360), JSON.stringify({ before, after })).toBeLessThanOrEqual(1);
-  }
+  // the visible bottom edge should move only by the requested scroll distance.
+  expect(Math.abs(after.blockBottom - before.blockBottom - 360), JSON.stringify({ before, after })).toBeLessThanOrEqual(1);
   for (const sample of samples) {
     expect(sample.blockBottom).toBeGreaterThanOrEqual(before.blockBottom - 1);
     expect(sample.blockBottom).toBeLessThanOrEqual(before.blockBottom + 361);

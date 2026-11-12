@@ -1,7 +1,12 @@
+import { createHash } from "node:crypto";
 import { isRecord } from "./workbenchClient.js";
 import type { BookstackOperationReceipt } from "./types.js";
 
 const entryType = "pi-web.bookstack-write-intent";
+
+export function bookstackBookFingerprint(resourceName: string): string {
+  return createHash("sha256").update(resourceName).digest("hex");
+}
 
 export interface BookstackSessionJournal {
   getBranch(): readonly unknown[];
@@ -67,10 +72,11 @@ export class BookstackWriteIntents {
     this.latest.set(row.fingerprint, row);
   }
 
-  receipt(key: string | undefined, result: Pick<BookstackOperationReceipt, "operationId" | "status" | "resolution">, turnId?: string, reviewTurn?: string): void {
+  receipt(key: string | undefined, result: Pick<BookstackOperationReceipt, "resourceName" | "operationId" | "status" | "resolution">, turnId?: string, reviewTurn?: string): void {
     const { operationId, status } = result;
+    const book = bookstackBookFingerprint(result.resourceName);
     for (const row of this.latest.values()) {
-      if (row.status === "pending" && (row.key === key || row.operationId === operationId)) {
+      if (row.status === "pending" && row.book === book && (row.operationId === undefined ? row.key === key : row.operationId === operationId)) {
         const next = result.resolution ? (result.resolution.outcome === "applied" ? "succeeded" : "failed") : status === "unknown" ? "pending" : status;
         const acknowledgedTurn = next === "pending" ? row.turnId : turnId ?? row.turnId;
         if (row.operationId !== operationId || next !== row.status || acknowledgedTurn !== row.turnId || (reviewTurn !== undefined && reviewTurn !== row.reviewTurn)) {

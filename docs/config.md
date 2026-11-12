@@ -490,6 +490,8 @@ Skill bundle 只从 MCP origin 下载，校验授权固定版本与 manifest，�
 
 保留原 `idempotencyKey` 和已返回的操作编号，调用 `workbench_get_bookstack_operation` 核查。回执状态为 `pending/succeeded/unknown/failed`，可能另带 `resolution`（实际核实者、时间、依据、`applied/not_applied` 结论）；核实不会改写原执行状态。同一手册有写入待确认时，PI WEB 只用原幂等键查回执。恢复会话、更换工具调用编号或幂等键后仍按此处理。若请求改了标题或正文，工具会提示本次修改未发送，本轮也不会补发。原结果确认后，用户可在新一轮明确发起相同或修改后的操作，包括重新创建页面。各 PI WEB 会话分别保存自己的记录。手册已删除或当前授权已撤销时，有效账号仍可查本人历史回执。未结案的 `pending/unknown` 会冻结同书新写入，须由工作台平台管理员核对原生结果并结案；这是异常恢复流程，不是正常写入审批，PI WEB 工具不会替管理员解冻或重放。
 
+查询回执时使用原写入的 `resource_name`。只有同一手册的回执能更新该手册的待确认记录；已记录操作编号时，回执也必须匹配该编号。
+
 定向读取、写入及回执分别调用后端 `POST /api/agent-access/bookstack/read`、`POST /api/agent-access/bookstack/operations`、`POST /api/agent-access/bookstack/operations/receipt`，把工具的 snake_case 参数转换为 camelCase；成功响应均为 HTTP `200`，执行结果以正文 `status` 区分。RAGFlow 检索和受控 MCP 的 `L0` 只读能力边界保持不变。
 
 先协调部署匹配的 Workbench 后端与 BookStack 原生补丁，确保资源快照、knowledge token、检索、读写及回执 endpoint 可用，再更新 PI WEB；旧后端不会因升级 PI WEB 自动具备写入能力。BookStack 凭据只在后端，不新增 PI WEB BookStack 配置。工具更新需重启 `pi-web-sessiond.service`，Web/API 与 daemon 保持版本及有效配置一致；共享 endpoint/limit 改变时重启两进程。

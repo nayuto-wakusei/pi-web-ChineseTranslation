@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 async function openRestart(page: Page, query = "") {
   await page.route("**/api/**", (route) => { throw new Error(`Unexpected live API request: ${route.request().url()}`); });
   await page.goto(`/restart.html${query}`);
-  await page.getByRole("button", { name: "Open restart", exact: true }).click();
+  await page.getByRole("button", { name: "Open restart", exact: true }).press("Enter");
   // Controls are slotted from the owner's shadow root into ModalSurface.
   const dialog = page.locator("restart-dialog");
   await expect(dialog.getByRole("dialog", { name: "Restart PI WEB", exact: true })).toBeVisible();
