@@ -1,5 +1,11 @@
 ﻿# @chainingintention/pi-web-cn
 
+## 2.202611.11
+
+### Patch Changes
+
+- f21cbea: 工作台嵌入会话在护栏检查处记录发起用户、材料来源、脱敏现场和实际处置；正常放行按小时汇总投递。
+
 ## 2.202611.10
 
 ### Patch Changes
