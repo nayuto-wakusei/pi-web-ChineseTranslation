@@ -428,9 +428,9 @@ ES 错误记日志，不停止管理会话。有界内存队列重试，并在�
 | `PI_GUARDRAIL_MATERIAL_MODE` | 外部文本使用 Horizon Small。默认 `shadow`，设为 `enforce` 后等待决定，命中时隔离材料并提供事件号。 |
 | `PI_GUARDRAIL_TIMEOUT_MS` | 模型 HTTP 请求超时，范围 1–120000，默认 5000 毫秒，本机 CPU 联测使用 40000。 |
 | `PI_GUARDRAIL_AUDIT_URL` | 工作台后端完整写入 URL，路径为 `/api/internal/guardrails/events`。 |
-| `GUARDRAIL_AUDIT_TOKEN` | sessiond 与工作台后端共享的审计写入 Secret。轮换后需重启两端，使用它生成的项目、会话关联标识也会变化。 |
+| `GUARDRAIL_AUDIT_TOKEN` | sessiond 与工作台后端共享的审计写入 Secret。轮换后同步更新并重启两端。 |
 
-旁路异步提交，单个 daemon 最多同时保留 8 个待处理的语义检查。达到上限记录 `shadow_capacity`。模型命中或需要复核时记录 `shadow_hit`，业务流程继续。强制模式下，Qwen 需要复核时提示补充用途，必需的检测器超时或返回无效结果时暂停当前操作。审计在 Pi 数据目录的 `guardrails/pending.sqlite` 排队，按原事件 ID 跨重启补投至工作台。若 Pi 本地队列也无法落盘，受保护操作暂停，这次反馈事件号可能无法在管理员页查到。存储恢复后新发起的操作取得新事件号。用户可将事件号反馈给平台管理员，只有 `platform_admin` 能读取工作台护栏日志。 [管理嵌入与审计](admin/management-audit.md#工作台嵌入护栏)
+旁路异步提交，单个 daemon 最多同时保留 8 个待处理的语义检查。达到上限记录 `shadow_capacity`。模型命中或需要复核时记录 `shadow_hit`，业务流程继续。强制模式下，Qwen 需要复核时提示补充用途，必需的检测器超时或返回无效结果时暂停当前操作。审计先落在 Pi 数据目录的 `guardrails/pending.sqlite`。风险事件立即尝试投往工作台主 ES 专用护栏索引。普通放行按 UTC 小时、项目和阶段累计，小时结束后以固定批次 ID 投递。网络或主 ES 故障时本地队列可跨重启补投，兼容 v1 待投事件。工作台保留 90 天。风险现场中，脱敏用户任务、材料定位和命中上下文合计最多 8000 个 Unicode 字符。若 Pi 本地队列也无法落盘，受保护操作暂停，这次反馈事件号可能无法在管理员页查到。存储恢复后新发起的操作取得新事件号。用户可将事件号反馈给平台管理员，只有 `platform_admin` 能读取工作台护栏日志。 [管理嵌入与审计](admin/management-audit.md#工作台嵌入护栏)
 
 <a id="workbench-and-mcp-integration"></a>
 ### Workbench 与 MCP 集成

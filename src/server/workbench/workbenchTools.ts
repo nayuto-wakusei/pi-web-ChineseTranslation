@@ -144,7 +144,7 @@ export function createWorkbenchToolDefinitions(deps: WorkbenchToolDependencies) 
           operationSignal.throwIfAborted();
           try {
             const capability = requireAuthorizedL0Capability(state.resources, params.capability_name, t);
-            const invocation = await callWithOneTransientRetry(deps, state, capability.resourceName, capability.resourceVersion, params.arguments, params.idempotency_key, runId, traceId, operationSignal, t);
+            const invocation = await callWithOneTransientRetry(deps, state, capability.resourceName, capability.resourceVersion, params.arguments, params.idempotency_key, runId, traceId, _toolCallId, operationSignal, t);
             deps.logger?.info({
               ...deps.auditContext,
               agentSessionId: state.sessionId,
@@ -258,10 +258,10 @@ async function executeKnowledgeRetrieval(
 async function guardedKnowledgeText(scope: GuardrailScope, result: KnowledgeRetrievalResult | BookstackRetrievalResult, signal?: AbortSignal): Promise<string> {
   const entries = "pages" in result ? result.pages : result.chunks;
   const safe = [];
-  for (const entry of entries) {
+  for (const [index,entry] of entries.entries()) {
     signal?.throwIfAborted();
     // Inspect titles, links, and citations together with the source body. Never retain metadata from an isolated item.
-    const checked = await checkManagementMaterial(scope, JSON.stringify(entry));
+    const checked = await checkManagementMaterial({...scope,origin:"knowledge",materialRef:"entries[" + String(index) + "]"}, JSON.stringify(entry));
     safe.push(checked.isolated ? { isolated: true, content: checked.text } : entry);
   }
   return JSON.stringify({ ...result, ["pages" in result ? "pages" : "chunks"]: safe });
@@ -333,6 +333,7 @@ async function callWithOneTransientRetry(
   idempotencyKey: string | undefined,
   runId: string,
   traceId: string,
+  toolCallId: string,
   signal: AbortSignal,
   t: Translator,
 ) {
@@ -341,7 +342,7 @@ async function callWithOneTransientRetry(
     let retryAfterMs: number | undefined;
     try {
       if (deps.guardrailScope) {
-        await checkManagementTool(deps.guardrailScope, "icnoc_call_capability",
+        await checkManagementTool({...deps.guardrailScope,origin:"mcp",traceId,toolCallId,sessionId:deps.guardrailScope.sessionId ?? state.sessionId}, "icnoc_call_capability",
           { capability_name: capabilityName, arguments: args }, [capabilityName]);
         signal.throwIfAborted();
       }

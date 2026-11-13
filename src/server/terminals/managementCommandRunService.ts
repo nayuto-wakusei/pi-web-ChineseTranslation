@@ -80,7 +80,7 @@ export class ManagementCommandRunService {
     if (options.managementContext.tools?.deny?.includes("terminal-command-runs") === true || !managementToolAllowed(options.managementContext, "terminal-command-runs")) {
       throw new Error("Terminal command runs are disabled in management embed mode");
     }
-    await checkManagementTool({ managementContext: options.managementContext, cwd: options.cwd, projectId: options.projectId },
+    await checkManagementTool({ origin:"direct_terminal", managementContext: options.managementContext, cwd: options.cwd, projectId: options.projectId },
       "terminal-command-runs", { command: options.command, projectId: options.projectId });
     const commandRunId = randomUUID();
     const terminalId = randomUUID();

@@ -2546,7 +2546,8 @@ export class PiSessionService {
     this.assertTreeNavigationInactive(child, "resume a subsession");
     if (this.hasActiveWork(child)) throw new Error("Subsession is already working");
     const text = requirePromptText(prompt ?? "Continue your previous task from the current conversation and workspace state. Check any interrupted work before repeating it.", this.t);
-    const scope = this.guardrailScope(child);
+    const childScope = this.guardrailScope(child);
+    const scope = childScope && {...childScope, origin:"delegation", task:text, turnId:randomUUID()};
     if (scope) await checkManagementInput(scope, text);
     if (this.hasActiveWork(child)) throw new Error("Subsession is already working");
     const submit = () => this.beginPromptSubmission(child, text, undefined, [], true, { expandPromptTemplates: false });
@@ -2584,7 +2585,7 @@ export class PiSessionService {
     const session = await this.getOrOpen(ref, managementContext);
     this.assertTreeNavigationInactive(session, "receive a session message");
     const scope = this.guardrailScope(session);
-    const screened = scope ? (await checkManagementMaterial(scope, message)).text : message;
+    const screened = scope ? (await checkManagementMaterial({...scope,origin:"delegation"}, message)).text : message;
     const delivery = this.hasActiveWork(session) ? "queued" : "started";
     let agentStarted = false;
     const unsubscribe = session.subscribe((event) => {
@@ -3350,7 +3351,8 @@ export class PiSessionService {
     const parsedAttachments = parsePromptAttachments(attachments, { enforceInlineSizeLimit: false });
     await this.assertWritable(ref, options?.managementContext);
     const session = await this.getOrOpen(ref, options?.managementContext);
-    const scope = this.guardrailScope(session);
+    const baseScope = this.guardrailScope(session);
+    const scope = baseScope && {...baseScope, task:promptText, turnId:randomUUID()};
     if (scope) await checkManagementInput(scope, promptText);
     const checked = scope ? await inspectAttachments(scope, parsedAttachments) : parsedAttachments;
     const images = (await attachmentsToInlineImages(checked)).map((entry) => entry.image);
@@ -3516,7 +3518,7 @@ export class PiSessionService {
     if (session.isBashRunning) throw new Error(this.t("shell.alreadyRunning", "A bash command is already running"));
 
     const scope = this.guardrailScope(session);
-    if (scope) await checkManagementTool(scope, "bash", { command });
+    if (scope) await checkManagementTool({...scope,origin:"direct_terminal"}, "bash", { command });
     const eventScope = active.eventScope;
     this.publishActivity(session, { kind: "runningBash" }, "active", command);
     this.events.publish(session.sessionId, { type: "shell.start", command, excludeFromContext: isExcluded }, eventScope);

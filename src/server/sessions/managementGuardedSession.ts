@@ -7,13 +7,13 @@ import { SUBSESSION_NOTIFICATION_CUSTOM_TYPE } from "./subsessionCompletionInbox
 import { UserFacingError } from "../../shared/i18n.js";
 import {
   checkManagementInput, checkManagementMaterial, checkManagementTool, checkManagementUninspectableMaterial,
-  managementGuardrailFailure, ManagementGuardrailError, type GuardrailScope,
+  managementGuardrailFailure, ManagementGuardrailError, withGuardrailTurn, type GuardrailScope,
 } from "../guardrails/managementGuardrails.js";
 
 const approved = new AsyncLocalStorage<{ scope: GuardrailScope; text: string; consumed: boolean }>();
 
 export function withApprovedPrompt<T>(scope: GuardrailScope, text: string, submit: () => T): T {
-  return approved.run({ scope, text, consumed: false }, submit);
+  return withGuardrailTurn(scope, text, () => approved.run({ scope, text, consumed: false }, submit));
 }
 
 async function checkExpanded(scope: GuardrailScope, text: string): Promise<void> {
@@ -102,7 +102,7 @@ export function bindExpandedPromptChecks(session: AgentSession, scope: Guardrail
       if (trigger.messageType !== "user" || typeof trigger.prompt !== "string") return start(trigger, started);
       await checkExpanded(scope, trigger.prompt);
       if ((trigger.images?.length ?? 0) > 0) await checkManagementUninspectableMaterial(scope);
-      return start(trigger, started);
+      return withGuardrailTurn(scope, trigger.prompt, () => start(trigger, started));
     };
     return;
   }
@@ -113,17 +113,19 @@ export function bindExpandedPromptChecks(session: AgentSession, scope: Guardrail
       await checkExpanded(scope, message);
       if ((images?.length ?? 0) > 0) await checkManagementUninspectableMaterial(scope);
       await completePreflight();
-      return prompt(message, images);
+      return withGuardrailTurn(scope, message, () => prompt(message, images));
     }
+    let task: string | undefined;
     for (const entry of Array.isArray(message) ? message : [message]) {
       if (entry.role !== "user") continue;
       if (Array.isArray(entry.content) && entry.content.some((block) => block.type === "image")) await checkManagementUninspectableMaterial(scope);
       const text = typeof entry.content === "string" ? entry.content
         : entry.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("\n");
       await checkExpanded(scope, text);
+      task = text;
     }
     await completePreflight();
-    return prompt(message);
+    return task === undefined ? prompt(message) : withGuardrailTurn(scope,task,() => prompt(message));
   };
 }
 
@@ -163,6 +165,7 @@ export class IsolatedSessionHistoryError extends UserFacingError {
 // Reopening an append-only SDK transcript created before enforcement would
 // otherwise send unscreened historical tool output straight to the model.
 export async function checkRestoredMaterials(entries: readonly unknown[], scope: GuardrailScope): Promise<void> {
+  scope = {...scope,origin:"history"};
   for (const entry of entries) {
     if (!isRecord(entry)) continue;
     const record = entry;
@@ -190,7 +193,7 @@ export function bindFinalToolResults(session: AgentSession, scope: GuardrailScop
     try {
       const changed = await emit(event);
       const content = changed?.content ?? event.content;
-      const result = await inspectResult(scope, content, [
+      const result = await inspectResult({...scope,origin:(changed?.isError ?? event.isError) ? "tool_error" : "tool_result",tool:event.toolName,toolCallId:event.toolCallId}, content, [
         changed?.details ?? event.details,
         changed?.structuredContent ?? (changed?.content === undefined ? event.structuredContent : undefined),
       ]);
@@ -211,8 +214,9 @@ export function inspectAttachments(scope: GuardrailScope, attachments: PromptIma
 export function inspectAttachments(scope: GuardrailScope, attachments: PromptAttachment[]): Promise<PromptAttachment[]>;
 export async function inspectAttachments(scope: GuardrailScope, attachments: PromptAttachment[]): Promise<PromptAttachment[]> {
   const checked: PromptAttachment[] = [];
-  for (const input of attachments) {
-    const filename = input.name === undefined ? undefined : await checkManagementMaterial(scope, input.name);
+  for (const [index,input] of attachments.entries()) {
+    const material = {...scope, origin:"attachment", materialRef:"attachments[" + String(index) + "]" + (input.name !== undefined ? " · " + input.name : "")};
+    const filename = input.name === undefined ? undefined : await checkManagementMaterial(material, input.name);
     const attachment = filename?.isolated === true ? { ...input, name: "attachment" } : input;
     const bytes = Buffer.from(attachment.data, "base64");
     let source: string | undefined;
@@ -225,10 +229,10 @@ export async function inspectAttachments(scope: GuardrailScope, attachments: Pro
       } catch { /* Compressed documents and other binary formats require extraction first. */ }
     }
     if (source === undefined) {
-      await checkManagementUninspectableMaterial(scope);
+      await checkManagementUninspectableMaterial(material);
       checked.push(attachment);
     } else {
-      const result = await checkManagementMaterial(scope, source);
+      const result = await checkManagementMaterial(material, source);
       checked.push(result.isolated ? { kind: "file", name: "isolated.txt", mimeType: "text/plain", data: Buffer.from(result.text).toString("base64") } : attachment);
     }
   }
@@ -239,7 +243,7 @@ export async function inspectAttachments(scope: GuardrailScope, attachments: Pro
 // BashExecution history. Pass one inspected output to the existing SDK sink.
 function guardedShellOperations(scope: GuardrailScope, operations: BashOperations): BashOperations {
   return { async exec(command, cwd, options) {
-    await checkManagementTool(scope, "bash", { command });
+    await checkManagementTool({...scope,origin:"direct_terminal"}, "bash", { command });
     const chunks: Buffer[] = [];
     let size = 0;
     const capture = { exceeded: false };
@@ -261,11 +265,11 @@ function guardedShellOperations(scope: GuardrailScope, operations: BashOperation
       failure = error instanceof Error ? error.message : String(error);
     }
     if (result === undefined) {
-      const checked = await checkManagementMaterial(scope, failure ?? "Shell command failed");
+      const checked = await checkManagementMaterial({...scope,origin:"tool_error",tool:"bash"}, failure ?? "Shell command failed");
       throw new Error(checked.text);
     }
     if (capture.exceeded) await checkManagementUninspectableMaterial(scope);
-    const checked = await checkManagementMaterial(scope, Buffer.concat(chunks).toString("utf8"));
+    const checked = await checkManagementMaterial({...scope,origin:"tool_result",tool:"bash"}, Buffer.concat(chunks).toString("utf8"));
     options.onData(Buffer.from(checked.text));
     return result;
   } };

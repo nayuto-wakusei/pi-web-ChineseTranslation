@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ beforeEach(async () => {
   const module = join(directory, "module.mjs");
   await writeFile(module, `
 export const POLICY_VERSION = "pi-embed-v1";
+export function auditReference(value) { return value; }
 export function checkInput(text) { return text === "explicit" ? "instruction_override" : null; }
 export function checkTool({tool}) { return tool === "bash" ? "shell_not_permitted" : null; }
 export function createGuardExtension() { return () => {}; }
@@ -53,12 +55,14 @@ afterEach(async () => {
 });
 
 describe("management guardrail host", () => {
-  it("blocks hard prohibitions before classification and records no user material or cleartext identity", async () => {
+  it("blocks hard prohibitions before classification and records the initiating identity and excludes unchecked raw arguments", async () => {
     await expect(checkManagementInput(scope, "explicit")).rejects.toMatchObject({status:403, reasonCode:"instruction_override"});
     await expect(checkManagementTool(scope, "bash", {command:"sensitive-tool-args"})).rejects.toMatchObject({status:403});
     expect(semanticCalls).toBe(0);
     await vi.waitFor(() => { expect(events).toHaveLength(2); });
-    expect(events.join("")).not.toMatch(/explicit|personal-session-42|sensitive-tool-args|audit-fixture/u);
+    const first: unknown = JSON.parse(events[0] ?? "{}");
+    expect(first).toMatchObject({sessionId:scope.sessionId,actorId:identity.user.id});
+    expect(events.join("")).not.toMatch(/explicit|sensitive-tool-args|audit-fixture/u);
   });
   it("preserves material in shadow and isolates in enforce, including uninspectable bytes", async () => {
     decisionAction = "isolate";
@@ -103,6 +107,27 @@ describe("management guardrail host", () => {
     await vi.waitFor(() => { expect(semanticCalls).toBe(8); });
   });
 
+  it("keeps the initiating user, role, project and turn when a shadow response arrives later", async () => {
+    const actor = {id:"staff-a",rootUserId:"project-owner",displayName:"A",roles:["operations_manager"],permissions:[]};
+    const project = {id:"p",name:"Original"};
+    const submitted = {...scope,managementContext:{user:actor,projects:[project]},turnId:"turn-a"};
+    let finish!: () => void;
+    const release = new Promise<void>(resolve => {finish=resolve;});
+    const transport = fetch;
+    decisionAction="isolate";
+    vi.stubGlobal("fetch",vi.fn<typeof fetch>(async(url,init)=>{
+      if (url===env["PI_GUARDRAIL_ENDPOINT"]) await release;
+      return transport(url,init);
+    }));
+    try {
+      await checkManagementMaterial(submitted,"test material");
+      actor.id="staff-b"; actor.roles[0]="telecom_staff"; project.id="second";submitted.turnId="turn-b";
+    } finally {finish();}
+    await vi.waitFor(()=>{expect(events).toHaveLength(1);});
+    const saved: unknown=JSON.parse(events[0] ?? "{}");
+    expect(saved).toMatchObject({actorId:"staff-a",actorRoles:["operations_manager"],turnId:"turn-a",projectId:"p",disposition:"shadow_allowed"});
+  });
+
   it("pauses a required detector request on its real deadline and permits a subsequent healthy call", async () => {
     env["PI_GUARDRAIL_INPUT_MODE"] = "enforce";
     env["PI_GUARDRAIL_TIMEOUT_MS"] = "30";
@@ -123,7 +148,7 @@ describe("management guardrail host", () => {
 
   it("resends the same durable event after losing its acknowledgement and restarting", async () => {
     ack = false;
-    await checkManagementTool(scope, "read", {});
+    await expect(checkManagementTool(scope,"bash",{})).rejects.toMatchObject({status:403});
     await vi.waitFor(() => { expect(events).toHaveLength(1); });
     await close();
     ack = true;
@@ -142,7 +167,19 @@ describe("management guardrail host", () => {
     expect(semanticCalls).toBe(0);
     await rm(blockedPath);
     await expect(checkManagementTool(scope, "read", {})).resolves.toBeUndefined();
+    await checkManagementTool(scope,"read",{});
+    const db = new DatabaseSync(join(blockedPath,"guardrails","pending.sqlite"));
+    try {
+      expect(db.prepare("SELECT count FROM hourly").get()?.["count"]).toBe(2);
+      expect(events).toHaveLength(0);
+      db.prepare("UPDATE hourly SET bucket=?").run(new Date(Date.now()-3600_000).toISOString().slice(0,13)+":00:00.000Z");
+    } finally {db.close();}
+    await close();
+    close = startManagementGuardrails(env);
     await vi.waitFor(() => {expect(events).toHaveLength(1);});
+    const batch: unknown = JSON.parse(events[0] ?? "{}");
+    if (batch === null || typeof batch !== "object") throw Error("Missing hourly batch");
+    expect(Object.keys(batch).sort()).toEqual(["action","count","eventId","occurredAt","projectId","schemaVersion","source","stage"].sort());
   });
 
   it("denies missing policy even with both privilege grants", async () => {
