@@ -1,5 +1,8 @@
 # PI WEB
 
+> [!IMPORTANT]
+> 此代码库已停止维护，请使用 [PI WEB 官方版本](https://pi-web.dev/)。
+
 PI WEB 的中文本地化分支，保留上游功能，并将核心界面与内置插件的显示内容本地化为中文。
 
 [![CI](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nayuto-wakusei/pi-web-ChineseTranslation/actions/workflows/ci.yml)
